@@ -186,7 +186,7 @@ def main() -> int:
             f"/api/v1/projects/{project_a_id}/tasks/text",
             {"title": "Text task", "text": text_original, "format": "text"},
         )
-        assert_equal(status, 201, "TXT task status")
+        assert_equal(status, 201, f"TXT task status ({text_task})")
         assert isinstance(text_task, dict)
         assert_equal(text_task["source_type"], "STRUCTURED_TEXT", "structured source type")
         assert_equal(text_task["intake_status"], "READY", "TXT task status state")
