@@ -51,6 +51,7 @@ def github_evidence() -> str:
             "Accept: application/vnd.github+json",
         ],
         ["gh", "api", "repos/KayzenRoot/hive/branches/main/protection"],
+        ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
         ["gh", "api", "repos/KayzenRoot/hive/milestones?state=all"],
     ]
     sections: list[str] = []
@@ -184,6 +185,7 @@ def main() -> int:
         "test-results.txt": read_validation(
             "test-results.txt", "Nenhum resultado de teste foi registrado."
         ),
+        "summary.txt": status,
         "lint-typecheck-build-results.txt": read_validation(
             "lint-typecheck-build-results.txt",
             "Nenhum resultado de lint/typecheck/build foi registrado.",
