@@ -10,8 +10,9 @@ preparation is not production-ready and does not implement the full HIVE
 product, RAG, memory semantics, MCP surface, or autonomous executor.
 
 The implemented vertical slice reports real API, PostgreSQL/pgvector, Redis, and
-canonical data-root health. Redis is a non-canonical hot cache; PostgreSQL and
-the user-owned data root are the durable foundation.
+canonical data-root health, and persists a deterministic Project Registry in
+PostgreSQL. Redis is a non-canonical hot cache; PostgreSQL and the user-owned
+data root are the durable foundation.
 
 ## Quick start
 
@@ -41,14 +42,23 @@ xdg-open http://localhost:3000
 The dashboard is available at http://localhost:3000 and the API health endpoint
 is available at http://localhost:8000/api/v1/health. The API and dashboard bind
 to localhost by default. PostgreSQL and Redis remain internal to the Compose
-network and are not published to the host.
+network and are not published to the host. Compose runs the Alembic migration
+service before the API starts.
 
 ## Data and configuration
 
 HIVE_DATA_ROOT defaults to .hive-data in the repository for development and is
 ignored by Git. For secondary storage, set it to D:/HIVE on Windows or
-/mnt/hive on Linux before starting Compose. PostgreSQL is canonical durable
-state; Redis persistence is convenience-only and reconstructible.
+/mnt/hive on Linux before starting Compose. HIVE_PROJECTS_ROOT defaults to the
+safe, repository-local .hive-projects directory. It is the only host project
+directory mounted into the API, at /workspace/projects:ro. Registered existing
+targets are stored by their resolved canonical POSIX-relative identity, with
+PostgreSQL uniqueness and same-file checks preventing physical aliases from
+creating duplicate projects. PostgreSQL is canonical durable state; Redis
+persistence is convenience-only and reconstructible.
+
+See [docs/PROJECT-REGISTRY.md](docs/PROJECT-REGISTRY.md) for registration,
+inspection, migration and path-boundary details.
 
 See docs/INSTALLATION.md for the full lifecycle and docs/TROUBLESHOOTING.md for
 common failures.

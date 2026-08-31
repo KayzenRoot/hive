@@ -54,6 +54,15 @@ def github_evidence() -> str:
         ["gh", "api", "repos/KayzenRoot/hive/branches/main/protection"],
         ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
         ["gh", "api", "repos/KayzenRoot/hive/milestones?state=all"],
+        [
+            "gh",
+            "pr",
+            "view",
+            "15",
+            "--json",
+            "number,state,mergedAt,url,headRefName,baseRefName,headRefOid",
+        ],
+        ["gh", "pr", "checks", "15", "--json", "name,state,bucket,link"],
     ]
     sections: list[str] = []
     for command in commands:
@@ -109,7 +118,7 @@ def github_evidence() -> str:
     return "\n\n".join(sections)
 
 
-def review_markdown(stamp: str, status: str) -> str:
+def bootstrap_review_markdown(stamp: str, status: str) -> str:
     return f"""# Revisão do HIVE bootstrap
 
 Data UTC: {stamp}
@@ -206,6 +215,117 @@ docs/project-brain/13-CHECKPOINT.md como verdade aprovada.
 """
 
 
+def review_markdown(stamp: str, status: str, head: str) -> str:
+    return f"""# Revisão do HIVE Prompt #002-C
+
+Data UTC: {stamp}
+Estado da validação registrada: {status}
+
+## 1. Resumo da correção
+
+Corrige dois defeitos de auditoria no Project Registry: aliases físicos não
+podem criar identidades duplicadas e uma transição insegura não pode deixar
+um registro READY obsoleto. Reforça também o escopo de safe.directory do Git.
+
+## 2. Base / branch / head
+
+Base auditada: aa696656cc5ebefe8dc1b23a676ffcbe12ba23e9 em main.
+Head exato da correção: {head}.
+Branch: feature/002-project-registry. PR #15 deve permanecer aberto e não
+mesclado.
+
+## 3. Canonical project identity
+
+Para targets existentes, symlinks são resolvidos e o path é revalidado abaixo
+de HIVE_PROJECTS_ROOT. O campo relative_path armazena a identidade POSIX
+relativa canônica; PostgreSQL aplica UNIQUE e uma trava advisory transacional
+serializa a checagem os.path.samefile, sem forçar lowercase.
+
+## 4. Duplicate alias proof
+
+O E2E cria real-project e sample-alias como symlink, registra o target real,
+rejeita o alias com 409 e confirma no PostgreSQL exatamente um registro para
+a identidade física.
+
+## 5. Unsafe transition behavior
+
+Uma rota READY alterada para symlink fora do root retorna a representação
+persistida como BLOCKED, limpa HEAD/branch e demais campos Git, grava
+path_boundary_violation e avança last_inspected_at. A rota restaurada retorna
+deterministicamente a READY com o mesmo project_id.
+
+## 6. Git security
+
+Cada chamada usa argv, shell=False, timeout finito, GIT_OPTIONAL_LOCKS=0 e
+safe.directory=<resolved repository path>. safe.directory=* não é usado.
+
+## 7. Database/migration
+
+Não foi necessária nova revisão: 0001_create_projects permanece canônica,
+PostgreSQL continua sendo a fonte durável e Redis não contém estado canônico.
+Migração em banco limpo passou via serviço one-shot.
+
+## 8. API semantics
+
+POST registra a identidade canônica e retorna 409 para duplicata física.
+Re-inspection retorna 200 com estado persistido READY, OFFLINE, DEGRADED ou
+BLOCKED; falhas de boundary não são tratadas como input inválido do cliente.
+
+## 9. Tests
+
+Backend: 17 passed, 3 filesystem-dependent skips. Dashboard: 5 passed. E2E
+real-Git cobre alias/samefile, transição insegura, recovery, loop, migration,
+dois commits, Redis e restart da API.
+
+## 10. Quality
+
+Canonical verification, secret scan, maps, Ruff, mypy, dashboard lint,
+typecheck, build, npm audit e Compose config passaram.
+
+## 11. Persistence
+
+Redis FLUSHALL/restart e recreate/restart da API preservaram os registros
+PostgreSQL e o HEAD observado.
+
+## 12. CI
+
+Os checks Validate e Integration health passaram no head exato da correção;
+as URLs e logs completos estão em github-configuration-evidence.txt e nos
+resultados incluídos neste ZIP.
+
+## 13. Files changed
+
+A lista completa está em changed-files.txt e o diff corretivo em git-diff.patch.
+
+## 14. Errors fixed
+
+Foram corrigidos canonicalização ausente, estado READY stale após boundary,
+ausência de guarda samefile, resolução de symlink loop não classificada e
+safe.directory wildcard.
+
+## 15. Remaining warnings/risks
+
+Symlink/samefile E2E exige filesystem com suporte; CI Linux executa esses
+cenários. npm ainda reporta warning de depreciação de whatwg-encoding e
+aprovação pendente do install script do esbuild, sem vulnerabilidades auditadas.
+
+## 16. Scope-negative confirmation
+
+Não foram adicionados Prompt #003, indexing, RAG, embeddings, memory, ACCE,
+MCP product tools, executor, telemetry, event bus, release ou tag.
+
+## 17. Review bundle
+
+Este ZIP contém a revisão, diff, resultados, E2E, evidências GitHub, dry-run de
+release e checksum SHA256.
+
+## 18. Proposed checkpoint
+
+Propor PROJECT REGISTRY CORRECTION IMPLEMENTED - AGUARDANDO AUDITORIA DE SOL.
+O checkpoint canônico permanece inalterado até aprovação explícita.
+"""
+
+
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -213,6 +333,7 @@ def main() -> int:
     work.mkdir(parents=True, exist_ok=True)
 
     status = read_validation("summary.txt", "Não há resultados registrados.")
+    head = run(["git", "rev-parse", "HEAD"]).strip()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     release_dry_run = run(
         [
@@ -229,11 +350,11 @@ def main() -> int:
         check=True,
     )
     files: dict[str, str] = {
-        "REVIEW.md": review_markdown(stamp, status.strip()),
+        "REVIEW.md": review_markdown(stamp, status.strip(), head),
         "git-status.txt": run(["git", "status", "--short", "--branch"]),
         "git-log.txt": run(["git", "log", "--oneline", "--decorate", "--graph", "-n", "30"]),
-        "git-diff.patch": run(["git", "diff", "--binary", "main...HEAD"]),
-        "changed-files.txt": run(["git", "diff", "--name-status", "main...HEAD"]),
+        "git-diff.patch": run(["git", "diff", "--binary", "origin/main...HEAD"]),
+        "changed-files.txt": run(["git", "diff", "--name-status", "origin/main...HEAD"]),
         "test-results.txt": read_validation(
             "test-results.txt", "Nenhum resultado de teste foi registrado."
         ),
@@ -244,6 +365,10 @@ def main() -> int:
         ),
         "docker-compose-config.txt": read_validation(
             "docker-compose-config.txt", "Nenhum resultado de Compose foi registrado."
+        ),
+        "project-registry-integration.txt": read_validation(
+            "project-registry-integration.txt",
+            "Nenhum resultado E2E do Project Registry foi registrado.",
         ),
         "github-configuration-evidence.txt": github_evidence(),
         "release-package-dry-run.txt": release_dry_run,
@@ -257,11 +382,11 @@ def main() -> int:
         ),
         "proposed-checkpoint-update.md": """# Proposta staged de checkpoint
 
-Status proposto: BOOTSTRAP IMPLEMENTADO - AGUARDANDO AUDITORIA DE SOL.
+Status proposto: PROJECT REGISTRY CORRECTION IMPLEMENTED - AGUARDANDO AUDITORIA DE SOL.
 
-Evidência: a branch bootstrap/001-foundation contém a fundação local, os
-artefatos de governança, a vertical slice de health, as validações e o bundle
-de revisão.
+Evidência: a branch feature/002-project-registry contém a identidade física
+canônica, o estado BLOCKED para transições inseguras, inspeção determinística,
+API, Project Fleet e as validações corretivas do incremento #002.
 
 Não promover esta proposta automaticamente. O checkpoint canônico permanece
 inalterado até revisão e aprovação explícitas.
@@ -270,7 +395,7 @@ inalterado até revisão e aprovação explícitas.
     for name, content in files.items():
         (work / name).write_text(content, encoding="utf-8", newline="\n")
 
-    zip_path = OUT_DIR / f"hive-bootstrap-review-{stamp}.zip"
+    zip_path = OUT_DIR / f"hive-project-registry-review-{stamp}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(work.iterdir()):
             archive.write(path, arcname=path.name)

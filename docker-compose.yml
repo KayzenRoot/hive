@@ -32,6 +32,19 @@ services:
     networks:
       - hive
 
+  migration:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-hive}:${POSTGRES_PASSWORD:-hive}@postgres:5432/${POSTGRES_DB:-hive}
+    command: ["python", "scripts/migrate.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - hive
+
   api:
     build:
       context: .
@@ -39,11 +52,13 @@ services:
     environment:
       HIVE_ENVIRONMENT: ${HIVE_ENVIRONMENT:-development}
       HIVE_DATA_ROOT: /var/lib/hive
+      HIVE_PROJECTS_ROOT: /workspace/projects
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-hive}:${POSTGRES_PASSWORD:-hive}@postgres:5432/${POSTGRES_DB:-hive}
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:${HIVE_DASHBOARD_PORT:-3000},http://127.0.0.1:${HIVE_DASHBOARD_PORT:-3000}
     volumes:
       - ${HIVE_DATA_ROOT:-.hive-data}:/var/lib/hive
+      - ${HIVE_PROJECTS_ROOT:-.hive-projects}:/workspace/projects:ro
     ports:
       - 127.0.0.1:${HIVE_API_PORT:-8000}:8000
     depends_on:
@@ -51,6 +66,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD

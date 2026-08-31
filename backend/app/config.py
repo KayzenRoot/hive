@@ -11,12 +11,16 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     app_name: str = "HIVE API"
     version: str = "0.0.1-bootstrap"
     environment: str = Field(default="development", validation_alias="HIVE_ENVIRONMENT")
     data_root: Path = Field(default=Path(".hive-data"), validation_alias="HIVE_DATA_ROOT")
+    projects_root: Path = Field(
+        default=Path(".hive-projects"), validation_alias="HIVE_PROJECTS_ROOT"
+    )
     postgres_dsn: str = Field(
         default="postgresql://hive:hive@localhost:5432/hive",
         validation_alias="POSTGRES_DSN",
@@ -34,6 +38,10 @@ class Settings(BaseSettings):
     @property
     def resolved_data_root(self) -> Path:
         return self.data_root.expanduser().resolve()
+
+    @property
+    def resolved_projects_root(self) -> Path:
+        return self.projects_root.expanduser().resolve()
 
     def ensure_data_root(self) -> Path:
         root = self.resolved_data_root

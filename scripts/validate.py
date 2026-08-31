@@ -53,10 +53,14 @@ def command_steps() -> list[Step]:
         Step("generated maps", [python, "scripts/generate_maps.py", "--check"], bucket="lint"),
         Step(
             "ruff format",
-            [python, "-m", "ruff", "format", "--check", "backend", "scripts"],
+            [python, "-m", "ruff", "format", "--check", "backend", "scripts", "migrations"],
             bucket="lint",
         ),
-        Step("ruff lint", [python, "-m", "ruff", "check", "backend", "scripts"], bucket="lint"),
+        Step(
+            "ruff lint",
+            [python, "-m", "ruff", "check", "backend", "scripts", "migrations"],
+            bucket="lint",
+        ),
         Step("mypy", [python, "-m", "mypy"], bucket="lint"),
         Step(
             "backend tests",

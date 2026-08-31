@@ -1,0 +1,1 @@
+"""HIVE schema revision modules."""
