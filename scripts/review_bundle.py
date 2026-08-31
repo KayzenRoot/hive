@@ -215,7 +215,7 @@ docs/project-brain/13-CHECKPOINT.md como verdade aprovada.
 """
 
 
-def review_markdown(stamp: str, status: str) -> str:
+def review_markdown(stamp: str, status: str, head: str) -> str:
     return f"""# Revisão do HIVE Prompt #002-C
 
 Data UTC: {stamp}
@@ -230,7 +230,7 @@ um registro READY obsoleto. Reforça também o escopo de safe.directory do Git.
 ## 2. Base / branch / head
 
 Base auditada: aa696656cc5ebefe8dc1b23a676ffcbe12ba23e9 em main.
-Correção descendente do head auditado: f619c5686081e6dae175f608bcfa2d2b6b2074c9.
+Head exato da correção: {head}.
 Branch: feature/002-project-registry. PR #15 deve permanecer aberto e não
 mesclado.
 
@@ -273,7 +273,7 @@ BLOCKED; falhas de boundary não são tratadas como input inválido do cliente.
 
 ## 9. Tests
 
-Backend: 15 passed, 1 filesystem-dependent skip. Dashboard: 5 passed. E2E
+Backend: 17 passed, 3 filesystem-dependent skips. Dashboard: 5 passed. E2E
 real-Git cobre alias/samefile, transição insegura, recovery, loop, migration,
 dois commits, Redis e restart da API.
 
@@ -333,6 +333,7 @@ def main() -> int:
     work.mkdir(parents=True, exist_ok=True)
 
     status = read_validation("summary.txt", "Não há resultados registrados.")
+    head = run(["git", "rev-parse", "HEAD"]).strip()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     release_dry_run = run(
         [
@@ -349,7 +350,7 @@ def main() -> int:
         check=True,
     )
     files: dict[str, str] = {
-        "REVIEW.md": review_markdown(stamp, status.strip()),
+        "REVIEW.md": review_markdown(stamp, status.strip(), head),
         "git-status.txt": run(["git", "status", "--short", "--branch"]),
         "git-log.txt": run(["git", "log", "--oneline", "--decorate", "--graph", "-n", "30"]),
         "git-diff.patch": run(["git", "diff", "--binary", "origin/main...HEAD"]),
