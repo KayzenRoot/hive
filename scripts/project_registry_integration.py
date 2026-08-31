@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -87,6 +88,44 @@ def assert_equal(actual: Any, expected: Any, label: str) -> None:
         raise AssertionError(f"{label}: expected {expected!r}, got {actual!r}")
 
 
+def cleanup_temporary_root(temporary_root: Path, *, env: dict[str, str]) -> None:
+    """Remove container-owned files from the isolated fixture before host cleanup."""
+    if not temporary_root.exists():
+        return
+    cleanup = run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            "0:0",
+            "--mount",
+            f"type=bind,source={temporary_root.resolve()},target=/cleanup",
+            "redis:7.4.2-alpine",
+            "find",
+            "/cleanup",
+            "-mindepth",
+            "1",
+            "-maxdepth",
+            "1",
+            "-exec",
+            "rm",
+            "-rf",
+            "--",
+            "{}",
+            "+",
+        ],
+        env=env,
+        check=False,
+    )
+    if cleanup.returncode != 0:
+        raise RuntimeError(
+            f"container fixture cleanup failed ({cleanup.returncode}):\n"
+            f"{cleanup.stdout}\n{cleanup.stderr}"
+        )
+    shutil.rmtree(temporary_root)
+
+
 def main() -> int:
     api_port = free_port()
     dashboard_port = free_port()
@@ -106,10 +145,9 @@ def main() -> int:
         }
     )
 
-    with tempfile.TemporaryDirectory(
-        prefix="project-registry-", dir=temporary_parent
-    ) as temporary_root:
-        temporary_path = Path(temporary_root)
+    temporary_root = Path(tempfile.mkdtemp(prefix="project-registry-", dir=temporary_parent))
+    try:
+        temporary_path = temporary_root
         projects_root = temporary_path / "projects"
         data_root = temporary_path / "data"
         projects_root.mkdir()
@@ -260,6 +298,8 @@ def main() -> int:
             print("read_only_project_mount=passed")
         finally:
             compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)
+    finally:
+        cleanup_temporary_root(temporary_root, env=environment)
     return 0
 
 
