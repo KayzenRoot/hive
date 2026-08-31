@@ -352,13 +352,28 @@ def main() -> int:
         )
         assert_equal(status, 200, "task availability after API restart")
 
-        cas_path = data_root / "cas" / "sha256" / pdf_digest[:2] / f"{pdf_digest[2:]}.zst"
-        compressed_bytes = cas_path.read_bytes()
-        cas_path.write_bytes(compressed_bytes[:-1])
+        cas_container_path = f"/var/lib/hive/cas/sha256/{pdf_digest[:2]}/{pdf_digest[2:]}.zst"
+        compose(
+            project_name,
+            [
+                "exec",
+                "-T",
+                "--user",
+                "root",
+                "api",
+                "python",
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    f"path = Path({cas_container_path!r}); "
+                    "path.write_bytes(path.read_bytes()[:-1])"
+                ),
+            ],
+            env=environment,
+        )
         corrupted_status, corrupted_body, _ = download(base_url, project_a_id, pdf_task_id)
         assert_equal(corrupted_status, 500, "corrupt CAS fails closed")
         assert b"stored artifact integrity" in corrupted_body
-        cas_path.write_bytes(compressed_bytes)
         assert not list(projects_root.rglob("*.zst")), "CAS must stay under HIVE_DATA_ROOT"
         assert not list((temporary_root / "data").rglob("*.part")), "temporary intake files cleaned"
         print(
