@@ -75,6 +75,12 @@ def command_steps() -> list[Step]:
         Step("dashboard tests", [npm, "run", "test:run"], cwd=ROOT / "dashboard", bucket="tests"),
         Step("dashboard build", [npm, "run", "build"], cwd=ROOT / "dashboard", bucket="build"),
         Step(
+            "dashboard npm audit",
+            [npm, "audit", "--audit-level=high"],
+            cwd=ROOT / "dashboard",
+            bucket="lint",
+        ),
+        Step(
             "compose config",
             ["docker", "compose", "config", "--quiet"],
             bucket="docker",

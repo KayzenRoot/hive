@@ -48,6 +48,12 @@ daemon according to the host distribution policy. The API and dashboard bind to
 localhost by default; PostgreSQL and Redis remain internal to the Compose
 network and are not published to the host.
 
+The same persistent `HIVE_DATA_ROOT` also contains CAS originals under
+`cas/sha256`. Configure intake limits in `.env` before starting services if the
+local workload needs values different from the documented defaults. See
+`docs/TASK-INTAKE-CAS.md` for format validation, PDF text-layer behavior and
+recovery guarantees.
+
 If Redis logs a vm.overcommit_memory warning on Linux, see the manual,
 non-autonomous procedure in TROUBLESHOOTING.md. HIVE never changes host sysctl
 settings automatically. Docker Desktop on Windows must use the Linux VM or

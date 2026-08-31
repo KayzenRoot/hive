@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_REVISION = "0001_create_projects"
+SCHEMA_REVISION = "0002_task_intake_cas"
 
 
 def free_port() -> int:
@@ -32,6 +32,8 @@ def run(
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if check and result.returncode != 0:

@@ -54,12 +54,20 @@ def build_files() -> dict[Path, str]:
         "| backend/app/config.py | Environment and persistence configuration. |",
         "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",
         "| backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |",
-        "| backend/app/main.py | Versioned FastAPI health and Project Registry API. |",
+        "| backend/app/main.py | Versioned FastAPI health, Project Registry and Task Intake API. |",
         "| backend/app/registry.py | Project Registry schemas, canonical physical "
         "identity, safe re-inspection and Git inspection. |",
-        "| dashboard/src/App.tsx | Real API health and Project Fleet dashboard. |",
+        "| backend/app/cas.py | Hash-derived Zstandard CAS with atomic publication "
+        "and integrity verification. |",
+        "| backend/app/task_intake.py | Deterministic format extraction, durable "
+        "tasks, reuse and storage metrics. |",
+        "| backend/app/tasks_api.py | Project-scoped task upload, text, artifact, "
+        "preview and storage routes. |",
+        "| dashboard/src/App.tsx | Real API health, Project Fleet and Task Intake/CAS dashboard. |",
         "| migrations/versions/0001_create_projects.py | Durable Project "
         "Registry schema revision. |",
+        "| migrations/versions/0002_task_intake_cas.py | Durable CAS, task and "
+        "extraction schema revision. |",
         "| scripts/review_bundle.py | Brazilian Portuguese audit bundle generation. |",
         "| scripts/check_secrets.py | Deterministic tracked-file secret scan. |",
         "| scripts/generate_maps.py | Regenerates maintenance maps. |",
@@ -72,13 +80,20 @@ def build_files() -> dict[Path, str]:
         "",
         "| Test or check | Coverage |",
         "| --- | --- |",
-        "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT parsing. |",
+        "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |",
         "| backend/tests/test_health.py | API response shape and degraded status. |",
         "| backend/tests/test_registry.py | Path boundary, canonical aliases, safe "
         "Git command construction, language detection and states. |",
         "| backend/tests/test_projects_api.py | Typed Project Registry API contract, "
         "errors and persisted blocked state. |",
-        "| dashboard/src/App.test.tsx | Health and Project Fleet rendering/operations. |",
+        "| backend/tests/test_cas.py | SHA-256 identity, Zstandard round-trip, "
+        "atomic dedup, concurrency and fail-closed corruption checks. |",
+        "| backend/tests/test_task_intake.py | UTF-8/BOM, Markdown, structured "
+        "text, PDF extraction, bounds and no-text behavior. |",
+        "| backend/tests/test_tasks_api.py | Project isolation, verified artifact "
+        "headers and upload/text API contracts. |",
+        "| dashboard/src/App.test.tsx | Health, Project Fleet and real Task "
+        "Intake rendering/operations. |",
         "| ruff | Backend and script lint/format. |",
         "| mypy | Backend static typing. |",
         "| npm run lint | Dashboard lint. |",
@@ -89,6 +104,8 @@ def build_files() -> dict[Path, str]:
         "| scripts/integration_health.py | Container startup and API/dashboard smoke. |",
         "| scripts/project_registry_integration.py | Clean-database real-Git registry "
         "E2E, canonical alias guard, unsafe transition/recovery and persistence smoke. |",
+        "| scripts/task_intake_integration.py | Isolated Docker PostgreSQL/CAS E2E "
+        "for all formats, reuse, dedup, isolation, restarts, metrics and corruption. |",
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "",
         f"Indexed source files: {len(all_source)}",

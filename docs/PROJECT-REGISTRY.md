@@ -46,8 +46,9 @@ docker compose run --rm migration alembic upgrade head
 ```
 
 `docker/postgres/init.sql` only enables the `vector` extension. It does not
-create HIVE business tables. The current revision is
-`0001_create_projects`, and Alembic records it in `alembic_version`.
+create HIVE business tables. The Project Registry revision is
+`0001_create_projects`; after Prompt #003, Alembic records the current head as
+`0002_task_intake_cas`.
 
 ## API contract
 
@@ -102,6 +103,10 @@ The Project Fleet section lists real registry records, total count, state,
 relative path, branch, short HEAD, languages and last inspection. It supports
 registration and manual re-inspection through the same API and reports loading,
 empty and API-error states.
+
+The Control Center also provides the separate project-scoped Task Intake
+surface. Its storage and task records are documented in
+`docs/TASK-INTAKE-CAS.md`; Project Registry remains the ownership boundary.
 
 ## Troubleshooting
 

@@ -6,7 +6,7 @@ import psycopg
 
 from .config import Settings
 
-CURRENT_SCHEMA_REVISION = "0001_create_projects"
+CURRENT_SCHEMA_REVISION = "0002_task_intake_cas"
 
 
 @contextmanager
