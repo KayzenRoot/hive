@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-release:
+    name: Validate and publish
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: \${{ github.token }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install backend tooling
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run deterministic validation
+        run: python scripts/validate.py
+      - name: Start services for release smoke test
+        run: docker compose up -d --build
+      - name: Run integration smoke test
+        run: python scripts/integration_health.py
+      - name: Stop services without deleting data
+        if: always()
+        run: docker compose down --remove-orphans
+      - name: Generate release review bundle
+        run: python scripts/review_bundle.py
+      - name: Publish validated GitHub release
+        shell: bash
+        run: |
+          prerelease_flag=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease_flag="--prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" review-bundles/*.zip review-bundles/*.sha256 \
+            --title "HIVE $GITHUB_REF_NAME" \
+            --notes-file docs/releases/v0.0.1-bootstrap.md \
+            $prerelease_flag

@@ -1,0 +1,81 @@
+name: hive
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hive}
+      POSTGRES_USER: ${POSTGRES_USER:-hive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hive}
+    volumes:
+      - ${HIVE_DATA_ROOT:-.hive-data}/postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hive} -d ${POSTGRES_DB:-hive}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - hive
+
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ${HIVE_DATA_ROOT:-.hive-data}/redis:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - hive
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      HIVE_ENVIRONMENT: ${HIVE_ENVIRONMENT:-development}
+      HIVE_DATA_ROOT: /var/lib/hive
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-hive}:${POSTGRES_PASSWORD:-hive}@postgres:5432/${POSTGRES_DB:-hive}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:${HIVE_DASHBOARD_PORT:-3000},http://127.0.0.1:${HIVE_DASHBOARD_PORT:-3000}
+    volumes:
+      - ${HIVE_DATA_ROOT:-.hive-data}:/var/lib/hive
+    ports:
+      - 127.0.0.1:${HIVE_API_PORT:-8000}:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')); raise SystemExit(0 if data['status']=='ok' else 1)
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - hive
+
+  dashboard:
+    build:
+      context: dashboard
+      args:
+        VITE_API_BASE_URL: http://localhost:${HIVE_API_PORT:-8000}
+    ports:
+      - 127.0.0.1:${HIVE_DASHBOARD_PORT:-3000}:80
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - hive
+
+networks:
+  hive:
+    driver: bridge

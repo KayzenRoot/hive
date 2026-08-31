@@ -5,20 +5,86 @@ LLM-assisted software projects.
 
 ## Status
 
-This repository is in pre-alpha bootstrap preparation for HIVE V0.1 Foundation.
-It is not production-ready. The initial implementation is being developed in a
-reviewable increment and is not represented as complete product functionality.
+HIVE is pre-alpha and in the V0.1 Foundation bootstrap increment. This release
+preparation is not production-ready and does not implement the full HIVE
+product, RAG, memory semantics, MCP surface, or autonomous executor.
 
-## Canonical project sources
+The implemented vertical slice reports real API, PostgreSQL/pgvector, Redis, and
+canonical data-root health. Redis is a non-canonical hot cache; PostgreSQL and
+the user-owned data root are the durable foundation.
 
-The approved project source pack is in docs/project-brain/. Start with
-docs/project-brain/13-CHECKPOINT.md, then consult the scope, Definition of Done,
-architecture, requirements, and decisions ledger.
+## Quick start
 
-## License
+Requirements: Docker Desktop on Windows or Docker Engine plus Docker Compose on
+Linux.
 
+PowerShell:
+
+~~~powershell
+Copy-Item .env.example .env
+docker compose up -d --build
+docker compose ps
+Invoke-WebRequest http://localhost:8000/api/v1/health
+Start-Process http://localhost:3000
+~~~
+
+Linux:
+
+~~~bash
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+curl http://localhost:8000/api/v1/health
+xdg-open http://localhost:3000
+~~~
+
+The dashboard is available at http://localhost:3000 and the API health endpoint
+is available at http://localhost:8000/api/v1/health. The API and dashboard bind
+to localhost by default. PostgreSQL and Redis remain internal to the Compose
+network and are not published to the host.
+
+## Data and configuration
+
+HIVE_DATA_ROOT defaults to .hive-data in the repository for development and is
+ignored by Git. For secondary storage, set it to D:/HIVE on Windows or
+/mnt/hive on Linux before starting Compose. PostgreSQL is canonical durable
+state; Redis persistence is convenience-only and reconstructible.
+
+See docs/INSTALLATION.md for the full lifecycle and docs/TROUBLESHOOTING.md for
+common failures.
+
+## Development validation
+
+~~~powershell
+python -m pip install -r requirements-dev.txt
+python scripts/check_secrets.py
+python scripts/generate_maps.py --check
+ruff format --check backend scripts
+ruff check backend scripts
+mypy
+pytest
+Set-Location dashboard
+npm ci
+npm run lint
+npm run typecheck
+npm run test:run
+npm run build
+Set-Location ..
+docker compose config --quiet
+~~~
+
+The same checks run in GitHub Actions. Run scripts/review_bundle.py after
+validation to produce the deterministic audit ZIP.
+
+## Canonical project sources and governance
+
+The approved source pack is in docs/project-brain/. Start with
+docs/project-brain/13-CHECKPOINT.md, then consult scope, Definition of Done,
+architecture, requirements, and the decisions ledger. See AGENTS.md,
+CONTRIBUTING.md, SECURITY.md, and SUPPORT.md for repository governance.
+
+## Versioning and license
+
+HIVE uses Semantic Versioning for published releases. The prepared bootstrap
+target is v0.0.1-bootstrap and must remain a pre-release until Sol approval.
 No open-source license has been selected yet.
-
-## Governance
-
-See CONTRIBUTING.md, SECURITY.md, SUPPORT.md, and AGENTS.md.
