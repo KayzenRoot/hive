@@ -19,8 +19,9 @@ def tracked(pattern: str) -> list[Path]:
 def build_files() -> dict[Path, str]:
     backend = tracked("backend/**/*.py")
     dashboard = tracked("dashboard/src/**/*")
+    migrations = tracked("migrations/**/*.py")
     scripts = tracked("scripts/*.py")
-    all_source = backend + dashboard + scripts
+    all_source = backend + dashboard + migrations + scripts
     atlas_lines = [
         "# Code Atlas",
         "",
@@ -33,6 +34,10 @@ def build_files() -> dict[Path, str]:
     atlas_lines += ["", "## Dashboard", ""]
     atlas_lines += [
         f"- {path.as_posix()}: TypeScript/React source or test module." for path in dashboard
+    ]
+    atlas_lines += ["", "## Migrations", ""]
+    atlas_lines += [
+        f"- {path.as_posix()}: Ordered PostgreSQL business-schema revision." for path in migrations
     ]
     atlas_lines += ["", "## Operational scripts", ""]
     atlas_lines += [
@@ -47,9 +52,13 @@ def build_files() -> dict[Path, str]:
         "| Module | Responsibility |",
         "| --- | --- |",
         "| backend/app/config.py | Environment and persistence configuration. |",
+        "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",
         "| backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |",
-        "| backend/app/main.py | Versioned FastAPI health surface. |",
-        "| dashboard/src/App.tsx | Real API health dashboard shell. |",
+        "| backend/app/main.py | Versioned FastAPI health and Project Registry API. |",
+        "| backend/app/registry.py | Project Registry schemas, path boundary and Git inspection. |",
+        "| dashboard/src/App.tsx | Real API health and Project Fleet dashboard. |",
+        "| migrations/versions/0001_create_projects.py | Durable Project "
+        "Registry schema revision. |",
         "| scripts/review_bundle.py | Brazilian Portuguese audit bundle generation. |",
         "| scripts/check_secrets.py | Deterministic tracked-file secret scan. |",
         "| scripts/generate_maps.py | Regenerates maintenance maps. |",
@@ -64,7 +73,10 @@ def build_files() -> dict[Path, str]:
         "| --- | --- |",
         "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT parsing. |",
         "| backend/tests/test_health.py | API response shape and degraded status. |",
-        "| dashboard/src/App.test.tsx | Real API payload rendering. |",
+        "| backend/tests/test_registry.py | Path boundary, Git inspection, language "
+        "detection and states. |",
+        "| backend/tests/test_projects_api.py | Typed Project Registry API contract and errors. |",
+        "| dashboard/src/App.test.tsx | Health and Project Fleet rendering/operations. |",
         "| ruff | Backend and script lint/format. |",
         "| mypy | Backend static typing. |",
         "| npm run lint | Dashboard lint. |",
@@ -73,6 +85,8 @@ def build_files() -> dict[Path, str]:
         "| npm run build | Dashboard production build. |",
         "| docker compose config --quiet | Compose syntax and interpolation. |",
         "| scripts/integration_health.py | Container startup and API/dashboard smoke. |",
+        "| scripts/project_registry_integration.py | Clean-database real-Git registry "
+        "E2E and persistence smoke. |",
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "",
         f"Indexed source files: {len(all_source)}",

@@ -109,7 +109,7 @@ def github_evidence() -> str:
     return "\n\n".join(sections)
 
 
-def review_markdown(stamp: str, status: str) -> str:
+def bootstrap_review_markdown(stamp: str, status: str) -> str:
     return f"""# Revisão do HIVE bootstrap
 
 Data UTC: {stamp}
@@ -206,6 +206,63 @@ docs/project-brain/13-CHECKPOINT.md como verdade aprovada.
 """
 
 
+def review_markdown(stamp: str, status: str) -> str:
+    return f"""# Revisão do HIVE Prompt #002
+
+Data UTC: {stamp}
+Estado da validação registrada: {status}
+
+## Resumo executivo
+
+O incremento #002 adiciona a primeira revisão de schema de negócio durável do
+HIVE, o Project Registry em PostgreSQL, inspeção Git determinística, boundary
+de projetos read-only, API versionada e Project Fleet no Control Center.
+
+Prompt ingestion, indexing, RAG, embeddings, memory, MCP product tools,
+executor orchestration, token telemetry, event bus, release e Prompt #003 não
+fazem parte deste incremento.
+
+## Base e Git
+
+Base auditada: aa696656cc5ebefe8dc1b23a676ffcbe12ba23e9 em main.
+Branch: feature/002-project-registry. O PR deve permanecer aberto e não
+mesclado para a auditoria de Sol.
+
+## Arquitetura, banco e API
+
+O serviço one-shot aguarda PostgreSQL e executa Alembic até
+0001_create_projects; a API verifica alembic_version no startup. Psycopg usa
+SQL parametrizado. O Project Registry persiste UUID, nome, path relativo, Git,
+linguagens, estado, erro e timestamps. Os endpoints são POST/GET
+/api/v1/projects, GET /api/v1/projects/{{project_id}} e POST
+/api/v1/projects/{{project_id}}/inspect.
+
+## Segurança e dashboard
+
+HIVE_PROJECTS_ROOT é o único diretório host montado em
+/workspace/projects:ro. Paths POSIX relativos passam por resolução contra
+traversal e symlink escape. Git usa argv, safe.directory local,
+GIT_OPTIONAL_LOCKS=0, shell=False e timeout finito. O dashboard mantém health
+e exibe a frota real com cadastro, re-inspeção e estados loading/empty/error.
+
+## Validação e persistência
+
+Consulte os arquivos de resultados deste ZIP para os comandos exatos. O smoke
+E2E usa Git real e banco vazio, observa dois commits, rejeita duplicate/traversal,
+prova mount read-only, sobrevive a FLUSHALL/restart do Redis e a recreate/restart
+da API com o mesmo PostgreSQL. Falhas de driver, readiness, ownership Git e
+line endings encontradas durante a execução estão registradas no histórico e
+foram corrigidas.
+
+## Riscos, limitações e checkpoint
+
+Os estados futuros permanecem reservados; não há indexação, prompt ingestion,
+RAG, memória, MCP, telemetry ou release. O teste de symlink depende do suporte
+do filesystem do executor. A proposta de checkpoint é staged e não altera os
+arquivos canônicos do Project Brain.
+"""
+
+
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -232,8 +289,8 @@ def main() -> int:
         "REVIEW.md": review_markdown(stamp, status.strip()),
         "git-status.txt": run(["git", "status", "--short", "--branch"]),
         "git-log.txt": run(["git", "log", "--oneline", "--decorate", "--graph", "-n", "30"]),
-        "git-diff.patch": run(["git", "diff", "--binary", "main...HEAD"]),
-        "changed-files.txt": run(["git", "diff", "--name-status", "main...HEAD"]),
+        "git-diff.patch": run(["git", "diff", "--binary", "origin/main...HEAD"]),
+        "changed-files.txt": run(["git", "diff", "--name-status", "origin/main...HEAD"]),
         "test-results.txt": read_validation(
             "test-results.txt", "Nenhum resultado de teste foi registrado."
         ),
@@ -244,6 +301,10 @@ def main() -> int:
         ),
         "docker-compose-config.txt": read_validation(
             "docker-compose-config.txt", "Nenhum resultado de Compose foi registrado."
+        ),
+        "project-registry-integration.txt": read_validation(
+            "project-registry-integration.txt",
+            "Nenhum resultado E2E do Project Registry foi registrado.",
         ),
         "github-configuration-evidence.txt": github_evidence(),
         "release-package-dry-run.txt": release_dry_run,
@@ -257,11 +318,11 @@ def main() -> int:
         ),
         "proposed-checkpoint-update.md": """# Proposta staged de checkpoint
 
-Status proposto: BOOTSTRAP IMPLEMENTADO - AGUARDANDO AUDITORIA DE SOL.
+Status proposto: PROJECT REGISTRY IMPLEMENTADO - AGUARDANDO AUDITORIA DE SOL.
 
-Evidência: a branch bootstrap/001-foundation contém a fundação local, os
-artefatos de governança, a vertical slice de health, as validações e o bundle
-de revisão.
+Evidência: a branch feature/002-project-registry contém a migração durável,
+Project Registry, inspeção determinística, API, Project Fleet e as validações
+do incremento #002.
 
 Não promover esta proposta automaticamente. O checkpoint canônico permanece
 inalterado até revisão e aprovação explícitas.
@@ -270,7 +331,7 @@ inalterado até revisão e aprovação explícitas.
     for name, content in files.items():
         (work / name).write_text(content, encoding="utf-8", newline="\n")
 
-    zip_path = OUT_DIR / f"hive-bootstrap-review-{stamp}.zip"
+    zip_path = OUT_DIR / f"hive-project-registry-review-{stamp}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(work.iterdir()):
             archive.write(path, arcname=path.name)

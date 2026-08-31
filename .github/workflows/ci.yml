@@ -40,10 +40,12 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Start bootstrap services
+      - name: Start HIVE services
         run: docker compose up -d --build
       - name: Run container smoke test
         run: python scripts/integration_health.py
+      - name: Run Project Registry real-Git integration test
+        run: python scripts/project_registry_integration.py
       - name: Collect service logs
         if: always()
         run: docker compose logs

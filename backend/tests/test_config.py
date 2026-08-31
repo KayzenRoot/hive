@@ -15,6 +15,7 @@ def test_default_data_root_is_repo_local(monkeypatch: pytest.MonkeyPatch) -> Non
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+    assert settings.projects_root == Path(".hive-projects")
 
 
 def test_environment_values_are_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -27,3 +28,11 @@ def test_environment_values_are_explicit(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.data_root == Path("D:/HIVE")
     assert settings.environment == "test"
     assert settings.cors_origin_list == ["http://localhost:3001", "http://example.test"]
+
+
+def test_projects_root_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", "D:/Projects")
+
+    settings = Settings()
+
+    assert settings.projects_root == Path("D:/Projects")
