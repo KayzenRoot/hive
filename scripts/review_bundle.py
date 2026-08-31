@@ -52,6 +52,7 @@ def github_evidence() -> str:
         ],
         ["gh", "api", "repos/KayzenRoot/hive/branches/main/protection"],
         ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
+        ["gh", "api", "repos/KayzenRoot/hive/rulesets/21934284"],
         ["gh", "api", "repos/KayzenRoot/hive/milestones?state=all"],
     ]
     sections: list[str] = []
