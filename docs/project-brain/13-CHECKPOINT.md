@@ -1,13 +1,13 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-DEFINED / READY FOR IMPLEMENTATION BOOTSTRAP
+BOOTSTRAP RELEASED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
 
 ## PHASE
-4 — Planning / Bootstrap preparation
+5 — Implementation
 
 ## OBJECTIVE
 Create a local-first autonomous context, memory, retrieval, token optimization and control platform for large LLM-assisted software projects.
@@ -26,38 +26,45 @@ See `03-SCOPE.md`.
 - MCP/skills separation defined.
 - Governance and validation principles defined.
 - Local Docker persistence strategy defined.
+- Canonical Project Brain installed in Git and protected by deterministic SHA256 verification.
+- Professional GitHub repository foundation configured.
+- Bootstrap PR #1 approved and merged through protected `main`.
+- Docker Compose foundation validated with PostgreSQL + pgvector, Redis hot cache, API health and Control Center health shell.
+- Secondary-disk persistence configuration documented for Windows and Linux.
+- Deterministic CI and Docker integration health are required checks for `main`.
+- Release workflow validates tag/version coherence, matching notes, tests, integration smoke and versioned ZIP + SHA256 packaging.
+- `v0.0.1-bootstrap` published as a GitHub pre-release with validated downloadable assets.
 
 ## IN PROGRESS
-- Preparing implementation bootstrap.
+- Preparing the next necessary V0.1 implementation increment.
 
 ## PENDING
-- Repository bootstrap.
-- Docker Compose foundation.
-- Database schemas.
-- API/MCP skeleton.
+- Durable HIVE database schemas beyond bootstrap health.
 - project registry.
 - prompt ingestion.
 - repository indexing.
 - retrieval.
 - memory.
 - ACCE.
+- MCP server product surface.
 - autonomous execution.
 - telemetry.
-- dashboard.
-- tests.
+- full Control Center.
+- comprehensive tests and benchmarks.
 - stabilization.
-- local deployment validation.
-- documentation.
+- full local deployment validation.
+- backup/recovery validation.
+- final documentation.
 - final V0.1 review.
 
 ## BLOCKERS
-None known at source-definition stage.
+None known after bootstrap release.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Generate the implementation bootstrap prompt for the executor only after this source pack is installed as the ChatGPT Project source and project instructions are configured.
+Implement the smallest necessary durable core increment: PostgreSQL migrations/schema plus project registry registration and inspection, without expanding into prompt ingestion or retrieval yet.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
