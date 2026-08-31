@@ -65,7 +65,7 @@ def request(
             decoded = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return {"detail": raw.decode("utf-8", "replace")[:1000]}
-        if isinstance(decoded, (dict, list)):
+        if isinstance(decoded, dict | list):
             return decoded
         return {"detail": str(decoded)}
 
