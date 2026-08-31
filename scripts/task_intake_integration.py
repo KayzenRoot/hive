@@ -152,6 +152,7 @@ def main() -> int:
     make_git_project(project_a_path, "project-a")
     make_git_project(project_b_path, "project-b")
 
+    passed = False
     try:
         compose(project_name, ["up", "-d", "--build"], env=environment)
         migration_version = scalar(
@@ -385,8 +386,13 @@ def main() -> int:
                 indent=2,
             )
         )
+        passed = True
         return 0
     finally:
+        if not passed:
+            logs = compose(project_name, ["logs", "--no-color"], env=environment, check=False)
+            print(logs.stdout, flush=True)
+            print(logs.stderr, flush=True)
         compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)
         if temporary_root.exists():
             cleanup_temporary_root(temporary_root, env=environment)
