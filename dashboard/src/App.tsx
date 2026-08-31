@@ -46,9 +46,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void loadHealth();
+    const initialLoad = window.setTimeout(() => void loadHealth(), 0);
     const timer = window.setInterval(() => void loadHealth(), 30_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(timer);
+    };
   }, [loadHealth]);
 
   const isHealthy = health?.status === "ok";

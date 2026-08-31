@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,11 +53,45 @@ def github_evidence() -> str:
         ],
         ["gh", "api", "repos/KayzenRoot/hive/branches/main/protection"],
         ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
-        ["gh", "api", "repos/KayzenRoot/hive/rulesets/21934284"],
         ["gh", "api", "repos/KayzenRoot/hive/milestones?state=all"],
     ]
     sections: list[str] = []
     for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        sections.append(
+            "$ "
+            + " ".join(command)
+            + f"\nexit_code: {result.returncode}\n"
+            + result.stdout
+            + result.stderr
+        )
+    rulesets_result = subprocess.run(
+        ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    try:
+        rulesets = json.loads(rulesets_result.stdout)
+    except json.JSONDecodeError:
+        rulesets = []
+    protect_main = [
+        ruleset
+        for ruleset in rulesets
+        if ruleset.get("name") == "Protect main" and ruleset.get("id") is not None
+    ]
+    if not protect_main:
+        sections.append("Protect main ruleset discovery: NOT FOUND")
+    for ruleset in protect_main:
+        ruleset_id = str(ruleset["id"])
+        command = ["gh", "api", f"repos/KayzenRoot/hive/rulesets/{ruleset_id}"]
         result = subprocess.run(
             command,
             cwd=ROOT,
@@ -122,7 +157,8 @@ o smoke test de inicialização devem constar nos arquivos de validação.
 
 ## 24. Testes executados e resultados
 
-Consulte test-results.txt e summary.txt.
+Consulte test-results.txt, summary.txt e a verificação canônica registrada no
+bundle.
 
 ## 25. Lint / typecheck / build / CI
 
@@ -140,8 +176,8 @@ privadas e arquivos .env. Nenhum segredo deve entrar no commit ou no bundle.
 
 ## 28. Release readiness / patch notes preparados
 
-VERSION, CHANGELOG.md e docs/releases/v0.0.1-bootstrap.md estão preparados.
-Nenhuma release ou tag pública deve ser publicada neste incremento.
+VERSION, CHANGELOG.md, as notas versionadas e o pacote de release dry-run estão
+preparados. Nenhuma release ou tag pública deve ser publicada neste incremento.
 
 ## 29. PR, branch e commits
 
@@ -177,6 +213,21 @@ def main() -> int:
     work.mkdir(parents=True, exist_ok=True)
 
     status = read_validation("summary.txt", "Não há resultados registrados.")
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    release_dry_run = run(
+        [
+            sys.executable,
+            "scripts/prepare_release.py",
+            "--tag",
+            f"v{version}",
+            "--ref",
+            "HEAD",
+            "--output-dir",
+            "tmp/release-dry-run",
+            "--dry-run",
+        ],
+        check=True,
+    )
     files: dict[str, str] = {
         "REVIEW.md": review_markdown(stamp, status.strip()),
         "git-status.txt": run(["git", "status", "--short", "--branch"]),
@@ -195,11 +246,14 @@ def main() -> int:
             "docker-compose-config.txt", "Nenhum resultado de Compose foi registrado."
         ),
         "github-configuration-evidence.txt": github_evidence(),
+        "release-package-dry-run.txt": release_dry_run,
         "release-readiness.txt": (
-            f"VERSION: {(ROOT / 'VERSION').read_text(encoding='utf-8').strip()}\n"
+            f"VERSION: {version}\n"
             "Public release: PROIBIDA antes da aprovação de Sol.\n"
             "Docker image publication: não realizada.\n"
             f"Validation summary: {status.strip()}\n"
+            "Release package dry-run:\n"
+            f"{release_dry_run}"
         ),
         "proposed-checkpoint-update.md": """# Proposta staged de checkpoint
 

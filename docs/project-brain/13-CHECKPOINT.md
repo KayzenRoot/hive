@@ -1,43 +1,66 @@
-# 13 - CHECKPOINT
+# 13 — CHECKPOINT
 
-## Status
-
+## STATUS
 DEFINED / READY FOR IMPLEMENTATION BOOTSTRAP
 
-## Version and phase
+## VERSION
+HIVE V0.1 — Foundation
 
-HIVE V0.1 - Foundation; Phase 4 - Planning / Bootstrap preparation.
+## PHASE
+4 — Planning / Bootstrap preparation
 
-## Objective
+## OBJECTIVE
+Create a local-first autonomous context, memory, retrieval, token optimization and control platform for large LLM-assisted software projects.
 
-Create a local-first autonomous context, memory, retrieval, token optimization,
-and control platform for large LLM-assisted software projects.
+## SCOPE
+See `03-SCOPE.md`.
 
-## Completed at source-definition stage
+## COMPLETED
+- Product objective defined.
+- V0.1 scope frozen at architecture/source level.
+- Core architecture defined.
+- ACCE optimization strategy defined.
+- Control Center promoted to V0.1 required capability.
+- Redis-compatible hot cache promoted to V0.1.
+- Autonomous prompt intake/execution flow defined.
+- MCP/skills separation defined.
+- Governance and validation principles defined.
+- Local Docker persistence strategy defined.
 
-Product objective and V0.1 scope are defined; core architecture and ACCE are
-defined; Control Center and Redis-compatible hot cache are promoted to V0.1;
-autonomous prompt intake/execution, MCP/skills separation, governance,
-validation, and local Docker persistence strategy are defined.
+## IN PROGRESS
+- Preparing implementation bootstrap.
 
-## In progress
+## PENDING
+- Repository bootstrap.
+- Docker Compose foundation.
+- Database schemas.
+- API/MCP skeleton.
+- project registry.
+- prompt ingestion.
+- repository indexing.
+- retrieval.
+- memory.
+- ACCE.
+- autonomous execution.
+- telemetry.
+- dashboard.
+- tests.
+- stabilization.
+- local deployment validation.
+- documentation.
+- final V0.1 review.
 
-Preparing implementation bootstrap.
-
-## Pending
-
-Repository bootstrap, Docker foundation, database schemas, API/MCP skeleton,
-project registry, prompt ingestion, repository indexing, retrieval, memory,
-ACCE, autonomous execution, telemetry, dashboard, tests, stabilization, local
-deployment validation, documentation, and final V0.1 review.
-
-## Blockers
-
+## BLOCKERS
 None known at source-definition stage.
 
-## Decisions and completion
+## DECISIONS
+See `16-DECISIONS-LEDGER.md`.
 
-See 16-DECISIONS-LEDGER.md, 15-DEFINITION-OF-DONE.md, 03-SCOPE.md, and
-14-BACKLOG.md. The next step is to generate the implementation bootstrap
-prompt only after this source pack is installed and project instructions are
-configured.
+## NEXT STEP
+Generate the implementation bootstrap prompt for the executor only after this source pack is installed as the ChatGPT Project source and project instructions are configured.
+
+## DEFINITION OF DONE
+See `15-DEFINITION-OF-DONE.md`.
+
+## BACKLOG
+See `14-BACKLOG.md`.

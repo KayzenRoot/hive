@@ -17,4 +17,4 @@ Generated deterministically by scripts/generate_maps.py.
 | scripts/integration_health.py | Container startup and API/dashboard smoke. |
 | scripts/check_secrets.py | Tracked-file secret scan. |
 
-Indexed source files: 18
+Indexed source files: 20

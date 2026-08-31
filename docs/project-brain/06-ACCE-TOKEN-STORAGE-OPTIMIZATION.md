@@ -1,45 +1,167 @@
-# 06 - ACCE: TOKEN & STORAGE OPTIMIZATION
+# 06 — ACCE: TOKEN & STORAGE OPTIMIZATION
 
-ACCE (Adaptive Context Compression Engine) reduces input tokens, repeated
-retrieval/embeddings/storage, disk usage, and latency without measurable
-degradation in code quality or task correctness. Binary compression saves disk;
-context optimization saves tokens.
+## Purpose
+
+ACCE = Adaptive Context Compression Engine.
+
+Its objective is to reduce:
+- LLM input tokens;
+- repeated retrieval;
+- repeated embeddings;
+- repeated storage;
+- disk usage;
+- latency;
+
+without measurable degradation in code quality or task correctness.
+
+## Principle
+
+Never confuse binary compression with token compression.
+
+Binary compression saves disk.  
+Context optimization saves tokens.
 
 ## Storage pipeline
 
-Raw artifact -> hash -> deduplicate -> chunk -> delta/change detection ->
-Zstandard compression -> content-addressable storage -> derived
-representations.
+```text
+Raw artifact
+ -> hash
+ -> deduplicate
+ -> chunk
+ -> delta/change detection
+ -> Zstd compression
+ -> content-addressable storage
+ -> derived representations
+```
 
-Use Zstandard as the default lossless codec. HOT favors speed, WARM balances
-speed and size, and COLD may use stronger compression; levels must be benchmarked
-on real HIVE data.
+## Physical compression
 
-Use content hashes for documents, chunks, prompt artifacts, tool outputs,
-context snapshots, and derived representations. Do not store repeated complete
-source repositories; prefer repository path, commit, branch, file, symbol,
-diff, and immutable Git history.
+Use Zstandard as the default lossless codec.
 
-## Incremental and context optimization
+Suggested policy:
+- HOT: low compression level / fastest.
+- WARM: balanced.
+- COLD: stronger compression where useful.
 
-Inspect Git diffs, invalidate affected derived data, and regenerate only
-affected chunks/embeddings/summaries. Stable representations get fingerprints;
-unchanged source and dependencies reuse derived data. Iterative runs may send
-safe deltas but must not omit newly relevant dependencies.
+Exact levels must be benchmarked on real HIVE data instead of permanently hard-coded from assumptions.
 
-Keep stable prompt instructions first and dynamic task/context after them.
-Expose only tools needed for the task. Use deterministic algorithms before LLMs
-for changes, symbols, references, hashes, duplicates, Git state, syntax trees,
-dependency edges, tests, and static metadata.
+## Deduplication
 
-Adaptive budgets consider risk, change surface, dependencies, project phase,
-uncertainty, and validation requirements. Conceptual modes are ECO, BALANCED,
-and SAFE; selection should become automatic.
+Use content hashes for:
+- documents;
+- chunks;
+- prompt artifacts;
+- tool outputs;
+- context snapshots;
+- derived representations.
 
-## Quality guardrail and telemetry
+Reference existing content instead of writing duplicates.
 
-Minimize token cost, latency, and storage cost subject to no test-pass
-degradation, zero critical-context loss, accepted retrieval recall, and
-preserved code-quality baseline. Track raw/retrieved/reranked/deduplicated/sent
-context, fresh/cached/output tokens, saved tokens, compression/dedup ratios,
-avoided embedding work, and cache hit rate per task/run.
+## Git-aware storage
+
+Do not store repeated complete copies of source repositories.
+
+Prefer:
+- repository path;
+- commit;
+- branch;
+- file;
+- symbol;
+- diff;
+- immutable Git history.
+
+## Incremental indexing
+
+After changes:
+- inspect Git diff;
+- determine changed files/symbols;
+- invalidate affected derived data;
+- regenerate only affected chunks/embeddings/summaries.
+
+## Context fingerprints
+
+Stable representations receive fingerprints.
+
+If source + relevant dependencies did not change:
+- do not re-summarize;
+- do not re-embed;
+- do not rebuild equivalent context;
+- reuse cached derived data.
+
+## Delta context
+
+For iterative runs, send what changed since prior context whenever safe.
+
+A delta must not omit a dependency that became relevant due to the change.
+
+## Prompt cache optimization
+
+- Keep stable instructions at the beginning.
+- Keep dynamic task/context after stable prefixes.
+- Track provider cache capabilities behind adapters.
+- Track cached versus fresh input tokens where the provider exposes them.
+
+## Tool gating
+
+Expose only the tool definitions needed for the task.
+
+## Deterministic-first rule
+
+Use deterministic algorithms before LLM calls for:
+- file changes;
+- symbol definitions;
+- references;
+- hashes;
+- duplicate detection;
+- Git state;
+- syntax trees;
+- dependency edges;
+- test results;
+- static metadata.
+
+## Adaptive token budgets
+
+Task budget considers:
+- risk;
+- change surface;
+- affected dependencies;
+- project phase;
+- uncertainty;
+- validation requirements.
+
+Conceptual modes:
+- ECO
+- BALANCED
+- SAFE
+
+Mode selection should become automatic, not user-managed.
+
+## Quality guardrail
+
+Optimization objective:
+
+Minimize:
+`token_cost + latency + storage_cost`
+
+Subject to:
+- test pass rate not degraded;
+- critical context loss = 0;
+- retrieval recall above accepted threshold;
+- code quality baseline preserved.
+
+## Telemetry
+
+Track per task/run:
+- raw available context;
+- retrieved context;
+- reranked context;
+- deduplicated context;
+- final sent context;
+- fresh input tokens;
+- cached tokens;
+- output tokens;
+- estimated saved tokens;
+- compression ratio;
+- dedup ratio;
+- embedding work avoided;
+- cache hit rate.

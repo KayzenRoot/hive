@@ -26,5 +26,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
+- scripts/prepare_release.py: deterministic maintenance or validation script.
 - scripts/review_bundle.py: deterministic maintenance or validation script.
 - scripts/validate.py: deterministic maintenance or validation script.
+- scripts/verify_canonical_sources.py: deterministic maintenance or validation script.

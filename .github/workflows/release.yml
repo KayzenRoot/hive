@@ -13,7 +13,7 @@ jobs:
     name: Validate and publish
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v5
@@ -34,6 +34,8 @@ jobs:
       - name: Stop services without deleting data
         if: always()
         run: docker compose down --remove-orphans
+      - name: Verify tag/version and prepare release package
+        run: python scripts/prepare_release.py --tag "$GITHUB_REF_NAME" --ref "$GITHUB_SHA" --output-dir release-assets
       - name: Generate release review bundle
         run: python scripts/review_bundle.py
       - name: Publish validated GitHub release
@@ -43,7 +45,12 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             prerelease_flag="--prerelease"
           fi
-          gh release create "$GITHUB_REF_NAME" review-bundles/*.zip review-bundles/*.sha256 \
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          test -f "$notes_file"
+          gh release create "$GITHUB_REF_NAME" \
+            "release-assets/hive-${GITHUB_REF_NAME}.zip" \
+            "release-assets/hive-${GITHUB_REF_NAME}.zip.sha256" \
+            review-bundles/*.zip review-bundles/*.sha256 \
             --title "HIVE $GITHUB_REF_NAME" \
-            --notes-file docs/releases/v0.0.1-bootstrap.md \
+            --notes-file "$notes_file" \
             $prerelease_flag

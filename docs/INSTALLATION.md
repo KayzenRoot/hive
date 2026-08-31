@@ -48,6 +48,11 @@ daemon according to the host distribution policy. The API and dashboard bind to
 localhost by default; PostgreSQL and Redis remain internal to the Compose
 network and are not published to the host.
 
+If Redis logs a vm.overcommit_memory warning on Linux, see the manual,
+non-autonomous procedure in TROUBLESHOOTING.md. HIVE never changes host sysctl
+settings automatically. Docker Desktop on Windows must use the Linux VM or
+environment that actually runs Docker; do not run Linux host commands blindly.
+
 ## Lifecycle commands
 
 Start or rebuild:

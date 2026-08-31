@@ -1,37 +1,74 @@
-# 03 - SCOPE
+# 03 — SCOPE
 
 ## Version
 
-HIVE V0.1 - Foundation.
+**HIVE V0.1 — Foundation**
 
-## Necessary - V0.1
+## NECESSARY — V0.1
 
-Local Docker Compose; project registry; task/prompt intake; PDF/TXT/Markdown
-ingestion; PostgreSQL durable store; pgvector retrieval; Redis-compatible hot
-cache; content-addressable blob storage; Zstd; hashing/deduplication; Git-aware
-incremental repository indexing; AST/symbol indexing; hybrid retrieval;
-reranking; Context Manager; adaptive token budget; progressive disclosure;
-fingerprints; delta context; provider/prompt cache adapters; memory lifecycle
-and provenance; checkpoint awareness; tool gating; MCP; autonomous execution;
-test/result/diff capture; full Control Center; near-real-time telemetry/events;
-token/cache/storage/context metrics; service/project health; backup/restore;
-documentation and the V0.1 Definition of Done.
+- Local Docker Compose stack.
+- Project registry.
+- Task/prompt intake.
+- PDF/TXT/Markdown ingestion.
+- PostgreSQL durable store.
+- pgvector-based retrieval.
+- Redis-compatible hot cache.
+- Content-addressable blob storage.
+- Zstd compression.
+- Content hashing and deduplication.
+- Git-aware repository indexing.
+- Incremental indexing.
+- AST/symbol indexing for supported primary languages.
+- Hybrid retrieval.
+- Reranking.
+- Context Manager.
+- Adaptive token budget.
+- Progressive disclosure.
+- Context fingerprints.
+- Delta context.
+- Provider/prompt cache adapter layer.
+- Memory lifecycle and provenance.
+- Checkpoint awareness.
+- Tool gating.
+- MCP server.
+- Autonomous execution pipeline.
+- Test/result/diff capture.
+- Full HIVE Control Center.
+- Near-real-time telemetry/events.
+- Token, cache, storage and context metrics.
+- Service health and project health.
+- Backup and restore procedure.
+- Documentation and V0.1 Definition of Done.
 
-## Promote only if required by evidence
+## IMPORTANT — only promote if required by evidence
 
-Local embedding model, local reranker, binary vector quantization, Zstd
-dictionary training, semantic response cache, risk-driven context modes, and
-additional language-specific parsers.
+- Local embedding model.
+- Local reranker.
+- Binary vector quantization.
+- Zstd dictionary training.
+- Semantic response cache.
+- Risk-driven context modes.
+- Additional language-specific parsers.
 
-## Future
+## FUTURE
 
-Distributed HIVE, Kubernetes, multi-user tenancy, enterprise SSO, advanced
-knowledge graph, automatic fine-tuning, reinforcement-learning optimizer,
-cross-device synchronization, cloud-hosted managed HIVE, advanced agent
-marketplace, and fully autonomous canonical approval.
+- Distributed/multi-node HIVE.
+- Kubernetes.
+- Multi-user tenancy.
+- Enterprise SSO.
+- Advanced knowledge graph.
+- Automatic fine-tuning.
+- Reinforcement-learning optimizer.
+- Cross-device synchronization.
+- Cloud-hosted managed HIVE.
+- Advanced agent marketplace.
+- Fully autonomous canonical approval.
 
-## Out of scope - V0.1
+## OUT OF SCOPE — V0.1
 
-Replacing Git or the coding IDE, training a foundation model, building a
-general-purpose cloud platform, enterprise HA on one workstation, and unbounded
-autonomous code execution without policy controls.
+- Replacing Git.
+- Replacing the coding IDE.
+- Training a foundation model.
+- Building a general-purpose cloud platform.
+- Enterprise HA on a single workstation.
+- Unbounded autonomous code execution without policy controls.

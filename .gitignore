@@ -33,6 +33,7 @@ local-data/
 # Build and review artifacts
 tmp/
 review-bundles/
+release-assets/
 *.zip
 *.log
 

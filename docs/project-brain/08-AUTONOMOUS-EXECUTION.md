@@ -1,32 +1,87 @@
-# 08 - AUTONOMOUS EXECUTION
+# 08 — AUTONOMOUS EXECUTION
 
-Users should not have to manually request RAG, memory, cache, checkpoint, or
-token optimization; those are HIVE responsibilities.
+## Objective
 
-Accepted entry points are dashboard upload, task textbox, MCP, CLI, and API.
-Initial artifacts are PDF, Markdown, TXT, and structured JSON tasks.
+The user should not need to manually instruct the executor to use RAG, memory, cache, checkpoint or token optimization.
 
-## Pipeline
+Those are HIVE responsibilities.
 
-1. Ingest and preserve the original artifact.
-2. Extract and normalize text.
-3. Identify project and resolve repository/branch/HEAD.
-4. Read checkpoint, scope, DoD, architecture, and relevant decisions.
-5. Classify task/risk and calculate context budget.
-6. Discover impacted symbols/modules and retrieve code/tests/memory.
-7. Apply ACCE, gate tools, and build a context capsule.
-8. Dispatch execution, stream runtime events, and capture diffs/tests/validation.
-9. Produce executor review and store claims as staged evidence.
-10. Promote only verified information according to governance rules.
-11. Update telemetry and update checkpoints only through approved workflow.
+## Intake flow
 
-Stop when acceptance criteria are met and validated, a critical blocker prevents
-safe progress, work would expand scope, evidence cannot be produced, or policy
-requires a human/architect decision.
+Accepted entry points:
+- dashboard upload;
+- task textbox;
+- MCP;
+- CLI;
+- API.
 
-Every implementation run reports summary, changed files, decisions, tests,
-lint/typecheck/build, fixed errors, pending issues, risks, evidence/diff, and a
-proposed checkpoint update. Completed is not evidence. Autonomous does not mean
-uncontrolled: retrieval, caching, compression, indexing, tool selection,
-approved tests, and telemetry may be autonomous; canonical truth, destructive
-actions, and high-risk permissions follow governance policy.
+Accepted initial artifact types:
+- PDF;
+- Markdown;
+- TXT;
+- structured JSON task.
+
+## Autonomous pipeline
+
+1. Ingest prompt artifact.
+2. Preserve original artifact.
+3. Extract/normalize text.
+4. Identify project.
+5. Resolve repository/branch/HEAD.
+6. Read checkpoint.
+7. Read scope and Definition of Done.
+8. Retrieve relevant architecture/decisions.
+9. Classify task and risk.
+10. Calculate context budget.
+11. Discover impacted symbols/modules.
+12. Retrieve memory/code/tests.
+13. Apply ACCE.
+14. Gate tools.
+15. Build executor context capsule.
+16. Dispatch execution.
+17. Stream runtime events.
+18. Capture diffs, files, tests and validation.
+19. Produce executor review.
+20. Store claims as staged evidence.
+21. Promote only verified information according to governance rules.
+22. Update telemetry.
+23. Update checkpoint only through approved workflow.
+
+## Stop conditions
+
+The executor must stop when:
+- acceptance criteria are met and validated;
+- a critical blocker prevents safe progress;
+- work would require scope expansion;
+- required evidence cannot be produced;
+- policy requires human/architect decision.
+
+## Executor review contract
+
+Every implementation run must report:
+- summary;
+- files created/changed;
+- relevant decisions;
+- tests and results;
+- lint/typecheck/build as applicable;
+- errors fixed;
+- pending issues;
+- risks;
+- evidence/diff;
+- proposed checkpoint update.
+
+"Completed" is not evidence.
+
+## Autonomous does not mean uncontrolled
+
+HIVE may autonomously:
+- retrieve;
+- cache;
+- compress;
+- index;
+- select tools;
+- classify context;
+- run approved tests;
+- collect telemetry.
+
+Canonical truth, destructive actions and high-risk permissions must follow governance policy.

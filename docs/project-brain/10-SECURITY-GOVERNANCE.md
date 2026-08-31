@@ -1,25 +1,65 @@
-# 10 - SECURITY & GOVERNANCE
+# 10 — SECURITY & GOVERNANCE
 
-Principles: least privilege, project isolation, provenance for memory/evidence,
-explicit authority boundaries, no trust in executor self-claims, local secrets
-never stored in prompt artifacts, and no canonical mutation from unverified
-content.
+## Principles
 
-Treat all ingested content as potentially untrusted. Separate user task intent,
-project documentation, external retrieved content, tool output, and
-executor-generated claims. Document text must not silently override system or
-project governance.
+- Least privilege.
+- Project isolation.
+- Provenance for memory and evidence.
+- Explicit authority boundaries.
+- No trust in executor self-claims.
+- Local secrets never stored in prompt artifacts.
+- No canonical mutation from unverified content.
 
-Every retrieval, memory, and artifact operation includes project scope.
+## Prompt and document ingestion
+
+Treat all ingested content as potentially untrusted.
+
+Separate:
+- user task intent;
+- project documentation;
+- external retrieved content;
+- tool output;
+- executor-generated claims.
+
+Do not allow document text to silently override system/project governance.
+
+## Project boundaries
+
+Every retrieval, memory and artifact operation must include project scope.
+
 Cross-project retrieval is denied by default unless explicitly allowed.
-Secrets use environment variables or secret stores, are redacted from logs and
-telemetry, are never embedded or persisted in memory, and are masked in the
-dashboard.
 
-Canonical promotion requires a trusted source, validated evidence, or approved
-architectural decision. Executor output is staged/proposed.
+## Secrets
 
-Deletion, destructive migrations, credential rotation, and irreversible
-external actions require an explicit policy gate. Audit task, executor,
-model/provider, tools, files, tests, decisions, promotions, timestamps, and
-relevant hashes/commits.
+- Use environment variables/secrets stores.
+- Redact secrets from logs and telemetry.
+- Do not embed secrets.
+- Do not persist raw API keys in memory records.
+- Dashboard must mask sensitive values.
+
+## Canonical promotion
+
+Promotion to canonical memory requires:
+- trusted source OR
+- validated evidence OR
+- approved architectural decision.
+
+Executor output alone is staged/proposed.
+
+## Destructive actions
+
+Deletion, destructive migrations, credential rotation or irreversible external actions require an explicit policy gate.
+
+## Audit
+
+Record:
+- task;
+- executor;
+- model/provider;
+- tools;
+- files affected;
+- tests;
+- important decisions;
+- memory promotions;
+- timestamps;
+- relevant hashes/commits.

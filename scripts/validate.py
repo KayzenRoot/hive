@@ -27,7 +27,28 @@ def executable(name: str) -> str:
 def command_steps() -> list[Step]:
     python = sys.executable
     npm = executable("npm.cmd" if os.name == "nt" else "npm")
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     return [
+        Step(
+            "canonical source verification",
+            [python, "scripts/verify_canonical_sources.py"],
+            bucket="lint",
+        ),
+        Step(
+            "release package dry-run",
+            [
+                python,
+                "scripts/prepare_release.py",
+                "--tag",
+                f"v{version}",
+                "--ref",
+                "HEAD",
+                "--output-dir",
+                "tmp/release-dry-run",
+                "--dry-run",
+            ],
+            bucket="build",
+        ),
         Step("secret scan", [python, "scripts/check_secrets.py"], bucket="lint"),
         Step("generated maps", [python, "scripts/generate_maps.py", "--check"], bucket="lint"),
         Step(

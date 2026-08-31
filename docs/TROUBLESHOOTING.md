@@ -36,6 +36,31 @@ Inspect docker compose logs redis and confirm the data root is writable. Redis
 is a non-canonical hot cache. Its loss must not destroy canonical project truth;
 recreate it with docker compose up -d redis when needed.
 
+## Redis vm.overcommit_memory warning on Linux
+
+The Redis log may report that vm.overcommit_memory is disabled. Redis
+recommends vm.overcommit_memory=1 because background persistence and fork
+operations are more reliable when the kernel permits the memory reservation.
+Inspect the current value with:
+
+~~~bash
+sysctl vm.overcommit_memory
+cat /proc/sys/vm/overcommit_memory
+~~~
+
+An operator may apply this optional manual host-level fix in the relevant Linux
+environment:
+
+~~~bash
+sudo sysctl -w vm.overcommit_memory=1
+~~~
+
+Persisting it in /etc/sysctl.d/99-hive-redis.conf is also an operator choice;
+review local distribution policy before doing so. HIVE does not modify host
+sysctl settings autonomously, and this warning does not make Redis canonical
+state. Windows Docker Desktop users must not run Linux host commands blindly;
+inspect the Linux VM or environment that actually runs Docker instead.
+
 ## API health is degraded
 
 Fetch http://localhost:8000/api/v1/health and inspect the checks object. The
