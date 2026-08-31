@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-BOOTSTRAP RELEASED / V0.1 IMPLEMENTATION ACTIVE
+PROJECT REGISTRY APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -34,23 +34,34 @@ See `03-SCOPE.md`.
 - Deterministic CI and Docker integration health are required checks for `main`.
 - Release workflow validates tag/version coherence, matching notes, tests, integration smoke and versioned ZIP + SHA256 packaging.
 - `v0.0.1-bootstrap` published as a GitHub pre-release with validated downloadable assets.
+- Versioned PostgreSQL business-schema migration foundation implemented with startup schema gating.
+- Durable Project Registry implemented in PostgreSQL.
+- Multiple local projects can be registered, listed, inspected and re-inspected through `/api/v1/projects`.
+- Project source access is constrained to an explicit read-only `HIVE_PROJECTS_ROOT`.
+- Project path traversal, symlink escape and duplicate physical identity are deterministically blocked.
+- Git branch, HEAD, detached state, working-tree status and language stack are inspected without an LLM.
+- Project states READY, OFFLINE, DEGRADED and BLOCKED have tested deterministic semantics.
+- Project Registry remains durable across Redis loss/restart and API/container recreation.
+- HIVE Control Center exposes a functional real-data Project Fleet with registration and re-inspection.
+- Real-Git Linux integration coverage validates canonical identity, security-boundary transitions and recovery.
 
 ## IN PROGRESS
 - Preparing the next necessary V0.1 implementation increment.
 
 ## PENDING
-- Durable HIVE database schemas beyond bootstrap health.
-- project registry.
-- prompt ingestion.
+- prompt/task intake.
+- durable prompt artifact storage.
+- content-addressable storage.
+- Zstd compression and deduplication.
 - repository indexing.
 - retrieval.
 - memory.
-- ACCE.
+- ACCE beyond the intake/storage foundation.
 - MCP server product surface.
 - autonomous execution.
 - telemetry.
 - full Control Center.
-- comprehensive tests and benchmarks.
+- comprehensive retrieval/token/storage benchmarks.
 - stabilization.
 - full local deployment validation.
 - backup/recovery validation.
@@ -58,13 +69,13 @@ See `03-SCOPE.md`.
 - final V0.1 review.
 
 ## BLOCKERS
-None known after bootstrap release.
+None known after Project Registry approval.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary durable core increment: PostgreSQL migrations/schema plus project registry registration and inspection, without expanding into prompt ingestion or retrieval yet.
+Implement the smallest necessary autonomous-input vertical slice: durable Task/Prompt Intake bound to `project_id`, accepting PDF/TXT/Markdown and structured text, preserving the original artifact through content-addressable hashing/deduplication with lossless Zstd storage, and exposing real intake status through API/Control Center without implementing repository retrieval, embeddings, RAG or executor orchestration yet.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
