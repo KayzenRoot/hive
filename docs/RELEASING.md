@@ -34,7 +34,7 @@ node_modules, review bundles, and temporary files.
 For a local non-publishing dry-run:
 
 ~~~bash
-python scripts/prepare_release.py --tag v0.0.1-bootstrap --ref HEAD +  --output-dir tmp/release-dry-run --dry-run
+python scripts/prepare_release.py --tag v0.0.1-bootstrap --ref HEAD --output-dir tmp/release-dry-run --dry-run
 ~~~
 
 Release bundles must include installation-relevant source/config/docs and
