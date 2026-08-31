@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose a scoped, evidence-based improvement.
+title: "[Feature]: "
+labels:
+  - type:feature
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or operator problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe a focused proposal and its boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and risks
+      description: Include evidence, alternatives, and possible scope impact.
+    validations:
+      required: true

@@ -1,0 +1,15 @@
+changelog:
+  categories:
+    - title: Features
+      labels:
+        - type:feature
+    - title: Fixes
+      labels:
+        - type:bug
+    - title: Documentation and infrastructure
+      labels:
+        - type:docs
+        - type:infra
+    - title: Other changes
+      labels:
+        - "*"
