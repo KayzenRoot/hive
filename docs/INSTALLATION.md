@@ -92,7 +92,7 @@ Clean uninstall while preserving a backup:
 
 ~~~bash
 docker compose down
-cp -a "$HIVE_DATA_ROOT" "\${HIVE_DATA_ROOT}.backup"
+cp -a "$HIVE_DATA_ROOT" "${HIVE_DATA_ROOT}.backup"
 docker compose down --remove-orphans
 ~~~
 
