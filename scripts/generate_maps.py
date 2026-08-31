@@ -29,12 +29,14 @@ def build_files() -> dict[Path, str]:
         "## Backend",
         "",
     ]
-    atlas_lines += [f"- {path}: Python source or test module." for path in backend]
+    atlas_lines += [f"- {path.as_posix()}: Python source or test module." for path in backend]
     atlas_lines += ["", "## Dashboard", ""]
-    atlas_lines += [f"- {path}: TypeScript/React source or test module." for path in dashboard]
+    atlas_lines += [
+        f"- {path.as_posix()}: TypeScript/React source or test module." for path in dashboard
+    ]
     atlas_lines += ["", "## Operational scripts", ""]
     atlas_lines += [
-        f"- {path}: deterministic maintenance or validation script." for path in scripts
+        f"- {path.as_posix()}: deterministic maintenance or validation script." for path in scripts
     ]
 
     registry = [
