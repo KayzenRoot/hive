@@ -90,3 +90,27 @@ def test_inspection_updates_persisted_record(monkeypatch: pytest.MonkeyPatch) ->
 
     assert inspected.status_code == 200
     assert inspected.json()["git_head_sha"] == record.git_head_sha
+
+
+def test_inspection_exposes_persisted_blocked_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    blocked = project_response().model_copy(
+        update={
+            "git_branch": None,
+            "git_head_sha": None,
+            "detached_head": False,
+            "repository_accessible": False,
+            "working_tree_clean": None,
+            "language_stack": [],
+            "state": ProjectState.BLOCKED,
+            "inspection_error": "path_boundary_violation",
+        }
+    )
+    monkeypatch.setattr(main, "inspect_registered_project", lambda settings, project_id: blocked)
+    client = TestClient(main.app)
+
+    inspected = client.post(f"/api/v1/projects/{PROJECT_ID}/inspect")
+
+    assert inspected.status_code == 200
+    assert inspected.json()["state"] == "BLOCKED"
+    assert inspected.json()["git_head_sha"] is None
+    assert inspected.json()["inspection_error"] == "path_boundary_violation"

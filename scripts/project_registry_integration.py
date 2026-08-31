@@ -9,6 +9,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,10 @@ def wait_for_health(base_url: str) -> dict[str, Any]:
 def assert_equal(actual: Any, expected: Any, label: str) -> None:
     if actual != expected:
         raise AssertionError(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def cleanup_temporary_root(temporary_root: Path, *, env: dict[str, str]) -> None:
@@ -168,6 +173,38 @@ def main() -> int:
         git(repository, ["add", "pyproject.toml", "app.py"], env=git_environment)
         git(repository, ["commit", "-m", "initial sample"], env=git_environment)
         first_head = git(repository, ["rev-parse", "HEAD"], env=git_environment)
+        alias = projects_root / "sample-alias"
+        try:
+            alias.symlink_to(repository.name, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            raise RuntimeError(f"canonical alias test requires symlink support: {exc}") from exc
+
+        transition_repository = projects_root / "transition-project"
+        transition_repository.mkdir()
+        run(["git", "init", "-b", "main", str(transition_repository)], env=git_environment)
+        git(
+            transition_repository,
+            ["config", "user.email", "hive-test@example.invalid"],
+            env=git_environment,
+        )
+        git(
+            transition_repository,
+            ["config", "user.name", "HIVE Integration Test"],
+            env=git_environment,
+        )
+        (transition_repository / "app.py").write_text("print('transition')\n", encoding="utf-8")
+        git(transition_repository, ["add", "app.py"], env=git_environment)
+        git(transition_repository, ["commit", "-m", "transition sample"], env=git_environment)
+        transition_head = git(transition_repository, ["rev-parse", "HEAD"], env=git_environment)
+        transition_backup = projects_root / "transition-project-real"
+        outside_repository = temporary_path / "outside-project"
+        outside_repository.mkdir()
+        (outside_repository / "outside-marker.txt").write_text("outside\n", encoding="utf-8")
+        loop = projects_root / "symlink-loop"
+        try:
+            loop.symlink_to(loop.name)
+        except (OSError, NotImplementedError) as exc:
+            raise RuntimeError(f"resolution-error test requires symlink support: {exc}") from exc
 
         try:
             try:
@@ -231,6 +268,41 @@ def main() -> int:
             if "python" not in registered["language_stack"]:
                 raise AssertionError(f"Python was not detected: {registered['language_stack']}")
 
+            status, alias_duplicate = request(
+                api_url,
+                "POST",
+                "/api/v1/projects",
+                {"name": "Sample Alias", "relative_path": "sample-alias"},
+            )
+            assert_equal(status, 409, "canonical alias duplicate status")
+            assert isinstance(alias_duplicate, dict)
+            canonical_count = compose(
+                project_name,
+                [
+                    "exec",
+                    "-T",
+                    "postgres",
+                    "psql",
+                    "-U",
+                    "hive",
+                    "-d",
+                    "hive",
+                    "-Atqc",
+                    "SELECT count(*) FROM projects WHERE relative_path = 'sample-python'",
+                ],
+                env=environment,
+            ).stdout.strip()
+            assert_equal(canonical_count, "1", "canonical alias database count")
+
+            status, loop_error = request(
+                api_url,
+                "POST",
+                "/api/v1/projects",
+                {"name": "Loop", "relative_path": "symlink-loop"},
+            )
+            assert_equal(status, 400, "symlink loop status")
+            assert isinstance(loop_error, dict)
+
             status, listed = request(api_url, "GET", "/api/v1/projects")
             assert_equal(status, 200, "list status")
             assert isinstance(listed, list)
@@ -271,6 +343,69 @@ def main() -> int:
             assert_equal(status, 400, "traversal status")
             assert isinstance(traversal, dict)
 
+            status, transition = request(
+                api_url,
+                "POST",
+                "/api/v1/projects",
+                {"name": "Transition", "relative_path": "transition-project"},
+            )
+            assert_equal(status, 201, "transition registration status")
+            assert isinstance(transition, dict)
+            transition_id = transition["project_id"]
+            assert_equal(transition["state"], "READY", "transition initial state")
+            assert_equal(transition["git_head_sha"], transition_head, "transition initial HEAD")
+            ready_inspection_time = parse_timestamp(transition["last_inspected_at"])
+
+            transition_repository.rename(transition_backup)
+            try:
+                (projects_root / "transition-project").symlink_to(
+                    Path("..") / outside_repository.name, target_is_directory=True
+                )
+                status, blocked = request(
+                    api_url, "POST", f"/api/v1/projects/{transition_id}/inspect"
+                )
+                assert_equal(status, 200, "unsafe transition inspection status")
+                assert isinstance(blocked, dict)
+                assert_equal(blocked["state"], "BLOCKED", "unsafe transition state")
+                assert_equal(
+                    blocked["inspection_error"],
+                    "path_boundary_violation",
+                    "unsafe transition error",
+                )
+                assert blocked["git_head_sha"] is None
+                assert blocked["git_branch"] is None
+                assert blocked["repository_accessible"] is False
+                assert parse_timestamp(blocked["last_inspected_at"]) > ready_inspection_time
+
+                status, blocked_get = request(api_url, "GET", f"/api/v1/projects/{transition_id}")
+                assert_equal(status, 200, "blocked persisted fetch status")
+                assert isinstance(blocked_get, dict)
+                assert_equal(blocked_get["state"], "BLOCKED", "blocked persisted state")
+                assert_equal(
+                    blocked_get["inspection_error"],
+                    "path_boundary_violation",
+                    "blocked persisted error",
+                )
+            finally:
+                outside_route = projects_root / "transition-project"
+                if outside_route.is_symlink():
+                    outside_route.unlink()
+                transition_backup.rename(outside_route)
+
+            status, recovered = request(
+                api_url, "POST", f"/api/v1/projects/{transition_id}/inspect"
+            )
+            assert_equal(status, 200, "transition recovery status")
+            assert isinstance(recovered, dict)
+            assert_equal(recovered["state"], "READY", "transition recovery state")
+            assert_equal(recovered["relative_path"], "transition-project", "recovered identity")
+            assert_equal(recovered["git_head_sha"], transition_head, "recovered HEAD")
+
+            status, after_recovery_list = request(api_url, "GET", "/api/v1/projects")
+            assert_equal(status, 200, "post-recovery list status")
+            assert isinstance(after_recovery_list, list)
+            assert_equal(len(after_recovery_list), 2, "post-recovery project count")
+
             compose(project_name, ["exec", "-T", "redis", "redis-cli", "FLUSHALL"], env=environment)
             compose(project_name, ["restart", "redis"], env=environment)
             wait_for_health(api_url)
@@ -293,6 +428,12 @@ def main() -> int:
             print(f"migration_revision={migration_version}")
             print(f"first_head={first_head}")
             print(f"second_head={second_head}")
+            print("canonical_alias_duplicate=passed")
+            print("samefile_identity_guard=passed")
+            print("unsafe_transition_blocked=passed")
+            print("unsafe_transition_persisted=passed")
+            print("unsafe_transition_recovery=passed")
+            print("symlink_resolution_failure=passed")
             print("redis_loss_persistence=passed")
             print("api_restart_persistence=passed")
             print("read_only_project_mount=passed")

@@ -24,9 +24,15 @@ ${HIVE_PROJECTS_ROOT:-.hive-projects}:/workspace/projects:ro
 
 Requests use a POSIX-relative path below `/workspace/projects`, such as
 `acme/widget`. Absolute paths, backslashes, empty components, `.`/`..`, and
-symlinks resolving outside the configured root are rejected. The default
-`.hive-projects` directory is intentionally narrow and safe for development
-and CI; it does not expose the host filesystem broadly.
+symlinks resolving outside the configured root are rejected. For an existing
+target, the registry resolves symlinks, verifies containment, and stores the
+canonical POSIX-relative path rather than the client alias. The PostgreSQL
+unique constraint on `relative_path` is the deterministic concurrency guard;
+registration also serializes identity checks and uses `os.path.samefile` when
+the filesystem can prove two paths are the same directory without assuming
+case-insensitivity. The default `.hive-projects` directory is intentionally
+narrow and safe for development and CI; it does not expose the host filesystem
+broadly.
 
 ## Migrations
 
@@ -59,7 +65,14 @@ Git branch/HEAD, detached-HEAD flag, working-tree cleanliness, detected
 language stack, state, and UTC timestamps. `GET /api/v1/projects` lists the
 PostgreSQL records, and `GET /api/v1/projects/{project_id}` fetches one record.
 `POST /api/v1/projects/{project_id}/inspect` re-runs read-only inspection and
-updates Git/language/state/inspection timestamp.
+updates the canonical path, Git/language/state/inspection timestamp. If a
+registered route later resolves outside the configured root, or cannot be
+resolved safely, the endpoint does not inspect that target: it persists
+`BLOCKED`, clears stale Git fields, records a stable `inspection_error`,
+advances `last_inspected_at`, and returns the updated record. If the route
+resolves to another already registered physical project, it persists
+`BLOCKED` with `physical_identity_conflict` and leaves operator resolution
+explicit; records are never merged automatically.
 
 Duplicate relative paths return `409`. Invalid paths return `400`, malformed
 typed request fields return `422`, and an unknown UUID returns `404`.
@@ -71,10 +84,17 @@ typed request fields return `422`, and an unknown UUID returns `404`.
 - `OFFLINE`: the configured path is missing or unavailable.
 - `DEGRADED`: the path is accessible but Git inspection cannot complete, for
   example because it is not a repository or Git timed out.
+- `BLOCKED`: a deterministic HIVE policy condition prevents inspection, such
+  as `path_boundary_violation`, `path_resolution_failed`, or
+  `physical_identity_conflict`. Git fields are cleared while blocked.
 
-`STALE`, `INDEXING`, `ACTIVE` and `BLOCKED` are reserved for later HIVE
-subsystems in this increment. Language detection uses top-level manifest and
-file signals only; no LLM classifier or repository index is involved.
+`STALE`, `INDEXING` and `ACTIVE` remain reserved for later HIVE subsystems in
+this increment. Language detection uses top-level manifest and file signals
+only; no LLM classifier or repository index is involved.
+
+Git commands use argv with `shell=False`, `GIT_OPTIONAL_LOCKS=0`, a finite
+timeout, and an exact `safe.directory=<resolved repository path>` value. The
+wildcard `safe.directory=*` is not used.
 
 ## Control Center
 

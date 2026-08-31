@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import psycopg
@@ -20,6 +20,7 @@ from .db import database_connection
 
 GIT_TIMEOUT_SECONDS = 5
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40,64}$")
+REGISTRY_ADVISORY_LOCK = (12002, 1)
 
 
 class ProjectState(StrEnum):
@@ -65,6 +66,10 @@ class ProjectResponse(BaseModel):
 class ProjectPathError(ValueError):
     """The requested path is not safely contained by HIVE_PROJECTS_ROOT."""
 
+    def __init__(self, message: str, *, code: str = "invalid_project_path") -> None:
+        super().__init__(message)
+        self.code = code
+
 
 class ProjectConflictError(RuntimeError):
     """A project with the same canonical relative path already exists."""
@@ -83,7 +88,7 @@ class InspectionResult:
 
 
 def normalize_project_path(relative_path: str, settings: Settings) -> tuple[str, Path]:
-    """Return a portable identity and a resolved path safely below the configured root."""
+    """Return the canonical relative identity and resolved path below the configured root."""
     value = relative_path.strip()
     if not value or "\x00" in value or "\\" in value:
         raise ProjectPathError("project path must be a non-empty POSIX-relative path")
@@ -98,14 +103,28 @@ def normalize_project_path(relative_path: str, settings: Settings) -> tuple[str,
     if any(part in {"", ".", ".."} for part in parts):
         raise ProjectPathError("project path contains an unsafe component")
 
-    identity = "/".join(parts)
-    allowed_root = settings.resolved_projects_root
-    resolved_path = (allowed_root / Path(*parts)).resolve(strict=False)
+    try:
+        allowed_root = settings.resolved_projects_root
+        resolved_path = (allowed_root / Path(*parts)).resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ProjectPathError(
+            "project path could not be resolved",
+            code="path_resolution_failed",
+        ) from exc
     try:
         resolved_path.relative_to(allowed_root)
     except ValueError as exc:
-        raise ProjectPathError("project path resolves outside HIVE_PROJECTS_ROOT") from exc
-    return identity, resolved_path
+        raise ProjectPathError(
+            "project path resolves outside HIVE_PROJECTS_ROOT",
+            code="path_boundary_violation",
+        ) from exc
+    canonical_relative = resolved_path.relative_to(allowed_root).as_posix()
+    if not canonical_relative or canonical_relative == ".":
+        raise ProjectPathError(
+            "project path must resolve to a directory below HIVE_PROJECTS_ROOT",
+            code="path_boundary_violation",
+        )
+    return canonical_relative, resolved_path
 
 
 def _failure_result(error: str, language_stack: list[str] | None = None) -> InspectionResult:
@@ -174,7 +193,14 @@ def _detect_languages(project_path: Path) -> list[str]:
 def _run_git(
     project_path: Path, arguments: list[str], *, allow_nonzero: bool = False
 ) -> subprocess.CompletedProcess[str]:
-    command = ["git", "-c", "safe.directory=*", "-C", str(project_path), *arguments]
+    command = [
+        "git",
+        "-c",
+        f"safe.directory={project_path}",
+        "-C",
+        str(project_path),
+        *arguments,
+    ]
     environment = os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     try:
@@ -289,6 +315,52 @@ def _project_from_row(row: tuple[Any, ...]) -> ProjectResponse:
     )
 
 
+def _blocked_result(error: str) -> InspectionResult:
+    return InspectionResult(
+        git_branch=None,
+        git_head_sha=None,
+        detached_head=False,
+        repository_accessible=False,
+        working_tree_clean=None,
+        language_stack=[],
+        state=ProjectState.BLOCKED,
+        inspection_error=error,
+    )
+
+
+def _acquire_registry_lock(cursor: psycopg.Cursor[Any]) -> None:
+    cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", REGISTRY_ADVISORY_LOCK)
+
+
+def _find_identity_conflict(
+    cursor: psycopg.Cursor[Any],
+    settings: Settings,
+    candidate_identity: str,
+    candidate_path: Path,
+    *,
+    excluded_project_id: UUID | None = None,
+) -> UUID | None:
+    cursor.execute("SELECT project_id, relative_path FROM projects")
+    for raw_project_id, raw_relative_path in cursor.fetchall():
+        project_id = cast(UUID, raw_project_id)
+        relative_path = cast(str, raw_relative_path)
+        if excluded_project_id is not None and project_id == excluded_project_id:
+            continue
+        if relative_path == candidate_identity:
+            return project_id
+        try:
+            _, registered_path = normalize_project_path(relative_path, settings)
+            if (
+                candidate_path.exists()
+                and registered_path.exists()
+                and os.path.samefile(candidate_path, registered_path)
+            ):
+                return project_id
+        except (OSError, ValueError, ProjectPathError):
+            continue
+    return None
+
+
 def list_projects(settings: Settings) -> list[ProjectResponse]:
     with database_connection(settings) as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -313,6 +385,9 @@ def register_project(settings: Settings, request: ProjectCreateRequest) -> Proje
     project_id = uuid4()
     try:
         with database_connection(settings) as connection, connection.cursor() as cursor:
+            _acquire_registry_lock(cursor)
+            if _find_identity_conflict(cursor, settings, identity, resolved_path) is not None:
+                raise ProjectConflictError("project physical identity is already registered")
             cursor.execute(
                 f"""
                 INSERT INTO projects (
@@ -351,13 +426,50 @@ def inspect_registered_project(settings: Settings, project_id: UUID) -> ProjectR
     existing = get_project(settings, project_id)
     if existing is None:
         return None
-    _, resolved_path = normalize_project_path(existing.relative_path, settings)
-    inspection = inspect_project(resolved_path)
+
+    try:
+        canonical_identity, resolved_path = normalize_project_path(existing.relative_path, settings)
+    except ProjectPathError as exc:
+        inspection = _blocked_result(exc.code)
+        canonical_identity = existing.relative_path
+
+        with database_connection(settings) as connection, connection.cursor() as cursor:
+            _update_inspection(cursor, project_id, canonical_identity, inspection)
+            row = cursor.fetchone()
+        return _project_from_row(row) if row else None
+
     with database_connection(settings) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            f"""
+        _acquire_registry_lock(cursor)
+        if (
+            _find_identity_conflict(
+                cursor,
+                settings,
+                canonical_identity,
+                resolved_path,
+                excluded_project_id=project_id,
+            )
+            is not None
+        ):
+            inspection = _blocked_result("physical_identity_conflict")
+            canonical_identity = existing.relative_path
+        else:
+            inspection = inspect_project(resolved_path)
+        _update_inspection(cursor, project_id, canonical_identity, inspection)
+        row = cursor.fetchone()
+    return _project_from_row(row) if row else None
+
+
+def _update_inspection(
+    cursor: psycopg.Cursor[Any],
+    project_id: UUID,
+    canonical_identity: str,
+    inspection: InspectionResult,
+) -> None:
+    cursor.execute(
+        f"""
             UPDATE projects
-            SET git_branch = %s,
+            SET relative_path = %s,
+                git_branch = %s,
                 git_head_sha = %s,
                 detached_head = %s,
                 repository_accessible = %s,
@@ -370,17 +482,16 @@ def inspect_registered_project(settings: Settings, project_id: UUID) -> ProjectR
             WHERE project_id = %s
             RETURNING {_PROJECT_COLUMNS}
             """,
-            (
-                inspection.git_branch,
-                inspection.git_head_sha,
-                inspection.detached_head,
-                inspection.repository_accessible,
-                inspection.working_tree_clean,
-                Jsonb(inspection.language_stack),
-                inspection.state.value,
-                inspection.inspection_error,
-                project_id,
-            ),
-        )
-        row = cursor.fetchone()
-    return _project_from_row(row) if row else None
+        (
+            canonical_identity,
+            inspection.git_branch,
+            inspection.git_head_sha,
+            inspection.detached_head,
+            inspection.repository_accessible,
+            inspection.working_tree_clean,
+            Jsonb(inspection.language_stack),
+            inspection.state.value,
+            inspection.inspection_error,
+            project_id,
+        ),
+    )

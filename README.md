@@ -51,9 +51,11 @@ HIVE_DATA_ROOT defaults to .hive-data in the repository for development and is
 ignored by Git. For secondary storage, set it to D:/HIVE on Windows or
 /mnt/hive on Linux before starting Compose. HIVE_PROJECTS_ROOT defaults to the
 safe, repository-local .hive-projects directory. It is the only host project
-directory mounted into the API, at /workspace/projects:ro. PostgreSQL is
-canonical durable state; Redis persistence is convenience-only and
-reconstructible.
+directory mounted into the API, at /workspace/projects:ro. Registered existing
+targets are stored by their resolved canonical POSIX-relative identity, with
+PostgreSQL uniqueness and same-file checks preventing physical aliases from
+creating duplicate projects. PostgreSQL is canonical durable state; Redis
+persistence is convenience-only and reconstructible.
 
 See [docs/PROJECT-REGISTRY.md](docs/PROJECT-REGISTRY.md) for registration,
 inspection, migration and path-boundary details.

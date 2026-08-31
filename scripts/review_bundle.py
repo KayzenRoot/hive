@@ -54,6 +54,15 @@ def github_evidence() -> str:
         ["gh", "api", "repos/KayzenRoot/hive/branches/main/protection"],
         ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
         ["gh", "api", "repos/KayzenRoot/hive/milestones?state=all"],
+        [
+            "gh",
+            "pr",
+            "view",
+            "15",
+            "--json",
+            "number,state,mergedAt,url,headRefName,baseRefName,headRefOid",
+        ],
+        ["gh", "pr", "checks", "15", "--json", "name,state,bucket,link"],
     ]
     sections: list[str] = []
     for command in commands:
@@ -207,59 +216,113 @@ docs/project-brain/13-CHECKPOINT.md como verdade aprovada.
 
 
 def review_markdown(stamp: str, status: str) -> str:
-    return f"""# Revisão do HIVE Prompt #002
+    return f"""# Revisão do HIVE Prompt #002-C
 
 Data UTC: {stamp}
 Estado da validação registrada: {status}
 
-## Resumo executivo
+## 1. Resumo da correção
 
-O incremento #002 adiciona a primeira revisão de schema de negócio durável do
-HIVE, o Project Registry em PostgreSQL, inspeção Git determinística, boundary
-de projetos read-only, API versionada e Project Fleet no Control Center.
+Corrige dois defeitos de auditoria no Project Registry: aliases físicos não
+podem criar identidades duplicadas e uma transição insegura não pode deixar
+um registro READY obsoleto. Reforça também o escopo de safe.directory do Git.
 
-Prompt ingestion, indexing, RAG, embeddings, memory, MCP product tools,
-executor orchestration, token telemetry, event bus, release e Prompt #003 não
-fazem parte deste incremento.
-
-## Base e Git
+## 2. Base / branch / head
 
 Base auditada: aa696656cc5ebefe8dc1b23a676ffcbe12ba23e9 em main.
-Branch: feature/002-project-registry. O PR deve permanecer aberto e não
-mesclado para a auditoria de Sol.
+Correção descendente do head auditado: f619c5686081e6dae175f608bcfa2d2b6b2074c9.
+Branch: feature/002-project-registry. PR #15 deve permanecer aberto e não
+mesclado.
 
-## Arquitetura, banco e API
+## 3. Canonical project identity
 
-O serviço one-shot aguarda PostgreSQL e executa Alembic até
-0001_create_projects; a API verifica alembic_version no startup. Psycopg usa
-SQL parametrizado. O Project Registry persiste UUID, nome, path relativo, Git,
-linguagens, estado, erro e timestamps. Os endpoints são POST/GET
-/api/v1/projects, GET /api/v1/projects/{{project_id}} e POST
-/api/v1/projects/{{project_id}}/inspect.
+Para targets existentes, symlinks são resolvidos e o path é revalidado abaixo
+de HIVE_PROJECTS_ROOT. O campo relative_path armazena a identidade POSIX
+relativa canônica; PostgreSQL aplica UNIQUE e uma trava advisory transacional
+serializa a checagem os.path.samefile, sem forçar lowercase.
 
-## Segurança e dashboard
+## 4. Duplicate alias proof
 
-HIVE_PROJECTS_ROOT é o único diretório host montado em
-/workspace/projects:ro. Paths POSIX relativos passam por resolução contra
-traversal e symlink escape. Git usa argv, safe.directory local,
-GIT_OPTIONAL_LOCKS=0, shell=False e timeout finito. O dashboard mantém health
-e exibe a frota real com cadastro, re-inspeção e estados loading/empty/error.
+O E2E cria real-project e sample-alias como symlink, registra o target real,
+rejeita o alias com 409 e confirma no PostgreSQL exatamente um registro para
+a identidade física.
 
-## Validação e persistência
+## 5. Unsafe transition behavior
 
-Consulte os arquivos de resultados deste ZIP para os comandos exatos. O smoke
-E2E usa Git real e banco vazio, observa dois commits, rejeita duplicate/traversal,
-prova mount read-only, sobrevive a FLUSHALL/restart do Redis e a recreate/restart
-da API com o mesmo PostgreSQL. Falhas de driver, readiness, ownership Git e
-line endings encontradas durante a execução estão registradas no histórico e
-foram corrigidas.
+Uma rota READY alterada para symlink fora do root retorna a representação
+persistida como BLOCKED, limpa HEAD/branch e demais campos Git, grava
+path_boundary_violation e avança last_inspected_at. A rota restaurada retorna
+deterministicamente a READY com o mesmo project_id.
 
-## Riscos, limitações e checkpoint
+## 6. Git security
 
-Os estados futuros permanecem reservados; não há indexação, prompt ingestion,
-RAG, memória, MCP, telemetry ou release. O teste de symlink depende do suporte
-do filesystem do executor. A proposta de checkpoint é staged e não altera os
-arquivos canônicos do Project Brain.
+Cada chamada usa argv, shell=False, timeout finito, GIT_OPTIONAL_LOCKS=0 e
+safe.directory=<resolved repository path>. safe.directory=* não é usado.
+
+## 7. Database/migration
+
+Não foi necessária nova revisão: 0001_create_projects permanece canônica,
+PostgreSQL continua sendo a fonte durável e Redis não contém estado canônico.
+Migração em banco limpo passou via serviço one-shot.
+
+## 8. API semantics
+
+POST registra a identidade canônica e retorna 409 para duplicata física.
+Re-inspection retorna 200 com estado persistido READY, OFFLINE, DEGRADED ou
+BLOCKED; falhas de boundary não são tratadas como input inválido do cliente.
+
+## 9. Tests
+
+Backend: 15 passed, 1 filesystem-dependent skip. Dashboard: 5 passed. E2E
+real-Git cobre alias/samefile, transição insegura, recovery, loop, migration,
+dois commits, Redis e restart da API.
+
+## 10. Quality
+
+Canonical verification, secret scan, maps, Ruff, mypy, dashboard lint,
+typecheck, build, npm audit e Compose config passaram.
+
+## 11. Persistence
+
+Redis FLUSHALL/restart e recreate/restart da API preservaram os registros
+PostgreSQL e o HEAD observado.
+
+## 12. CI
+
+Os checks Validate e Integration health passaram no head exato da correção;
+as URLs e logs completos estão em github-configuration-evidence.txt e nos
+resultados incluídos neste ZIP.
+
+## 13. Files changed
+
+A lista completa está em changed-files.txt e o diff corretivo em git-diff.patch.
+
+## 14. Errors fixed
+
+Foram corrigidos canonicalização ausente, estado READY stale após boundary,
+ausência de guarda samefile, resolução de symlink loop não classificada e
+safe.directory wildcard.
+
+## 15. Remaining warnings/risks
+
+Symlink/samefile E2E exige filesystem com suporte; CI Linux executa esses
+cenários. npm ainda reporta warning de depreciação de whatwg-encoding e
+aprovação pendente do install script do esbuild, sem vulnerabilidades auditadas.
+
+## 16. Scope-negative confirmation
+
+Não foram adicionados Prompt #003, indexing, RAG, embeddings, memory, ACCE,
+MCP product tools, executor, telemetry, event bus, release ou tag.
+
+## 17. Review bundle
+
+Este ZIP contém a revisão, diff, resultados, E2E, evidências GitHub, dry-run de
+release e checksum SHA256.
+
+## 18. Proposed checkpoint
+
+Propor PROJECT REGISTRY CORRECTION IMPLEMENTED - AGUARDANDO AUDITORIA DE SOL.
+O checkpoint canônico permanece inalterado até aprovação explícita.
 """
 
 
@@ -318,11 +381,11 @@ def main() -> int:
         ),
         "proposed-checkpoint-update.md": """# Proposta staged de checkpoint
 
-Status proposto: PROJECT REGISTRY IMPLEMENTADO - AGUARDANDO AUDITORIA DE SOL.
+Status proposto: PROJECT REGISTRY CORRECTION IMPLEMENTED - AGUARDANDO AUDITORIA DE SOL.
 
-Evidência: a branch feature/002-project-registry contém a migração durável,
-Project Registry, inspeção determinística, API, Project Fleet e as validações
-do incremento #002.
+Evidência: a branch feature/002-project-registry contém a identidade física
+canônica, o estado BLOCKED para transições inseguras, inspeção determinística,
+API, Project Fleet e as validações corretivas do incremento #002.
 
 Não promover esta proposta automaticamente. O checkpoint canônico permanece
 inalterado até revisão e aprovação explícitas.
