@@ -8,7 +8,8 @@ All notable changes to HIVE are documented here.
 
 - Bootstrap foundation implementation and review evidence workflow.
 
-## 0.0.1-bootstrap - Not yet released
+## 0.0.1-bootstrap - Released 2026-08-31
 
-Draft notes are in docs/releases/v0.0.1-bootstrap.md. This pre-release must not
-be published until the Sol audit approves the increment.
+The bootstrap foundation was published as the GitHub pre-release
+`v0.0.1-bootstrap` after protected squash merge, post-merge CI, release
+workflow validation, and independent asset checksum verification.
