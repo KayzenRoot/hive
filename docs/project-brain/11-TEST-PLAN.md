@@ -1,33 +1,96 @@
-# 11 - TEST PLAN
+# 11 — TEST PLAN
 
-HIVE is correct only through objective validation, not an LLM assertion.
+## Test objective
+
+HIVE is not correct because an LLM says it works.
+
+V0.1 requires objective validation.
 
 ## Required test layers
 
-Unit coverage should include hashing/deduplication, compression, memory
-lifecycle, token budgeting, context fingerprints, project resolution, cache
-invalidation, parsing/chunking, and provenance.
+### Unit
+- hashing/dedup;
+- compression/decompression;
+- memory lifecycle;
+- token budgeting;
+- context fingerprinting;
+- project resolution;
+- cache invalidation;
+- parser/chunker;
+- provenance.
 
-Integration coverage should include PostgreSQL, pgvector, Redis, CAS, repository
-indexer, MCP, API, event stream, dashboard, and executor adapter.
+### Integration
+- PostgreSQL;
+- pgvector;
+- Redis;
+- CAS;
+- repository indexer;
+- MCP;
+- API;
+- event stream;
+- dashboard;
+- executor adapter.
 
-Retrieval benchmarks use known relevant files/symbols and measure recall@k,
-precision, reranking quality, context size, and critical-context misses.
-Token-efficiency benchmarks compare full context with HIVE context for input,
-cache, output, success, tests, and retrieval evidence.
+### Retrieval
+Create benchmark tasks with known relevant files/symbols.
 
-Storage measures logical, deduplicated, compressed, and reconstructed data;
-canonical blobs remain lossless. Resilience tests restart containers, clear
-Redis, verify canonical state, rebuild caches, reconnect the dashboard, and
-replay event state.
+Measure:
+- recall@k;
+- precision;
+- reranking quality;
+- context size;
+- critical-context misses.
 
-Security tests project isolation, malicious prompt/document instructions, secret
-redaction, and unauthorized canonical memory writes.
+### Token efficiency
+For benchmark tasks compare:
+- baseline/full-context approach;
+- HIVE optimized context.
 
-End-to-end flow: register project, index, upload prompt PDF, build context,
-dispatch executor, stream telemetry, modify/test a sample project, capture
-evidence, stage memory, complete review, verify dashboard, restart, and verify
-persistence.
+Measure:
+- input tokens;
+- cache;
+- outputs;
+- task success;
+- test pass rate;
+- retrieval evidence.
 
-Any optimization that materially degrades benchmark correctness is rejected or
-restricted to lower-risk task classes.
+### Storage
+Measure:
+- raw logical data;
+- deduplicated data;
+- compressed data;
+- reconstruction integrity.
+
+Compression is lossless for canonical blobs.
+
+### Resilience
+- restart containers;
+- clear Redis;
+- verify canonical state survives;
+- rebuild derived caches;
+- reconnect dashboard;
+- replay event state.
+
+### Security
+- cross-project retrieval isolation;
+- malicious prompt/document instructions;
+- secret redaction;
+- unauthorized canonical memory writes.
+
+### End-to-end
+1. register project;
+2. index project;
+3. upload prompt PDF;
+4. build context;
+5. dispatch executor;
+6. stream telemetry;
+7. modify/test sample project;
+8. capture evidence;
+9. stage memory;
+10. complete review;
+11. verify dashboard state;
+12. restart and verify persistence.
+
+## Quality rule
+
+Any optimization that materially degrades benchmark task correctness must be rejected or restricted to lower-risk task classes.

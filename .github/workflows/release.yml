@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-release:
+    name: Validate and publish
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install backend tooling
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run deterministic validation
+        run: python scripts/validate.py
+      - name: Start services for release smoke test
+        run: docker compose up -d --build
+      - name: Run integration smoke test
+        run: python scripts/integration_health.py
+      - name: Stop services without deleting data
+        if: always()
+        run: docker compose down --remove-orphans
+      - name: Verify tag/version and prepare release package
+        run: python scripts/prepare_release.py --tag "$GITHUB_REF_NAME" --ref "$GITHUB_SHA" --output-dir release-assets
+      - name: Generate release review bundle
+        run: python scripts/review_bundle.py
+      - name: Publish validated GitHub release
+        shell: bash
+        run: |
+          prerelease_flag=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease_flag="--prerelease"
+          fi
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          test -f "$notes_file"
+          gh release create "$GITHUB_REF_NAME" \
+            "release-assets/hive-${GITHUB_REF_NAME}.zip" \
+            "release-assets/hive-${GITHUB_REF_NAME}.zip.sha256" \
+            review-bundles/*.zip review-bundles/*.sha256 \
+            --title "HIVE $GITHUB_REF_NAME" \
+            --notes-file "$notes_file" \
+            $prerelease_flag

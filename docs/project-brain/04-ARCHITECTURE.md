@@ -1,45 +1,123 @@
-# 04 - ARCHITECTURE
+# 04 — ARCHITECTURE
 
 ## High-level architecture
 
-Executor/IDE/Agent -> MCP/REST -> HIVE Core -> PostgreSQL + pgvector and Redis
-hot cache -> content-addressable storage on secondary disk, with the HIVE
-Control Center as the operational interface.
+```text
+Executor / IDE / Agent
+        |
+   MCP / REST
+        |
++-------------------------+
+| HIVE CORE               |
+| Project Registry        |
+| Prompt Intake           |
+| Context Manager         |
+| Memory Manager          |
+| Retrieval Engine        |
+| ACCE Optimizer          |
+| Tool Gateway            |
+| Execution Orchestrator  |
+| Telemetry/Event Bus     |
++------------+------------+
+             |
+     +-------+-------+
+     |               |
+ PostgreSQL        Redis
+ + pgvector       Hot Cache
+     |
+ Content-addressable
+     storage
+     |
+ Secondary disk
 
-HIVE Core contains the Project Registry, Prompt Intake, Context Manager, Memory
-Manager, Retrieval Engine, ACCE Optimizer, Tool Gateway, Execution Orchestrator,
-and Telemetry/Event Bus.
+             +
+      HIVE Control Center
+```
 
 ## Canonical data responsibilities
 
-- Git repository: canonical source for code and code history.
-- PostgreSQL: canonical structured state including projects, sessions, tasks,
-  runs, checkpoint projections, memory records, decisions, documents, chunks,
-  embeddings/references, tests/validation evidence, event metadata, and cache
-  metadata where needed.
-- Redis: non-canonical hot state such as sessions, short-lived capsules,
-  retrieval cache, locks, queues, hot tool results, and TTL data. Redis loss
-  must not destroy canonical truth.
-- Content-addressable storage: durable prompt artifacts, parsed artifacts, large
-  tool outputs, run artifacts, and snapshots that cannot be cheaply reconstructed.
+### Git repository
+Canonical source for code and code history.
+
+### PostgreSQL
+Canonical structured state for:
+- projects;
+- sessions;
+- tasks;
+- runs;
+- checkpoint projections;
+- memory records;
+- decisions;
+- document metadata;
+- chunks;
+- embeddings/references;
+- tests and validation evidence;
+- event metadata;
+- cache metadata where needed.
+
+### Redis
+Non-canonical hot layer:
+- session state;
+- short-lived context capsules;
+- retrieval cache;
+- locks;
+- queues;
+- hot tool results;
+- TTL data.
+
+Redis data loss must not destroy canonical project truth.
+
+### Content-addressable storage
+Durable blob storage for:
+- ingested prompt artifacts;
+- parsed source artifacts;
+- large tool outputs;
+- run artifacts;
+- snapshots that cannot be reconstructed cheaply;
+- compressed derived representations.
 
 ## Core services
 
-API/orchestrator, MCP server, repository indexer, retrieval/reranking service,
-memory service, cache service, telemetry service, dashboard service, and an
-optional local model service when promoted.
+- API / Orchestrator service.
+- MCP server.
+- Repository indexer.
+- Retrieval/reranking service.
+- Memory service.
+- Cache service.
+- Telemetry service.
+- Dashboard web app.
+- Optional local model service when promoted.
 
 ## Event model
 
-Operations emit structured events such as project.discovered,
-project.indexing, task.ingested, context.started, context.retrieved,
-context.built, cache.hit, cache.miss, executor.started, tool.called,
-file.changed, test.started, test.finished, validation.failed,
-validation.passed, memory.staged, memory.promoted, run.completed, and
-run.failed. The dashboard subscribes through WebSocket or SSE.
+Core operations emit structured events:
+- project.discovered
+- project.indexing
+- task.ingested
+- context.started
+- context.retrieved
+- context.built
+- cache.hit
+- cache.miss
+- executor.started
+- tool.called
+- file.changed
+- test.started
+- test.finished
+- validation.failed
+- validation.passed
+- memory.staged
+- memory.promoted
+- run.completed
+- run.failed
 
-## Constraints
+Dashboard subscribes to these events through WebSocket or Server-Sent Events.
 
-Core APIs cannot depend on one LLM provider; cache, embedding, and executor
-providers are replaceable; repositories are not duplicated into proprietary
-snapshots by default; and significant memory records include provenance.
+## Architectural constraints
+
+- Core internal API cannot depend on one LLM provider.
+- Cache adapters are replaceable.
+- Embedding provider is replaceable.
+- Executor provider is replaceable.
+- Repository paths are not duplicated into proprietary snapshots by default.
+- All significant memory records must include provenance.

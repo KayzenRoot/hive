@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install backend tooling
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run deterministic validation
+        run: python scripts/validate.py
+
+  integration:
+    name: Integration health
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Start bootstrap services
+        run: docker compose up -d --build
+      - name: Run container smoke test
+        run: python scripts/integration_health.py
+      - name: Collect service logs
+        if: always()
+        run: docker compose logs
+      - name: Stop services without deleting data
+        if: always()
+        run: docker compose down --remove-orphans
