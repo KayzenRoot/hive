@@ -93,6 +93,8 @@ def run_step(step: Step) -> tuple[int, str]:
         step.command,
         cwd=step.cwd,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         env=os.environ.copy(),
     )
@@ -103,6 +105,11 @@ def run_step(step: Step) -> tuple[int, str]:
         f"{result.stdout}{result.stderr}"
     )
     return result.returncode, output
+
+
+def console_safe(text: str, encoding: str | None = None) -> str:
+    selected_encoding = encoding or sys.stdout.encoding or "utf-8"
+    return text.encode(selected_encoding, errors="backslashreplace").decode(selected_encoding)
 
 
 def main() -> int:
@@ -119,7 +126,7 @@ def main() -> int:
             continue
         code, output = run_step(step)
         buckets[step.bucket].append(output)
-        print(output)
+        print(console_safe(output))
         if code:
             failures.append(step.name)
     (VALIDATION / "test-results.txt").write_text(

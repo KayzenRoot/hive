@@ -11,6 +11,7 @@ Generated deterministically by scripts/generate_maps.py.
 | backend/tests/test_cas.py | SHA-256 identity, Zstandard round-trip, atomic dedup, concurrency and fail-closed corruption checks. |
 | backend/tests/test_task_intake.py | UTF-8/BOM, Markdown, structured text, PDF extraction, bounds and no-text behavior. |
 | backend/tests/test_tasks_api.py | Project isolation, verified artifact headers and upload/text API contracts. |
+| backend/tests/test_runner.py | Local Verified Runner admission/application, path policy, deterministic verification, subprocess gating and bounded evidence. |
 | dashboard/src/App.test.tsx | Health, Project Fleet and real Task Intake rendering/operations. |
 | ruff | Backend and script lint/format. |
 | mypy | Backend static typing. |
@@ -24,4 +25,4 @@ Generated deterministically by scripts/generate_maps.py.
 | scripts/task_intake_integration.py | Isolated Docker PostgreSQL/CAS E2E for all formats, reuse, dedup, isolation, restarts, metrics and corruption. |
 | scripts/check_secrets.py | Tracked-file secret scan. |
 
-Indexed source files: 38
+Indexed source files: 40

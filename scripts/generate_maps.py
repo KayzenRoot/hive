@@ -63,6 +63,8 @@ def build_files() -> dict[Path, str]:
         "tasks, reuse and storage metrics. |",
         "| backend/app/tasks_api.py | Project-scoped task upload, text, artifact, "
         "preview and storage routes. |",
+        "| backend/app/runner.py | Local Verified Runner change-set admission, safe "
+        "staged application, changed-file verification and gated subprocess evidence. |",
         "| dashboard/src/App.tsx | Real API health, Project Fleet and Task Intake/CAS dashboard. |",
         "| migrations/versions/0001_create_projects.py | Durable Project "
         "Registry schema revision. |",
@@ -92,6 +94,8 @@ def build_files() -> dict[Path, str]:
         "text, PDF extraction, bounds and no-text behavior. |",
         "| backend/tests/test_tasks_api.py | Project isolation, verified artifact "
         "headers and upload/text API contracts. |",
+        "| backend/tests/test_runner.py | Local Verified Runner admission/application, "
+        "path policy, deterministic verification, subprocess gating and bounded evidence. |",
         "| dashboard/src/App.test.tsx | Health, Project Fleet and real Task "
         "Intake rendering/operations. |",
         "| ruff | Backend and script lint/format. |",
