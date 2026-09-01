@@ -258,3 +258,21 @@ def test_change_set_rejects_case_alias_duplicates(tmp_path: Path) -> None:
             ),
             tmp_path,
         )
+
+
+def test_windows_superscript_device_aliases_are_rejected(tmp_path: Path) -> None:
+    unsafe_paths = (
+        "COM\u00b9",
+        "COM\u00b2.txt",
+        "COM\u00b3.log",
+        "dir/LPT\u00b9",
+        "dir/LPT\u00b2.txt",
+        "dir/LPT\u00b3.log",
+    )
+
+    for unsafe in unsafe_paths:
+        with pytest.raises(PathPolicyError):
+            admit_change_set(
+                ChangeSet.from_operations([ChangeOperation.create(unsafe, b"x")]),
+                tmp_path,
+            )
