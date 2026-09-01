@@ -6,7 +6,7 @@ import psycopg
 
 from .config import Settings
 
-CURRENT_SCHEMA_REVISION = "0002_task_intake_cas"
+CURRENT_SCHEMA_REVISION = "0003_repository_indexing"
 
 
 @contextmanager

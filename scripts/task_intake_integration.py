@@ -23,7 +23,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0002_task_intake_cas"
+SCHEMA_REVISION = "0003_repository_indexing"
 
 
 def free_port() -> int:

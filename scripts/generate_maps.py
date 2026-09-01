@@ -54,22 +54,49 @@ def build_files() -> dict[Path, str]:
         "| backend/app/config.py | Environment and persistence configuration. |",
         "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",
         "| backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |",
-        "| backend/app/main.py | Versioned FastAPI health, Project Registry and Task Intake API. |",
-        "| backend/app/registry.py | Project Registry schemas, canonical physical "
-        "identity, safe re-inspection and Git inspection. |",
-        "| backend/app/cas.py | Hash-derived Zstandard CAS with atomic publication "
-        "and integrity verification. |",
-        "| backend/app/task_intake.py | Deterministic format extraction, durable "
-        "tasks, reuse and storage metrics. |",
-        "| backend/app/tasks_api.py | Project-scoped task upload, text, artifact, "
-        "preview and storage routes. |",
-        "| backend/app/runner.py | Local Verified Runner change-set admission, safe "
-        "staged application, changed-file verification and gated subprocess evidence. |",
+        (
+            "| backend/app/main.py | Versioned FastAPI health, Project Registry, "
+            "repository indexing and Task Intake API. |"
+        ),
+        (
+            "| backend/app/registry.py | Project Registry schemas, canonical physical "
+            "identity, safe re-inspection and Git inspection. |"
+        ),
+        (
+            "| backend/app/repository_indexer.py | Git-aware bounded inventory, "
+            "deterministic hashing, incremental reconciliation and Python AST "
+            "symbols. |"
+        ),
+        (
+            "| backend/app/cas.py | Hash-derived Zstandard CAS with atomic "
+            "publication and integrity verification. |"
+        ),
+        (
+            "| backend/app/task_intake.py | Deterministic format extraction, durable "
+            "tasks, reuse and storage metrics. |"
+        ),
+        (
+            "| backend/app/tasks_api.py | Project-scoped task upload, text, artifact, "
+            "preview and storage routes. |"
+        ),
+        (
+            "| backend/app/runner.py | Local Verified Runner change-set "
+            "admission/application, path policy, deterministic verification, "
+            "subprocess gating and bounded evidence. |"
+        ),
         "| dashboard/src/App.tsx | Real API health, Project Fleet and Task Intake/CAS dashboard. |",
-        "| migrations/versions/0001_create_projects.py | Durable Project "
-        "Registry schema revision. |",
-        "| migrations/versions/0002_task_intake_cas.py | Durable CAS, task and "
-        "extraction schema revision. |",
+        (
+            "| migrations/versions/0001_create_projects.py | Durable Project Registry "
+            "schema revision. |"
+        ),
+        (
+            "| migrations/versions/0002_task_intake_cas.py | Durable CAS, task and "
+            "extraction schema revision. |"
+        ),
+        (
+            "| migrations/versions/0003_repository_indexing.py | Durable repository "
+            "index runs, current files and Python symbol metadata. |"
+        ),
         "| scripts/review_bundle.py | Brazilian Portuguese audit bundle generation. |",
         "| scripts/check_secrets.py | Deterministic tracked-file secret scan. |",
         "| scripts/generate_maps.py | Regenerates maintenance maps. |",
@@ -84,20 +111,39 @@ def build_files() -> dict[Path, str]:
         "| --- | --- |",
         "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |",
         "| backend/tests/test_health.py | API response shape and degraded status. |",
-        "| backend/tests/test_registry.py | Path boundary, canonical aliases, safe "
-        "Git command construction, language detection and states. |",
-        "| backend/tests/test_projects_api.py | Typed Project Registry API contract, "
-        "errors and persisted blocked state. |",
-        "| backend/tests/test_cas.py | SHA-256 identity, Zstandard round-trip, "
-        "atomic dedup, concurrency and fail-closed corruption checks. |",
-        "| backend/tests/test_task_intake.py | UTF-8/BOM, Markdown, structured "
-        "text, PDF extraction, bounds and no-text behavior. |",
-        "| backend/tests/test_tasks_api.py | Project isolation, verified artifact "
-        "headers and upload/text API contracts. |",
-        "| backend/tests/test_runner.py | Local Verified Runner admission/application, "
-        "path policy, deterministic verification, subprocess gating and bounded evidence. |",
-        "| dashboard/src/App.test.tsx | Health, Project Fleet and real Task "
-        "Intake rendering/operations. |",
+        (
+            "| backend/tests/test_registry.py | Path boundary, canonical aliases, "
+            "safe Git command construction, language detection and states. |"
+        ),
+        (
+            "| backend/tests/test_repository_indexer.py | Python qualified symbols, "
+            "syntax failure and cached tracked-file inventory. |"
+        ),
+        (
+            "| backend/tests/test_projects_api.py | Typed Project Registry API "
+            "contract, errors and persisted blocked state. |"
+        ),
+        (
+            "| backend/tests/test_cas.py | SHA-256 identity, Zstandard round-trip, "
+            "atomic dedup, concurrency and fail-closed corruption checks. |"
+        ),
+        (
+            "| backend/tests/test_task_intake.py | UTF-8/BOM, Markdown, structured "
+            "text, PDF extraction, bounds and no-text behavior. |"
+        ),
+        (
+            "| backend/tests/test_tasks_api.py | Project isolation, verified artifact "
+            "headers and upload/text API contracts. |"
+        ),
+        (
+            "| backend/tests/test_runner.py | Local Verified Runner "
+            "admission/application, path policy, deterministic verification, "
+            "subprocess gating and bounded evidence. |"
+        ),
+        (
+            "| dashboard/src/App.test.tsx | Health, Project Fleet and real Task "
+            "Intake rendering/operations. |"
+        ),
         "| ruff | Backend and script lint/format. |",
         "| mypy | Backend static typing. |",
         "| npm run lint | Dashboard lint. |",
@@ -106,10 +152,20 @@ def build_files() -> dict[Path, str]:
         "| npm run build | Dashboard production build. |",
         "| docker compose config --quiet | Compose syntax and interpolation. |",
         "| scripts/integration_health.py | Container startup and API/dashboard smoke. |",
-        "| scripts/project_registry_integration.py | Clean-database real-Git registry "
-        "E2E, canonical alias guard, unsafe transition/recovery and persistence smoke. |",
-        "| scripts/task_intake_integration.py | Isolated Docker PostgreSQL/CAS E2E "
-        "for all formats, reuse, dedup, isolation, restarts, metrics and corruption. |",
+        (
+            "| scripts/project_registry_integration.py | Clean-database real-Git "
+            "registry E2E, canonical alias guard, unsafe transition/recovery and "
+            "persistence smoke. |"
+        ),
+        (
+            "| scripts/repository_indexing_integration.py | Real-Git/PostgreSQL full, "
+            "incremental, symbol, syntax-failure, isolation and restart evidence. |"
+        ),
+        (
+            "| scripts/task_intake_integration.py | Isolated Docker PostgreSQL/CAS "
+            "E2E for all formats, reuse, dedup, isolation, restarts, metrics and "
+            "corruption. |"
+        ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "",
         f"Indexed source files: {len(all_source)}",

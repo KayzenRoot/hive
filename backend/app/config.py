@@ -41,6 +41,13 @@ class Settings(BaseSettings):
         default=1 * 1024 * 1024, validation_alias="HIVE_TASK_MAX_STRUCTURED_TEXT_BYTES"
     )
     cas_zstd_level: int = Field(default=3, validation_alias="HIVE_CAS_ZSTD_LEVEL")
+    repository_max_files: int = Field(default=10_000, validation_alias="HIVE_REPOSITORY_MAX_FILES")
+    repository_max_file_bytes: int = Field(
+        default=10 * 1024 * 1024, validation_alias="HIVE_REPOSITORY_MAX_FILE_BYTES"
+    )
+    repository_max_total_bytes: int = Field(
+        default=100 * 1024 * 1024, validation_alias="HIVE_REPOSITORY_MAX_TOTAL_BYTES"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -70,6 +77,18 @@ class Settings(BaseSettings):
             raise ValueError("HIVE_TASK_MAX_STRUCTURED_TEXT_BYTES must be positive")
         if not 1 <= self.cas_zstd_level <= 22:
             raise ValueError("HIVE_CAS_ZSTD_LEVEL must be between 1 and 22")
+
+    def validate_repository_limits(self) -> None:
+        if self.repository_max_files <= 0:
+            raise ValueError("HIVE_REPOSITORY_MAX_FILES must be positive")
+        if self.repository_max_file_bytes <= 0:
+            raise ValueError("HIVE_REPOSITORY_MAX_FILE_BYTES must be positive")
+        if self.repository_max_total_bytes <= 0:
+            raise ValueError("HIVE_REPOSITORY_MAX_TOTAL_BYTES must be positive")
+        if self.repository_max_total_bytes < self.repository_max_file_bytes:
+            raise ValueError(
+                "HIVE_REPOSITORY_MAX_TOTAL_BYTES must be at least HIVE_REPOSITORY_MAX_FILE_BYTES"
+            )
 
 
 @lru_cache
