@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-PROJECT REGISTRY APPROVED / V0.1 IMPLEMENTATION ACTIVE
+TASK INTAKE + CAS APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -44,21 +44,25 @@ See `03-SCOPE.md`.
 - Project Registry remains durable across Redis loss/restart and API/container recreation.
 - HIVE Control Center exposes a functional real-data Project Fleet with registration and re-inspection.
 - Real-Git Linux integration coverage validates canonical identity, security-boundary transitions and recovery.
+- Durable Task/Prompt Intake is implemented and bound to `project_id`.
+- PDF, TXT, Markdown and structured text intake is implemented with bounded validation.
+- Original task artifacts are preserved by SHA-256 content address with lossless Zstandard storage.
+- CAS deduplication, exact-byte recovery, corruption fail-closed behavior and project-scoped access are tested.
+- Deterministic derived-text extraction and explicit extraction status are implemented.
+- HIVE Control Center exposes real intake status, original download, derived-text preview and CAS metrics.
+- PR #17 was approved at exact head `3fea9f68aa4a09b106ed4cde0f5f2d1d084dc2a7` and merged as `152edf2423a257cb27e8ae070551c574c4ede6bc`.
+- Post-merge CI run #47 passed on `main` for `152edf2423a257cb27e8ae070551c574c4ede6bc`.
 
 ## IN PROGRESS
-- Preparing the next necessary V0.1 implementation increment.
+- Preparing the smallest necessary Local Verified Runner foundation for autonomous execution/tool gating.
 
 ## PENDING
-- prompt/task intake.
-- durable prompt artifact storage.
-- content-addressable storage.
-- Zstd compression and deduplication.
 - repository indexing.
 - retrieval.
 - memory.
 - ACCE beyond the intake/storage foundation.
 - MCP server product surface.
-- autonomous execution.
+- autonomous execution beyond the Local Verified Runner foundation.
 - telemetry.
 - full Control Center.
 - comprehensive retrieval/token/storage benchmarks.
@@ -69,13 +73,13 @@ See `03-SCOPE.md`.
 - final V0.1 review.
 
 ## BLOCKERS
-None known after Project Registry approval.
+None known after Task Intake + CAS approval.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary autonomous-input vertical slice: durable Task/Prompt Intake bound to `project_id`, accepting PDF/TXT/Markdown and structured text, preserving the original artifact through content-addressable hashing/deduplication with lossless Zstd storage, and exposing real intake status through API/Control Center without implementing repository retrieval, embeddings, RAG or executor orchestration yet.
+Implement the smallest necessary Local Verified Runner foundation for V0.1 autonomous execution and tool gating: isolated Git worktree execution, schema-constrained staged change sets, deterministic admission/application/changed-file verification, bounded subprocess evidence and explicit model/effort metadata, without implementing repository retrieval, embeddings, RAG, memory, MCP product surface or automatic canonical approval yet.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
