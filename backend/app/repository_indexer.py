@@ -215,6 +215,7 @@ class _RepositorySnapshot:
     project_path: Path
     repository_head_sha: str
     git_branch: str | None
+    git_inventory_fingerprint: str
     files: tuple[_TrackedFile, ...]
 
 
@@ -271,7 +272,23 @@ def _git_head(project_path: Path) -> str:
     return head
 
 
-def _git_status_paths(project_path: Path) -> set[str]:
+def _git_branch(project_path: Path) -> str | None:
+    try:
+        result = _run_git(
+            project_path,
+            ["symbolic-ref", "--quiet", "--short", "HEAD"],
+            allow_nonzero=True,
+        )
+    except RepositoryIndexingError as exc:
+        raise RepositoryIndexingError("git_branch_unavailable") from exc
+    if result.returncode == 0:
+        return _decode_git_text(result.stdout, "git_branch_unavailable") or None
+    if result.returncode == 1:
+        return None
+    raise RepositoryIndexingError("git_branch_unavailable")
+
+
+def _git_status_inventory(project_path: Path) -> tuple[set[str], bytes]:
     try:
         result = _run_git(
             project_path,
@@ -288,7 +305,24 @@ def _git_status_paths(project_path: Path) -> set[str]:
             paths.add(raw_path.decode("utf-8"))
         except UnicodeDecodeError as exc:
             raise RepositoryIndexingError("non_utf8_git_path") from exc
-    return paths
+    return paths, result.stdout
+
+
+def _inventory_fingerprint(listing: bytes, status: bytes) -> str:
+    digest = hashlib.sha256()
+    for value in (listing, status):
+        digest.update(len(value).to_bytes(8, "big"))
+        digest.update(value)
+    return digest.hexdigest()
+
+
+def _git_inventory_fingerprint(project_path: Path) -> str:
+    try:
+        listing = _run_git(project_path, ["ls-files", "--cached", "--stage", "-z", "--"])
+    except RepositoryIndexingError as exc:
+        raise RepositoryIndexingError("git_inventory_unavailable") from exc
+    _, status = _git_status_inventory(project_path)
+    return _inventory_fingerprint(listing.stdout, status)
 
 
 def _classify(path: str, source: bytes) -> tuple[str | None, str]:
@@ -383,17 +417,7 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
     if inside.stdout.strip().lower() != b"true":
         raise RepositoryIndexingError("not_a_git_repository")
     head = _git_head(project_root)
-    branch_result = _run_git(
-        project_root,
-        ["symbolic-ref", "--quiet", "--short", "HEAD"],
-        allow_nonzero=True,
-    )
-    if branch_result.returncode == 0:
-        branch = _decode_git_text(branch_result.stdout, "git_branch_unavailable") or None
-    elif branch_result.returncode == 1:
-        branch = None
-    else:
-        raise RepositoryIndexingError("git_branch_unavailable")
+    branch = _git_branch(project_root)
 
     try:
         listing = _run_git(project_root, ["ls-files", "--cached", "--stage", "-z", "--"])
@@ -402,7 +426,8 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
     records = [record for record in listing.stdout.split(b"\0") if record]
     if len(records) > settings.repository_max_files:
         raise RepositoryIndexingError("repository_file_count_limit")
-    status_paths = _git_status_paths(project_root)
+    status_paths, status_inventory = _git_status_inventory(project_root)
+    inventory_fingerprint = _inventory_fingerprint(listing.stdout, status_inventory)
     files: list[_TrackedFile] = []
     total_size = 0
     for record in records:
@@ -423,7 +448,10 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
             raise RepositoryIndexingError("tracked_submodule_unsupported")
         if not SHA_PATTERN.fullmatch(blob_sha):
             raise RepositoryIndexingError("git_inventory_unavailable")
-        resolved_path = _resolve_tracked_path(project_root, path)
+        try:
+            resolved_path = _resolve_tracked_path(project_root, path)
+        except ProjectPathError as exc:
+            raise RepositoryIndexingError("tracked_path_unsafe") from exc
         source, stamp = _read_stable_file(resolved_path, settings)
         total_size += len(source)
         if total_size > settings.repository_max_total_bytes:
@@ -446,7 +474,7 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
             )
         )
     files.sort(key=lambda item: item.path)
-    return _RepositorySnapshot(project_root, head, branch, tuple(files))
+    return _RepositorySnapshot(project_root, head, branch, inventory_fingerprint, tuple(files))
 
 
 def _assert_snapshot_stable(settings: Settings, snapshot: _RepositorySnapshot) -> None:
@@ -459,6 +487,12 @@ def _assert_snapshot_stable(settings: Settings, snapshot: _RepositorySnapshot) -
         source, stamp = _read_stable_file(resolved, settings)
         if stamp != entry.stamp or hashlib.sha256(source).hexdigest() != entry.content_sha256:
             raise RepositoryIndexingError("source_mutated_during_index")
+    if _git_inventory_fingerprint(snapshot.project_path) != snapshot.git_inventory_fingerprint:
+        raise RepositoryIndexingError("git_inventory_changed_during_index")
+    if _git_head(snapshot.project_path) != snapshot.repository_head_sha:
+        raise RepositoryIndexingError("repository_changed_during_index")
+    if _git_branch(snapshot.project_path) != snapshot.git_branch:
+        raise RepositoryIndexingError("repository_changed_during_index")
 
 
 def _run_columns() -> str:
@@ -619,8 +653,6 @@ def _perform_reconcile(
                 parsed_by_path[entry.path] = parse_python_symbols(entry.path, entry.source)
 
         _assert_snapshot_stable(settings, snapshot)
-        if _git_head(snapshot.project_path) != snapshot.repository_head_sha:
-            raise RepositoryIndexingError("repository_changed_during_index")
 
         for path in sorted(removed_paths):
             row = existing[path]
@@ -743,6 +775,7 @@ def _perform_reconcile(
         if symbol_row is None:
             raise RuntimeError("repository symbol count query returned no row")
         symbol_count = int(symbol_row[0])
+        _assert_snapshot_stable(settings, snapshot)
         cursor.execute(
             """
             UPDATE repository_index_runs
@@ -784,6 +817,13 @@ def index_project(settings: Settings, project_id: UUID) -> IndexRunSummary:
         _perform_reconcile(settings, project_id, run_id, snapshot)
     except RepositoryIndexingError as exc:
         return _mark_failed(settings, run_id, exc.code, len(snapshot.files))
+    except psycopg.Error as exc:
+        return _mark_failed(
+            settings,
+            run_id,
+            f"database_error_{type(exc).__name__}",
+            len(snapshot.files),
+        )
     return _get_run(settings, run_id)
 
 

@@ -35,6 +35,7 @@ def upgrade() -> None:
         sa.Column("symbol_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("error", sa.String(length=256), nullable=True),
         sa.PrimaryKeyConstraint("run_id", name="repository_index_runs_pkey"),
+        sa.UniqueConstraint("project_id", "run_id", name="uq_repository_index_runs_project_run"),
         sa.ForeignKeyConstraint(
             ["project_id"],
             ["projects.project_id"],
@@ -94,6 +95,7 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
         sa.PrimaryKeyConstraint("file_id", name="repository_files_pkey"),
+        sa.UniqueConstraint("project_id", "file_id", name="uq_repository_files_project_file"),
         sa.ForeignKeyConstraint(
             ["project_id"],
             ["projects.project_id"],
@@ -101,24 +103,24 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["first_seen_run_id"],
-            ["repository_index_runs.run_id"],
-            name="fk_repository_files_first_seen_run_id",
+            ["project_id", "first_seen_run_id"],
+            ["repository_index_runs.project_id", "repository_index_runs.run_id"],
+            name="fk_repository_files_first_seen_project_run",
         ),
         sa.ForeignKeyConstraint(
-            ["last_seen_run_id"],
-            ["repository_index_runs.run_id"],
-            name="fk_repository_files_last_seen_run_id",
+            ["project_id", "last_seen_run_id"],
+            ["repository_index_runs.project_id", "repository_index_runs.run_id"],
+            name="fk_repository_files_last_seen_project_run",
         ),
         sa.ForeignKeyConstraint(
-            ["last_indexed_run_id"],
-            ["repository_index_runs.run_id"],
-            name="fk_repository_files_last_indexed_run_id",
+            ["project_id", "last_indexed_run_id"],
+            ["repository_index_runs.project_id", "repository_index_runs.run_id"],
+            name="fk_repository_files_last_indexed_project_run",
         ),
         sa.ForeignKeyConstraint(
-            ["removed_in_run_id"],
-            ["repository_index_runs.run_id"],
-            name="fk_repository_files_removed_in_run_id",
+            ["project_id", "removed_in_run_id"],
+            ["repository_index_runs.project_id", "repository_index_runs.run_id"],
+            name="fk_repository_files_removed_project_run",
         ),
         sa.UniqueConstraint("project_id", "path", name="uq_repository_files_project_path"),
         sa.CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_repository_files_sha256"),
@@ -162,9 +164,9 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["file_id"],
-            ["repository_files.file_id"],
-            name="fk_repository_symbols_file_id",
+            ["project_id", "file_id"],
+            ["repository_files.project_id", "repository_files.file_id"],
+            name="fk_repository_symbols_project_file",
             ondelete="CASCADE",
         ),
         sa.UniqueConstraint(
