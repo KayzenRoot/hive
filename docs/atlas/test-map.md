@@ -24,4 +24,4 @@ Generated deterministically by scripts/generate_maps.py.
 | scripts/task_intake_integration.py | Isolated Docker PostgreSQL/CAS E2E for all formats, reuse, dedup, isolation, restarts, metrics and corruption. |
 | scripts/check_secrets.py | Tracked-file secret scan. |
 
-Indexed source files: 38
+Indexed source files: 40
