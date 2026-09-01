@@ -32,6 +32,39 @@ const project = {
   last_inspected_at: "2026-08-31T12:00:00Z",
 };
 
+const task = {
+  task_id: "00000000-0000-0000-0000-000000000101",
+  project_id: project.project_id,
+  title: "Prompt task",
+  source_type: "STRUCTURED_TEXT",
+  intake_status: "READY",
+  original_blob_sha256: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+  original_filename: null,
+  media_type: "text/plain",
+  logical_size: 12,
+  compressed_size: 21,
+  extracted_text_available: true,
+  extraction_method: "hive-text-normalizer",
+  extraction_version: "1",
+  extraction_error: null,
+  page_count: null,
+  created_at: "2026-08-31T12:00:00Z",
+  updated_at: "2026-08-31T12:00:00Z",
+};
+
+const storage = {
+  task_count: 1,
+  referenced_logical_bytes: 12,
+  unique_logical_bytes: 12,
+  physical_cas_bytes: 21,
+  unique_blob_count: 1,
+  deduplication_delta_bytes: 0,
+  compression_delta_bytes: -9,
+  compression_ratio: 1.75,
+  compression_savings_bytes: null,
+  compression_delta_label: "overhead",
+};
+
 function response(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -133,5 +166,40 @@ describe("App", () => {
 
     expect(await screen.findByText("database unavailable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry fleet" })).toBeInTheDocument();
+  });
+
+  it("loads real intake state and submits structured text for a selected project", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/health")) return Promise.resolve(response(healthPayload));
+      if (url.endsWith("/projects") && init?.method !== "POST") {
+        return Promise.resolve(response([project]));
+      }
+      if (url.endsWith("/tasks/text") && init?.method === "POST") {
+        return Promise.resolve(response(task, 201));
+      }
+      if (url.endsWith("/tasks")) return Promise.resolve(response([task]));
+      if (url.endsWith("/storage")) return Promise.resolve(response(storage));
+      return Promise.resolve(response({ text: "derived text" }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await screen.findByText("Project Fleet");
+    fireEvent.change(screen.getByLabelText("Registered project"), {
+      target: { value: project.project_id },
+    });
+
+    expect(await screen.findByText("Prompt task")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Text"), { target: { value: "new prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Accept text" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/projects/" + project.project_id + "/tasks/text"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Texto aceito e armazenado no CAS.")).toBeInTheDocument();
   });
 });

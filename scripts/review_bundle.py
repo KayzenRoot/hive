@@ -19,6 +19,8 @@ def run(command: list[str], check: bool = False) -> str:
         cwd=ROOT,
         text=True,
         capture_output=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     output = result.stdout + result.stderr
@@ -33,6 +35,7 @@ def read_validation(name: str, fallback: str) -> str:
 
 
 def github_evidence() -> str:
+    branch = run(["git", "branch", "--show-current"]).strip()
     commands = [
         [
             "gh",
@@ -57,12 +60,16 @@ def github_evidence() -> str:
         [
             "gh",
             "pr",
-            "view",
-            "15",
+            "list",
+            "--head",
+            branch,
+            "--base",
+            "main",
+            "--state",
+            "all",
             "--json",
-            "number,state,mergedAt,url,headRefName,baseRefName,headRefOid",
+            "number,state,mergedAt,url,headRefName,baseRefName,headRefOid,title",
         ],
-        ["gh", "pr", "checks", "15", "--json", "name,state,bucket,link"],
     ]
     sections: list[str] = []
     for command in commands:
@@ -71,6 +78,8 @@ def github_evidence() -> str:
             cwd=ROOT,
             text=True,
             capture_output=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         sections.append(
@@ -80,6 +89,60 @@ def github_evidence() -> str:
             + result.stdout
             + result.stderr
         )
+    pr_list_result = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--base",
+            "main",
+            "--state",
+            "all",
+            "--json",
+            "number",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    try:
+        pr_items = json.loads(pr_list_result.stdout)
+        pr_number = str(pr_items[0]["number"]) if pr_items else None
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+        pr_number = None
+    if pr_number is not None:
+        for command in [
+            [
+                "gh",
+                "pr",
+                "view",
+                pr_number,
+                "--json",
+                "number,state,mergedAt,url,headRefName,baseRefName,headRefOid,title",
+            ],
+            ["gh", "pr", "checks", pr_number, "--json", "name,state,bucket,link"],
+        ]:
+            result = subprocess.run(
+                command,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            sections.append(
+                "$ "
+                + " ".join(command)
+                + f"\nexit_code: {result.returncode}\n"
+                + result.stdout
+                + result.stderr
+            )
     rulesets_result = subprocess.run(
         ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
         cwd=ROOT,
@@ -106,6 +169,8 @@ def github_evidence() -> str:
             cwd=ROOT,
             text=True,
             capture_output=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         sections.append(
@@ -326,6 +391,144 @@ O checkpoint canônico permanece inalterado até aprovação explícita.
 """
 
 
+def prompt_003_review_markdown(stamp: str, status: str, head: str) -> str:
+    return f"""# Revisão do HIVE Prompt #003 — Task Intake + CAS + Zstd
+
+Data UTC: {stamp}
+Estado da validação registrada: {status}
+
+## 1. Resumo executivo
+
+Implementado o vertical slice determinístico de intake durável por projeto:
+PDF com camada de texto, Markdown, TXT e texto estruturado; PostgreSQL para
+metadados; CAS com SHA-256 do original e Zstandard lossless; extração derivada
+reutilizável; API; Control Center; testes unitários e integração Docker.
+
+## 2. Base/Git
+
+Base auditada: `fd307b8592906c2a6056840989eaf15737acfbb6` em `main`.
+Branch: `feature/003-prompt-intake-cas`. Head: `{head}`. O PR é aberto para
+auditoria de Sol e permanece não mesclado; a evidência GitHub registra número,
+URL, SHA e checks.
+
+## 3. Banco/migrations
+
+`0001_create_projects` permaneceu inalterada. A migration `0002_task_intake_cas`
+cria `cas_blobs`, `task_extractions` e `tasks`, com FKs, checks de digest/status,
+índices de projeto/data/status/digest e chave única para cache de extração.
+
+## 4. CAS
+
+O layout é `HIVE_DATA_ROOT/cas/sha256/ab/<digest-restante>.zst`. A escrita é
+streaming para temporário HIVE-controlado, seguida de hash/size, Zstandard com
+checksum, decompression verification e publicação atômica sem sobrescrever blob
+válido. Leitura materializa e verifica completamente antes da resposta.
+
+## 5. Deduplicação
+
+Digest do original é a identidade; nomes não entram no path. Submissões iguais
+convergem para um blob físico, inclusive entre projetos, mas criam tarefas
+distintas e continuam isoladas por `project_id` + `task_id`. Concorrência é
+testada com writes simultâneos.
+
+## 6. Task/Prompt Intake
+
+POST multipart `/tasks/upload` aceita PDF/MD/TXT com validação de magic/UTF-8;
+POST `/tasks/text` aceita texto estruturado tipado. Cada registro mantém título,
+source type, status, filename, media type, digest e tamanhos.
+
+## 7. Extração
+
+Texto UTF-8/BOM e Markdown usam normalização LF apenas no derivado. PDFs usam
+`pypdf` pinned/versionado, com page/text bounds, page metadata e cache durável
+por digest/kind/extractor/version/config. PDF sem camada resulta em
+`EXTRACTION_FAILED/no_extractable_text`, preservando o original; OCR não foi
+implementado.
+
+## 8. API
+
+List/detail/text/artifact são project-scoped e não expõem download arbitrário
+por hash. Artefatos devolvem bytes exatos e header de digest; headers de filename
+são sanitizados. `/api/v1/storage` calcula task count, logical/unique/physical,
+dedup e compression delta/ratio a partir dos dados reais.
+
+## 9. Segurança
+
+Uploads são untrusted; não há execução de JS, ações, anexos, HTML ou shell.
+Limites de upload/páginas/texto/temp são configuráveis. Paths dependem apenas
+de digest validado, Redis não é durabilidade, acesso cross-project retorna
+not-found e CAS corrompido falha fechado sem devolver bytes inválidos.
+
+## 10. Dashboard
+
+O Control Center seleciona projeto registrado, aceita arquivo ou texto
+estruturado, mostra sucesso/erro, tarefas reais, status/falha, preview do texto,
+download do original e resumo CAS real. Não foram adicionadas métricas fake de
+token/RAG/cache.
+
+## 11. Persistência
+
+O E2E Docker usa root isolado, banco PostgreSQL persistente e CAS no data root.
+Tasks e artefatos continuam disponíveis após parada/restart do Redis e restart
+da API; nenhum Redis read é necessário para listar ou recuperar.
+
+## 12. Testes
+
+Backend: testes de CAS, concorrência, corrupção, digest/path, texto, PDF,
+isolamento por API e headers. Dashboard: renderização, seleção de projeto e
+submissão estruturada. E2E: TXT/MD multipart, structured text, PDF text-layer,
+PDF sem texto, dedup intra/interprojeto, reuse, métricas, Redis/API restart,
+artifact exact bytes e fail-closed.
+
+## 13. Qualidade
+
+Ruff format/check e mypy passam; dashboard lint/typecheck/test/build passam;
+secret scan, mapas, Compose config e migration limpa foram verificados. Warnings
+do npm audit devem ser lidos junto da evidência registrada, sem inventar risco.
+
+## 14. CI
+
+Os jobs obrigatórios `Validate` e `Integration health` incluem a nova integração
+Task Intake/CAS e devem passar no head exato do PR. URLs e estados estão em
+`github-configuration-evidence.txt`.
+
+## 15. Arquivos alterados
+
+Lista completa em `changed-files.txt`; backend, migration, dashboard, CI,
+scripts de integração, mapas, documentação operacional e dependências estão
+separados no diff para auditoria.
+
+## 16. Erros corrigidos
+
+Durante a execução foram corrigidos aliases inválidos em `RETURNING`, validação
+de header case-insensitive no E2E, detecção de truncamento Zstandard e captura
+UTF-8 de logs Windows. Nenhuma correção foi feita no Project Brain.
+
+## 17. Riscos/limitações
+
+Pode existir blob órfão se a transação DB falhar após a publicação; GC está fora
+de escopo. PDF depende de camada de texto e não tem OCR. Limites são defaults
+operacionais configuráveis, não promessa de ingestão ilimitada.
+
+## 18. Escopo negativo
+
+Não foram implementados indexing, RAG/chunking, AST, embeddings, pgvector
+retrieval, BM25, reranking, memory, MCP, executor, providers/LLM, token
+accounting, Redis durable state, WebSocket/SSE, deletion, GC, tiering, release,
+tag ou Prompt #004.
+
+## 19. Review bundle
+
+Este ZIP contém REVIEW.md, diff, arquivos alterados, resultados, integração,
+checks GitHub, dry-run não publicador, status final e SHA-256 do próprio bundle.
+
+## 20. Proposta de checkpoint
+
+Propor `TASK INTAKE + CAS + ZSTD IMPLEMENTED — AGUARDANDO AUDITORIA DE SOL`.
+O Project Brain canônico permanece inalterado; esta é somente uma proposta.
+"""
+
+
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -350,7 +553,7 @@ def main() -> int:
         check=True,
     )
     files: dict[str, str] = {
-        "REVIEW.md": review_markdown(stamp, status.strip(), head),
+        "REVIEW.md": prompt_003_review_markdown(stamp, status.strip(), head),
         "git-status.txt": run(["git", "status", "--short", "--branch"]),
         "git-log.txt": run(["git", "log", "--oneline", "--decorate", "--graph", "-n", "30"]),
         "git-diff.patch": run(["git", "diff", "--binary", "origin/main...HEAD"]),
@@ -370,6 +573,10 @@ def main() -> int:
             "project-registry-integration.txt",
             "Nenhum resultado E2E do Project Registry foi registrado.",
         ),
+        "task-intake-integration.txt": read_validation(
+            "task-intake-integration.txt",
+            "Nenhum resultado E2E de Task Intake/CAS foi registrado.",
+        ),
         "github-configuration-evidence.txt": github_evidence(),
         "release-package-dry-run.txt": release_dry_run,
         "release-readiness.txt": (
@@ -382,11 +589,11 @@ def main() -> int:
         ),
         "proposed-checkpoint-update.md": """# Proposta staged de checkpoint
 
-Status proposto: PROJECT REGISTRY CORRECTION IMPLEMENTED - AGUARDANDO AUDITORIA DE SOL.
+Status proposto: TASK INTAKE + CAS + ZSTD IMPLEMENTED - AGUARDANDO AUDITORIA DE SOL.
 
-Evidência: a branch feature/002-project-registry contém a identidade física
-canônica, o estado BLOCKED para transições inseguras, inspeção determinística,
-API, Project Fleet e as validações corretivas do incremento #002.
+Evidência: a branch feature/003-prompt-intake-cas contém a migração durável,
+CAS SHA-256/Zstandard, intake PDF/Markdown/TXT/texto estruturado, extração
+determinística reutilizável, API, Control Center e validações do incremento #003.
 
 Não promover esta proposta automaticamente. O checkpoint canônico permanece
 inalterado até revisão e aprovação explícitas.
@@ -395,7 +602,7 @@ inalterado até revisão e aprovação explícitas.
     for name, content in files.items():
         (work / name).write_text(content, encoding="utf-8", newline="\n")
 
-    zip_path = OUT_DIR / f"hive-project-registry-review-{stamp}.zip"
+    zip_path = OUT_DIR / f"hive-prompt-003-task-intake-review-{stamp}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(work.iterdir()):
             archive.write(path, arcname=path.name)

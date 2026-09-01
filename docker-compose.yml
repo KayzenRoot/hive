@@ -45,6 +45,22 @@ services:
     networks:
       - hive
 
+  storage-init:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    user: "root"
+    environment:
+      HIVE_DATA_ROOT: /var/lib/hive
+    volumes:
+      - ${HIVE_DATA_ROOT:-.hive-data}:/var/lib/hive
+    command:
+      - sh
+      - -c
+      - mkdir -p /var/lib/hive/cas /var/lib/hive/tmp && chown -R hive:hive /var/lib/hive/cas /var/lib/hive/tmp
+    networks:
+      - hive
+
   api:
     build:
       context: .
@@ -67,6 +83,8 @@ services:
       redis:
         condition: service_healthy
       migration:
+        condition: service_completed_successfully
+      storage-init:
         condition: service_completed_successfully
     healthcheck:
       test:

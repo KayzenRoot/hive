@@ -391,6 +391,144 @@ button:disabled {
   font-size: 0.76rem;
 }
 
+.intake-section {
+  margin-top: 22px;
+  border: 1px solid #233048;
+  border-radius: 18px;
+  padding: 24px;
+  background: rgba(12, 21, 37, 0.72);
+}
+
+.project-picker {
+  display: grid;
+  gap: 7px;
+  max-width: 520px;
+  color: #92a3bd;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-picker select,
+.intake-card select,
+.intake-card textarea,
+.intake-card input:not([type="file"]) {
+  width: 100%;
+  border: 1px solid #344259;
+  border-radius: 9px;
+  padding: 10px 11px;
+  color: #dce8f8;
+  background: #111b2d;
+  font: inherit;
+}
+
+.intake-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.intake-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #233048;
+  border-radius: 14px;
+  padding: 18px;
+  background: rgba(17, 27, 45, 0.74);
+}
+
+.intake-card h3 {
+  margin: 0;
+  color: #f4f7fc;
+  font-size: 1.05rem;
+}
+
+.intake-card p {
+  margin: 0;
+  color: #92a3bd;
+  font-size: 0.82rem;
+}
+
+.intake-card label {
+  display: grid;
+  gap: 7px;
+  color: #92a3bd;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.intake-card textarea {
+  min-height: 125px;
+  resize: vertical;
+}
+
+.intake-card input[type="file"] {
+  color: #92a3bd;
+  font-size: 0.78rem;
+}
+
+.success-message {
+  color: #83e9cc;
+}
+
+.storage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 14px;
+}
+
+.storage-summary span {
+  border: 1px solid #344259;
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #bbcadf;
+  font-size: 0.72rem;
+}
+
+.task-list {
+  display: grid;
+  gap: 12px;
+}
+
+.task-card {
+  border: 1px solid #233048;
+  border-radius: 16px;
+  padding: 18px;
+  background: rgba(17, 27, 45, 0.74);
+}
+
+.task-details {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-actions a {
+  text-decoration: none;
+}
+
+.text-preview {
+  max-height: 260px;
+  overflow: auto;
+  margin: 14px 0 0;
+  border: 1px solid #233048;
+  border-radius: 9px;
+  padding: 12px;
+  color: #c5d3e8;
+  background: #0a1220;
+  font-size: 0.76rem;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 720px) {
   .shell {
     width: min(100% - 32px, 560px);
@@ -410,7 +548,8 @@ button:disabled {
   }
 
   .register-form,
-  .project-details {
+  .project-details,
+  .intake-grid {
     grid-template-columns: 1fr;
   }
 

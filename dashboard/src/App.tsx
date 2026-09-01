@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
 type Check = {
   status: string;
@@ -31,6 +37,39 @@ type Project = {
   last_inspected_at: string;
 };
 
+type Task = {
+  task_id: string;
+  project_id: string;
+  title: string | null;
+  source_type: string;
+  intake_status: string;
+  original_blob_sha256: string;
+  original_filename: string | null;
+  media_type: string;
+  logical_size: number;
+  compressed_size: number;
+  extracted_text_available: boolean;
+  extraction_method: string;
+  extraction_version: string;
+  extraction_error: string | null;
+  page_count: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type StorageStats = {
+  task_count: number;
+  referenced_logical_bytes: number;
+  unique_logical_bytes: number;
+  physical_cas_bytes: number;
+  unique_blob_count: number;
+  deduplication_delta_bytes: number;
+  compression_delta_bytes: number;
+  compression_ratio: number | null;
+  compression_savings_bytes: number | null;
+  compression_delta_label: string;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 const checkLabels: Record<string, string> = {
@@ -50,6 +89,18 @@ function App() {
   const [projectPath, setProjectPath] = useState("");
   const [registering, setRegistering] = useState(false);
   const [inspectingProjectId, setInspectingProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [intakeLoading, setIntakeLoading] = useState(false);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [intakeMessage, setIntakeMessage] = useState<string | null>(null);
+  const [intakeTitle, setIntakeTitle] = useState("");
+  const [intakeFile, setIntakeFile] = useState<File | null>(null);
+  const [textInput, setTextInput] = useState("");
+  const [textFormat, setTextFormat] = useState<"text" | "markdown">("text");
+  const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<string | null>(null);
 
   const loadHealth = useCallback(async () => {
     setLoading(true);
@@ -145,6 +196,125 @@ function App() {
       setProjectError(caught instanceof Error ? caught.message : "Falha ao inspecionar projeto.");
     } finally {
       setInspectingProjectId(null);
+    }
+  };
+
+  const loadTaskSurface = useCallback(async (projectId: string) => {
+    setIntakeLoading(true);
+    setIntakeError(null);
+    try {
+      const [tasksResponse, storageResponse] = await Promise.all([
+        fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/tasks", { cache: "no-store" }),
+        fetch(API_BASE_URL + "/api/v1/storage", { cache: "no-store" }),
+      ]);
+      const tasksPayload = (await tasksResponse.json()) as unknown;
+      const storagePayload = (await storageResponse.json()) as unknown;
+      if (!tasksResponse.ok) {
+        throw new Error(readApiError(tasksPayload, "Não foi possível carregar as tarefas."));
+      }
+      if (!storageResponse.ok) {
+        throw new Error(readApiError(storagePayload, "Não foi possível carregar o storage."));
+      }
+      setTasks(tasksPayload as Task[]);
+      setStorageStats(storagePayload as StorageStats);
+    } catch (caught) {
+      setTasks([]);
+      setStorageStats(null);
+      setIntakeError(caught instanceof Error ? caught.message : "Falha ao carregar o intake.");
+    } finally {
+      setIntakeLoading(false);
+    }
+  }, []);
+
+  const selectIntakeProject = (event: ChangeEvent<HTMLSelectElement>) => {
+    const projectId = event.target.value;
+    setSelectedProjectId(projectId);
+    setPreviewTaskId(null);
+    setPreviewText(null);
+    if (projectId) void loadTaskSurface(projectId);
+    else {
+      setTasks([]);
+      setStorageStats(null);
+    }
+  };
+
+  const submitUpload = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedProjectId || !intakeFile) {
+      setIntakeError("Escolha um projeto e um arquivo PDF, Markdown ou TXT.");
+      return;
+    }
+    setIntakeLoading(true);
+    setIntakeError(null);
+    setIntakeMessage(null);
+    const formData = new FormData();
+    formData.append("file", intakeFile);
+    if (intakeTitle.trim()) formData.append("title", intakeTitle.trim());
+    try {
+      const response = await fetch(
+        API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/tasks/upload",
+        { method: "POST", body: formData },
+      );
+      const payload = (await response.json()) as unknown;
+      if (!response.ok) throw new Error(readApiError(payload, "Falha ao aceitar o arquivo."));
+      setIntakeFile(null);
+      setIntakeTitle("");
+      setIntakeMessage("Arquivo aceito e armazenado no CAS.");
+      await loadTaskSurface(selectedProjectId);
+    } catch (caught) {
+      setIntakeError(caught instanceof Error ? caught.message : "Falha ao enviar o arquivo.");
+      setIntakeLoading(false);
+    }
+  };
+
+  const submitText = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedProjectId || !textInput.trim()) {
+      setIntakeError("Escolha um projeto e informe o texto estruturado.");
+      return;
+    }
+    setIntakeLoading(true);
+    setIntakeError(null);
+    setIntakeMessage(null);
+    try {
+      const response = await fetch(
+        API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/tasks/text",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: intakeTitle.trim() || null,
+            text: textInput,
+            format: textFormat,
+          }),
+        },
+      );
+      const payload = (await response.json()) as unknown;
+      if (!response.ok) throw new Error(readApiError(payload, "Falha ao aceitar o texto."));
+      setTextInput("");
+      setIntakeTitle("");
+      setIntakeMessage("Texto aceito e armazenado no CAS.");
+      await loadTaskSurface(selectedProjectId);
+    } catch (caught) {
+      setIntakeError(caught instanceof Error ? caught.message : "Falha ao enviar o texto.");
+      setIntakeLoading(false);
+    }
+  };
+
+  const previewTask = async (taskId: string) => {
+    if (!selectedProjectId) return;
+    setPreviewTaskId(taskId);
+    setPreviewText(null);
+    try {
+      const response = await fetch(
+        API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/tasks/" + taskId + "/text",
+        { cache: "no-store" },
+      );
+      const payload = (await response.json()) as unknown;
+      if (!response.ok) throw new Error(readApiError(payload, "Texto derivado indisponível."));
+      setPreviewText((payload as { text: string }).text);
+    } catch (caught) {
+      setPreviewText(caught instanceof Error ? caught.message : "Texto derivado indisponível.");
     }
   };
 
@@ -305,6 +475,116 @@ function App() {
         )}
       </section>
 
+      <section className="intake-section" aria-labelledby="intake-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">DURABLE TASK / PROMPT INTAKE</p>
+            <h2 id="intake-title">Task Intake + CAS</h2>
+          </div>
+          <span className="fleet-count">Original bytes + Zstd</span>
+        </div>
+        <label className="project-picker">
+          Registered project
+          <select aria-label="Registered project" value={selectedProjectId} onChange={selectIntakeProject}>
+            <option value="">Choose a project…</option>
+            {projects.map((project) => (
+              <option key={project.project_id} value={project.project_id}>
+                {project.name} · {project.relative_path}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="intake-grid">
+          <form className="intake-card" onSubmit={(event) => void submitUpload(event)}>
+            <h3>Upload artifact</h3>
+            <p>PDF with text layer, Markdown or UTF-8 TXT. OCR is not used.</p>
+            <label>
+              Optional title
+              <input value={intakeTitle} onChange={(event) => setIntakeTitle(event.target.value)} />
+            </label>
+            <label>
+              File
+              <input
+                required
+                type="file"
+                accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain"
+                onChange={(event) => setIntakeFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <button className="refresh-button" disabled={intakeLoading} type="submit">
+              {intakeLoading ? "Accepting..." : "Accept file"}
+            </button>
+          </form>
+          <form className="intake-card" onSubmit={(event) => void submitText(event)}>
+            <h3>Structured text</h3>
+            <p>Text is normalized only in the derived representation.</p>
+            <label>
+              Format
+              <select value={textFormat} onChange={(event) => setTextFormat(event.target.value as "text" | "markdown")}>
+                <option value="text">TXT</option>
+                <option value="markdown">Markdown</option>
+              </select>
+            </label>
+            <label>
+              Text
+              <textarea required value={textInput} onChange={(event) => setTextInput(event.target.value)} />
+            </label>
+            <button className="refresh-button" disabled={intakeLoading} type="submit">
+              {intakeLoading ? "Accepting..." : "Accept text"}
+            </button>
+          </form>
+        </div>
+        {intakeMessage ? <p className="success-message" role="status">{intakeMessage}</p> : null}
+        {intakeError ? <p className="error-message" role="alert">{intakeError}</p> : null}
+        {selectedProjectId ? (
+          <>
+            <div className="storage-summary" aria-label="Storage summary">
+              {storageStats ? (
+                <>
+                  <span>{storageStats.task_count} tasks</span>
+                  <span>{formatBytes(storageStats.unique_logical_bytes)} unique logical</span>
+                  <span>{formatBytes(storageStats.physical_cas_bytes)} physical CAS</span>
+                  <span>{storageStats.unique_blob_count} blobs</span>
+                  <span>{formatBytes(storageStats.deduplication_delta_bytes)} dedup delta</span>
+                  <span>
+                    Compression {storageStats.compression_ratio === null ? "—" : `${(storageStats.compression_ratio * 100).toFixed(1)}%`} ({storageStats.compression_delta_label})
+                  </span>
+                </>
+              ) : intakeLoading ? <span>Loading real storage metrics...</span> : null}
+            </div>
+            <div className="task-list" aria-live="polite">
+              {tasks.length === 0 && !intakeLoading ? (
+                <p className="fleet-message">No tasks accepted for this project yet.</p>
+              ) : (
+                tasks.map((task) => (
+                  <article className="task-card" key={task.task_id}>
+                    <div className="project-card-heading">
+                      <div>
+                        <h3>{task.title ?? task.original_filename ?? "Untitled task"}</h3>
+                        <p>{task.source_type} · {task.original_blob_sha256.slice(0, 12)}</p>
+                      </div>
+                      <span className={"state-badge state-" + task.intake_status.toLowerCase()}>{task.intake_status}</span>
+                    </div>
+                    <dl className="project-details task-details">
+                      <div><dt>Logical</dt><dd>{formatBytes(task.logical_size)}</dd></div>
+                      <div><dt>Compressed</dt><dd>{formatBytes(task.compressed_size)}</dd></div>
+                      <div><dt>File</dt><dd>{task.original_filename ?? "structured input"}</dd></div>
+                      <div><dt>Created</dt><dd>{formatTimestamp(task.created_at)}</dd></div>
+                    </dl>
+                    {task.extraction_error ? <p className="error-message">{task.extraction_error}</p> : null}
+                    <div className="task-actions">
+                      <a className="secondary-button" href={API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/tasks/" + task.task_id + "/artifact"}>Download original</a>
+                      {task.extracted_text_available ? <button className="secondary-button" onClick={() => void previewTask(task.task_id)}>Preview extracted text</button> : null}
+                    </div>
+                    {previewTaskId === task.task_id && previewText !== null ? <pre className="text-preview">{previewText}</pre> : null}
+                  </article>
+                ))
+              )}
+            </div>
+          </>
+        ) : <p className="fleet-message">Select a registered project to inspect durable intake state.</p>}
+      </section>
+
       <footer className="footer">
         <span>Version {health?.version ?? "0.0.1-bootstrap"}</span>
         <span>{health ? "Last API update " + formatTimestamp(health.timestamp) : "No API data"}</span>
@@ -328,6 +608,12 @@ function formatTimestamp(value: string): string {
     minute: "2-digit",
     second: "2-digit",
   }).format(new Date(value));
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default App;

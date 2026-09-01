@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_REVISION = "0001_create_projects"
+SCHEMA_REVISION = "0002_task_intake_cas"
 
 
 def free_port() -> int:
@@ -32,6 +32,8 @@ def run(
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if check and result.returncode != 0:
@@ -56,6 +58,17 @@ def git(repo: Path, arguments: list[str], *, env: dict[str, str]) -> str:
 def request(
     base_url: str, method: str, path: str, payload: dict[str, Any] | None = None
 ) -> tuple[int, dict[str, Any] | list[Any]]:
+    def decode_body(raw: bytes) -> dict[str, Any] | list[Any]:
+        if not raw:
+            return {"detail": "empty HTTP response body"}
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {"detail": raw.decode("utf-8", "replace")[:1000]}
+        if isinstance(decoded, dict | list):
+            return decoded
+        return {"detail": str(decoded)}
+
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request_object = urllib.request.Request(
         base_url + path,
@@ -65,9 +78,9 @@ def request(
     )
     try:
         with urllib.request.urlopen(request_object, timeout=10) as response:
-            return response.status, json.loads(response.read().decode("utf-8"))
+            return response.status, decode_body(response.read())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+        return exc.code, decode_body(exc.read())
 
 
 def wait_for_health(base_url: str) -> dict[str, Any]:

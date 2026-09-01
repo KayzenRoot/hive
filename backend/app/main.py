@@ -19,6 +19,7 @@ from .registry import (
     list_projects,
     register_project,
 )
+from .tasks_api import router as task_router
 
 settings = get_settings()
 
@@ -42,6 +43,7 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.include_router(task_router)
 
 
 @app.get("/", tags=["meta"])

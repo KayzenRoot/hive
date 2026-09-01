@@ -60,6 +60,10 @@ persistence is convenience-only and reconstructible.
 See [docs/PROJECT-REGISTRY.md](docs/PROJECT-REGISTRY.md) for registration,
 inspection, migration and path-boundary details.
 
+See [docs/TASK-INTAKE-CAS.md](docs/TASK-INTAKE-CAS.md) for durable task intake,
+exact-byte CAS recovery, Zstandard, project isolation, limits and storage
+metrics.
+
 See docs/INSTALLATION.md for the full lifecycle and docs/TROUBLESHOOTING.md for
 common failures.
 
