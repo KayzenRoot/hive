@@ -33,6 +33,8 @@ _SAFE_ENV_NAMES = frozenset(
     }
 )
 
+_SHELL_EXECUTABLE_STEMS = frozenset({"bash", "cmd", "fish", "powershell", "pwsh", "sh", "zsh"})
+
 
 class RunnerError(Exception):
     """Base class for local verified runner errors."""
@@ -158,9 +160,9 @@ class ToolPolicy:
     def check(self, argv: Sequence[str]) -> None:
         if not argv or argv[0] not in self.allowed_executables:
             raise ToolPolicyError("executable is not allowed by the tool policy")
-        shell_names = {"sh", "bash", "zsh", "fish", "cmd", "cmd.exe", "powershell", "pwsh"}
         executable_name = PureWindowsPath(argv[0]).name.casefold()
-        if executable_name in shell_names:
+        executable_stem = PureWindowsPath(executable_name).stem.casefold()
+        if executable_stem in _SHELL_EXECUTABLE_STEMS:
             raise ToolPolicyError("shell executables are not allowed")
 
 
@@ -631,12 +633,15 @@ def apply_admitted(admission: Admission) -> ApplyResult:
         if operation.kind is OperationKind.CREATE:
             if operation.content is None:
                 raise ApplicationError(f"content missing for create: {relative_path}")
+            _check_operation_state(operation, target)
             _write_new_file(target, operation.content)
         elif operation.kind is OperationKind.REPLACE:
             if operation.content is None:
                 raise ApplicationError(f"content missing for replace: {relative_path}")
+            _check_operation_state(operation, target)
             _replace_file(target, operation.content)
         else:
+            _check_operation_state(operation, target)
             _delete_file(target)
         applied.append(relative_path)
 

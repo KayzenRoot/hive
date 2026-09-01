@@ -185,7 +185,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
-    await screen.findByText("Project Fleet");
+    await screen.findByRole("option", { name: /HIVE/ });
     fireEvent.change(screen.getByLabelText("Registered project"), {
       target: { value: project.project_id },
     });

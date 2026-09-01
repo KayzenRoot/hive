@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from app import runner as runner_module
 from app.runner import (
     AdmissionLimits,
     ChangeOperation,
@@ -72,6 +73,55 @@ def test_valid_replace_and_stale_hash_refusal(tmp_path: Path) -> None:
     stale = ChangeOperation.replace("file.txt", b"new", digest(b"before"))
     with pytest.raises(PreconditionError, match="stale SHA-256"):
         admit_change_set(ChangeSet.from_operations([stale]), tmp_path)
+
+
+@pytest.mark.parametrize("later_kind", ("replace", "delete"))
+def test_apply_rechecks_later_target_before_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    later_kind: str,
+) -> None:
+    first_target = tmp_path / "first.txt"
+    later_target = tmp_path / "later.txt"
+    first_target.write_bytes(b"first before")
+    later_target.write_bytes(b"later before")
+
+    first_operation = ChangeOperation.replace(
+        "first.txt",
+        b"first after",
+        digest(b"first before"),
+    )
+    if later_kind == "replace":
+        later_operation = ChangeOperation.replace(
+            "later.txt",
+            b"runner later",
+            digest(b"later before"),
+        )
+    else:
+        later_operation = ChangeOperation.delete("later.txt", digest(b"later before"))
+
+    admission = admit_change_set(
+        ChangeSet.from_operations([first_operation, later_operation]),
+        tmp_path,
+    )
+
+    original_replace = runner_module._replace_file
+    mutation_count = 0
+
+    def replace_and_mutate_later(path: Path, content: bytes) -> None:
+        nonlocal mutation_count
+        original_replace(path, content)
+        mutation_count += 1
+        if mutation_count == 1:
+            later_target.write_bytes(b"changed externally")
+
+    monkeypatch.setattr(runner_module, "_replace_file", replace_and_mutate_later)
+
+    with pytest.raises(PreconditionError, match="during apply"):
+        apply_admitted(admission)
+
+    assert first_target.read_bytes() == b"first after"
+    assert later_target.read_bytes() == b"changed externally"
 
 
 def test_valid_delete_and_stale_hash_refusal(tmp_path: Path) -> None:
@@ -201,6 +251,17 @@ def test_subprocess_timeout_and_tool_gate_are_captured() -> None:
             cwd=Path.cwd(),
             tool_policy=policy,
         )
+
+
+@pytest.mark.parametrize(
+    "executable",
+    ("bash.exe", "sh.exe", "BASH.EXE", "SH.EXE"),
+)
+def test_windows_shell_executable_variants_are_rejected(executable: str) -> None:
+    policy = ToolPolicy((executable,))
+
+    with pytest.raises(ToolPolicyError, match="shell executables"):
+        policy.check([executable, "--version"])
 
 
 def test_subprocess_environment_is_allowlisted(
