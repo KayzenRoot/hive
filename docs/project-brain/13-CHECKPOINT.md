@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-LOCAL VERIFIED RUNNER APPROVED / V0.1 IMPLEMENTATION ACTIVE
+REPOSITORY INDEXING APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -58,9 +58,15 @@ See `03-SCOPE.md`.
 - Deterministic Module Registry/Test Map include the Local Verified Runner, and the Windows validation harness is UTF-8/console-safe.
 - PR #21 was approved at exact head `22f6996fd7f5b3e2537d1009c91929bde96c4c13` and merged as `80aa34a1c5d9a4060fbdf07bc23f93340a54d76b`.
 - Post-merge CI run `33508738134` passed on `main` for `80aa34a1c5d9a4060fbdf07bc23f93340a54d76b`.
+- Deterministic repository indexing foundation implemented with Git-aware tracked-file inventory, stable SHA-256 content identity, incremental add/change/remove/reuse semantics and Python AST symbol metadata.
+- Repository indexing metadata and provenance are durable in PostgreSQL and remain project-scoped through composite same-project constraints.
+- Repository indexing fails closed on unsafe tracked paths, source/Git inventory mutation and Python syntax failure without corrupting the prior valid index.
+- Real Git/PostgreSQL integration proves incremental reuse, add/change/remove, qualified Python symbols, project isolation, cross-project FK rejection, transactional rollback and restart persistence.
+- PR #23 was approved at exact head `be71bc99d715d623b895bf4e1e7c95d3586ad053` and squash-merged as `ee2580473a0226ad38a40695366129f5473fa974`.
+- Post-merge CI run `33565088918` passed on `main` for `ee2580473a0226ad38a40695366129f5473fa974`.
 
 ## IN PROGRESS
-- Preparing the smallest necessary deterministic repository indexing foundation for Git-aware context construction.
+- Preparing the smallest necessary project-scoped retrieval corpus and lexical candidate-generation foundation for hybrid retrieval.
 
 ## PENDING
 - retrieval.
@@ -78,13 +84,13 @@ See `03-SCOPE.md`.
 - final V0.1 review.
 
 ## BLOCKERS
-None known after Local Verified Runner approval.
+None known after Repository Indexing approval.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary deterministic repository indexing foundation for V0.1 context construction: Git-aware file inventory, stable content hashes, incremental change detection and AST/symbol metadata for supported primary languages, with durable metadata/provenance and without semantic retrieval, reranking, embeddings, memory, MCP product surface or LLM-based indexing yet.
+Implement the smallest necessary retrieval foundation for V0.1: build a project-scoped retrieval corpus over repository file/symbol metadata and ingested derived text, add deterministic chunk/reference provenance and lexical candidate generation, and establish the benchmark/evidence surface needed for later pgvector semantic retrieval and reranking. Do not add memory, Context Manager orchestration, MCP product surface or autonomous retrieval execution in this increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
