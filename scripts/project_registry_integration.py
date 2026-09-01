@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_REVISION = "0002_task_intake_cas"
+SCHEMA_REVISION = "0003_repository_indexing"
 
 
 def free_port() -> int:
@@ -427,11 +427,7 @@ def main() -> int:
             assert isinstance(after_redis_loss, dict)
             assert_equal(after_redis_loss["git_head_sha"], second_head, "post-Redis-loss HEAD")
 
-            compose(
-                project_name,
-                ["up", "-d", "--force-recreate", "api"],
-                env=environment,
-            )
+            compose(project_name, ["up", "-d", "--force-recreate", "api"], env=environment)
             wait_for_health(api_url)
             status, after_api_restart = request(api_url, "GET", f"/api/v1/projects/{project_id}")
             assert_equal(status, 200, "post-API-restart fetch status")

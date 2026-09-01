@@ -48,6 +48,8 @@ jobs:
         run: python scripts/integration_health.py
       - name: Run Project Registry real-Git integration test
         run: python scripts/project_registry_integration.py
+      - name: Run Repository Indexing real-Git integration test
+        run: python scripts/repository_indexing_integration.py
       - name: Run Task Intake and CAS integration test
         run: python scripts/task_intake_integration.py
       - name: Collect service logs

@@ -19,6 +19,7 @@ from .registry import (
     list_projects,
     register_project,
 )
+from .repository_indexer import router as repository_index_router
 from .tasks_api import router as task_router
 
 settings = get_settings()
@@ -32,7 +33,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="HIVE API",
-    description="Local-first HIVE foundation and durable Project Registry.",
+    description="Local-first HIVE foundation, Project Registry and repository indexing.",
     version=settings.version,
     lifespan=lifespan,
 )
@@ -44,6 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(task_router)
+app.include_router(repository_index_router)
 
 
 @app.get("/", tags=["meta"])
