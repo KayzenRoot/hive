@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-TASK INTAKE + CAS APPROVED / V0.1 IMPLEMENTATION ACTIVE
+LOCAL VERIFIED RUNNER APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -52,12 +52,17 @@ See `03-SCOPE.md`.
 - HIVE Control Center exposes real intake status, original download, derived-text preview and CAS metrics.
 - PR #17 was approved at exact head `3fea9f68aa4a09b106ed4cde0f5f2d1d084dc2a7` and merged as `152edf2423a257cb27e8ae070551c574c4ede6bc`.
 - Post-merge CI run #47 passed on `main` for `152edf2423a257cb27e8ae070551c574c4ede6bc`.
+- Local Verified Runner foundation implemented with schema-constrained staged change sets, deterministic path/admission/application/changed-file verification, per-mutation SHA-256 revalidation and non-canonical staged results.
+- ToolPolicy enforces executable allowlists, normalized shell blocking, explicit subprocess environment allowlisting, bounded stdout/stderr capture, timeouts and model/effort evidence.
+- Windows path security covers traversal, symlink escape, reserved device names, ADS, trailing dot/space and case aliases with regression tests.
+- Deterministic Module Registry/Test Map include the Local Verified Runner, and the Windows validation harness is UTF-8/console-safe.
+- PR #21 was approved at exact head `22f6996fd7f5b3e2537d1009c91929bde96c4c13` and merged as `80aa34a1c5d9a4060fbdf07bc23f93340a54d76b`.
+- Post-merge CI run `33508738134` passed on `main` for `80aa34a1c5d9a4060fbdf07bc23f93340a54d76b`.
 
 ## IN PROGRESS
-- Preparing the smallest necessary Local Verified Runner foundation for autonomous execution/tool gating.
+- Preparing the smallest necessary deterministic repository indexing foundation for Git-aware context construction.
 
 ## PENDING
-- repository indexing.
 - retrieval.
 - memory.
 - ACCE beyond the intake/storage foundation.
@@ -73,13 +78,13 @@ See `03-SCOPE.md`.
 - final V0.1 review.
 
 ## BLOCKERS
-None known after Task Intake + CAS approval.
+None known after Local Verified Runner approval.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary Local Verified Runner foundation for V0.1 autonomous execution and tool gating: isolated Git worktree execution, schema-constrained staged change sets, deterministic admission/application/changed-file verification, bounded subprocess evidence and explicit model/effort metadata, without implementing repository retrieval, embeddings, RAG, memory, MCP product surface or automatic canonical approval yet.
+Implement the smallest necessary deterministic repository indexing foundation for V0.1 context construction: Git-aware file inventory, stable content hashes, incremental change detection and AST/symbol metadata for supported primary languages, with durable metadata/provenance and without semantic retrieval, reranking, embeddings, memory, MCP product surface or LLM-based indexing yet.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
