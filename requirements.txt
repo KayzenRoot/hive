@@ -12,7 +12,7 @@ pydantic==2.13.5
 pydantic-core==2.46.5
 pydantic-settings==2.7.1
 psycopg==3.2.4
-psycopg-binary==3.2.4
+psycopg-binary==3.3.4
 SQLAlchemy==2.0.38
 python-dotenv==1.2.3
 redis==5.2.1
