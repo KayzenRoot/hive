@@ -20,6 +20,7 @@ from .registry import (
     register_project,
 )
 from .repository_indexer import router as repository_index_router
+from .reranking import router as reranking_router
 from .retrieval import router as retrieval_router
 from .semantic_retrieval import router as semantic_retrieval_router
 from .tasks_api import router as task_router
@@ -50,6 +51,7 @@ app.include_router(task_router)
 app.include_router(repository_index_router)
 app.include_router(retrieval_router)
 app.include_router(semantic_retrieval_router)
+app.include_router(reranking_router)
 
 
 @app.get("/", tags=["meta"])

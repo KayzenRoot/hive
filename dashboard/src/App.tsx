@@ -161,6 +161,31 @@ type HybridResult = LexicalResult & {
   semantic_contribution: number;
 };
 
+type RerankResult = HybridResult & {
+  pre_rerank_rank: number;
+  rerank_rank: number;
+  rerank_score: number | null;
+};
+
+type RerankerStatus = {
+  project_id: string;
+  enabled: boolean;
+  configured: boolean;
+  reranker_profile: {
+    adapter_kind: string;
+    model: string;
+    model_revision: string | null;
+    serialization_version: string;
+    identity_fingerprint: string;
+  } | null;
+  serialization_version: string;
+  candidate_pool: number;
+  max_document_chars: number;
+  max_query_chars: number;
+};
+
+type RetrievalMode = "lexical" | "semantic" | "hybrid" | "rerank";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 const checkLabels: Record<string, string> = {
@@ -197,10 +222,14 @@ function App() {
   const [retrievalResults, setRetrievalResults] = useState<LexicalResult[]>([]);
   const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
   const [hybridResults, setHybridResults] = useState<HybridResult[]>([]);
+  const [rerankResults, setRerankResults] = useState<RerankResult[]>([]);
+  const [rerankStatus, setRerankStatus] = useState<RerankerStatus | null>(null);
   const [retrievalQuery, setRetrievalQuery] = useState("");
   const [retrievalTopK, setRetrievalTopK] = useState(5);
+  const [retrievalCandidatePool, setRetrievalCandidatePool] = useState(20);
   const [retrievalSourceKind, setRetrievalSourceKind] = useState("");
-  const [retrievalMode, setRetrievalMode] = useState<"lexical" | "semantic" | "hybrid">("lexical");
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("lexical");
+  const [rerankStrict, setRerankStrict] = useState(false);
   const [retrievalLoading, setRetrievalLoading] = useState(false);
   const [retrievalMessage, setRetrievalMessage] = useState<string | null>(null);
   const [retrievalError, setRetrievalError] = useState<string | null>(null);
@@ -306,7 +335,7 @@ function App() {
     setIntakeLoading(true);
     setIntakeError(null);
     try {
-      const [tasksResponse, storageResponse, corpusResponse, semanticResponse] = await Promise.all([
+      const [tasksResponse, storageResponse, corpusResponse, semanticResponse, rerankResponse] = await Promise.all([
         fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/tasks", { cache: "no-store" }),
         fetch(API_BASE_URL + "/api/v1/storage", { cache: "no-store" }),
         fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/retrieval/corpus", {
@@ -315,11 +344,15 @@ function App() {
         fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/retrieval/semantic", {
           cache: "no-store",
         }),
+        fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/retrieval/rerank/status", {
+          cache: "no-store",
+        }),
       ]);
       const tasksPayload = (await tasksResponse.json()) as unknown;
       const storagePayload = (await storageResponse.json()) as unknown;
       const corpusPayload = (await corpusResponse.json()) as unknown;
       const semanticPayload = (await semanticResponse.json()) as unknown;
+      const rerankPayload = (await rerankResponse.json()) as unknown;
       if (!tasksResponse.ok) {
         throw new Error(readApiError(tasksPayload, "Não foi possível carregar as tarefas."));
       }
@@ -334,6 +367,9 @@ function App() {
       setRetrievalCorpus(corpusPayload as RetrievalCorpus);
       setSemanticStatus(
         isSemanticStatus(semanticPayload) ? (semanticPayload as SemanticStatus) : null,
+      );
+      setRerankStatus(
+        isRerankerStatus(rerankPayload) ? (rerankPayload as RerankerStatus) : null,
       );
     } catch (caught) {
       setTasks([]);
@@ -355,9 +391,11 @@ function App() {
       setStorageStats(null);
       setRetrievalCorpus(null);
       setSemanticStatus(null);
+      setRerankStatus(null);
       setRetrievalResults([]);
       setSemanticResults([]);
       setHybridResults([]);
+      setRerankResults([]);
     }
   };
 
@@ -413,7 +451,14 @@ function App() {
     setRetrievalError(null);
     setRetrievalMessage(null);
     try {
-      const endpoint = retrievalMode === "semantic" ? "semantic" : retrievalMode === "hybrid" ? "hybrid" : "lexical";
+      const endpoint =
+        retrievalMode === "semantic"
+          ? "semantic"
+          : retrievalMode === "hybrid"
+            ? "hybrid"
+            : retrievalMode === "rerank"
+              ? "rerank"
+              : "lexical";
       const response = await fetch(
         API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/retrieval/" + endpoint,
         {
@@ -423,6 +468,9 @@ function App() {
             query: retrievalQuery,
             top_k: retrievalTopK,
             ...(retrievalSourceKind ? { source_kind: retrievalSourceKind } : {}),
+            ...(retrievalMode === "rerank"
+              ? { candidate_pool: retrievalCandidatePool, strict_rerank: rerankStrict }
+              : {}),
           }),
         },
       );
@@ -432,19 +480,28 @@ function App() {
         setSemanticResults((payload as { results: SemanticResult[] }).results);
         setRetrievalResults([]);
         setHybridResults([]);
+        setRerankResults([]);
       } else if (retrievalMode === "hybrid") {
         setHybridResults((payload as { results: HybridResult[] }).results);
         setRetrievalResults([]);
         setSemanticResults([]);
+        setRerankResults([]);
+      } else if (retrievalMode === "rerank") {
+        setRerankResults((payload as { results: RerankResult[] }).results);
+        setRetrievalResults([]);
+        setSemanticResults([]);
+        setHybridResults([]);
       } else {
         setRetrievalResults((payload as { results: LexicalResult[] }).results);
         setSemanticResults([]);
         setHybridResults([]);
+        setRerankResults([]);
       }
     } catch (caught) {
       setRetrievalResults([]);
       setSemanticResults([]);
       setHybridResults([]);
+      setRerankResults([]);
       setRetrievalError(caught instanceof Error ? caught.message : "Falha na consulta de retrieval.");
     } finally {
       setRetrievalLoading(false);
@@ -859,6 +916,14 @@ function App() {
             <span className={"state-badge state-" + (semanticStatus?.state.toLowerCase() ?? "unavailable")}>
               Semantic {semanticStatus?.state ?? "UNAVAILABLE"}
             </span>
+            <span className={"state-badge state-" + (rerankStatus?.enabled ? "current" : "unavailable")}>
+              Reranker {rerankStatus?.enabled ? "ENABLED" : "DISABLED"}
+            </span>
+            {rerankStatus?.reranker_profile ? (
+              <span title={rerankStatus.reranker_profile.identity_fingerprint}>
+                {rerankStatus.reranker_profile.model} · {rerankStatus.reranker_profile.serialization_version}
+              </span>
+            ) : null}
             {selectedProjectId ? (
               <button
                 className="secondary-button"
@@ -874,10 +939,11 @@ function App() {
         <form className="lexical-form" onSubmit={(event) => void queryRetrieval(event)}>
           <label>
             Mode
-            <select value={retrievalMode} onChange={(event) => setRetrievalMode(event.target.value as "lexical" | "semantic" | "hybrid")}>
+            <select value={retrievalMode} onChange={(event) => setRetrievalMode(event.target.value as RetrievalMode)}>
               <option value="lexical">Lexical</option>
               <option value="semantic">Semantic</option>
               <option value="hybrid">Hybrid (RRF)</option>
+              <option value="rerank">Rerank (hybrid candidates)</option>
             </select>
           </label>
           <label>
@@ -897,6 +963,12 @@ function App() {
             </select>
           </label>
           <label>
+            Candidate pool
+            <select value={retrievalCandidatePool} onChange={(event) => setRetrievalCandidatePool(Number(event.target.value))}>
+              {[5, 10, 20].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label>
             Source type
             <select value={retrievalSourceKind} onChange={(event) => setRetrievalSourceKind(event.target.value)}>
               <option value="">All sources</option>
@@ -905,8 +977,14 @@ function App() {
               <option value="TASK">Task text</option>
             </select>
           </label>
+          {retrievalMode === "rerank" ? (
+            <label className="checkbox-label">
+              <input type="checkbox" checked={rerankStrict} onChange={(event) => setRerankStrict(event.target.checked)} />
+              Strict rerank
+            </label>
+          ) : null}
           <button className="refresh-button" disabled={!selectedProjectId || retrievalLoading} type="submit">
-            {retrievalLoading ? "Searching..." : retrievalMode === "semantic" ? "Search semantic" : retrievalMode === "hybrid" ? "Search hybrid" : "Search lexical"}
+            {retrievalLoading ? "Searching..." : retrievalMode === "semantic" ? "Search semantic" : retrievalMode === "hybrid" ? "Search hybrid" : retrievalMode === "rerank" ? "Search rerank" : "Search lexical"}
           </button>
         </form>
         {semanticStatus?.last_error ? <p className="error-message">Semantic status: {semanticStatus.last_error}</p> : null}
@@ -919,10 +997,12 @@ function App() {
             <p className="fleet-message">No semantic results yet.</p>
           ) : retrievalMode === "hybrid" && hybridResults.length === 0 ? (
             <p className="fleet-message">No hybrid results yet.</p>
+          ) : retrievalMode === "rerank" && rerankResults.length === 0 ? (
+            <p className="fleet-message">No rerank results yet.</p>
           ) : retrievalMode === "lexical" && retrievalResults.length === 0 ? (
             <p className="fleet-message">No lexical results yet.</p>
           ) : (
-            (retrievalMode === "semantic" ? semanticResults : retrievalMode === "hybrid" ? hybridResults : retrievalResults).map((result) => (
+            (retrievalMode === "semantic" ? semanticResults : retrievalMode === "hybrid" ? hybridResults : retrievalMode === "rerank" ? rerankResults : retrievalResults).map((result) => (
               <article className="retrieval-result" key={result.reference_id}>
                 <div className="project-card-heading">
                   <div>
@@ -933,10 +1013,16 @@ function App() {
                   </div>
                   <span className="state-badge">{result.path ?? result.title ?? "task text"}</span>
                 </div>
+                {retrievalMode === "rerank" ? (
+                  <p className="retrieval-provenance">
+                    Pre-rerank #{(result as RerankResult).pre_rerank_rank} · rerank #{(result as RerankResult).rerank_rank} · rerank score {(result as RerankResult).rerank_score?.toFixed(3) ?? "fallback"} · hybrid score {(result as HybridResult).hybrid_score.toFixed(3)}
+                  </p>
+                ) : null}
                 <pre className="retrieval-snippet">{result.snippet}</pre>
                 <p className="retrieval-provenance">
                   {result.qualified_symbol ? result.qualified_symbol + " · " : ""}
                   Lines {result.start_line}-{result.end_line} · chars {result.start_char}-{result.end_char} · source {result.source_content_sha256.slice(0, 12)}
+                  {"lexical_contribution" in result ? ` · lexical ${(result as HybridResult).lexical_contribution.toFixed(3)} · semantic ${(result as HybridResult).semantic_contribution.toFixed(3)}` : ""}
                 </p>
               </article>
             ))
@@ -967,7 +1053,20 @@ function isSemanticStatus(payload: unknown): payload is SemanticStatus {
   return typeof candidate.state === "string" && typeof candidate.enabled === "boolean" && "configured" in candidate;
 }
 
-function retrievalScore(result: LexicalResult | SemanticResult | HybridResult): number {
+function isRerankerStatus(payload: unknown): payload is RerankerStatus {
+  if (typeof payload !== "object" || payload === null) return false;
+  const candidate = payload as Partial<RerankerStatus>;
+  return (
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.configured === "boolean" &&
+    typeof candidate.candidate_pool === "number"
+  );
+}
+
+function retrievalScore(result: LexicalResult | SemanticResult | HybridResult | RerankResult): number {
+  if ("rerank_score" in result && typeof result.rerank_score === "number") {
+    return result.rerank_score;
+  }
   if ("hybrid_score" in result && typeof result.hybrid_score === "number") {
     return result.hybrid_score;
   }

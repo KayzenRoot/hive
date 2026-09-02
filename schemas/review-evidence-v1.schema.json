@@ -105,6 +105,7 @@
         "api_restart": { "type": "boolean" },
         "semantic": { "$ref": "#/$defs/benchmark_slice" },
         "hybrid": { "$ref": "#/$defs/benchmark_slice" },
+        "rerank": { "$ref": "#/$defs/rerank_benchmark" },
         "semantic_integrity": { "$ref": "#/$defs/semantic_integrity" },
         "fallback": { "$ref": "#/$defs/fallback" },
         "hybrid_recall_at_5_gte_extended_lexical": { "type": "boolean" },
@@ -159,6 +160,7 @@
             "retrieval": { "$ref": "#/$defs/result" },
             "redis_restart": { "$ref": "#/$defs/result" },
             "api_restart": { "$ref": "#/$defs/result" },
+            "reranking": { "$ref": "#/$defs/result" },
             "benchmark_gate": {
               "type": "object",
               "additionalProperties": false,
@@ -224,7 +226,8 @@
                 "basis": { "type": "string", "minLength": 1 }
               }
             },
-            "source_staleness_fail_closed": { "$ref": "#/$defs/result" }
+            "source_staleness_fail_closed": { "$ref": "#/$defs/result" },
+            "reranking": { "$ref": "#/$defs/result" }
           }
         },
         "warnings": {
@@ -375,6 +378,33 @@
         "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
         "critical_context_misses": { "type": "integer", "minimum": 0 },
         "two_run_reproducibility": { "type": "boolean" }
+      }
+    },
+    "rerank_benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "query_count", "recall_at_1", "recall_at_5", "mrr", "critical_context_misses", "two_run_reproducibility"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "query_count": { "type": "integer", "minimum": 0 },
+        "recall_at_1": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "critical_context_misses": { "type": "integer", "minimum": 0 },
+        "two_run_reproducibility": { "type": "boolean" },
+        "hybrid_recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "hybrid_mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5_gte_hybrid": { "type": "boolean" },
+        "mrr_gte_hybrid": { "type": "boolean" },
+        "strict_rank_improvement": { "type": "boolean" },
+        "candidate_pool_bounded": { "type": "boolean" },
+        "provenance_preserved": { "type": "boolean" },
+        "disabled_exact_fallback": { "type": "boolean" },
+        "invalid_response_exact_fallback": { "type": "boolean" },
+        "provider_failure_exact_fallback": { "type": "boolean" },
+        "provider_down_exact_fallback": { "type": "boolean" },
+        "strict_failure_bounded": { "type": "boolean" },
+        "profile_visible_without_secret": { "type": "boolean" }
       }
     },
     "semantic_integrity": {

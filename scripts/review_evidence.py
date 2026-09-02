@@ -182,6 +182,7 @@ def benchmark_fields(path: Path) -> dict[str, object]:
             "api_restart": False,
             "semantic": unknown_slice,
             "hybrid": unknown_slice,
+            "rerank": unknown_slice,
             "semantic_integrity": {},
             "fallback": {},
             "hybrid_recall_at_5_gte_extended_lexical": False,
@@ -191,6 +192,7 @@ def benchmark_fields(path: Path) -> dict[str, object]:
     persistence = cast(dict[str, Any], data.get("persistence", {}))
     semantic = cast(dict[str, Any], data.get("semantic", {}))
     hybrid = cast(dict[str, Any], data.get("hybrid", {}))
+    rerank = cast(dict[str, Any], data.get("rerank", {}))
     semantic_run = cast(dict[str, Any], semantic.get("run_1", {}))
     hybrid_run = cast(dict[str, Any], hybrid.get("run_1", {}))
     semantic_status = (
@@ -207,9 +209,36 @@ def benchmark_fields(path: Path) -> dict[str, object]:
         if hybrid_run
         else "UNKNOWN"
     )
+    rerank_run = cast(dict[str, Any], rerank.get("run_1", {}))
+    rerank_gate_names = (
+        "recall_at_5_gte_hybrid",
+        "mrr_gte_hybrid",
+        "strict_rank_improvement",
+        "candidate_pool_bounded",
+        "provenance_preserved",
+    )
+    rerank_gates = all(bool(rerank_run.get(name, False)) for name in rerank_gate_names)
+    rerank_status = (
+        "PASS"
+        if rerank_run
+        and not rerank_run.get("critical_context_misses")
+        and rerank_gates
+        and bool(rerank.get("disabled_exact_fallback", False))
+        and bool(rerank.get("invalid_response_exact_fallback", False))
+        and bool(rerank.get("provider_failure_exact_fallback", False))
+        and bool(rerank.get("provider_down_exact_fallback", False))
+        and bool(rerank.get("strict_failure_bounded", False))
+        and bool(rerank.get("profile_visible_without_secret", False))
+        and bool(rerank.get("reproducible", False))
+        else "FAIL"
+        if rerank_run
+        else "UNKNOWN"
+    )
     overall_status = "PASS" if not data.get("critical_context_misses") else "FAIL"
     if semantic_status == "FAIL" or hybrid_status == "FAIL":
         overall_status = "FAIL"
+    if data.get("work_order") == "WO-008" and rerank_status != "PASS":
+        overall_status = "FAIL" if rerank_status == "FAIL" else "UNKNOWN"
     return {
         "status": overall_status,
         "query_count": int(data.get("query_count", 0)),
@@ -245,6 +274,34 @@ def benchmark_fields(path: Path) -> dict[str, object]:
             "two_run_reproducibility": bool(
                 hybrid.get("run_1", {}).get("recall_at_5")
                 == hybrid.get("run_2", {}).get("recall_at_5")
+            ),
+        },
+        "rerank": {
+            "status": rerank_status if rerank else "UNKNOWN",
+            "query_count": int(rerank_run.get("query_count", 0)),
+            "recall_at_1": float(rerank_run.get("recall_at_1", 0.0)),
+            "recall_at_5": float(rerank_run.get("recall_at_5", 0.0)),
+            "mrr": float(rerank_run.get("mrr", 0.0)),
+            "critical_context_misses": len(rerank_run.get("critical_context_misses", [])),
+            "two_run_reproducibility": bool(
+                rerank.get("run_1", {}).get("recall_at_5")
+                == rerank.get("run_2", {}).get("recall_at_5")
+                and rerank.get("run_1", {}).get("mrr") == rerank.get("run_2", {}).get("mrr")
+            ),
+            "hybrid_recall_at_5": float(rerank_run.get("hybrid_recall_at_5", 0.0)),
+            "hybrid_mrr": float(rerank_run.get("hybrid_mrr", 0.0)),
+            **{name: bool(rerank_run.get(name, False)) for name in rerank_gate_names},
+            "disabled_exact_fallback": bool(rerank.get("disabled_exact_fallback", False)),
+            "invalid_response_exact_fallback": bool(
+                rerank.get("invalid_response_exact_fallback", False)
+            ),
+            "provider_failure_exact_fallback": bool(
+                rerank.get("provider_failure_exact_fallback", False)
+            ),
+            "provider_down_exact_fallback": bool(rerank.get("provider_down_exact_fallback", False)),
+            "strict_failure_bounded": bool(rerank.get("strict_failure_bounded", False)),
+            "profile_visible_without_secret": bool(
+                rerank.get("profile_visible_without_secret", False)
             ),
         },
         "semantic_integrity": data.get("semantic_integrity", {}),
@@ -342,6 +399,15 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
             "hybrid_fallback_provider_error": False,
             "hybrid_fallback_stale": False,
             "semantic_project_isolation": False,
+            "rerank_recall_at_5_gte_hybrid": False,
+            "rerank_mrr_gte_hybrid": False,
+            "rerank_strict_rank_improvement": False,
+            "rerank_candidate_pool_bounded": False,
+            "rerank_provenance_preserved": False,
+            "rerank_disabled_exact_fallback": False,
+            "rerank_invalid_response_safe": False,
+            "rerank_provider_failure_safe": False,
+            "rerank_provider_down_safe": False,
         }
     try:
         value = json.loads(match.group(1))
@@ -360,6 +426,15 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
             "hybrid_fallback_provider_error",
             "hybrid_fallback_stale",
             "semantic_project_isolation",
+            "rerank_recall_at_5_gte_hybrid",
+            "rerank_mrr_gte_hybrid",
+            "rerank_strict_rank_improvement",
+            "rerank_candidate_pool_bounded",
+            "rerank_provenance_preserved",
+            "rerank_disabled_exact_fallback",
+            "rerank_invalid_response_safe",
+            "rerank_provider_failure_safe",
+            "rerank_provider_down_safe",
         )
     }
 
@@ -389,6 +464,12 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
         "retrieval": {"status": status, "evidence_file": "retrieval.log"},
         "redis_restart": {"status": "PASS" if benchmark["redis_restart"] else "UNKNOWN"},
         "api_restart": {"status": "PASS" if benchmark["api_restart"] else "UNKNOWN"},
+        "reranking": {
+            "status": "PASS"
+            if cast(dict[str, Any], benchmark["rerank"]).get("status") == "PASS"
+            else "UNKNOWN",
+            "evidence_file": "retrieval.log",
+        },
         "benchmark_gate": {
             "status": benchmark["status"],
             "query_count": benchmark["query_count"],
@@ -413,6 +494,7 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
             "hybrid": benchmark["hybrid"],
             "semantic_integrity": benchmark["semantic_integrity"],
             "fallback": benchmark["fallback"],
+            "rerank": benchmark["rerank"],
         },
     }
 
@@ -438,6 +520,7 @@ def security_evidence(
         else "UNKNOWN"
     )
     isolation = "PASS" if benchmark["cross_project_isolation"] else "UNKNOWN"
+    rerank = cast(dict[str, Any], benchmark.get("rerank", {}))
     values = {
         "canonical_verifier": {"status": canonical},
         "secret_scan": {"status": secrets},
@@ -448,6 +531,14 @@ def security_evidence(
             "basis": "backend/tests/test_retrieval.py::test_sql_queries_are_parameterized",
         },
         "source_staleness_fail_closed": {"status": stale},
+        "reranking": {
+            "status": "PASS"
+            if rerank.get("status") == "PASS"
+            and rerank.get("candidate_pool_bounded")
+            and rerank.get("provenance_preserved")
+            and rerank.get("provider_failure_exact_fallback")
+            else "UNKNOWN"
+        },
     }
     return {
         "status": "PASS"
@@ -715,7 +806,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         else "UNKNOWN",
         "tests": cast(str, tests["status"]),
         "build": "PASS" if validation.strip() == "PASS" and "run build" in lint else "UNKNOWN",
-        "integration": "PASS" if args.integration_status == "PASS" else args.integration_status,
+        "integration": (
+            "PASS"
+            if args.integration_status == "PASS" and benchmark["status"] == "PASS"
+            else "FAIL"
+            if args.integration_status == "FAIL" or benchmark["status"] == "FAIL"
+            else "UNKNOWN"
+        ),
         "review_evidence": "PASS",
     }
     observed_draft = pr_governance.get("is_draft")
@@ -761,7 +858,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         "negative_scope": [
             "No merge or release was performed.",
             canonical_change_statement(canonical_changes),
-            "No reranking, autonomous executor, or LLM provider was added.",
+            "No implementation outside the approved work-order scope was added.",
         ],
     }
 
@@ -870,6 +967,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     integrity = cast(dict[str, Any], integration["integrity_tests"])
     semantic = cast(dict[str, Any], benchmark.get("semantic", {}))
     hybrid = cast(dict[str, Any], benchmark.get("hybrid", {}))
+    rerank = cast(dict[str, Any], benchmark.get("rerank", {}))
     semantic_integrity = cast(dict[str, Any], benchmark.get("semantic_integrity", {}))
     warning_lines = (
         "\n".join(f"  - {item}" for item in warnings["items"])
@@ -898,6 +996,14 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"`{hybrid.get('status', 'UNKNOWN')}`; recall@5 `"
         f"{hybrid.get('recall_at_5', 0.0)}`, MRR `{hybrid.get('mrr', 0.0)}`, "
         f"RRF gate `{benchmark.get('hybrid_recall_at_5_gte_extended_lexical', False)}`"
+    )
+    rerank_text = (
+        f"`{rerank.get('status', 'UNKNOWN')}`; recall@5 `{rerank.get('recall_at_5', 0.0)}` "
+        f"vs hybrid `{rerank.get('hybrid_recall_at_5', 0.0)}`, "
+        f"MRR `{rerank.get('mrr', 0.0)}` vs `{rerank.get('hybrid_mrr', 0.0)}`, "
+        f"strict improvement `{rerank.get('strict_rank_improvement', False)}`, "
+        f"pool bounded `{rerank.get('candidate_pool_bounded', False)}`, "
+        f"provenance `{rerank.get('provenance_preserved', False)}`"
     )
     semantic_integrity_text = (
         f"pgvector `{semantic_integrity.get('actual_pgvector_type', 'UNKNOWN')}`, "
@@ -955,7 +1061,9 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("retrieval", "Retrieval"),
             ("redis_restart", "Redis restart"),
             ("api_restart", "API restart"),
+            ("reranking", "Reranking"),
         )
+        if key in integration
     )
     return f"""# HIVE Review Evidence — {manifest["work_order"]}
 
@@ -977,6 +1085,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Benchmark summary: {benchmark_text}
 - Semantic benchmark: {semantic_text}
 - Hybrid benchmark: {hybrid_text}
+- Reranking benchmark: {rerank_text}
 - Semantic integrity: {semantic_integrity_text}
 - Canonical verifier: **{security["canonical_verifier"]["status"]}**
 - Secret scan: **{security["secret_scan"]["status"]}**

@@ -24,5 +24,12 @@
       "critical": false,
       "expected_path": "src/order_service.py"
     }
+  ],
+  "rerank_queries": [
+    {
+      "query": "__fixture_rerank_challenge__",
+      "critical": true,
+      "expected_path": "src/durability.py"
+    }
   ]
 }

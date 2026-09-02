@@ -1,3 +1,4 @@
+import math
 from functools import lru_cache
 from pathlib import Path
 
@@ -79,6 +80,24 @@ class Settings(BaseSettings):
     )
     embedding_semantic_weight: float = Field(
         default=1.0, validation_alias="HIVE_EMBEDDING_SEMANTIC_WEIGHT"
+    )
+    rerank_enabled: bool = Field(default=False, validation_alias="HIVE_RERANK_ENABLED")
+    rerank_base_url: str | None = Field(default=None, validation_alias="HIVE_RERANK_BASE_URL")
+    rerank_model: str | None = Field(default=None, validation_alias="HIVE_RERANK_MODEL")
+    rerank_model_revision: str | None = Field(
+        default=None, validation_alias="HIVE_RERANK_MODEL_REVISION"
+    )
+    rerank_api_key: SecretStr | None = Field(default=None, validation_alias="HIVE_RERANK_API_KEY")
+    rerank_timeout_seconds: float = Field(
+        default=10.0, validation_alias="HIVE_RERANK_TIMEOUT_SECONDS"
+    )
+    rerank_candidate_pool: int = Field(default=20, validation_alias="HIVE_RERANK_CANDIDATE_POOL")
+    rerank_max_document_chars: int = Field(
+        default=6000, validation_alias="HIVE_RERANK_MAX_DOCUMENT_CHARS"
+    )
+    rerank_max_query_chars: int = Field(default=512, validation_alias="HIVE_RERANK_MAX_QUERY_CHARS")
+    rerank_max_response_bytes: int = Field(
+        default=2_000_000, validation_alias="HIVE_RERANK_MAX_RESPONSE_BYTES"
     )
 
     @field_validator("embedding_dimensions", mode="before")
@@ -164,6 +183,29 @@ class Settings(BaseSettings):
             raise ValueError(
                 "HIVE_EMBEDDING_DIMENSIONS must be between 1 and HIVE_EMBEDDING_MAX_DIMENSIONS"
             )
+
+    def validate_rerank_limits(self) -> None:
+        if (
+            not math.isfinite(self.rerank_timeout_seconds)
+            or self.rerank_timeout_seconds <= 0
+            or self.rerank_timeout_seconds > 120
+        ):
+            raise ValueError("HIVE_RERANK_TIMEOUT_SECONDS must be between 0 and 120")
+        if not 1 <= self.rerank_candidate_pool <= 100:
+            raise ValueError("HIVE_RERANK_CANDIDATE_POOL must be between 1 and 100")
+        if not 1 <= self.rerank_max_document_chars <= 100_000:
+            raise ValueError("HIVE_RERANK_MAX_DOCUMENT_CHARS must be between 1 and 100000")
+        if not 1 <= self.rerank_max_query_chars <= 512:
+            raise ValueError("HIVE_RERANK_MAX_QUERY_CHARS must be between 1 and 512")
+        if not 1 <= self.rerank_max_response_bytes <= 2_000_000:
+            raise ValueError("HIVE_RERANK_MAX_RESPONSE_BYTES must be between 1 and 2000000")
+        if self.rerank_base_url is not None and not self.rerank_base_url.strip():
+            raise ValueError("HIVE_RERANK_BASE_URL must not be blank")
+        if self.rerank_enabled:
+            if not self.rerank_base_url or not self.rerank_base_url.strip():
+                raise ValueError("HIVE_RERANK_BASE_URL is required when reranking is enabled")
+            if not self.rerank_model or not self.rerank_model.strip():
+                raise ValueError("HIVE_RERANK_MODEL is required when reranking is enabled")
 
 
 @lru_cache
