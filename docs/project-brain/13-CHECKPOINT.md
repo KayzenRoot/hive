@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-RETRIEVAL LEXICAL FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+SEMANTIC + HYBRID RETRIEVAL FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -75,12 +75,33 @@ See `03-SCOPE.md`.
 - Protected-main Ruleset requires Validate, Integration health and Review Evidence for PRs, requires thread resolution and allows squash-only with no bypass.
 - PR #25 was approved at exact head `ee1b016b135d30d48d99d298788568e116396b23` and squash-merged as `e15690042041372febb565169e7bb80bef308337`.
 - Post-merge CI run `33641440244` passed on `main` for exact SHA `e15690042041372febb565169e7bb80bef308337`.
+- Provider-independent embedding adapter implemented.
+- OpenAI-compatible embedding transport is replaceable and disabled/unconfigured by default for local-only operation.
+- Durable semantic retrieval state uses PostgreSQL + pgvector.
+- Embedding profile identity prevents incompatible model, revision and dimension mixing.
+- Semantic sync reuses compatible chunk embeddings and does not make failed or incomplete runs current.
+- Corpus and profile changes correctly make semantic state stale.
+- Semantic query is bounded, project-scoped and provenance-preserving.
+- Malformed provider ordering, dimension mismatch and invalid numeric vectors fail closed.
+- Hybrid candidate fusion uses deterministic RRF over bounded lexical and semantic candidates.
+- Lexical fallback works when semantic retrieval is disabled, unavailable, stale or provider-failing.
+- Duplicate TASK content does not crowd semantic or hybrid candidate sets.
+- Dashboard exposes real semantic state and hybrid retrieval results without secrets or fake cost metrics.
+- Real integration proves pgvector, semantic sync/query, hybrid fusion, provider failure fallback, stale recovery, project isolation, Redis restart and API restart.
+- Accepted lexical baseline remains green.
+- Extended semantic/hybrid benchmark passes with hybrid recall@5 1.0, semantic recall@5 1.0, hybrid MRR 1.0 and zero critical misses in the deterministic fixture.
+- Semantic challenge recovers relevant context that lexical-only misses or under-ranks in the extended challenge fixture.
+- No production-quality claim is made for the deterministic test embedding fixture.
+- PR #27 was independently approved at exact head `a74a2f27ea8771b06c6322fe2563968e37af7869` and squash-merged as `825134f1a4d4950ef95f8845941a86f2d65d1359`.
+- Post-merge CI run `33664297759` passed on `main` for exact SHA `825134f1a4d4950ef95f8845941a86f2d65d1359`.
+- Reviewer `kayzenweb3` is an eligible Write collaborator for the independent approval gate.
+- GitHub native auto-merge is enabled for subsequent approval-gated PRs.
 
 ## IN PROGRESS
-- Preparing the smallest necessary pgvector semantic-retrieval and hybrid-fusion foundation.
+- Preparing the smallest necessary deterministic reranking foundation over the approved hybrid candidate set.
 
 ## PENDING
-- pgvector semantic retrieval, hybrid fusion and reranking.
+- reranking.
 - memory.
 - ACCE beyond the intake/storage foundation.
 - MCP server product surface.
@@ -95,13 +116,13 @@ See `03-SCOPE.md`.
 - final V0.1 review.
 
 ## BLOCKERS
-None known after Retrieval Lexical Foundation approval.
+None known after Semantic + Hybrid Retrieval Foundation approval.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary semantic-retrieval increment for V0.1: persist and query embeddings with pgvector behind a provider-independent embedding adapter, combine semantic candidates with the existing lexical candidates into a bounded project-scoped hybrid candidate set with deterministic provenance and benchmark evidence, and preserve lexical fallback. Do not add reranking, memory, Context Manager orchestration, MCP product surface or autonomous retrieval execution in this increment.
+Implement the smallest necessary provider-independent reranking foundation over the existing bounded project-scoped hybrid candidate set: add a replaceable reranker adapter, deterministic rerank contract, safe lexical/hybrid fallback when reranking is unavailable, provenance-preserving top-k selection, benchmark evidence that reranking does not materially degrade retrieval quality, and the minimal Control Center/API surface required to inspect reranked results. Do not add memory, Context Manager orchestration, MCP product surface, autonomous execution, a mandatory local reranker model or broad token-budget optimization in this increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.

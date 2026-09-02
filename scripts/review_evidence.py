@@ -20,6 +20,13 @@ VALIDATION = ROOT / "tmp" / "validation"
 INTEGRATION_LOGS = ROOT / "tmp" / "integration-logs"
 HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
+WORK_ORDER_IDENTIFIER = re.compile(r"WO-[0-9]+(?:-[A-Z0-9]+)*")
+WORK_ORDER_MARKER = re.compile(r"<!--\s*HIVE-WORK-ORDER:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE)
+CHECKPOINT_PATH = "docs/project-brain/13-CHECKPOINT.md"
+CANONICAL_PATHS = (
+    CHECKPOINT_PATH,
+    "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+)
 
 WARNING_RULES = (
     (
@@ -67,6 +74,45 @@ def env_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y"}
+
+
+def parse_work_order_marker(body: str) -> str:
+    markers = WORK_ORDER_MARKER.findall(body)
+    if len(markers) != 1:
+        if not markers:
+            raise ValueError("HIVE work-order PR is missing exactly one work-order marker")
+        raise ValueError("HIVE work-order PR has multiple conflicting work-order markers")
+    work_order = str(markers[0]).strip()
+    if len(work_order) > 64 or WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None:
+        raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
+    return work_order
+
+
+def derive_work_order(repository: str, pr_number: int) -> str:
+    pr = _gh_json(repository, f"pulls/{pr_number}")
+    if not isinstance(pr, dict):
+        raise ValueError(f"unable to read pull request #{pr_number} for work-order derivation")
+    body = pr.get("body")
+    if not isinstance(body, str):
+        body = ""
+    return parse_work_order_marker(body)
+
+
+def canonical_change_evidence(paths: list[str]) -> dict[str, object]:
+    changed = set(paths)
+    project_brain_changed = any(
+        path == "docs/project-brain" or path.startswith("docs/project-brain/") for path in changed
+    )
+    return {
+        "project_brain_changed": project_brain_changed,
+        "checkpoint_changed": CHECKPOINT_PATH in changed,
+        "authorized_paths": [path for path in CANONICAL_PATHS if path in changed],
+    }
+
+
+def canonical_change_statement(evidence: dict[str, object]) -> str:
+    payload = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+    return f"Canonical change evidence: {payload}"
 
 
 def repository_name() -> str:
@@ -534,16 +580,25 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
     pr = _gh_json(repository, f"pulls/{pr_number}") if pr_number else None
     reviews = _gh_json(repository, f"pulls/{pr_number}/reviews") if pr_number else None
     author = cast(dict[str, Any], pr.get("user", {})).get("login") if isinstance(pr, dict) else None
-    approvers: set[str] = set()
+    latest_review_by_user: dict[str, dict[str, Any]] = {}
     if isinstance(reviews, list):
         for review in reviews:
-            if not isinstance(review, dict) or review.get("state") != "APPROVED":
+            if not isinstance(review, dict):
                 continue
             user = review.get("user", {})
             login = user.get("login") if isinstance(user, dict) else None
-            if isinstance(login, str) and login != author:
-                approvers.add(login)
-    independent_approvers = sorted(approvers)
+            if not isinstance(login, str):
+                continue
+            previous = latest_review_by_user.get(login)
+            if previous is None or str(review.get("submitted_at", "")) >= str(
+                previous.get("submitted_at", "")
+            ):
+                latest_review_by_user[login] = review
+    independent_approvers = sorted(
+        login
+        for login, review in latest_review_by_user.items()
+        if login != author and review.get("state") == "APPROVED"
+    )
     sol_permission = _gh_json(repository, "collaborators/kayzenweb3/permission")
     sol_permissions = (
         sol_permission.get("permissions", {}) if isinstance(sol_permission, dict) else {}
@@ -614,6 +669,17 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
 
 
 def build_manifest(args: argparse.Namespace) -> dict[str, object]:
+    repository = args.repository or repository_name()
+    if args.pr_number:
+        work_order = derive_work_order(repository, args.pr_number)
+        if args.work_order and args.work_order != work_order:
+            raise ValueError(
+                f"work-order override {args.work_order!r} does not match PR marker {work_order!r}"
+            )
+    else:
+        work_order = args.work_order or "LOCAL-VALIDATION"
+        if work_order != "LOCAL-VALIDATION" and WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None:
+            raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     validation = read_text(VALIDATION / "summary.txt")
     lint = read_text(VALIDATION / "lint-typecheck-build-results.txt")
     tests_text = read_text(VALIDATION / "test-results.txt")
@@ -629,6 +695,10 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     integration = integration_evidence(benchmark)
     security = security_evidence(all_validation, tests_text, benchmark, integration)
     warnings = warnings_evidence(all_evidence_text())
+    canonical_changes = canonical_change_evidence(paths)
+    governance = governance_evidence(repository, args.pr_number)
+    pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
+    require_hive_final_handoff(work_order, args.pr_number, base_sha, head_sha, governance)
     checks = {
         "validation": "PASS"
         if validation.strip() == "PASS"
@@ -648,8 +718,6 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         "integration": "PASS" if args.integration_status == "PASS" else args.integration_status,
         "review_evidence": "PASS",
     }
-    governance = governance_evidence(args.repository or repository_name(), args.pr_number)
-    pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     observed_draft = pr_governance.get("is_draft")
     draft = (
         args.draft
@@ -658,11 +726,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     )
     pr_number = args.pr_number
     review_status = "DRAFT" if pr_number and draft else "READY" if pr_number else "NOT_CREATED"
-    artifact_name = args.artifact_name or f"hive-review-evidence-{args.work_order}-{head_sha}"
+    artifact_name = args.artifact_name or f"hive-review-evidence-{work_order}-{head_sha}"
     return {
         "schema_version": 1,
-        "work_order": args.work_order,
-        "repository": args.repository or repository_name(),
+        "work_order": work_order,
+        "repository": repository,
         "pull_request": {"number": pr_number, "is_draft": draft},
         "base": {"branch": args.base_branch, "sha": base_sha},
         "head": {
@@ -692,7 +760,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         },
         "negative_scope": [
             "No merge or release was performed.",
-            "No canonical Project Brain checkpoint was modified.",
+            canonical_change_statement(canonical_changes),
             "No reranking, autonomous executor, or LLM provider was added.",
         ],
     }
@@ -727,6 +795,29 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     review_state = cast(dict[str, Any], manifest["review_state"])
     if review_state["merge_performed"] is not False:
         raise ValueError("review evidence cannot report a merge")
+    negative_scope = cast(list[object], manifest["negative_scope"])
+    canonical_entries = [
+        entry
+        for entry in negative_scope
+        if isinstance(entry, str) and entry.startswith("Canonical change evidence: ")
+    ]
+    if len(canonical_entries) != 1:
+        raise ValueError("review evidence must include exactly one canonical change statement")
+    try:
+        canonical_payload = json.loads(canonical_entries[0].split(": ", 1)[1])
+    except (json.JSONDecodeError, IndexError):
+        raise ValueError("canonical change evidence must be valid JSON") from None
+    if not isinstance(canonical_payload, dict) or set(canonical_payload) != {
+        "project_brain_changed",
+        "checkpoint_changed",
+        "authorized_paths",
+    }:
+        raise ValueError("canonical change evidence has an invalid shape")
+    if any(
+        isinstance(entry, str) and "no canonical project brain checkpoint" in entry.casefold()
+        for entry in negative_scope
+    ):
+        raise ValueError("review evidence cannot deny an observed canonical checkpoint change")
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -774,6 +865,8 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     repo_settings = cast(dict[str, Any], governance["repository_merge_settings"])
     artifact = cast(dict[str, Any], manifest["artifact"])
     review_state = cast(dict[str, Any], manifest["review_state"])
+    changed_files = cast(dict[str, Any], manifest["changed_files"])
+    canonical_changes = canonical_change_evidence(changed_files["paths"])
     integrity = cast(dict[str, Any], integration["integrity_tests"])
     semantic = cast(dict[str, Any], benchmark.get("semantic", {}))
     hybrid = cast(dict[str, Any], benchmark.get("hybrid", {}))
@@ -811,6 +904,14 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"dimensions `{semantic_integrity.get('profile_dimensions', 'UNKNOWN')}`, "
         "reuse without provider calls "
         f"`{semantic_integrity.get('provider_requests_on_reuse', 'UNKNOWN')}`"
+    )
+    changed_paths_text = ", ".join(f"`{path}`" for path in changed_files["paths"]) or "none"
+    authorized_paths = cast(list[str], canonical_changes["authorized_paths"])
+    authorized_paths_text = ", ".join(authorized_paths) or "none"
+    canonical_summary_text = (
+        f"project_brain_changed `{canonical_changes['project_brain_changed']}`, "
+        f"checkpoint_changed `{canonical_changes['checkpoint_changed']}`, "
+        f"authorized paths `{authorized_paths_text}`"
     )
     merge_settings = (
         f"squash `{repo_settings['allow_squash_merge']}`, "
@@ -862,6 +963,8 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Exact HEAD SHA: `{head["sha"]}`
 - Base SHA: `{base["sha"]}`
 - PR state: **{review_state["status"]}**
+- Changed files: `{changed_files["count"]}` — {changed_paths_text}
+- Canonical changes: {canonical_summary_text}
 - Validate result: **{checks["validation"]}**
 - Integration health result: **{checks["integration"]}**
 - Review Evidence result: **{checks["review_evidence"]}**
@@ -888,6 +991,37 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 
 Sol Review State: {review_state.get("sol_review_state", "AWAITING_SOL")}
 """
+
+
+def require_hive_final_handoff(
+    work_order: str,
+    pr_number: int | None,
+    base_sha: str,
+    head_sha: str,
+    governance: dict[str, object],
+) -> None:
+    if not pr_number or not work_order.startswith("WO-"):
+        return
+    pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pr_governance.get("head_sha") != head_sha:
+        observed_head = pr_governance.get("head_sha")
+        raise ValueError(f"manifest head SHA {head_sha} does not match PR head SHA {observed_head}")
+    if pr_governance.get("base_sha") != base_sha:
+        observed_base = pr_governance.get("base_sha")
+        raise ValueError(f"manifest base SHA {base_sha} does not match PR base SHA {observed_base}")
+    if pr_governance.get("state") != "open":
+        raise ValueError("HIVE final-handoff evidence requires an open pull request")
+    if pr_governance.get("is_draft") is not False:
+        raise ValueError("HIVE final-handoff evidence requires a Ready pull request")
+    if pr_governance.get("auto_merge_armed") is not True:
+        raise ValueError("HIVE final-handoff evidence requires native auto-merge to be armed")
+    if str(pr_governance.get("auto_merge_method", "")).casefold() != "squash":
+        raise ValueError("HIVE final-handoff evidence requires SQUASH auto-merge")
+    approval_gate = cast(dict[str, Any], governance.get("approval_gate", {}))
+    if approval_gate.get("independent_approval_count") != 0:
+        raise ValueError(
+            "HIVE final-handoff evidence requires zero independent approvals before Sol"
+        )
 
 
 def write_consolidated_artifact(
@@ -943,9 +1077,10 @@ def manifest_log(manifest: dict[str, object]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--work-order", default="WO-007")
+    parser.add_argument("--work-order")
     parser.add_argument("--repository")
     parser.add_argument("--pr-number", type=int)
+    parser.add_argument("--resolve-work-order", action="store_true")
     parser.add_argument("--draft", action="store_true")
     parser.add_argument("--ready", action="store_true")
     parser.add_argument("--draft-env", default="")
@@ -962,6 +1097,14 @@ def main() -> int:
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
+    if args.resolve_work_order:
+        if args.pr_number is None:
+            parser.error("--resolve-work-order requires --pr-number")
+        try:
+            print(derive_work_order(args.repository or repository_name(), args.pr_number))
+        except ValueError as error:
+            parser.error(str(error))
+        return 0
     manifest = build_manifest(args)
     validate_manifest(manifest)
     args.output_dir.mkdir(parents=True, exist_ok=True)
