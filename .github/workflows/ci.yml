@@ -114,7 +114,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: hive-validation-evidence-${{ github.event.pull_request.head.sha || github.sha }}
-          path: tmp
+          path: tmp/validation
       - name: Download Integration evidence
         uses: actions/download-artifact@v4
         with:
