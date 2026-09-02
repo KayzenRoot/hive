@@ -36,3 +36,47 @@ def test_projects_root_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings()
 
     assert settings.projects_root == Path("D:/Projects")
+
+
+def test_semantic_retrieval_is_disabled_by_default() -> None:
+    settings = Settings()
+
+    assert settings.embedding_enabled is False
+    assert settings.embedding_base_url is None
+    assert settings.embedding_api_key is None
+
+
+def test_empty_compose_optional_embedding_values_are_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HIVE_EMBEDDING_DIMENSIONS", "")
+    monkeypatch.setenv("HIVE_EMBEDDING_API_KEY", "")
+
+    settings = Settings()
+
+    assert settings.embedding_dimensions is None
+    assert settings.embedding_api_key is None
+
+
+def test_semantic_configuration_requires_provider_identity() -> None:
+    settings = Settings(embedding_enabled=True, embedding_base_url="http://127.0.0.1:8080")
+
+    with pytest.raises(ValueError, match="HIVE_EMBEDDING_MODEL is required"):
+        settings.validate_embedding_limits()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("embedding_timeout_seconds", 0),
+        ("embedding_batch_size", 0),
+        ("embedding_max_input_chars", 0),
+        ("embedding_max_dimensions", 2001),
+        ("embedding_candidate_pool", 0),
+        ("embedding_rrf_k", 0),
+        ("embedding_lexical_weight", -1),
+    ],
+)
+def test_semantic_configuration_limits_are_bounded(field: str, value: object) -> None:
+    settings = Settings.model_validate({field: value})
+
+    with pytest.raises(ValueError):
+        settings.validate_embedding_limits()

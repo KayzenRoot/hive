@@ -80,6 +80,10 @@ def build_files() -> dict[Path, str]:
             "chunk provenance and bounded lexical retrieval. |"
         ),
         (
+            "| backend/app/semantic_retrieval.py | Project-scoped pgvector embeddings, "
+            "semantic retrieval, deterministic RRF fusion and lexical fallback. |"
+        ),
+        (
             "| backend/app/tasks_api.py | Project-scoped task upload, text, artifact, "
             "preview and storage routes. |"
         ),
@@ -104,6 +108,10 @@ def build_files() -> dict[Path, str]:
         (
             "| migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, "
             "chunk and reference metadata. |"
+        ),
+        (
+            "| migrations/versions/0005_semantic_retrieval.py | Durable project-scoped "
+            "embedding profiles, runs and pgvector chunk embeddings. |"
         ),
         "| scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |",
         (
@@ -150,6 +158,10 @@ def build_files() -> dict[Path, str]:
             "chunking, request bounds and project-scoped retrieval contracts. |"
         ),
         (
+            "| backend/tests/test_semantic_retrieval.py | Embedding configuration, "
+            "provider contract validation, currentness, RRF and lexical fallback. |"
+        ),
+        (
             "| backend/tests/test_review_evidence.py | Versioned Review Evidence schema "
             "and merge-state guard. |"
         ),
@@ -189,8 +201,8 @@ def build_files() -> dict[Path, str]:
             "corruption. |"
         ),
         (
-            "| scripts/retrieval_integration.py | Real-Git corpus sync, lexical "
-            "benchmark, revalidation, isolation and restart persistence. |"
+            "| scripts/retrieval_integration.py | Real-Git corpus sync, lexical, "
+            "semantic and hybrid benchmark, revalidation, isolation and restart persistence. |"
         ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "| scripts/review_evidence.py | Review Evidence schema and exact-head validation. |",

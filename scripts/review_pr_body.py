@@ -1,4 +1,4 @@
-"""Render a generic twenty-section executor review for a Draft pull request."""
+"""Render the twenty-section executor review for an auditable pull request."""
 
 from __future__ import annotations
 
@@ -25,134 +25,132 @@ def render_body(
 
 ## 1. Resumo executivo
 
-A correção preserva a fundação de retrieval lexical da WO-006 e fecha os
-achados de auditoria sobre consistência de fontes durante a promoção,
-candidatos duplicados de tarefas e evidência de revisão no GitHub.
+Esta entrega adiciona retrieval semântico project-scoped sobre a fundação
+lexical existente, com pgvector, adapter HTTP substituível, fusão híbrida RRF
+determinística e fallback lexical explícito.
 
 ## 2. Objetivo
 
-Corrigir somente os defeitos reportados por Sol, mantendo a mesma PR Draft
-#{pr_number}, a migration 0004, o isolamento por projeto e o benchmark lexical
-existente.
+Persistir embeddings derivados por perfil, consultar candidatos semânticos
+bounded e combinar os candidatos lexical e semântico sem reranking opaco,
+preservando proveniência e isolamento por projeto.
 
 ## 3. Escopo implementado
 
-O corpus captura HEAD, inventário Git e hashes dos arquivos indexados e
-revalida toda essa geração sob o lock antes da promoção. A busca colapsa apenas
-referências TASK com o mesmo chunk, preservando todas as linhas de proveniência.
-A evidência agora é estruturada, delimitada no log, consolidada em um artefato
-e refletida em um comentário sticky único.
+A migration 0005 cria perfis, execuções e embeddings com tipo PostgreSQL vector.
+O sync reutiliza embeddings compatíveis, falha fechado em respostas inválidas,
+marca current somente após cobertura completa e oferece endpoints semantic e
+hybrid com contribuições RRF visíveis.
 
 ## 4. Fora de escopo explícito
 
-Não foram implementados retrieval semântico, embeddings, reranking,
-executor/autonomia, WO-007, merge da PR, release, tag ou alteração do
-checkpoint canônico do Project Brain.
+Reranking, fine-tuning, qualidade de produção do modelo, cache semântico Redis,
+alteração do checkpoint canônico, release, tag, merge manual e WO-008 ficam
+fora desta incrementação.
 
 ## 5. Base, branch e head
 
-- PR: #{pr_number}, mantida aberta e Draft.
+- PR: #{pr_number}, aberta em estado Ready for review.
 - Branch: `{branch}`.
 - Base exata: `{base_sha}`.
 - Head exato desta revisão: `{head_sha}`.
 
 ## 6. Decisões de arquitetura
 
-PostgreSQL continua sendo a fonte durável. O chunker determinístico
-`line-window-v1`, a busca lexical bounded e as chaves project-scoped permanecem.
-A validação de geração é fail-closed e uma falha transacional preserva o corpus
-corrente anterior.
+PostgreSQL continua sendo a verdade durável. Embeddings são derivados dos
+chunks lexicais correntes; perfil, modelo, revisão, dimensão e adapter entram
+na identidade para impedir mistura incompatível. A dimensão é variável por
+perfil e a busca usa scan exato bounded nesta versão.
 
 ## 7. Migração e schema
 
-A migration permanece `0004_retrieval_lexical`. Nenhuma migration adicional foi
-criada. As referências TASK distintas continuam persistidas; a deduplicação
-ocorre somente na seleção de candidatos, não na identidade canônica das tarefas
-ou referências.
+A migration 0005 descende de 0004 sem reescrever o histórico. As tabelas são
+project-scoped, têm FKs compostas quando necessário, checks de dimensão/hash e
+persistem o vetor em coluna PostgreSQL `vector`, não em array JSON.
 
 ## 8. API
 
-As rotas existentes de sincronização, status e busca lexical permanecem
-project-scoped, com limites de query/top-k, snippets bounded, filtros de source
-kind e metadados de proveniência.
+Foram adicionados sync/status/query semântico e query híbrida sob o projeto.
+URL, modelo, chave e limites vêm de configuração; a requisição não aceita
+credenciais ou provider arbitrários. Respostas não expõem vetores crus e
+mantêm snippet, range, hash e proveniência.
 
 ## 9. Segurança
 
-HEAD, inventário e bytes são comparados com a geração indexada antes da
-promoção. Queries PostgreSQL usam parâmetros psycopg. Isolamento cross-project,
-secret scan, verificação canônica e falha fechada de fontes stale foram
-cobertos por testes e integrações.
+Chaves usam SecretStr e header Authorization sem persistência ou log. URLs
+rejeitam credenciais inline e esquemas não HTTP(S); batch, input, dimensão,
+timeout, respostas, índices, NaN e Infinity são bounded ou rejeitados.
 
-## 10. Integridade de fonte
+## 10. Currentness e fallback
 
-Uma corrida de HEAD ou inventário entre a construção da geração e a promoção
-resulta em `STALE` com `repository_source_stale` na revalidação final. A
-geração anterior permanece queryável e não há flip parcial de referências
-`is_current`.
+Somente a execução completa do perfil correspondente ao corpus lexical atual
+fica current. Corpus lexical novo, profile alterado, erro do provider ou
+resposta stale não fabricam contribuição semântica: o híbrido declara o estado
+e retorna lexical quando aplicável.
 
-## 11. Candidatos TASK duplicados
+## 11. Fusão híbrida
 
-Submissões READY com texto derivado idêntico mantêm tarefas e referências
-distintas no PostgreSQL. A seleção lexical usa a identidade determinística
-`(project_id, chunk_id, source_kind)` apenas para TASK e escolhe o representante
-por score, `task_id` e `reference_id`.
+O híbrido limita os dois conjuntos de candidatos e calcula weighted reciprocal
+rank fusion com k configurável. Cada resultado mostra rank e contribuição
+lexical/semântica, com desempate determinístico; nenhum score de LLM é usado.
 
 ## 12. Dashboard
 
-O Retrieval Corpus e o Lexical Retrieval Lab existentes permanecem funcionando
-com dados reais, limites bounded e a mesma arquitetura de seleção de projeto.
+O Control Center preserva Corpus e Lexical Retrieval Lab e agora mostra estado
+semântico, sync de embeddings e seleção Lexical/Semantic/Hybrid. Não há campo
+de chave, controle de reranker ou custo fictício.
 
 ## 13. Benchmark
 
-O baseline lexical permanece com quatro consultas críticas, recall@1 1.0,
-recall@5 1.0, MRR 1.0, zero misses críticos, isolamento cross-project e duas
-execuções reproduzíveis.
+O baseline lexical separado permanece com quatro consultas críticas e duas
+execuções reproduzíveis. O desafio paraphraseado recupera `src/durability.py`
+semanticamente, o híbrido mantém recall@5 igual ou superior ao conjunto lexical
+estendido e o fixture é explicitamente mecânico, não uma alegação de qualidade
+de produção.
 
 ## 14. Testes automatizados
 
-Os testes cobrem chunking/ranges, corrida de HEAD, corrida de inventário com
-bytes capturados inalterados, parametrização SQL, schema/log delimitado,
-contagens estruturadas e remoção do fallback legado específico.
+Os testes cobrem configuração desabilitada e bounded, identidade sem segredo,
+adapter OpenAI-compatible, ordem por índice, dimensões, duplicatas, NaN,
+parameterização SQL, RRF e estados de fallback, além da suíte lexical existente.
 
 ## 15. Integrações reais
 
-Project Registry, Task Intake/CAS, Repository Indexing e Retrieval Corpus/Lexical
-foram executados em Compose com repositórios Git reais. A integração de
-retrieval cobre Redis/API restart, benchmark duas vezes, stale/recovery,
-HEAD/inventory races, preservação do corpus e deduplicação de tarefas entre
-projetos.
+Compose executa PostgreSQL/pgvector, Redis, API e dashboard contra Git real.
+O fluxo valida migration, tipo vector real, sync/reuso, isolamento entre
+projetos, challenge semântico, fallback provider/stale, races lexicais,
+restart Redis/API e benchmark repetido.
 
 ## 16. CI e evidências
 
-`Validate`, `Integration health` e `Review Evidence` executam no head exato. O
-manifesto JSON é impresso entre `HIVE_REVIEW_MANIFEST_BEGIN` e
-`HIVE_REVIEW_MANIFEST_END`. O artefato consolidado `{artifact_name}` contém
-arquivos alterados, migration, validação, integrações, benchmark, diagnósticos
-bounded, manifesto, resumo e governança.
+`Validate`, `Integration health` e `Review Evidence` são executados no head
+exato. O manifesto JSON fica delimitado, o benchmark semântico/híbrido e os
+logs bounded entram no artefato `{artifact_name}` junto com diff, migration,
+testes, governança e avisos observados.
 
 ## 17. Governança GitHub
 
-Antes: {ruleset_before}; configurações de merge: {merge_before}. Depois:
-{ruleset_after}; configurações de merge: {merge_after}. A proteção permanece
-ativa, sem bypass, com pull request obrigatório, deletion/non-fast-forward
-protection, os três checks reais, resolução de threads e squash-only.
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. A proteção permanece ativa, sem bypass, com checks reais,
+threads resolvidas e squash-only. Auto-merge só pode ser armado após o gate de
+uma aprovação independente elegível; o executor não aprova nem faz merge.
 
 ## 18. Limitações e avisos conhecidos
 
-Avisos não bloqueantes observados permanecem registrados no manifesto, sem
-descartar warnings. O sistema continua lexical e bounded; conteúdo de usuário
-não é incluído no pacote consolidado.
+Não há índice aproximado nesta versão: a consulta usa scan exato bounded.
+Provider local/fixture serve apenas à prova determinística. Avisos de ambiente
+ou dependências permanecem registrados no manifesto sem serem ocultados.
 
 ## 19. Arquivos e artefato
 
-A lista completa de arquivos alterados, o diff e os resultados objetivos estão
-no artefato consolidado `{artifact_name}` e no comentário sticky controlado pelo
-marcador `<!-- hive-review-evidence:{work_order} -->`.
+A lista completa de arquivos, diff, resultados, benchmark, logs sanitizados e
+governança está no artefato `{artifact_name}` e no comentário sticky marcado
+por `<!-- hive-review-evidence:{work_order} -->`.
 
 ## 20. Estado para revisão de Sol
 
-Nenhuma aprovação é atribuída a Sol. A PR permanece Draft, aberta e não
-mesclada para auditoria direta no GitHub.
+A PR permanece aberta e não mesclada. Nenhuma aprovação é atribuída a Sol;
+threads e checks devem ser verificados no current head antes de qualquer merge.
 
 Sol Review State: AWAITING_SOL
 """

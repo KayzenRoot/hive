@@ -102,7 +102,13 @@
         "two_run_reproducibility": { "type": "boolean" },
         "cross_project_isolation": { "type": "boolean" },
         "redis_restart": { "type": "boolean" },
-        "api_restart": { "type": "boolean" }
+        "api_restart": { "type": "boolean" },
+        "semantic": { "$ref": "#/$defs/benchmark_slice" },
+        "hybrid": { "$ref": "#/$defs/benchmark_slice" },
+        "semantic_integrity": { "$ref": "#/$defs/semantic_integrity" },
+        "fallback": { "$ref": "#/$defs/fallback" },
+        "hybrid_recall_at_5_gte_extended_lexical": { "type": "boolean" },
+        "semantic_challenge_recovered": { "type": "boolean" }
       }
     },
     "evidence": {
@@ -178,7 +184,23 @@
                 "prior_corpus_preserved": { "type": "boolean" },
                 "duplicate_task_candidate_collapsed": { "type": "boolean" },
                 "task_provenance_preserved": { "type": "boolean" },
-                "cross_project_duplicate_isolation": { "type": "boolean" }
+                "cross_project_duplicate_isolation": { "type": "boolean" },
+                "semantic_challenge_recovered": { "type": "boolean" },
+                "hybrid_fallback_provider_error": { "type": "boolean" },
+                "hybrid_fallback_stale": { "type": "boolean" },
+                "semantic_project_isolation": { "type": "boolean" }
+              }
+            },
+            "semantic_hybrid": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "semantic", "hybrid", "semantic_integrity", "fallback"],
+              "properties": {
+                "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                "semantic": { "$ref": "#/$defs/benchmark_slice" },
+                "hybrid": { "$ref": "#/$defs/benchmark_slice" },
+                "semantic_integrity": { "$ref": "#/$defs/semantic_integrity" },
+                "fallback": { "$ref": "#/$defs/fallback" }
               }
             }
           }
@@ -239,6 +261,9 @@
             "non_fast_forward_protection": { "type": "boolean" },
             "pull_request_required": { "type": "boolean" },
             "strict_required_status_checks": { "type": ["boolean", "null"] }
+            ,"required_approving_review_count": { "type": ["integer", "null"], "minimum": 0 }
+            ,"dismiss_stale_reviews_on_push": { "type": ["boolean", "null"] }
+            ,"require_last_push_approval": { "type": ["boolean", "null"] }
           }
         },
         "repository_merge_settings": {
@@ -251,6 +276,40 @@
             "allow_rebase_merge": { "type": ["boolean", "null"] },
             "delete_branch_on_merge": { "type": ["boolean", "null"] },
             "allow_auto_merge": { "type": ["boolean", "null"] }
+          }
+        },
+        "pull_request": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "number": { "type": ["integer", "null"], "minimum": 1 },
+            "state": { "type": ["string", "null"] },
+            "is_draft": { "type": ["boolean", "null"] },
+            "head_sha": { "type": ["string", "null"] },
+            "base_sha": { "type": ["string", "null"] },
+            "auto_merge_armed": { "type": "boolean" },
+            "auto_merge_method": { "type": ["string", "null"] }
+          }
+        },
+        "approval_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required_approving_review_count": { "type": ["integer", "null"], "minimum": 0 },
+            "dismiss_stale_reviews_on_push": { "type": ["boolean", "null"] },
+            "require_last_push_approval": { "type": ["boolean", "null"] },
+            "independent_approvers": { "type": "array", "items": { "type": "string" } },
+            "independent_approval_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "sol_reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "login": { "type": "string" },
+            "permission": { "type": ["string", "null"] },
+            "permissions": { "type": "object" },
+            "can_satisfy_required_approval": { "type": "boolean" }
           }
         }
       }
@@ -270,8 +329,11 @@
       "additionalProperties": false,
       "required": ["status", "merge_performed"],
       "properties": {
-        "status": { "type": "string", "enum": ["DRAFT", "OPEN", "MERGED", "NOT_CREATED"] },
-        "merge_performed": { "const": false }
+        "status": { "type": "string", "enum": ["DRAFT", "READY", "OPEN", "MERGED", "NOT_CREATED"] },
+        "merge_performed": { "const": false },
+        "sol_review_state": { "type": "string", "enum": ["AWAITING_SOL", "APPROVED", "REJECTED"] },
+        "auto_merge_armed": { "type": "boolean" },
+        "auto_merge_method": { "type": ["string", "null"] }
       }
     },
     "negative_scope": {
@@ -299,6 +361,42 @@
         "actor_type": { "type": ["string", "null"] },
         "actor_name": { "type": ["string", "null"] },
         "bypass_mode": { "type": ["string", "null"] }
+      }
+    },
+    "benchmark_slice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "query_count", "recall_at_1", "recall_at_5", "mrr", "critical_context_misses", "two_run_reproducibility"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "query_count": { "type": "integer", "minimum": 0 },
+        "recall_at_1": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "critical_context_misses": { "type": "integer", "minimum": 0 },
+        "two_run_reproducibility": { "type": "boolean" }
+      }
+    },
+    "semantic_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actual_pgvector_type": { "type": "string" },
+        "current_only_after_complete_run": { "type": "boolean" },
+        "migration": { "type": "string" },
+        "profile_dimensions": { "type": "integer", "minimum": 1 },
+        "project_scoped": { "type": "boolean" },
+        "provider_requests_on_reuse": { "type": "integer", "minimum": 0 },
+        "unchanged_sync_reused_embeddings": { "type": "boolean" }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider_failure": { "type": "string" },
+        "semantic_only_provider_failure_status": { "type": "integer", "minimum": 100 },
+        "stale_after_lexical_change": { "type": "string" }
       }
     }
   }

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_REVISION = "0004_retrieval_lexical"
+SCHEMA_REVISION = "0005_semantic_retrieval"
 
 
 def free_port() -> int:
@@ -77,7 +77,7 @@ def request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(request_object, timeout=10) as response:
+        with urllib.request.urlopen(request_object, timeout=30) as response:
             return response.status, decode_body(response.read())
     except urllib.error.HTTPError as exc:
         return exc.code, decode_body(exc.read())

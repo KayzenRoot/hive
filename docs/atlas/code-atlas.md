@@ -14,6 +14,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/repository_indexer.py: Python source or test module.
 - backend/app/retrieval.py: Python source or test module.
 - backend/app/runner.py: Python source or test module.
+- backend/app/semantic_retrieval.py: Python source or test module.
 - backend/app/task_intake.py: Python source or test module.
 - backend/app/tasks_api.py: Python source or test module.
 - backend/tests/__init__.py: Python source or test module.
@@ -26,6 +27,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_retrieval.py: Python source or test module.
 - backend/tests/test_review_evidence.py: Python source or test module.
 - backend/tests/test_runner.py: Python source or test module.
+- backend/tests/test_semantic_retrieval.py: Python source or test module.
 - backend/tests/test_task_intake.py: Python source or test module.
 - backend/tests/test_tasks_api.py: Python source or test module.
 
@@ -46,12 +48,14 @@ Generated deterministically by scripts/generate_maps.py.
 - migrations/versions/0002_task_intake_cas.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0003_repository_indexing.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0004_retrieval_lexical.py: Ordered PostgreSQL business-schema revision.
+- migrations/versions/0005_semantic_retrieval.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/__init__.py: Ordered PostgreSQL business-schema revision.
 
 ## Operational scripts
 
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
+- scripts/embedding_fixture.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
 - scripts/migrate.py: deterministic maintenance or validation script.

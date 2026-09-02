@@ -93,6 +93,35 @@ const retrievalCorpus = {
   task_reference_count: 2,
 };
 
+const semanticStatus = {
+  project_id: project.project_id,
+  state: "CURRENT",
+  enabled: true,
+  configured: true,
+  profile: {
+    adapter_kind: "openai-compatible-http",
+    model: "fixture",
+    model_revision: "v1",
+    dimensions: 8,
+    distance_metric: "cosine",
+    identity_fingerprint: "a".repeat(64),
+  },
+  current_corpus_run_id: retrievalCorpus.latest_run.run_id,
+  latest_run: {
+    status: "COMPLETED",
+    current_chunk_count: 5,
+    newly_embedded_count: 5,
+    reused_embedding_count: 0,
+    failed_count: 0,
+    provider_request_count: 3,
+    error: null,
+  },
+  total_current_chunks: 5,
+  embedded_chunk_count: 5,
+  missing_chunk_count: 0,
+  last_error: null,
+};
+
 function response(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -257,6 +286,11 @@ describe("App", () => {
       if (url.endsWith("/tasks")) return Promise.resolve(response([]));
       if (url.endsWith("/storage")) return Promise.resolve(response(storage));
       if (url.endsWith("/retrieval/corpus/sync")) return Promise.resolve(response(retrievalCorpus));
+      if (url.endsWith("/retrieval/semantic/sync")) return Promise.resolve(response({ status: "COMPLETED" }));
+      if (url.endsWith("/retrieval/semantic")) return Promise.resolve(response({
+        ...semanticStatus,
+        results: [{ ...result, semantic_run_id: "run", semantic_score: 0.9, semantic_distance: 0.1 }],
+      }));
       if (url.endsWith("/retrieval/lexical")) {
         return Promise.resolve(response({
           project_id: project.project_id,
@@ -286,5 +320,8 @@ describe("App", () => {
 
     expect(await screen.findByText("OrderService.get_project_order")).toBeInTheDocument();
     expect(screen.getByText(/Lines 1-2/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "semantic" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search semantic" }));
+    expect(await screen.findByText(/score 0.900/)).toBeInTheDocument();
   });
 });
