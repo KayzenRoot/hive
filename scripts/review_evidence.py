@@ -1295,7 +1295,10 @@ def write_consolidated_artifact(
         + "\n",
     }
     for name, content in files.items():
-        (output_dir / name).write_text(bounded(content), encoding="utf-8", newline="\n")
+        # Keep structured evidence parseable even when the manifest grows beyond
+        # the bounded excerpt limit used for free-form logs.
+        output_content = content if name.endswith(".json") else bounded(content)
+        (output_dir / name).write_text(output_content, encoding="utf-8", newline="\n")
 
 
 def manifest_log(manifest: dict[str, object]) -> str:

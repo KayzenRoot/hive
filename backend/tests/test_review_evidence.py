@@ -386,6 +386,7 @@ def test_pr_body_template_contains_work_order_marker_and_sol_state() -> None:
 
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
+    manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
     write_consolidated_artifact(tmp_path, manifest, "summary\n")
     expected = {
         "changed-files.txt",
@@ -403,6 +404,7 @@ def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path
         "github-governance.json",
     }
     assert expected <= {path.name for path in tmp_path.iterdir()}
+    assert json.loads((tmp_path / "review-manifest.json").read_text(encoding="utf-8")) == manifest
 
 
 def test_consolidated_artifact_contains_captured_service_warning_log(
