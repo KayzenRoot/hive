@@ -14,7 +14,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0003_repository_indexing"
+SCHEMA_REVISION = "0004_retrieval_lexical"
 
 
 def postgres_sql(project_name: str, environment: dict[str, str], query: str, *, check: bool = True):

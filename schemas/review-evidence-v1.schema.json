@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kayzenroot.github.io/hive/schemas/review-evidence-v1.schema.json",
+  "title": "HIVE Review Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "work_order",
+    "repository",
+    "pull_request",
+    "base",
+    "head",
+    "generated_at",
+    "changed_files",
+    "migrations",
+    "checks",
+    "benchmark",
+    "review_state",
+    "negative_scope"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "work_order": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "minLength": 1 },
+    "pull_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "is_draft"],
+      "properties": {
+        "number": { "type": ["integer", "null"], "minimum": 1 },
+        "is_draft": { "type": "boolean" }
+      }
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "sha"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "sha"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "changed_files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "paths"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head"],
+      "properties": { "head": { "type": "string", "minLength": 1 } }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical", "secrets", "lint", "typecheck", "tests", "build", "integration", "review_evidence"],
+      "properties": {
+        "canonical": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "secrets": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "lint": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "typecheck": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "tests": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "build": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "integration": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "review_evidence": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "query_count", "recall_at_1", "recall_at_5", "mrr", "critical_context_misses"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "query_count": { "type": "integer", "minimum": 0 },
+        "recall_at_1": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "critical_context_misses": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "review_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "merge_performed"],
+      "properties": {
+        "status": { "type": "string", "enum": ["DRAFT", "OPEN", "MERGED", "NOT_CREATED"] },
+        "merge_performed": { "const": false }
+      }
+    },
+    "negative_scope": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
+  }
+}

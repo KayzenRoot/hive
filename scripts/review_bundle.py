@@ -1,5 +1,8 @@
+"""Generate a generic, secret-free review bundle from repository evidence."""
+
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import subprocess
@@ -34,13 +37,24 @@ def read_validation(name: str, fallback: str) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else fallback
 
 
-def github_evidence() -> str:
+def repository_slug() -> str:
+    remote = run(["git", "remote", "get-url", "origin"]).strip().removesuffix(".git")
+    if remote.startswith("git@") and ":" in remote:
+        return remote.split(":", 1)[1]
+    if "/" in remote:
+        return "/".join(remote.rsplit("/", 2)[-2:])
+    return remote or "unknown/unknown"
+
+
+def github_evidence(repository: str | None = None) -> str:
+    repository = repository or repository_slug()
+    api_root = f"repos/{repository}"
     branch = run(["git", "branch", "--show-current"]).strip()
     commands = [
         [
             "gh",
             "api",
-            "repos/KayzenRoot/hive",
+            api_root,
             "--jq",
             "{nameWithOwner: .full_name, private: .private, description: .description, "
             "hasIssues: .has_issues, hasWiki: .has_wiki, hasDiscussions: .has_discussions, "
@@ -50,13 +64,13 @@ def github_evidence() -> str:
         [
             "gh",
             "api",
-            "repos/KayzenRoot/hive/topics",
+            f"{api_root}/topics",
             "-H",
             "Accept: application/vnd.github+json",
         ],
-        ["gh", "api", "repos/KayzenRoot/hive/branches/main/protection"],
-        ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
-        ["gh", "api", "repos/KayzenRoot/hive/milestones?state=all"],
+        ["gh", "api", f"{api_root}/branches/main/protection"],
+        ["gh", "api", f"{api_root}/rulesets?includes_parents=true"],
+        ["gh", "api", f"{api_root}/milestones?state=all"],
         [
             "gh",
             "pr",
@@ -144,7 +158,7 @@ def github_evidence() -> str:
                 + result.stderr
             )
     rulesets_result = subprocess.run(
-        ["gh", "api", "repos/KayzenRoot/hive/rulesets?includes_parents=true"],
+        ["gh", "api", f"{api_root}/rulesets?includes_parents=true"],
         cwd=ROOT,
         text=True,
         capture_output=True,
@@ -163,7 +177,7 @@ def github_evidence() -> str:
         sections.append("Protect main ruleset discovery: NOT FOUND")
     for ruleset in protect_main:
         ruleset_id = str(ruleset["id"])
-        command = ["gh", "api", f"repos/KayzenRoot/hive/rulesets/{ruleset_id}"]
+        command = ["gh", "api", f"{api_root}/rulesets/{ruleset_id}"]
         result = subprocess.run(
             command,
             cwd=ROOT,
@@ -529,7 +543,70 @@ O Project Brain canônico permanece inalterado; esta é somente uma proposta.
 """
 
 
-def main() -> int:
+def generic_review_markdown(work_order: str, stamp: str, status: str, head: str) -> str:
+    return f"""# HIVE review bundle — {work_order}
+
+Generated UTC: {stamp}
+Head: `{head}`
+Validation: {status}
+
+This bundle contains repository state, deterministic validation output, the
+versioned Review Evidence manifest when available, and GitHub evidence. It is
+staged for review only: no merge, release, tag, or canonical checkpoint update
+is performed by this generator.
+"""
+
+
+def generic_main(args: argparse.Namespace) -> int:
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    safe_work_order = "".join(
+        character if character.isalnum() or character in "-_" else "-"
+        for character in args.work_order
+    )
+    work = ROOT / "tmp" / f"review-bundle-{safe_work_order}"
+    work.mkdir(parents=True, exist_ok=True)
+    status = read_validation("summary.txt", "No validation results recorded.")
+    head = run(["git", "rev-parse", "HEAD"]).strip()
+    files: dict[str, str] = {
+        "REVIEW.md": generic_review_markdown(args.work_order, stamp, status.strip(), head),
+        "git-status.txt": run(["git", "status", "--short", "--branch"]),
+        "git-log.txt": run(["git", "log", "--oneline", "--decorate", "--graph", "-n", "30"]),
+        "git-diff.patch": run(["git", "diff", "--binary", "origin/main...HEAD"]),
+        "changed-files.txt": run(["git", "diff", "--name-status", "origin/main...HEAD"]),
+        "summary.txt": status,
+        "test-results.txt": read_validation("test-results.txt", "No test results recorded."),
+        "lint-typecheck-build-results.txt": read_validation(
+            "lint-typecheck-build-results.txt", "No lint/typecheck/build results recorded."
+        ),
+        "docker-compose-config.txt": read_validation(
+            "docker-compose-config.txt", "No Compose results recorded."
+        ),
+        "github-configuration-evidence.txt": github_evidence(args.repository),
+    }
+    evidence_dir = ROOT / "tmp" / "review-evidence"
+    for name in ("review-manifest.json", "review-summary.md"):
+        path = evidence_dir / name
+        if path.exists():
+            files[name] = path.read_text(encoding="utf-8")
+    benchmark = VALIDATION / "retrieval-benchmark.json"
+    if benchmark.exists():
+        files["retrieval-benchmark.json"] = benchmark.read_text(encoding="utf-8")
+    for name, content in files.items():
+        (work / name).write_text(content, encoding="utf-8", newline="\n")
+    zip_path = output_dir / f"hive-{safe_work_order.lower()}-review-{stamp}.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(work.iterdir()):
+            archive.write(path, arcname=path.name)
+    digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    checksum_path = zip_path.with_suffix(".zip.sha256")
+    checksum_path.write_text(f"{digest}  {zip_path.name}\n", encoding="utf-8")
+    print(json.dumps({"zip": str(zip_path), "sha256": digest}, indent=2))
+    return 0
+
+
+def legacy_main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     work = ROOT / "tmp" / "review-bundle"
@@ -611,6 +688,15 @@ inalterado até revisão e aprovação explícitas.
     checksum_path.write_text(f"{digest}  {zip_path.name}\n", encoding="utf-8")
     print(json.dumps({"zip": str(zip_path), "sha256": digest}, indent=2))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--work-order", default="")
+    parser.add_argument("--repository", default=None)
+    parser.add_argument("--output-dir", type=Path, default=OUT_DIR)
+    args = parser.parse_args()
+    return generic_main(args) if args.work_order else legacy_main()
 
 
 if __name__ == "__main__":

@@ -76,6 +76,10 @@ def build_files() -> dict[Path, str]:
             "tasks, reuse and storage metrics. |"
         ),
         (
+            "| backend/app/retrieval.py | Project-scoped deterministic corpus sync, "
+            "chunk provenance and bounded lexical retrieval. |"
+        ),
+        (
             "| backend/app/tasks_api.py | Project-scoped task upload, text, artifact, "
             "preview and storage routes. |"
         ),
@@ -97,7 +101,16 @@ def build_files() -> dict[Path, str]:
             "| migrations/versions/0003_repository_indexing.py | Durable repository "
             "index runs, current files and Python symbol metadata. |"
         ),
-        "| scripts/review_bundle.py | Brazilian Portuguese audit bundle generation. |",
+        (
+            "| migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, "
+            "chunk and reference metadata. |"
+        ),
+        "| scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |",
+        (
+            "| scripts/review_evidence.py | Versioned, secret-free Review Evidence "
+            "manifest generation. |"
+        ),
+        "| schemas/review-evidence-v1.schema.json | Machine-readable Review Evidence contract. |",
         "| scripts/check_secrets.py | Deterministic tracked-file secret scan. |",
         "| scripts/generate_maps.py | Regenerates maintenance maps. |",
     ]
@@ -130,6 +143,14 @@ def build_files() -> dict[Path, str]:
         (
             "| backend/tests/test_task_intake.py | UTF-8/BOM, Markdown, structured "
             "text, PDF extraction, bounds and no-text behavior. |"
+        ),
+        (
+            "| backend/tests/test_retrieval.py | Identifier normalization, deterministic "
+            "chunking, request bounds and project-scoped retrieval contracts. |"
+        ),
+        (
+            "| backend/tests/test_review_evidence.py | Versioned Review Evidence schema "
+            "and merge-state guard. |"
         ),
         (
             "| backend/tests/test_tasks_api.py | Project isolation, verified artifact "
@@ -166,7 +187,12 @@ def build_files() -> dict[Path, str]:
             "E2E for all formats, reuse, dedup, isolation, restarts, metrics and "
             "corruption. |"
         ),
+        (
+            "| scripts/retrieval_integration.py | Real-Git corpus sync, lexical "
+            "benchmark, revalidation, isolation and restart persistence. |"
+        ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
+        "| scripts/review_evidence.py | Review Evidence schema and exact-head validation. |",
         "",
         f"Indexed source files: {len(all_source)}",
     ]

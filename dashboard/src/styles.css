@@ -529,6 +529,113 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.retrieval-section {
+  margin-top: 22px;
+  border: 1px solid #293752;
+  border-radius: 18px;
+  padding: 24px;
+  background: rgba(15, 25, 43, 0.76);
+}
+
+.retrieval-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.retrieval-summary > span:not(.state-badge) {
+  border: 1px solid #344259;
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #bbcadf;
+  font-size: 0.72rem;
+}
+
+.retrieval-run-details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.retrieval-run-details dt {
+  margin-bottom: 5px;
+  color: #65758f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.retrieval-run-details dd {
+  margin: 0;
+  color: #c5d3e8;
+  font-size: 0.83rem;
+}
+
+.lexical-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 180px auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.lexical-form label {
+  display: grid;
+  gap: 7px;
+  color: #92a3bd;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lexical-form input,
+.lexical-form select {
+  min-width: 0;
+  border: 1px solid #344259;
+  border-radius: 9px;
+  padding: 10px 11px;
+  color: #dce8f8;
+  background: #111b2d;
+  font: inherit;
+}
+
+.retrieval-results {
+  display: grid;
+  gap: 12px;
+}
+
+.retrieval-result {
+  border: 1px solid #233048;
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(17, 27, 45, 0.74);
+}
+
+.retrieval-snippet {
+  max-height: 220px;
+  overflow: auto;
+  margin: 14px 0 10px;
+  border: 1px solid #233048;
+  border-radius: 9px;
+  padding: 12px;
+  color: #c5d3e8;
+  background: #0a1220;
+  font-size: 0.76rem;
+  white-space: pre-wrap;
+}
+
+.retrieval-provenance {
+  margin: 0;
+  color: #65758f;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
   .shell {
     width: min(100% - 32px, 560px);
@@ -549,7 +656,9 @@ button:disabled {
 
   .register-form,
   .project-details,
-  .intake-grid {
+  .intake-grid,
+  .retrieval-run-details,
+  .lexical-form {
     grid-template-columns: 1fr;
   }
 

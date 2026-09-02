@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "name": "hive-retrieval-lexical-fixture",
+  "queries": [
+    {
+      "query": "OrderService.get_project_order",
+      "critical": true,
+      "expected_source_kind": "REPOSITORY_SYMBOL",
+      "expected_qualified_symbol": "OrderService.get_project_order"
+    },
+    {
+      "query": "src/order_service.py",
+      "critical": true,
+      "expected_source_kind": "REPOSITORY_FILE",
+      "expected_path": "src/order_service.py"
+    },
+    {
+      "query": "rebuild checkout manifest",
+      "critical": true,
+      "expected_source_kind": "TASK"
+    },
+    {
+      "query": "order_service",
+      "critical": false,
+      "expected_path": "src/order_service.py"
+    }
+  ]
+}

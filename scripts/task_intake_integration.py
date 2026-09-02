@@ -23,7 +23,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0003_repository_indexing"
+SCHEMA_REVISION = "0004_retrieval_lexical"
 
 
 def free_port() -> int:
