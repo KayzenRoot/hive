@@ -58,11 +58,20 @@ jobs:
       - name: Start HIVE services
         run: docker compose up -d --build
       - name: Run container smoke test
-        run: python scripts/integration_health.py
+        run: |
+          set -o pipefail
+          mkdir -p tmp/integration-logs
+          python scripts/integration_health.py 2>&1 | tee tmp/integration-logs/integration-health.log
       - name: Run Project Registry real-Git integration test
-        run: python scripts/project_registry_integration.py
+        run: |
+          set -o pipefail
+          mkdir -p tmp/integration-logs
+          python scripts/project_registry_integration.py 2>&1 | tee tmp/integration-logs/project-registry.log
       - name: Run Repository Indexing real-Git integration test
-        run: python scripts/repository_indexing_integration.py
+        run: |
+          set -o pipefail
+          mkdir -p tmp/integration-logs
+          python scripts/repository_indexing_integration.py 2>&1 | tee tmp/integration-logs/repository-indexing.log
       - name: Run Task Intake and CAS integration test
         run: |
           set -o pipefail
@@ -73,9 +82,9 @@ jobs:
           set -o pipefail
           mkdir -p tmp/integration-logs
           python scripts/retrieval_integration.py 2>&1 | tee tmp/integration-logs/retrieval.log
-      - name: Collect service logs
+      - name: Collect bounded service logs
         if: always()
-        run: docker compose logs
+        run: docker compose logs --no-color --tail=200
       - name: Upload validation and integration evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -129,6 +138,8 @@ jobs:
             exit 1
           fi
       - name: Generate Review Evidence manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python scripts/review_evidence.py \
             --work-order WO-006 \
@@ -139,6 +150,9 @@ jobs:
             --base-sha "${{ github.event.pull_request.base.sha }}" \
             --head-branch "${{ github.event.pull_request.head.ref }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --artifact-name "hive-review-evidence-WO-006-${{ github.event.pull_request.head.sha }}" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --run-id "$GITHUB_RUN_ID" \
             --integration-status PASS
       - name: Upload Review Evidence artifact
         if: always()

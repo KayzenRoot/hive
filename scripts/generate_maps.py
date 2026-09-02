@@ -110,6 +110,7 @@ def build_files() -> dict[Path, str]:
             "| scripts/review_evidence.py | Versioned, secret-free Review Evidence "
             "manifest generation. |"
         ),
+        "| scripts/review_pr_body.py | Generic twenty-section PT-BR PR review template. |",
         "| schemas/review-evidence-v1.schema.json | Machine-readable Review Evidence contract. |",
         "| scripts/check_secrets.py | Deterministic tracked-file secret scan. |",
         "| scripts/generate_maps.py | Regenerates maintenance maps. |",
@@ -193,6 +194,10 @@ def build_files() -> dict[Path, str]:
         ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "| scripts/review_evidence.py | Review Evidence schema and exact-head validation. |",
+        (
+            "| scripts/review_pr_body.py | Work-order marker, twenty-section review "
+            "and Sol-state template. |"
+        ),
         "",
         f"Indexed source files: {len(all_source)}",
     ]

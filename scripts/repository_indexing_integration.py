@@ -584,6 +584,7 @@ EXECUTE FUNCTION hive_test_fail_repository_file_update();
         print("python_symbols=passed")
         print("syntax_failure_atomicity=passed")
         print("restart_persistence=passed")
+        print("Repository Indexing integration passed.")
         return 0
     finally:
         compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)

@@ -22,6 +22,7 @@ Generated deterministically by scripts/generate_maps.py.
 | migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, chunk and reference metadata. |
 | scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |
 | scripts/review_evidence.py | Versioned, secret-free Review Evidence manifest generation. |
+| scripts/review_pr_body.py | Generic twenty-section PT-BR PR review template. |
 | schemas/review-evidence-v1.schema.json | Machine-readable Review Evidence contract. |
 | scripts/check_secrets.py | Deterministic tracked-file secret scan. |
 | scripts/generate_maps.py | Regenerates maintenance maps. |

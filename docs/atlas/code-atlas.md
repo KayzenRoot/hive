@@ -60,6 +60,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/retrieval_integration.py: deterministic maintenance or validation script.
 - scripts/review_bundle.py: deterministic maintenance or validation script.
 - scripts/review_evidence.py: deterministic maintenance or validation script.
+- scripts/review_pr_body.py: deterministic maintenance or validation script.
 - scripts/task_intake_integration.py: deterministic maintenance or validation script.
 - scripts/validate.py: deterministic maintenance or validation script.
 - scripts/verify_canonical_sources.py: deterministic maintenance or validation script.

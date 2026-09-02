@@ -30,5 +30,6 @@ Generated deterministically by scripts/generate_maps.py.
 | scripts/retrieval_integration.py | Real-Git corpus sync, lexical benchmark, revalidation, isolation and restart persistence. |
 | scripts/check_secrets.py | Tracked-file secret scan. |
 | scripts/review_evidence.py | Review Evidence schema and exact-head validation. |
+| scripts/review_pr_body.py | Work-order marker, twenty-section review and Sol-state template. |
 
-Indexed source files: 50
+Indexed source files: 51

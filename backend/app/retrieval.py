@@ -136,7 +136,11 @@ class _Source:
 @dataclass(frozen=True)
 class _SourceBundle:
     project_id: UUID
+    repository_path: Path
     repository_index_run_id: UUID
+    repository_head: str
+    repository_inventory: tuple[str, ...]
+    repository_file_hashes: tuple[tuple[str, str], ...]
     repository_sources: tuple[_Source, ...]
     task_sources: tuple[_Source, ...]
     repository_source_fingerprint: str
@@ -540,7 +544,17 @@ def _git_output(project_path: Path, arguments: list[str]) -> bytes:
 
 def _load_repository_sources(
     settings: Settings, project_id: UUID
-) -> tuple[UUID, tuple[_Source, ...], int, int, str]:
+) -> tuple[
+    Path,
+    UUID,
+    tuple[_Source, ...],
+    int,
+    int,
+    str,
+    str,
+    tuple[str, ...],
+    tuple[tuple[str, str], ...],
+]:
     project_path, index_run_id, indexed_head, indexed_paths = _project_path_and_index_run(
         settings, project_id
     )
@@ -653,12 +667,21 @@ def _load_repository_sources(
         f"{source.source_kind}|{source.source_id}|{source.path}|{source.source_content_sha256}"
         for source in sources
     ]
+    repository_file_hashes = tuple(
+        sorted(
+            (str(path_raw), str(content_hash_raw)) for _, path_raw, content_hash_raw, _ in file_rows
+        )
+    )
     return (
+        project_path,
         index_run_id,
         tuple(sources),
         skipped_binary,
         skipped_decode,
         _fingerprint(fingerprint_values),
+        indexed_head,
+        tuple(sorted(indexed_paths)),
+        repository_file_hashes,
     )
 
 
@@ -705,17 +728,25 @@ def _load_task_sources(settings: Settings, project_id: UUID) -> tuple[tuple[_Sou
 
 def _load_source_bundle(settings: Settings, project_id: UUID) -> _SourceBundle:
     (
+        repository_path,
         index_run_id,
         repository_sources,
         skipped_binary,
         skipped_decode,
         repository_fingerprint,
+        repository_head,
+        repository_inventory,
+        repository_file_hashes,
     ) = _load_repository_sources(settings, project_id)
     task_sources, task_fingerprint = _load_task_sources(settings, project_id)
     source_fingerprint = _fingerprint([repository_fingerprint, task_fingerprint, str(index_run_id)])
     return _SourceBundle(
         project_id,
+        repository_path,
         index_run_id,
+        repository_head,
+        repository_inventory,
+        repository_file_hashes,
         repository_sources,
         task_sources,
         repository_fingerprint,
@@ -727,14 +758,31 @@ def _load_source_bundle(settings: Settings, project_id: UUID) -> _SourceBundle:
 
 
 def _revalidate_bundle(settings: Settings, bundle: _SourceBundle) -> None:
-    for source in bundle.repository_sources:
-        if source.file_path is None:
-            continue
+    try:
+        current_head = (
+            _git_output(bundle.repository_path, ["rev-parse", "--verify", "HEAD^{commit}"])
+            .decode("ascii")
+            .strip()
+            .lower()
+        )
+        inventory_bytes = _git_output(bundle.repository_path, ["ls-files", "--cached", "-z", "--"])
+        current_inventory = tuple(
+            sorted(raw.decode("utf-8") for raw in inventory_bytes.split(b"\0") if raw)
+        )
+    except (RetrievalSyncError, UnicodeDecodeError) as exc:
+        raise RetrievalSyncError("repository_source_stale") from exc
+    if current_head != bundle.repository_head.lower():
+        raise RetrievalSyncError("repository_source_stale")
+    if current_inventory != bundle.repository_inventory:
+        raise RetrievalSyncError("repository_source_stale")
+
+    for path, expected_hash in bundle.repository_file_hashes:
         try:
-            source_bytes, _ = _read_stable_file(source.file_path, settings)
-        except RepositoryIndexingError as exc:
+            resolved = _resolve_tracked_path(bundle.repository_path, path)
+            source_bytes, _ = _read_stable_file(resolved, settings)
+        except (ProjectPathError, RepositoryIndexingError) as exc:
             raise RetrievalSyncError("repository_source_stale") from exc
-        if _sha256(source_bytes) != source.source_content_sha256:
+        if _sha256(source_bytes) != expected_hash:
             raise RetrievalSyncError("repository_source_stale")
 
 
@@ -1117,14 +1165,14 @@ def lexical_search(
                 SELECT plainto_tsquery('simple', %s) AS ts_query,
                        lower(%s) AS raw_query,
                        lower(%s) AS basename
-            )
-            SELECT r.project_id, r.reference_id, r.chunk_id, r.corpus_run_id,
-                   r.source_kind, c.content, r.path, r.source_title,
-                   r.qualified_symbol, r.repository_file_id, r.repository_symbol_id,
-                   r.task_id, r.source_content_sha256, c.content_sha256,
-                   c.chunker_version, r.start_line, r.end_line, r.start_char,
-                   r.end_char,
-                   ts_rank_cd(c.search_vector, q.ts_query)
+            ), scored AS (
+                SELECT r.project_id, r.reference_id, r.chunk_id, r.corpus_run_id,
+                       r.source_kind, c.content, r.path, r.source_title,
+                       r.qualified_symbol, r.repository_file_id, r.repository_symbol_id,
+                       r.task_id, r.source_content_sha256, c.content_sha256,
+                       c.chunker_version, r.start_line, r.end_line, r.start_char,
+                       r.end_char,
+                       ts_rank_cd(c.search_vector, q.ts_query)
                    + 1.5 * ts_rank_cd(r.metadata_vector, q.ts_query)
                    + CASE WHEN lower(coalesce(r.qualified_symbol, '')) = q.raw_query
                          THEN 4.0 ELSE 0.0 END
@@ -1136,26 +1184,43 @@ def lexical_search(
                          THEN 1.5 ELSE 0.0 END
                    + CASE WHEN lower(coalesce(r.qualified_symbol, '')) LIKE q.raw_query || '.%%'
                          THEN 1.0 ELSE 0.0 END
-                   AS lexical_score
-            FROM retrieval_references AS r
-            JOIN retrieval_chunks AS c
-              ON c.project_id = r.project_id AND c.chunk_id = r.chunk_id
-            CROSS JOIN q
-            WHERE r.project_id = %s AND r.is_current
-              AND (%s::text IS NULL OR r.source_kind = %s)
-              AND (
-                  c.search_vector @@ q.ts_query
-                  OR r.metadata_vector @@ q.ts_query
-                  OR lower(coalesce(r.path, '')) = q.raw_query
-                  OR lower(coalesce(r.source_title, '')) = q.raw_query
-                  OR lower(coalesce(r.qualified_symbol, '')) = q.raw_query
-              )
+                       AS lexical_score
+                FROM retrieval_references AS r
+                JOIN retrieval_chunks AS c
+                  ON c.project_id = r.project_id AND c.chunk_id = r.chunk_id
+                CROSS JOIN q
+                WHERE r.project_id = %s AND r.is_current
+                  AND (%s::text IS NULL OR r.source_kind = %s)
+                  AND (
+                      c.search_vector @@ q.ts_query
+                      OR r.metadata_vector @@ q.ts_query
+                      OR lower(coalesce(r.path, '')) = q.raw_query
+                      OR lower(coalesce(r.source_title, '')) = q.raw_query
+                      OR lower(coalesce(r.qualified_symbol, '')) = q.raw_query
+                  )
+            ), ranked AS (
+                SELECT scored.*,
+                       row_number() OVER (
+                           PARTITION BY source_kind,
+                             CASE WHEN source_kind = 'TASK' THEN chunk_id ELSE reference_id END
+                           ORDER BY lexical_score DESC, task_id NULLS LAST, reference_id
+                       ) AS candidate_rank
+                FROM scored
+            )
+            SELECT project_id, reference_id, chunk_id, corpus_run_id,
+                   source_kind, content, path, source_title,
+                   qualified_symbol, repository_file_id, repository_symbol_id,
+                   task_id, source_content_sha256, content_sha256,
+                   chunker_version, start_line, end_line, start_char,
+                   end_char, lexical_score
+            FROM ranked
+            WHERE candidate_rank = 1
             ORDER BY lexical_score DESC,
-                     r.source_kind,
-                     lower(coalesce(r.path, '')),
-                     lower(coalesce(r.qualified_symbol, '')),
-                     r.start_line,
-                     r.reference_id
+                     source_kind,
+                     lower(coalesce(path, '')),
+                     lower(coalesce(qualified_symbol, '')),
+                     start_line,
+                     reference_id
             LIMIT %s
             """,
             (

@@ -234,6 +234,32 @@ def main() -> int:
         assert_equal(status, 201, "retrieval task intake")
         assert isinstance(task, dict)
         task_id = str(task["task_id"])
+        status, duplicate_task = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/tasks/text",
+            {
+                "title": "Duplicate checkout manifest task",
+                "format": "text",
+                "text": "Rebuild the checkout manifest before the lexical provenance review.",
+            },
+        )
+        assert_equal(status, 201, "duplicate retrieval task intake")
+        assert isinstance(duplicate_task, dict)
+        duplicate_task_id = str(duplicate_task["task_id"])
+        status, isolated_task = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{other_project_id}/tasks/text",
+            {
+                "title": "Isolated duplicate checkout manifest task",
+                "format": "text",
+                "text": "Rebuild the checkout manifest before the lexical provenance review.",
+            },
+        )
+        assert_equal(status, 201, "isolated duplicate retrieval task intake")
+        assert isinstance(isolated_task, dict)
+        isolated_task_id = str(isolated_task["task_id"])
 
         status, synced = request(
             base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
@@ -241,7 +267,7 @@ def main() -> int:
         assert_equal(status, 200, "first retrieval sync")
         assert isinstance(synced, dict)
         assert_equal(synced["status"], "COMPLETED", "first retrieval sync state")
-        if synced["repository_source_count"] < 3 or synced["task_source_count"] != 1:
+        if synced["repository_source_count"] < 3 or synced["task_source_count"] != 2:
             raise AssertionError(f"unexpected retrieval source counts: {synced}")
         if synced["reference_count"] <= synced["repository_source_count"]:
             raise AssertionError(f"symbol/task provenance was not created: {synced}")
@@ -297,10 +323,42 @@ def main() -> int:
         assert_equal(status, 200, "task lexical query")
         assert isinstance(task_results, dict)
         if not any(
-            result.get("source_kind") == "TASK" and result.get("task_id") == task_id
+            result.get("source_kind") == "TASK"
+            and result.get("task_id") in {task_id, duplicate_task_id}
             for result in task_results["results"]
         ):
             raise AssertionError(f"task was not retrieved: {task_results}")
+        status, duplicate_results = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/lexical",
+            {"query": "rebuild checkout manifest", "top_k": 5, "source_kind": "TASK"},
+        )
+        assert_equal(status, 200, "duplicate task lexical query")
+        assert isinstance(duplicate_results, dict)
+        duplicate_candidates = duplicate_results["results"]
+        assert_equal(len(duplicate_candidates), 1, "duplicate task candidate collapse")
+        if duplicate_candidates[0].get("task_id") not in {task_id, duplicate_task_id}:
+            raise AssertionError(f"unexpected duplicate representative: {duplicate_results}")
+
+        status, isolated_sync = request(
+            base_url, "POST", f"/api/v1/projects/{other_project_id}/retrieval/corpus/sync"
+        )
+        assert_equal(status, 200, "isolated duplicate retrieval sync")
+        assert isinstance(isolated_sync, dict)
+        status, isolated_task_results = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{other_project_id}/retrieval/lexical",
+            {"query": "rebuild checkout manifest", "top_k": 5, "source_kind": "TASK"},
+        )
+        assert_equal(status, 200, "isolated duplicate task lexical query")
+        assert isinstance(isolated_task_results, dict)
+        isolated_candidates = isolated_task_results["results"]
+        assert_equal(len(isolated_candidates), 1, "cross-project duplicate candidate isolation")
+        assert_equal(
+            isolated_candidates[0].get("task_id"), isolated_task_id, "isolated task provenance"
+        )
 
         status, isolated_query = request(
             base_url,
@@ -385,7 +443,7 @@ def main() -> int:
         )
         assert_equal(status, 200, "new task retrieval sync")
         assert isinstance(task_sync, dict)
-        assert_equal(task_sync["task_source_count"], 2, "task source expansion")
+        assert_equal(task_sync["task_source_count"], 3, "task source expansion")
         if task_sync["task_reference_count"] <= synced["task_reference_count"]:
             raise AssertionError(f"new task did not expand task corpus: {task_sync}")
 
@@ -431,6 +489,74 @@ def main() -> int:
         assert isinstance(recovered, dict)
         assert_equal(recovered["status"], "COMPLETED", "recovered retrieval state")
 
+        status, inventory_baseline = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/lexical",
+            {"query": "OrderService.get_project_order", "top_k": 5},
+        )
+        assert_equal(status, 200, "race baseline lexical query")
+        assert isinstance(inventory_baseline, dict)
+        if not inventory_baseline["results"]:
+            raise AssertionError("race baseline corpus is not queryable")
+
+        staged_path = repository / "src" / "staged_inventory_race.py"
+        staged_path.write_text("def staged_only():\n    return True\n", encoding="utf-8")
+        run(["git", "add", "src/staged_inventory_race.py"], env=git_environment)
+        try:
+            status, inventory_race = request(
+                base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
+            )
+            assert_equal(status, 200, "inventory race sync response")
+            assert isinstance(inventory_race, dict)
+            assert_equal(inventory_race["status"], "STALE", "inventory race status")
+            assert_equal(inventory_race["error"], "repository_index_stale", "inventory race error")
+            status, inventory_preserved = request(
+                base_url,
+                "POST",
+                f"/api/v1/projects/{project_id}/retrieval/lexical",
+                {"query": "OrderService.get_project_order", "top_k": 5},
+            )
+            assert_equal(status, 200, "inventory race preserved query")
+            assert isinstance(inventory_preserved, dict)
+            if not inventory_preserved["results"]:
+                raise AssertionError("inventory race destroyed the previous valid corpus")
+        finally:
+            run(["git", "restore", "--staged", "src/staged_inventory_race.py"], env=git_environment)
+            staged_path.unlink()
+
+        (repository / "src" / "head_race.py").write_text(
+            "def committed_after_bundle():\n    return True\n", encoding="utf-8"
+        )
+        head_race_head = commit(repository, "commit after retrieval bundle", git_environment)
+        status, head_race = request(
+            base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
+        )
+        assert_equal(status, 200, "head race sync response")
+        assert isinstance(head_race, dict)
+        assert_equal(head_race["status"], "STALE", "head race status")
+        assert_equal(head_race["error"], "repository_index_stale", "head race error")
+        status, head_preserved = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/lexical",
+            {"query": "OrderService.get_project_order", "top_k": 5},
+        )
+        assert_equal(status, 200, "head race preserved query")
+        assert isinstance(head_preserved, dict)
+        if not head_preserved["results"]:
+            raise AssertionError("head race destroyed the previous valid corpus")
+        status, race_reindex = request(base_url, "POST", f"/api/v1/projects/{project_id}/index")
+        assert_equal(status, 200, "head race recovery index")
+        assert isinstance(race_reindex, dict)
+        assert_equal(race_reindex["repository_head_sha"], head_race_head, "head race reindex head")
+        status, race_recovered = request(
+            base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
+        )
+        assert_equal(status, 200, "head race recovery sync")
+        assert isinstance(race_recovered, dict)
+        assert_equal(race_recovered["status"], "COMPLETED", "head race recovery state")
+
         compose(project_name, ["restart", "redis"], env=environment)
         compose(project_name, ["restart", "api"], env=environment)
         wait_for_health(base_url)
@@ -462,10 +588,10 @@ def main() -> int:
                 == second_benchmark["recall_at_5"],
             },
             "corpus": {
-                "chunks": recovered["chunk_count"],
-                "references": recovered["reference_count"],
-                "repository_references": recovered["repository_reference_count"],
-                "task_references": recovered["task_reference_count"],
+                "chunks": race_recovered["chunk_count"],
+                "references": race_recovered["reference_count"],
+                "repository_references": race_recovered["repository_reference_count"],
+                "task_references": race_recovered["task_reference_count"],
             },
             "thresholds": {
                 "recall_at_5_minimum": 0.90,
@@ -474,12 +600,24 @@ def main() -> int:
             },
             "cross_project_isolation": True,
             "persistence": {"redis_restart": True, "api_restart": True},
+            "retrieval_integrity": {
+                "head_race_rejected": True,
+                "inventory_race_rejected": True,
+                "prior_corpus_preserved": True,
+                "duplicate_task_candidate_collapsed": True,
+                "task_provenance_preserved": True,
+                "cross_project_duplicate_isolation": True,
+            },
         }
         BENCHMARK_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         BENCHMARK_OUTPUT.write_text(
             json.dumps(benchmark_result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         print(json.dumps(benchmark_result, indent=2, sort_keys=True))
+        print(
+            "retrieval_integrity="
+            + json.dumps(benchmark_result["retrieval_integrity"], sort_keys=True)
+        )
         print("Retrieval Corpus/Lexical integration passed.")
         return 0
     except Exception:
