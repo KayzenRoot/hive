@@ -190,7 +190,16 @@
                 "semantic_challenge_recovered": { "type": "boolean" },
                 "hybrid_fallback_provider_error": { "type": "boolean" },
                 "hybrid_fallback_stale": { "type": "boolean" },
-                "semantic_project_isolation": { "type": "boolean" }
+                "semantic_project_isolation": { "type": "boolean" },
+                "rerank_recall_at_5_gte_hybrid": { "type": "boolean" },
+                "rerank_mrr_gte_hybrid": { "type": "boolean" },
+                "rerank_strict_rank_improvement": { "type": "boolean" },
+                "rerank_candidate_pool_bounded": { "type": "boolean" },
+                "rerank_provenance_preserved": { "type": "boolean" },
+                "rerank_disabled_exact_fallback": { "type": "boolean" },
+                "rerank_invalid_response_safe": { "type": "boolean" },
+                "rerank_provider_failure_safe": { "type": "boolean" },
+                "rerank_provider_down_safe": { "type": "boolean" }
               }
             },
             "semantic_hybrid": {
@@ -202,7 +211,8 @@
                 "semantic": { "$ref": "#/$defs/benchmark_slice" },
                 "hybrid": { "$ref": "#/$defs/benchmark_slice" },
                 "semantic_integrity": { "$ref": "#/$defs/semantic_integrity" },
-                "fallback": { "$ref": "#/$defs/fallback" }
+                "fallback": { "$ref": "#/$defs/fallback" },
+                "rerank": { "$ref": "#/$defs/rerank_benchmark" }
               }
             }
           }
