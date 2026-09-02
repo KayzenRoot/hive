@@ -13,6 +13,7 @@ Generated deterministically by scripts/generate_maps.py.
 | backend/app/cas.py | Hash-derived Zstandard CAS with atomic publication and integrity verification. |
 | backend/app/task_intake.py | Deterministic format extraction, durable tasks, reuse and storage metrics. |
 | backend/app/retrieval.py | Project-scoped deterministic corpus sync, chunk provenance and bounded lexical retrieval. |
+| backend/app/semantic_retrieval.py | Project-scoped pgvector embeddings, semantic retrieval, deterministic RRF fusion and lexical fallback. |
 | backend/app/tasks_api.py | Project-scoped task upload, text, artifact, preview and storage routes. |
 | backend/app/runner.py | Local Verified Runner change-set admission/application, path policy, deterministic verification, subprocess gating and bounded evidence. |
 | dashboard/src/App.tsx | Real API health, Project Fleet and Task Intake/CAS dashboard. |
@@ -20,6 +21,7 @@ Generated deterministically by scripts/generate_maps.py.
 | migrations/versions/0002_task_intake_cas.py | Durable CAS, task and extraction schema revision. |
 | migrations/versions/0003_repository_indexing.py | Durable repository index runs, current files and Python symbol metadata. |
 | migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, chunk and reference metadata. |
+| migrations/versions/0005_semantic_retrieval.py | Durable project-scoped embedding profiles, runs and pgvector chunk embeddings. |
 | scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |
 | scripts/review_evidence.py | Versioned, secret-free Review Evidence manifest generation. |
 | scripts/review_pr_body.py | Generic twenty-section PT-BR PR review template. |
