@@ -33,7 +33,7 @@ def run(command: list[str]) -> tuple[int, str]:
 
 def git_value(*args: str, fallback: str = "") -> str:
     code, output = run(["git", *args])
-    return output if code == 0 else fallback
+    return output if code == 0 and output else fallback
 
 
 def env_bool(value: str | None, default: bool = False) -> bool:
