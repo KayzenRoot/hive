@@ -37,7 +37,7 @@ jobs:
       - name: Verify tag/version and prepare release package
         run: python scripts/prepare_release.py --tag "$GITHUB_REF_NAME" --ref "$GITHUB_SHA" --output-dir release-assets
       - name: Generate release review bundle
-        run: python scripts/review_bundle.py
+        run: python scripts/review_bundle.py --work-order RELEASE
       - name: Publish validated GitHub release
         shell: bash
         run: |

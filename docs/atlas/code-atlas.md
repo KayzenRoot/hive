@@ -12,6 +12,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/main.py: Python source or test module.
 - backend/app/registry.py: Python source or test module.
 - backend/app/repository_indexer.py: Python source or test module.
+- backend/app/retrieval.py: Python source or test module.
 - backend/app/runner.py: Python source or test module.
 - backend/app/task_intake.py: Python source or test module.
 - backend/app/tasks_api.py: Python source or test module.
@@ -22,6 +23,8 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_projects_api.py: Python source or test module.
 - backend/tests/test_registry.py: Python source or test module.
 - backend/tests/test_repository_indexer.py: Python source or test module.
+- backend/tests/test_retrieval.py: Python source or test module.
+- backend/tests/test_review_evidence.py: Python source or test module.
 - backend/tests/test_runner.py: Python source or test module.
 - backend/tests/test_task_intake.py: Python source or test module.
 - backend/tests/test_tasks_api.py: Python source or test module.
@@ -42,10 +45,12 @@ Generated deterministically by scripts/generate_maps.py.
 - migrations/versions/0001_create_projects.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0002_task_intake_cas.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0003_repository_indexing.py: Ordered PostgreSQL business-schema revision.
+- migrations/versions/0004_retrieval_lexical.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/__init__.py: Ordered PostgreSQL business-schema revision.
 
 ## Operational scripts
 
+- scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
@@ -53,7 +58,10 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/prepare_release.py: deterministic maintenance or validation script.
 - scripts/project_registry_integration.py: deterministic maintenance or validation script.
 - scripts/repository_indexing_integration.py: deterministic maintenance or validation script.
+- scripts/retrieval_integration.py: deterministic maintenance or validation script.
 - scripts/review_bundle.py: deterministic maintenance or validation script.
+- scripts/review_evidence.py: deterministic maintenance or validation script.
+- scripts/review_pr_body.py: deterministic maintenance or validation script.
 - scripts/task_intake_integration.py: deterministic maintenance or validation script.
 - scripts/validate.py: deterministic maintenance or validation script.
 - scripts/verify_canonical_sources.py: deterministic maintenance or validation script.

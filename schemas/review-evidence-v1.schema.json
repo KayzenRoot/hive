@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kayzenroot.github.io/hive/schemas/review-evidence-v1.schema.json",
+  "title": "HIVE Review Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "work_order",
+    "repository",
+    "pull_request",
+    "base",
+    "head",
+    "generated_at",
+    "changed_files",
+    "migrations",
+    "checks",
+    "benchmark",
+    "evidence",
+    "governance",
+    "artifact",
+    "review_state",
+    "negative_scope"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "work_order": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "minLength": 1 },
+    "pull_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "is_draft"],
+      "properties": {
+        "number": { "type": ["integer", "null"], "minimum": 1 },
+        "is_draft": { "type": "boolean" }
+      }
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "sha"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "sha"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "changed_files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "paths"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head"],
+      "properties": { "head": { "type": "string", "minLength": 1 } }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["validation", "canonical", "secrets", "lint", "typecheck", "tests", "build", "integration", "review_evidence"],
+      "properties": {
+        "validation": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "canonical": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "secrets": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "lint": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "typecheck": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "tests": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "build": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "integration": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "review_evidence": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "query_count", "recall_at_1", "recall_at_5", "mrr", "critical_context_misses", "two_run_reproducibility", "cross_project_isolation", "redis_restart", "api_restart"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "query_count": { "type": "integer", "minimum": 0 },
+        "recall_at_1": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "critical_context_misses": { "type": "integer", "minimum": 0 },
+        "two_run_reproducibility": { "type": "boolean" },
+        "cross_project_isolation": { "type": "boolean" },
+        "redis_restart": { "type": "boolean" },
+        "api_restart": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tests", "integration", "security", "warnings"],
+      "properties": {
+        "tests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "backend", "dashboard"],
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+            "backend": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "passed", "failed", "skipped", "errors"],
+              "properties": {
+                "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                "passed": { "type": "integer", "minimum": 0 },
+                "failed": { "type": "integer", "minimum": 0 },
+                "skipped": { "type": "integer", "minimum": 0 },
+                "errors": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "dashboard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "passed", "failed", "skipped"],
+              "properties": {
+                "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                "passed": { "type": "integer", "minimum": 0 },
+                "failed": { "type": "integer", "minimum": 0 },
+                "skipped": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        },
+        "integration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "project_registry", "task_intake_cas", "repository_indexing", "retrieval", "redis_restart", "api_restart", "benchmark_gate", "cross_project_retrieval", "integrity_tests"],
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+            "project_registry": { "$ref": "#/$defs/result" },
+            "task_intake_cas": { "$ref": "#/$defs/result" },
+            "repository_indexing": { "$ref": "#/$defs/result" },
+            "retrieval": { "$ref": "#/$defs/result" },
+            "redis_restart": { "$ref": "#/$defs/result" },
+            "api_restart": { "$ref": "#/$defs/result" },
+            "benchmark_gate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "query_count", "recall_at_1", "recall_at_5", "mrr", "critical_context_misses", "two_run_reproducibility"],
+              "properties": {
+                "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                "query_count": { "type": "integer", "minimum": 0 },
+                "recall_at_1": { "type": "number", "minimum": 0, "maximum": 1 },
+                "recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+                "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+                "critical_context_misses": { "type": "integer", "minimum": 0 },
+                "two_run_reproducibility": { "type": "boolean" }
+              }
+            },
+            "cross_project_retrieval": { "$ref": "#/$defs/result" },
+            "integrity_tests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["head_race_rejected", "inventory_race_rejected", "prior_corpus_preserved", "duplicate_task_candidate_collapsed", "task_provenance_preserved", "cross_project_duplicate_isolation"],
+              "properties": {
+                "head_race_rejected": { "type": "boolean" },
+                "inventory_race_rejected": { "type": "boolean" },
+                "prior_corpus_preserved": { "type": "boolean" },
+                "duplicate_task_candidate_collapsed": { "type": "boolean" },
+                "task_provenance_preserved": { "type": "boolean" },
+                "cross_project_duplicate_isolation": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "canonical_verifier", "secret_scan", "project_isolation", "cross_project_retrieval", "sql_query_parameterization", "source_staleness_fail_closed"],
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+            "canonical_verifier": { "$ref": "#/$defs/result" },
+            "secret_scan": { "$ref": "#/$defs/result" },
+            "project_isolation": { "$ref": "#/$defs/result" },
+            "cross_project_retrieval": { "$ref": "#/$defs/result" },
+            "sql_query_parameterization": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "basis"],
+              "properties": {
+                "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                "basis": { "type": "string", "minLength": 1 }
+              }
+            },
+            "source_staleness_fail_closed": { "$ref": "#/$defs/result" }
+          }
+        },
+        "warnings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "count", "items"],
+          "properties": {
+            "status": { "type": "string", "enum": ["NONE", "RECORDED"] },
+            "count": { "type": "integer", "minimum": 0 },
+            "items": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "ruleset", "repository_merge_settings"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "UNKNOWN"] },
+        "ruleset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "enforcement", "required_contexts", "required_review_thread_resolution", "allowed_merge_methods", "bypass_actors", "deletion_protection", "non_fast_forward_protection", "pull_request_required", "strict_required_status_checks"],
+          "properties": {
+            "id": { "type": ["integer", "null"], "minimum": 1 },
+            "name": { "type": "string", "minLength": 1 },
+            "enforcement": { "type": "string", "minLength": 1 },
+            "required_contexts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "required_review_thread_resolution": { "type": ["boolean", "null"] },
+            "allowed_merge_methods": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "bypass_actors": { "type": "array", "items": { "$ref": "#/$defs/bypass_actor" } },
+            "deletion_protection": { "type": "boolean" },
+            "non_fast_forward_protection": { "type": "boolean" },
+            "pull_request_required": { "type": "boolean" },
+            "strict_required_status_checks": { "type": ["boolean", "null"] }
+          }
+        },
+        "repository_merge_settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allow_squash_merge", "allow_merge_commit", "allow_rebase_merge", "delete_branch_on_merge", "allow_auto_merge"],
+          "properties": {
+            "allow_squash_merge": { "type": ["boolean", "null"] },
+            "allow_merge_commit": { "type": ["boolean", "null"] },
+            "allow_rebase_merge": { "type": ["boolean", "null"] },
+            "delete_branch_on_merge": { "type": ["boolean", "null"] },
+            "allow_auto_merge": { "type": ["boolean", "null"] }
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "format", "bounded"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "format": { "const": "consolidated-directory" },
+        "bounded": { "const": true }
+      }
+    },
+    "review_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "merge_performed"],
+      "properties": {
+        "status": { "type": "string", "enum": ["DRAFT", "OPEN", "MERGED", "NOT_CREATED"] },
+        "merge_performed": { "const": false }
+      }
+    },
+    "negative_scope": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "evidence_file": { "type": "string", "minLength": 1 }
+      }
+    },
+    "bypass_actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "actor_type", "actor_name", "bypass_mode"],
+      "properties": {
+        "actor_id": { "type": ["integer", "null"] },
+        "actor_type": { "type": ["string", "null"] },
+        "actor_name": { "type": ["string", "null"] },
+        "bypass_mode": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

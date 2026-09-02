@@ -65,6 +65,34 @@ const storage = {
   compression_delta_label: "overhead",
 };
 
+const retrievalCorpus = {
+  project_id: project.project_id,
+  state: "CURRENT",
+  last_successful_sync: "2026-08-31T12:00:00Z",
+  latest_run: {
+    run_id: "00000000-0000-0000-0000-000000000201",
+    project_id: project.project_id,
+    status: "COMPLETED",
+    completed_at: "2026-08-31T12:00:00Z",
+    repository_source_count: 4,
+    task_source_count: 1,
+    chunk_count: 5,
+    reference_count: 8,
+    repository_reference_count: 6,
+    task_reference_count: 2,
+    new_chunk_count: 5,
+    reused_chunk_count: 0,
+    new_reference_count: 8,
+    reused_reference_count: 0,
+    removed_reference_count: 0,
+    error: null,
+  },
+  chunk_count: 5,
+  reference_count: 8,
+  repository_reference_count: 6,
+  task_reference_count: 2,
+};
+
 function response(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -79,6 +107,7 @@ function installFetch(projects: unknown[] = []) {
       return Promise.resolve(response(projects));
     }
     if (url.endsWith("/health")) return Promise.resolve(response(healthPayload));
+    if (url.endsWith("/retrieval/corpus")) return Promise.resolve(response(retrievalCorpus));
     return Promise.resolve(response(project));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -180,6 +209,7 @@ describe("App", () => {
       }
       if (url.endsWith("/tasks")) return Promise.resolve(response([task]));
       if (url.endsWith("/storage")) return Promise.resolve(response(storage));
+      if (url.endsWith("/retrieval/corpus")) return Promise.resolve(response(retrievalCorpus));
       return Promise.resolve(response({ text: "derived text" }));
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -201,5 +231,60 @@ describe("App", () => {
       );
     });
     expect(await screen.findByText("Texto aceito e armazenado no CAS.")).toBeInTheDocument();
+  });
+
+  it("syncs the selected corpus and renders bounded lexical results", async () => {
+    const result = {
+      reference_id: "00000000-0000-0000-0000-000000000301",
+      source_kind: "REPOSITORY_SYMBOL",
+      lexical_score: 4.2,
+      snippet: "def get_project_order():\n    return order",
+      path: "src/order_service.py",
+      title: null,
+      qualified_symbol: "OrderService.get_project_order",
+      source_content_sha256: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      start_line: 1,
+      end_line: 2,
+      start_char: 0,
+      end_char: 42,
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/health")) return Promise.resolve(response(healthPayload));
+      if (url.endsWith("/projects") && init?.method !== "POST") {
+        return Promise.resolve(response([project]));
+      }
+      if (url.endsWith("/tasks")) return Promise.resolve(response([]));
+      if (url.endsWith("/storage")) return Promise.resolve(response(storage));
+      if (url.endsWith("/retrieval/corpus/sync")) return Promise.resolve(response(retrievalCorpus));
+      if (url.endsWith("/retrieval/lexical")) {
+        return Promise.resolve(response({
+          project_id: project.project_id,
+          query: "OrderService.get_project_order",
+          normalized_query: "order service get project order",
+          top_k: 5,
+          results: [result],
+        }));
+      }
+      if (url.endsWith("/retrieval/corpus")) return Promise.resolve(response(retrievalCorpus));
+      return Promise.resolve(response({ text: "derived text" }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await screen.findByRole("option", { name: /HIVE/ });
+    fireEvent.change(await screen.findByLabelText("Registered project"), {
+      target: { value: project.project_id },
+    });
+    expect(await screen.findByText("CURRENT")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sync corpus" }));
+    expect(await screen.findByText("Corpus sincronizado com dados derivados determinísticos.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Query"), {
+      target: { value: "OrderService.get_project_order" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search lexical" }));
+
+    expect(await screen.findByText("OrderService.get_project_order")).toBeInTheDocument();
+    expect(screen.getByText(/Lines 1-2/)).toBeInTheDocument();
   });
 });

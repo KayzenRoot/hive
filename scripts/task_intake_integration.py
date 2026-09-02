@@ -23,7 +23,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0003_repository_indexing"
+SCHEMA_REVISION = "0004_retrieval_lexical"
 
 
 def free_port() -> int:
@@ -401,6 +401,7 @@ def main() -> int:
                 indent=2,
             )
         )
+        print("Task Intake and CAS integration passed.")
         passed = True
         return 0
     finally:

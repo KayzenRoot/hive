@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_REVISION = "0003_repository_indexing"
+SCHEMA_REVISION = "0004_retrieval_lexical"
 
 
 def free_port() -> int:

@@ -14,7 +14,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0003_repository_indexing"
+SCHEMA_REVISION = "0004_retrieval_lexical"
 
 
 def postgres_sql(project_name: str, environment: dict[str, str], query: str, *, check: bool = True):
@@ -584,6 +584,7 @@ EXECUTE FUNCTION hive_test_fail_repository_file_update();
         print("python_symbols=passed")
         print("syntax_failure_atomicity=passed")
         print("restart_persistence=passed")
+        print("Repository Indexing integration passed.")
         return 0
     finally:
         compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)

@@ -52,6 +52,11 @@ def command_steps() -> list[Step]:
         Step("secret scan", [python, "scripts/check_secrets.py"], bucket="lint"),
         Step("generated maps", [python, "scripts/generate_maps.py", "--check"], bucket="lint"),
         Step(
+            "review evidence schema",
+            [python, "scripts/review_evidence.py", "--work-order", "LOCAL-VALIDATION"],
+            bucket="lint",
+        ),
+        Step(
             "ruff format",
             [python, "-m", "ruff", "format", "--check", "backend", "scripts", "migrations"],
             bucket="lint",
