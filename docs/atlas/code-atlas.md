@@ -50,6 +50,7 @@ Generated deterministically by scripts/generate_maps.py.
 
 ## Operational scripts
 
+- scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.

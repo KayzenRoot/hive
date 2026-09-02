@@ -11,6 +11,11 @@ impresso entre `HIVE_REVIEW_MANIFEST_BEGIN` e `HIVE_REVIEW_MANIFEST_END`.
 `review-summary.md`, diagnósticos bounded, logs selecionados e o benchmark
 formam um único pacote consolidado. Um comentário sticky identificado por um
 marcador fixo pode ser atualizado pelo job, sem criar comentários duplicados.
+O job de integração também persiste em `service-logs.log` uma captura Docker
+limitada a `--tail=200`, com credenciais comuns redigidas. O coletor de avisos
+deduplica classes conhecidas — Redis `vm.overcommit_memory`, depreciação npm e
+depreciação de runtime Node das Actions — e as replica no manifesto, resumo e
+artefato consolidado.
 
 `scripts/review_evidence.py` é genérico: recebe work order, base/head, PR e
 estado de integração por argumentos e não presume uma branch ou projeto. O

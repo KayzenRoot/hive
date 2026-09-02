@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from typing import cast
 
+import pytest
+import scripts.review_evidence as review_evidence
+from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, redact_service_logs
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
     SCHEMA_PATH,
@@ -11,6 +16,7 @@ from scripts.review_evidence import (
     manifest_log,
     summary_markdown,
     validate_manifest,
+    warnings_evidence,
     write_consolidated_artifact,
 )
 from scripts.review_pr_body import render_body
@@ -164,6 +170,58 @@ def test_review_evidence_aggregates_wrapped_junit_and_strips_dashboard_ansi(
     }
 
 
+def test_warning_evidence_is_deterministic_deduplicated_and_rendered() -> None:
+    evidence = "\n".join(
+        [
+            "WARNING Memory overcommit must be enabled for Redis / vm.overcommit_memory.",
+            "WARNING Memory overcommit must be enabled for Redis / vm.overcommit_memory.",
+            "npm warn deprecated whatwg-encoding@3.1.1",
+            "npm warn deprecated whatwg-encoding@3.1.1",
+            "Node 20 is being deprecated for an action runtime.",
+            "Node 20 is being deprecated for an action runtime.",
+        ]
+    )
+    warnings = warnings_evidence(evidence)
+    assert warnings == {
+        "status": "RECORDED",
+        "count": 3,
+        "items": [
+            "Redis host warning observed: vm.overcommit_memory is disabled.",
+            "npm dependency deprecation warning observed.",
+            "GitHub Actions Node runtime deprecation warning observed.",
+        ],
+    }
+    manifest = evidence_fixture()
+    cast(dict[str, object], manifest["evidence"])["warnings"] = warnings
+    summary = summary_markdown(manifest, "https://example.invalid/run/1")
+    assert "Known warnings: `3` recorded" in summary
+    for item in cast(list[str], warnings["items"]):
+        assert item in summary
+
+
+def test_service_log_redaction_preserves_warning_without_credentials() -> None:
+    captured = (
+        "redis | WARNING Memory overcommit must be enabled for vm.overcommit_memory.\n"
+        "api | DATABASE_URL=postgres://hive:secret@postgres:5432/hive\n"
+        "api | token=ghp_1234567890abcdef\n"
+    )
+    safe = redact_service_logs(captured)
+    assert "vm.overcommit_memory" in safe
+    assert "secret" not in safe
+    assert "ghp_1234567890abcdef" not in safe
+    assert "[REDACTED]" in safe
+
+
+def test_service_log_capture_preserves_command_failure_status(tmp_path: Path) -> None:
+    output = tmp_path / "integration-logs" / "service-logs.log"
+    status = capture_service_logs(
+        output,
+        (sys.executable, "-c", "print('bounded service output'); raise SystemExit(7)"),
+    )
+    assert status == 7
+    assert output.read_text(encoding="utf-8") == "bounded service output\n"
+
+
 def test_review_manifest_is_emitted_between_stable_log_delimiters() -> None:
     rendered = manifest_log(evidence_fixture())
     begin, payload, end = rendered.split("\n", 2)[0], rendered.split("\n", 1)[1], ""
@@ -211,6 +269,8 @@ def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path
         "validation-results.txt",
         "integration-summary.json",
         "integration-results.txt",
+        "service-logs.log",
+        "warnings-evidence.json",
         "benchmark.json",
         "failure-diagnostics.txt",
         "review-manifest.json",
@@ -218,6 +278,36 @@ def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path
         "github-governance.json",
     }
     assert expected <= {path.name for path in tmp_path.iterdir()}
+
+
+def test_consolidated_artifact_contains_captured_service_warning_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    service_log = (
+        "redis-1 | WARNING Memory overcommit must be enabled for Redis / vm.overcommit_memory.\n"
+    )
+    (integration_logs / "service-logs.log").write_text(service_log, encoding="utf-8")
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+    output = tmp_path / "review-evidence"
+
+    write_consolidated_artifact(output, evidence_fixture(), "summary\n")
+
+    assert (output / "service-logs.log").read_text(encoding="utf-8") == service_log
+    warnings = json.loads((output / "warnings-evidence.json").read_text(encoding="utf-8"))
+    assert warnings == {"status": "NONE", "count": 0, "items": []}
+
+
+def test_ci_persists_bounded_service_logs_and_uses_supported_action_majors() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    assert DEFAULT_COMMAND == ("docker", "compose", "logs", "--no-color", "--tail=200")
+    assert "tmp/integration-logs/service-logs.log" in workflow
+    assert "path: |\n            tmp/validation\n            tmp/integration-logs" in workflow
+    assert "actions/upload-artifact@v7" in workflow
+    assert "actions/download-artifact@v8" in workflow
 
 
 def test_sticky_summary_has_required_review_fields() -> None:

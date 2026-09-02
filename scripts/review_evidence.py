@@ -21,6 +21,29 @@ INTEGRATION_LOGS = ROOT / "tmp" / "integration-logs"
 HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
 
+WARNING_RULES = (
+    (
+        re.compile(r"(?:vm\.overcommit_memory|memory overcommit|overcommit_memory)", re.I),
+        "Redis host warning observed: vm.overcommit_memory is disabled.",
+    ),
+    (
+        re.compile(r"\bnpm\s+(?:warn|warning)\s+deprecated\b", re.I),
+        "npm dependency deprecation warning observed.",
+    ),
+    (
+        re.compile(
+            r"(?:node(?:\.js)?\s+20\s+is\s+(?:being\s+)?deprecated|"
+            r"target\s+node(?:\.js)?\s+20\b)",
+            re.I,
+        ),
+        "GitHub Actions Node runtime deprecation warning observed.",
+    ),
+    (
+        re.compile(r"\bnpm\s+(?:warn|warning)\s+allow-scripts\b", re.I),
+        "npm install-script approval warning observed for a dependency.",
+    ),
+)
+
 
 def run(command: list[str]) -> tuple[int, str]:
     result = subprocess.run(
@@ -300,14 +323,7 @@ def security_evidence(
 
 
 def warnings_evidence(all_text: str) -> dict[str, object]:
-    items: list[str] = []
-    folded = all_text.casefold()
-    if "overcommit_memory" in folded or "overcommit" in folded:
-        items.append("Redis host warning observed: vm.overcommit_memory is disabled.")
-    if "npm warn deprecated" in folded:
-        items.append("npm dependency deprecation warning observed.")
-    if "npm warn allow-scripts" in folded:
-        items.append("npm install-script approval warning observed for a dependency.")
+    items = [message for pattern, message in WARNING_RULES if pattern.search(all_text)]
     return {"status": "RECORDED" if items else "NONE", "count": len(items), "items": items}
 
 
@@ -547,6 +563,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     )
     if errors:
         raise ValueError(f"manifest schema validation failed: {errors[0].message}")
+    warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
+    items = warnings["items"]
+    if isinstance(items, list) and (
+        warnings["count"] != len(items) or len(items) != len(set(items))
+    ):
+        raise ValueError("warning evidence count must match unique warning items")
 
 
 def all_evidence_text() -> str:
@@ -581,7 +603,11 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     artifact = cast(dict[str, Any], manifest["artifact"])
     pr = cast(dict[str, Any], manifest["pull_request"])
     integrity = cast(dict[str, Any], integration["integrity_tests"])
-    warning_text = ", ".join(warnings["items"]) if warnings["items"] else "none observed"
+    warning_lines = (
+        "\n".join(f"  - {item}" for item in warnings["items"])
+        if warnings["items"]
+        else "  - none observed"
+    )
     contexts = ", ".join(ruleset["required_contexts"]) or "none recorded"
     methods = ", ".join(ruleset["allowed_merge_methods"]) or "none recorded"
     backend_tests = (
@@ -646,7 +672,8 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Benchmark summary: {benchmark_text}
 - Canonical verifier: **{security["canonical_verifier"]["status"]}**
 - Secret scan: **{security["secret_scan"]["status"]}**
-- Known warnings: `{warnings["count"]}` recorded; {warning_text}
+- Known warnings: `{warnings["count"]}` recorded
+{warning_lines}
 - Ruleset: {ruleset_text}
 - Repository merge settings: {merge_settings}
 - Consolidated artifact: `{artifact["name"]}`
@@ -662,6 +689,7 @@ def write_consolidated_artifact(
     output_dir.mkdir(parents=True, exist_ok=True)
     changed = cast(dict[str, Any], manifest["changed_files"])
     migrations = cast(dict[str, Any], manifest["migrations"])
+    warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
     integration_sources = sorted(VALIDATION.glob("*.txt")) + sorted(INTEGRATION_LOGS.glob("*.log"))
     integration_text = "\n\n".join(
         f"===== {path.as_posix()} =====\n{bounded(read_text(path))}" for path in integration_sources
@@ -682,6 +710,11 @@ def write_consolidated_artifact(
         )
         + "\n",
         "integration-results.txt": bounded(integration_text),
+        "service-logs.log": bounded(
+            read_text(INTEGRATION_LOGS / "service-logs.log")
+            or "No bounded Docker Compose service logs were captured.\n"
+        ),
+        "warnings-evidence.json": json.dumps(warnings, indent=2, sort_keys=True) + "\n",
         "benchmark.json": json.dumps(manifest["benchmark"], indent=2, sort_keys=True) + "\n",
         "failure-diagnostics.txt": failure_diagnostics(),
         "review-manifest.json": json.dumps(manifest, indent=2, sort_keys=True) + "\n",
