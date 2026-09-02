@@ -46,6 +46,16 @@ def test_semantic_retrieval_is_disabled_by_default() -> None:
     assert settings.embedding_api_key is None
 
 
+def test_empty_compose_optional_embedding_values_are_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HIVE_EMBEDDING_DIMENSIONS", "")
+    monkeypatch.setenv("HIVE_EMBEDDING_API_KEY", "")
+
+    settings = Settings()
+
+    assert settings.embedding_dimensions is None
+    assert settings.embedding_api_key is None
+
+
 def test_semantic_configuration_requires_provider_identity() -> None:
     settings = Settings(embedding_enabled=True, embedding_base_url="http://127.0.0.1:8080")
 

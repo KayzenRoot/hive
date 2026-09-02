@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,6 +80,16 @@ class Settings(BaseSettings):
     embedding_semantic_weight: float = Field(
         default=1.0, validation_alias="HIVE_EMBEDDING_SEMANTIC_WEIGHT"
     )
+
+    @field_validator("embedding_dimensions", mode="before")
+    @classmethod
+    def empty_embedding_dimensions_are_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("embedding_api_key", mode="before")
+    @classmethod
+    def empty_embedding_api_key_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @property
     def cors_origin_list(self) -> list[str]:
