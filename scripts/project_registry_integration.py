@@ -77,7 +77,7 @@ def request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(request_object, timeout=10) as response:
+        with urllib.request.urlopen(request_object, timeout=30) as response:
             return response.status, decode_body(response.read())
     except urllib.error.HTTPError as exc:
         return exc.code, decode_body(exc.read())

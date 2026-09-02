@@ -1,8 +1,10 @@
 # Development review workflow
 
-O incremento de retrieval é revisado como Draft PR. O job obrigatório
+O incremento de retrieval é revisado como PR Ready. O job obrigatório
 `Review Evidence` depende de `Validate` e `Integration health`, verifica que a
-PR continua Draft e executa contra o SHA exato do head da PR.
+PR não está Draft e executa contra o SHA exato do head da PR. Auto-merge squash
+fica condicionado a uma aprovação independente elegível e à resolução de
+threads; o executor não aprova nem mescla.
 
 O artefato `review-manifest.json` segue
 `schemas/review-evidence-v1.schema.json` e contém evidência estruturada de

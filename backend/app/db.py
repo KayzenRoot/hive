@@ -6,7 +6,7 @@ import psycopg
 
 from .config import Settings
 
-CURRENT_SCHEMA_REVISION = "0004_retrieval_lexical"
+CURRENT_SCHEMA_REVISION = "0005_semantic_retrieval"
 
 
 @contextmanager

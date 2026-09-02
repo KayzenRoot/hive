@@ -100,6 +100,35 @@ type RetrievalCorpus = {
   task_reference_count: number;
 };
 
+type SemanticStatus = {
+  project_id: string;
+  state: string;
+  enabled: boolean;
+  configured: boolean;
+  profile: {
+    adapter_kind: string;
+    model: string;
+    model_revision: string | null;
+    dimensions: number;
+    distance_metric: string;
+    identity_fingerprint: string;
+  } | null;
+  current_corpus_run_id: string | null;
+  latest_run: {
+    status: string;
+    current_chunk_count: number;
+    newly_embedded_count: number;
+    reused_embedding_count: number;
+    failed_count: number;
+    provider_request_count: number;
+    error: string | null;
+  } | null;
+  total_current_chunks: number;
+  embedded_chunk_count: number;
+  missing_chunk_count: number;
+  last_error: string | null;
+};
+
 type LexicalResult = {
   reference_id: string;
   source_kind: string;
@@ -113,6 +142,23 @@ type LexicalResult = {
   end_line: number;
   start_char: number;
   end_char: number;
+};
+
+type SemanticResult = LexicalResult & {
+  semantic_run_id: string;
+  semantic_score: number;
+  semantic_distance: number;
+};
+
+type HybridResult = LexicalResult & {
+  hybrid_score: number;
+  lexical_score: number | null;
+  semantic_score: number | null;
+  semantic_distance: number | null;
+  lexical_rank: number | null;
+  semantic_rank: number | null;
+  lexical_contribution: number;
+  semantic_contribution: number;
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -147,10 +193,14 @@ function App() {
   const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
   const [retrievalCorpus, setRetrievalCorpus] = useState<RetrievalCorpus | null>(null);
+  const [semanticStatus, setSemanticStatus] = useState<SemanticStatus | null>(null);
   const [retrievalResults, setRetrievalResults] = useState<LexicalResult[]>([]);
+  const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
+  const [hybridResults, setHybridResults] = useState<HybridResult[]>([]);
   const [retrievalQuery, setRetrievalQuery] = useState("");
   const [retrievalTopK, setRetrievalTopK] = useState(5);
   const [retrievalSourceKind, setRetrievalSourceKind] = useState("");
+  const [retrievalMode, setRetrievalMode] = useState<"lexical" | "semantic" | "hybrid">("lexical");
   const [retrievalLoading, setRetrievalLoading] = useState(false);
   const [retrievalMessage, setRetrievalMessage] = useState<string | null>(null);
   const [retrievalError, setRetrievalError] = useState<string | null>(null);
@@ -256,16 +306,20 @@ function App() {
     setIntakeLoading(true);
     setIntakeError(null);
     try {
-      const [tasksResponse, storageResponse, corpusResponse] = await Promise.all([
+      const [tasksResponse, storageResponse, corpusResponse, semanticResponse] = await Promise.all([
         fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/tasks", { cache: "no-store" }),
         fetch(API_BASE_URL + "/api/v1/storage", { cache: "no-store" }),
         fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/retrieval/corpus", {
+          cache: "no-store",
+        }),
+        fetch(API_BASE_URL + "/api/v1/projects/" + projectId + "/retrieval/semantic", {
           cache: "no-store",
         }),
       ]);
       const tasksPayload = (await tasksResponse.json()) as unknown;
       const storagePayload = (await storageResponse.json()) as unknown;
       const corpusPayload = (await corpusResponse.json()) as unknown;
+      const semanticPayload = (await semanticResponse.json()) as unknown;
       if (!tasksResponse.ok) {
         throw new Error(readApiError(tasksPayload, "Não foi possível carregar as tarefas."));
       }
@@ -278,6 +332,9 @@ function App() {
       setTasks(tasksPayload as Task[]);
       setStorageStats(storagePayload as StorageStats);
       setRetrievalCorpus(corpusPayload as RetrievalCorpus);
+      setSemanticStatus(
+        isSemanticStatus(semanticPayload) ? (semanticPayload as SemanticStatus) : null,
+      );
     } catch (caught) {
       setTasks([]);
       setStorageStats(null);
@@ -297,7 +354,10 @@ function App() {
       setTasks([]);
       setStorageStats(null);
       setRetrievalCorpus(null);
+      setSemanticStatus(null);
       setRetrievalResults([]);
+      setSemanticResults([]);
+      setHybridResults([]);
     }
   };
 
@@ -322,18 +382,40 @@ function App() {
     }
   };
 
-  const queryLexical = async (event: FormEvent<HTMLFormElement>) => {
+  const syncSemantic = async () => {
+    if (!selectedProjectId) return;
+    setRetrievalLoading(true);
+    setRetrievalError(null);
+    setRetrievalMessage(null);
+    try {
+      const response = await fetch(
+        API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/retrieval/semantic/sync",
+        { method: "POST" },
+      );
+      const payload = (await response.json()) as unknown;
+      if (!response.ok) throw new Error(readApiError(payload, "Falha ao sincronizar embeddings."));
+      setRetrievalMessage("Embeddings sincronizados no pgvector com reutilização derivada.");
+      await loadTaskSurface(selectedProjectId);
+    } catch (caught) {
+      setRetrievalError(caught instanceof Error ? caught.message : "Falha ao sincronizar embeddings.");
+    } finally {
+      setRetrievalLoading(false);
+    }
+  };
+
+  const queryRetrieval = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedProjectId || !retrievalQuery.trim()) {
-      setRetrievalError("Escolha um projeto e informe uma consulta lexical.");
+      setRetrievalError("Escolha um projeto e informe uma consulta de retrieval.");
       return;
     }
     setRetrievalLoading(true);
     setRetrievalError(null);
     setRetrievalMessage(null);
     try {
+      const endpoint = retrievalMode === "semantic" ? "semantic" : retrievalMode === "hybrid" ? "hybrid" : "lexical";
       const response = await fetch(
-        API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/retrieval/lexical",
+        API_BASE_URL + "/api/v1/projects/" + selectedProjectId + "/retrieval/" + endpoint,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -345,11 +427,25 @@ function App() {
         },
       );
       const payload = (await response.json()) as unknown;
-      if (!response.ok) throw new Error(readApiError(payload, "Falha na consulta lexical."));
-      setRetrievalResults((payload as { results: LexicalResult[] }).results);
+      if (!response.ok) throw new Error(readApiError(payload, "Falha na consulta de retrieval."));
+      if (retrievalMode === "semantic") {
+        setSemanticResults((payload as { results: SemanticResult[] }).results);
+        setRetrievalResults([]);
+        setHybridResults([]);
+      } else if (retrievalMode === "hybrid") {
+        setHybridResults((payload as { results: HybridResult[] }).results);
+        setRetrievalResults([]);
+        setSemanticResults([]);
+      } else {
+        setRetrievalResults((payload as { results: LexicalResult[] }).results);
+        setSemanticResults([]);
+        setHybridResults([]);
+      }
     } catch (caught) {
       setRetrievalResults([]);
-      setRetrievalError(caught instanceof Error ? caught.message : "Falha na consulta lexical.");
+      setSemanticResults([]);
+      setHybridResults([]);
+      setRetrievalError(caught instanceof Error ? caught.message : "Falha na consulta de retrieval.");
     } finally {
       setRetrievalLoading(false);
     }
@@ -759,9 +855,31 @@ function App() {
             <p className="eyebrow">DETERMINISTIC POSTGRESQL SEARCH</p>
             <h2 id="lab-title">Lexical Retrieval Lab</h2>
           </div>
-          <span className="fleet-count">No semantic ranking</span>
+          <div className="retrieval-summary">
+            <span className={"state-badge state-" + (semanticStatus?.state.toLowerCase() ?? "unavailable")}>
+              Semantic {semanticStatus?.state ?? "UNAVAILABLE"}
+            </span>
+            {selectedProjectId ? (
+              <button
+                className="secondary-button"
+                disabled={retrievalLoading || !semanticStatus?.configured}
+                onClick={() => void syncSemantic()}
+                type="button"
+              >
+                Sync embeddings
+              </button>
+            ) : null}
+          </div>
         </div>
-        <form className="lexical-form" onSubmit={(event) => void queryLexical(event)}>
+        <form className="lexical-form" onSubmit={(event) => void queryRetrieval(event)}>
+          <label>
+            Mode
+            <select value={retrievalMode} onChange={(event) => setRetrievalMode(event.target.value as "lexical" | "semantic" | "hybrid")}>
+              <option value="lexical">Lexical</option>
+              <option value="semantic">Semantic</option>
+              <option value="hybrid">Hybrid (RRF)</option>
+            </select>
+          </label>
           <label>
             Query
             <input
@@ -788,23 +906,30 @@ function App() {
             </select>
           </label>
           <button className="refresh-button" disabled={!selectedProjectId || retrievalLoading} type="submit">
-            {retrievalLoading ? "Searching..." : "Search lexical"}
+            {retrievalLoading ? "Searching..." : retrievalMode === "semantic" ? "Search semantic" : retrievalMode === "hybrid" ? "Search hybrid" : "Search lexical"}
           </button>
         </form>
+        {semanticStatus?.last_error ? <p className="error-message">Semantic status: {semanticStatus.last_error}</p> : null}
         {retrievalMessage ? <p className="success-message" role="status">{retrievalMessage}</p> : null}
         {retrievalError ? <p className="error-message" role="alert">{retrievalError}</p> : null}
         <div className="retrieval-results" aria-live="polite">
           {!selectedProjectId ? (
             <p className="fleet-message">Select a project to query its isolated corpus.</p>
-          ) : retrievalResults.length === 0 ? (
+          ) : retrievalMode === "semantic" && semanticResults.length === 0 ? (
+            <p className="fleet-message">No semantic results yet.</p>
+          ) : retrievalMode === "hybrid" && hybridResults.length === 0 ? (
+            <p className="fleet-message">No hybrid results yet.</p>
+          ) : retrievalMode === "lexical" && retrievalResults.length === 0 ? (
             <p className="fleet-message">No lexical results yet.</p>
           ) : (
-            retrievalResults.map((result) => (
+            (retrievalMode === "semantic" ? semanticResults : retrievalMode === "hybrid" ? hybridResults : retrievalResults).map((result) => (
               <article className="retrieval-result" key={result.reference_id}>
                 <div className="project-card-heading">
                   <div>
                     <h3>{result.qualified_symbol ?? result.path ?? result.title ?? "Derived source"}</h3>
-                    <p>{result.source_kind} · score {result.lexical_score.toFixed(3)}</p>
+                    <p>
+                      {result.source_kind} · score {retrievalScore(result).toFixed(3)}
+                    </p>
                   </div>
                   <span className="state-badge">{result.path ?? result.title ?? "task text"}</span>
                 </div>
@@ -834,6 +959,22 @@ function readApiError(payload: unknown, fallback: string): string {
     if (typeof detail === "string") return detail;
   }
   return fallback;
+}
+
+function isSemanticStatus(payload: unknown): payload is SemanticStatus {
+  if (typeof payload !== "object" || payload === null) return false;
+  const candidate = payload as Partial<SemanticStatus>;
+  return typeof candidate.state === "string" && typeof candidate.enabled === "boolean" && "configured" in candidate;
+}
+
+function retrievalScore(result: LexicalResult | SemanticResult | HybridResult): number {
+  if ("hybrid_score" in result && typeof result.hybrid_score === "number") {
+    return result.hybrid_score;
+  }
+  if ("semantic_score" in result && typeof result.semantic_score === "number") {
+    return result.semantic_score;
+  }
+  return result.lexical_score;
 }
 
 function formatTimestamp(value: string): string {

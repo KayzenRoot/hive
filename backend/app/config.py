@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -48,6 +48,38 @@ class Settings(BaseSettings):
     repository_max_total_bytes: int = Field(
         default=100 * 1024 * 1024, validation_alias="HIVE_REPOSITORY_MAX_TOTAL_BYTES"
     )
+    embedding_enabled: bool = Field(default=False, validation_alias="HIVE_EMBEDDING_ENABLED")
+    embedding_base_url: str | None = Field(default=None, validation_alias="HIVE_EMBEDDING_BASE_URL")
+    embedding_model: str | None = Field(default=None, validation_alias="HIVE_EMBEDDING_MODEL")
+    embedding_model_revision: str | None = Field(
+        default=None, validation_alias="HIVE_EMBEDDING_MODEL_REVISION"
+    )
+    embedding_dimensions: int | None = Field(
+        default=None, validation_alias="HIVE_EMBEDDING_DIMENSIONS"
+    )
+    embedding_api_key: SecretStr | None = Field(
+        default=None, validation_alias="HIVE_EMBEDDING_API_KEY"
+    )
+    embedding_timeout_seconds: float = Field(
+        default=10.0, validation_alias="HIVE_EMBEDDING_TIMEOUT_SECONDS"
+    )
+    embedding_batch_size: int = Field(default=16, validation_alias="HIVE_EMBEDDING_BATCH_SIZE")
+    embedding_max_input_chars: int = Field(
+        default=6000, validation_alias="HIVE_EMBEDDING_MAX_INPUT_CHARS"
+    )
+    embedding_max_dimensions: int = Field(
+        default=2000, validation_alias="HIVE_EMBEDDING_MAX_DIMENSIONS"
+    )
+    embedding_candidate_pool: int = Field(
+        default=20, validation_alias="HIVE_EMBEDDING_CANDIDATE_POOL"
+    )
+    embedding_rrf_k: int = Field(default=60, validation_alias="HIVE_EMBEDDING_RRF_K")
+    embedding_lexical_weight: float = Field(
+        default=1.0, validation_alias="HIVE_EMBEDDING_LEXICAL_WEIGHT"
+    )
+    embedding_semantic_weight: float = Field(
+        default=1.0, validation_alias="HIVE_EMBEDDING_SEMANTIC_WEIGHT"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -88,6 +120,39 @@ class Settings(BaseSettings):
         if self.repository_max_total_bytes < self.repository_max_file_bytes:
             raise ValueError(
                 "HIVE_REPOSITORY_MAX_TOTAL_BYTES must be at least HIVE_REPOSITORY_MAX_FILE_BYTES"
+            )
+
+    def validate_embedding_limits(self) -> None:
+        if self.embedding_timeout_seconds <= 0 or self.embedding_timeout_seconds > 120:
+            raise ValueError("HIVE_EMBEDDING_TIMEOUT_SECONDS must be between 0 and 120")
+        if not 1 <= self.embedding_batch_size <= 128:
+            raise ValueError("HIVE_EMBEDDING_BATCH_SIZE must be between 1 and 128")
+        if not 1 <= self.embedding_max_input_chars <= 100_000:
+            raise ValueError("HIVE_EMBEDDING_MAX_INPUT_CHARS must be between 1 and 100000")
+        if not 1 <= self.embedding_max_dimensions <= 2000:
+            raise ValueError("HIVE_EMBEDDING_MAX_DIMENSIONS must be between 1 and 2000")
+        if not 1 <= self.embedding_candidate_pool <= 100:
+            raise ValueError("HIVE_EMBEDDING_CANDIDATE_POOL must be between 1 and 100")
+        if not 1 <= self.embedding_rrf_k <= 10_000:
+            raise ValueError("HIVE_EMBEDDING_RRF_K must be between 1 and 10000")
+        if self.embedding_lexical_weight < 0 or self.embedding_semantic_weight < 0:
+            raise ValueError("embedding fusion weights must not be negative")
+        if self.embedding_base_url and not self.embedding_base_url.strip():
+            raise ValueError("HIVE_EMBEDDING_BASE_URL must not be blank")
+        if self.embedding_enabled:
+            if not self.embedding_base_url or not self.embedding_base_url.strip():
+                raise ValueError("HIVE_EMBEDDING_BASE_URL is required when embeddings are enabled")
+            if not self.embedding_model or not self.embedding_model.strip():
+                raise ValueError("HIVE_EMBEDDING_MODEL is required when embeddings are enabled")
+            if self.embedding_dimensions is None:
+                raise ValueError(
+                    "HIVE_EMBEDDING_DIMENSIONS is required when embeddings are enabled"
+                )
+        if self.embedding_dimensions is not None and not (
+            1 <= self.embedding_dimensions <= self.embedding_max_dimensions
+        ):
+            raise ValueError(
+                "HIVE_EMBEDDING_DIMENSIONS must be between 1 and HIVE_EMBEDDING_MAX_DIMENSIONS"
             )
 
 

@@ -21,6 +21,7 @@ from .registry import (
 )
 from .repository_indexer import router as repository_index_router
 from .retrieval import router as retrieval_router
+from .semantic_retrieval import router as semantic_retrieval_router
 from .tasks_api import router as task_router
 
 settings = get_settings()
@@ -48,6 +49,7 @@ app.add_middleware(
 app.include_router(task_router)
 app.include_router(repository_index_router)
 app.include_router(retrieval_router)
+app.include_router(semantic_retrieval_router)
 
 
 @app.get("/", tags=["meta"])

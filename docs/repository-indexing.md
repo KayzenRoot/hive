@@ -27,6 +27,10 @@ A Python symbol contains its name, qualified nested identity, kind (`class`, `fu
 
 Inventory, source-stability, Git-head and AST failures produce a durable `FAILED` run. Reconciliation happens in one PostgreSQL transaction, so malformed Python, a source mutation during indexing or a database write failure cannot partially replace a previously valid index. PostgreSQL is canonical; Redis is not involved.
 
-The implementation intentionally does not provide semantic retrieval, embeddings, references, summaries, multi-language AST parsing or repository snapshots. Submodules are reported as unsupported for this increment rather than recursively indexed.
+Repository indexing itself remains responsible only for durable file and symbol
+metadata. Semantic embeddings and references are derived by the separate
+retrieval layer documented in [`docs/RETRIEVAL-SEMANTIC-HYBRID.md`](RETRIEVAL-SEMANTIC-HYBRID.md).
+Submodules are reported as unsupported for this increment rather than
+recursively indexed.
 
 See the canonical project decisions and scope in [`docs/project-brain/04-ARCHITECTURE.md`](project-brain/04-ARCHITECTURE.md), [`docs/project-brain/06-ACCE-TOKEN-STORAGE-OPTIMIZATION.md`](project-brain/06-ACCE-TOKEN-STORAGE-OPTIMIZATION.md) and [`docs/project-brain/18-REPOSITORY-INDEXING.md`](project-brain/18-REPOSITORY-INDEXING.md) when that canonical source is available.

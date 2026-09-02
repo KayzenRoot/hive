@@ -111,6 +111,15 @@ def bounded(text: str, limit: int = MAX_EVIDENCE_CHARS) -> str:
 
 
 def benchmark_fields(path: Path) -> dict[str, object]:
+    unknown_slice = {
+        "status": "UNKNOWN",
+        "query_count": 0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "critical_context_misses": 0,
+        "two_run_reproducibility": False,
+    }
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -125,11 +134,38 @@ def benchmark_fields(path: Path) -> dict[str, object]:
             "cross_project_isolation": False,
             "redis_restart": False,
             "api_restart": False,
+            "semantic": unknown_slice,
+            "hybrid": unknown_slice,
+            "semantic_integrity": {},
+            "fallback": {},
+            "hybrid_recall_at_5_gte_extended_lexical": False,
+            "semantic_challenge_recovered": False,
         }
     reproducibility = cast(dict[str, Any], data.get("reproducibility", {}))
     persistence = cast(dict[str, Any], data.get("persistence", {}))
+    semantic = cast(dict[str, Any], data.get("semantic", {}))
+    hybrid = cast(dict[str, Any], data.get("hybrid", {}))
+    semantic_run = cast(dict[str, Any], semantic.get("run_1", {}))
+    hybrid_run = cast(dict[str, Any], hybrid.get("run_1", {}))
+    semantic_status = (
+        "PASS"
+        if semantic_run and not semantic_run.get("critical_context_misses")
+        else "FAIL"
+        if semantic_run
+        else "UNKNOWN"
+    )
+    hybrid_status = (
+        "PASS"
+        if hybrid_run and not hybrid_run.get("critical_context_misses")
+        else "FAIL"
+        if hybrid_run
+        else "UNKNOWN"
+    )
+    overall_status = "PASS" if not data.get("critical_context_misses") else "FAIL"
+    if semantic_status == "FAIL" or hybrid_status == "FAIL":
+        overall_status = "FAIL"
     return {
-        "status": "PASS" if not data.get("critical_context_misses") else "FAIL",
+        "status": overall_status,
         "query_count": int(data.get("query_count", 0)),
         "recall_at_1": float(data.get("recall_at_1", 0.0)),
         "recall_at_5": float(data.get("recall_at_5", 0.0)),
@@ -141,6 +177,38 @@ def benchmark_fields(path: Path) -> dict[str, object]:
         "cross_project_isolation": bool(data.get("cross_project_isolation", False)),
         "redis_restart": bool(persistence.get("redis_restart", False)),
         "api_restart": bool(persistence.get("api_restart", False)),
+        "semantic": {
+            "status": semantic_status if semantic else "UNKNOWN",
+            "query_count": int(semantic_run.get("query_count", 0)),
+            "recall_at_1": float(semantic_run.get("recall_at_1", 0.0)),
+            "recall_at_5": float(semantic_run.get("recall_at_5", 0.0)),
+            "mrr": float(semantic_run.get("mrr", 0.0)),
+            "critical_context_misses": len(semantic_run.get("critical_context_misses", [])),
+            "two_run_reproducibility": bool(
+                semantic.get("run_1", {}).get("recall_at_5")
+                == semantic.get("run_2", {}).get("recall_at_5")
+            ),
+        },
+        "hybrid": {
+            "status": hybrid_status if hybrid else "UNKNOWN",
+            "query_count": int(hybrid_run.get("query_count", 0)),
+            "recall_at_1": float(hybrid_run.get("recall_at_1", 0.0)),
+            "recall_at_5": float(hybrid_run.get("recall_at_5", 0.0)),
+            "mrr": float(hybrid_run.get("mrr", 0.0)),
+            "critical_context_misses": len(hybrid_run.get("critical_context_misses", [])),
+            "two_run_reproducibility": bool(
+                hybrid.get("run_1", {}).get("recall_at_5")
+                == hybrid.get("run_2", {}).get("recall_at_5")
+            ),
+        },
+        "semantic_integrity": data.get("semantic_integrity", {}),
+        "fallback": data.get("fallback", {}),
+        "hybrid_recall_at_5_gte_extended_lexical": bool(
+            data.get("thresholds", {}).get("hybrid_recall_at_5_gte_extended_lexical", False)
+        ),
+        "semantic_challenge_recovered": bool(
+            data.get("thresholds", {}).get("semantic_challenge_recovered", False)
+        ),
     }
 
 
@@ -224,6 +292,10 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
             "duplicate_task_candidate_collapsed": False,
             "task_provenance_preserved": False,
             "cross_project_duplicate_isolation": False,
+            "semantic_challenge_recovered": False,
+            "hybrid_fallback_provider_error": False,
+            "hybrid_fallback_stale": False,
+            "semantic_project_isolation": False,
         }
     try:
         value = json.loads(match.group(1))
@@ -238,6 +310,10 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
             "duplicate_task_candidate_collapsed",
             "task_provenance_preserved",
             "cross_project_duplicate_isolation",
+            "semantic_challenge_recovered",
+            "hybrid_fallback_provider_error",
+            "hybrid_fallback_stale",
+            "semantic_project_isolation",
         )
     }
 
@@ -246,7 +322,8 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
     retrieval = integration_file("retrieval.log") + integration_file("retrieval-integration.txt")
     status = (
         "PASS"
-        if "retrieval corpus/lexical integration passed" in retrieval.casefold()
+        if "retrieval corpus/lexical" in retrieval.casefold()
+        and "integration passed" in retrieval.casefold()
         else "UNKNOWN"
     )
     if benchmark["status"] == "FAIL":
@@ -279,6 +356,18 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
             "status": "PASS" if benchmark["cross_project_isolation"] else "UNKNOWN"
         },
         "integrity_tests": integrity,
+        "semantic_hybrid": {
+            "status": "PASS"
+            if cast(dict[str, Any], benchmark["semantic"])["status"] == "PASS"
+            and cast(dict[str, Any], benchmark["hybrid"])["status"] == "PASS"
+            and benchmark["hybrid_recall_at_5_gte_extended_lexical"]
+            and benchmark["semantic_challenge_recovered"]
+            else "UNKNOWN",
+            "semantic": benchmark["semantic"],
+            "hybrid": benchmark["hybrid"],
+            "semantic_integrity": benchmark["semantic_integrity"],
+            "fallback": benchmark["fallback"],
+        },
     }
 
 
@@ -339,7 +428,7 @@ def _gh_json(repository: str, endpoint: str) -> dict[str, Any] | list[Any] | Non
     return value if isinstance(value, dict | list) else None
 
 
-def governance_evidence(repository: str) -> dict[str, object]:
+def governance_evidence(repository: str, pr_number: int | None = None) -> dict[str, object]:
     rulesets = _gh_json(repository, "rulesets?includes_parents=true")
     selected: dict[str, Any] | None = None
     if isinstance(rulesets, list):
@@ -365,6 +454,9 @@ def governance_evidence(repository: str) -> dict[str, object]:
     has_non_fast_forward = False
     has_pull_request = False
     strict_checks: bool | None = None
+    required_approving_review_count: int | None = None
+    dismiss_stale_reviews_on_push: bool | None = None
+    require_last_push_approval: bool | None = None
     for rule in ruleset.get("rules", []) if isinstance(ruleset, dict) else []:
         if not isinstance(rule, dict):
             continue
@@ -382,6 +474,12 @@ def governance_evidence(repository: str) -> dict[str, object]:
             strict_checks = bool(params.get("strict_required_status_checks_policy"))
         if rule_type == "pull_request" and isinstance(params, dict):
             allowed_methods = [str(item) for item in params.get("allowed_merge_methods", [])]
+            if "required_approving_review_count" in params:
+                required_approving_review_count = int(params["required_approving_review_count"])
+            if "dismiss_stale_reviews_on_push" in params:
+                dismiss_stale_reviews_on_push = bool(params["dismiss_stale_reviews_on_push"])
+            if "require_last_push_approval" in params:
+                require_last_push_approval = bool(params["require_last_push_approval"])
             if "required_review_thread_resolution" in params:
                 thread_resolution = bool(params["required_review_thread_resolution"])
     bypass = (
@@ -433,6 +531,32 @@ def governance_evidence(repository: str) -> dict[str, object]:
                 if repo_settings[key] is None and value is not None:
                     repo_settings[key] = value
     available = bool(detail and repo)
+    pr = _gh_json(repository, f"pulls/{pr_number}") if pr_number else None
+    reviews = _gh_json(repository, f"pulls/{pr_number}/reviews") if pr_number else None
+    author = cast(dict[str, Any], pr.get("user", {})).get("login") if isinstance(pr, dict) else None
+    approvers: set[str] = set()
+    if isinstance(reviews, list):
+        for review in reviews:
+            if not isinstance(review, dict) or review.get("state") != "APPROVED":
+                continue
+            user = review.get("user", {})
+            login = user.get("login") if isinstance(user, dict) else None
+            if isinstance(login, str) and login != author:
+                approvers.add(login)
+    independent_approvers = sorted(approvers)
+    sol_permission = _gh_json(repository, "collaborators/kayzenweb3/permission")
+    sol_permissions = (
+        sol_permission.get("permissions", {}) if isinstance(sol_permission, dict) else {}
+    )
+    sol_eligible = bool(
+        isinstance(sol_permission, dict)
+        and sol_permission.get("permission") in {"write", "triage", "maintain", "admin"}
+    )
+    auto_merge = (
+        pr.get("auto_merge")
+        if isinstance(pr, dict) and isinstance(pr.get("auto_merge"), dict)
+        else None
+    )
     return {
         "status": "PASS" if available else "UNKNOWN",
         "ruleset": {
@@ -449,8 +573,43 @@ def governance_evidence(repository: str) -> dict[str, object]:
             "non_fast_forward_protection": has_non_fast_forward,
             "pull_request_required": has_pull_request,
             "strict_required_status_checks": strict_checks,
+            "required_approving_review_count": required_approving_review_count,
+            "dismiss_stale_reviews_on_push": dismiss_stale_reviews_on_push,
+            "require_last_push_approval": require_last_push_approval,
         },
         "repository_merge_settings": repo_settings,
+        "pull_request": {
+            "number": pr_number,
+            "state": pr.get("state") if isinstance(pr, dict) else None,
+            "is_draft": pr.get("draft") if isinstance(pr, dict) else None,
+            "head_sha": (
+                pr.get("head", {}).get("sha")
+                if isinstance(pr, dict) and isinstance(pr.get("head"), dict)
+                else None
+            ),
+            "base_sha": (
+                pr.get("base", {}).get("sha")
+                if isinstance(pr, dict) and isinstance(pr.get("base"), dict)
+                else None
+            ),
+            "auto_merge_armed": auto_merge is not None,
+            "auto_merge_method": auto_merge.get("merge_method") if auto_merge else None,
+        },
+        "approval_gate": {
+            "required_approving_review_count": required_approving_review_count,
+            "dismiss_stale_reviews_on_push": dismiss_stale_reviews_on_push,
+            "require_last_push_approval": require_last_push_approval,
+            "independent_approvers": independent_approvers,
+            "independent_approval_count": len(independent_approvers),
+        },
+        "sol_reviewer": {
+            "login": "kayzenweb3",
+            "permission": (
+                sol_permission.get("permission") if isinstance(sol_permission, dict) else None
+            ),
+            "permissions": sol_permissions,
+            "can_satisfy_required_approval": sol_eligible,
+        },
     }
 
 
@@ -489,9 +648,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         "integration": "PASS" if args.integration_status == "PASS" else args.integration_status,
         "review_evidence": "PASS",
     }
-    draft = args.draft or env_bool(args.draft_env, False)
+    governance = governance_evidence(args.repository or repository_name(), args.pr_number)
+    pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
+    observed_draft = pr_governance.get("is_draft")
+    draft = (
+        args.draft
+        or env_bool(args.draft_env, False)
+        or (bool(observed_draft) if observed_draft is not None else not args.ready)
+    )
     pr_number = args.pr_number
-    review_status = "DRAFT" if pr_number and draft else "OPEN" if pr_number else "NOT_CREATED"
+    review_status = "DRAFT" if pr_number and draft else "READY" if pr_number else "NOT_CREATED"
     artifact_name = args.artifact_name or f"hive-review-evidence-{args.work_order}-{head_sha}"
     return {
         "schema_version": 1,
@@ -515,13 +681,19 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             "security": security,
             "warnings": warnings,
         },
-        "governance": governance_evidence(args.repository or repository_name()),
+        "governance": governance,
         "artifact": {"name": artifact_name, "format": "consolidated-directory", "bounded": True},
-        "review_state": {"status": review_status, "merge_performed": False},
+        "review_state": {
+            "status": review_status,
+            "merge_performed": False,
+            "sol_review_state": "AWAITING_SOL",
+            "auto_merge_armed": bool(pr_governance.get("auto_merge_armed", False)),
+            "auto_merge_method": pr_governance.get("auto_merge_method"),
+        },
         "negative_scope": [
             "No merge or release was performed.",
             "No canonical Project Brain checkpoint was modified.",
-            "No embeddings, reranking, autonomous executor, or LLM provider was added.",
+            "No reranking, autonomous executor, or LLM provider was added.",
         ],
     }
 
@@ -601,8 +773,11 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     ruleset = cast(dict[str, Any], governance["ruleset"])
     repo_settings = cast(dict[str, Any], governance["repository_merge_settings"])
     artifact = cast(dict[str, Any], manifest["artifact"])
-    pr = cast(dict[str, Any], manifest["pull_request"])
+    review_state = cast(dict[str, Any], manifest["review_state"])
     integrity = cast(dict[str, Any], integration["integrity_tests"])
+    semantic = cast(dict[str, Any], benchmark.get("semantic", {}))
+    hybrid = cast(dict[str, Any], benchmark.get("hybrid", {}))
+    semantic_integrity = cast(dict[str, Any], benchmark.get("semantic_integrity", {}))
     warning_lines = (
         "\n".join(f"  - {item}" for item in warnings["items"])
         if warnings["items"]
@@ -619,6 +794,23 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"recall@1 `{benchmark['recall_at_1']}`, recall@5 `{benchmark['recall_at_5']}`, "
         f"MRR `{benchmark['mrr']}`, critical misses `{benchmark['critical_context_misses']}`, "
         f"two-run reproducibility `{benchmark['two_run_reproducibility']}`"
+    )
+    semantic_text = (
+        f"`{semantic.get('status', 'UNKNOWN')}`; recall@5 `"
+        f"{semantic.get('recall_at_5', 0.0)}`, MRR `{semantic.get('mrr', 0.0)}`, "
+        f"critical misses `{semantic.get('critical_context_misses', 0)}`, "
+        f"two-run reproducibility `{semantic.get('two_run_reproducibility', False)}`"
+    )
+    hybrid_text = (
+        f"`{hybrid.get('status', 'UNKNOWN')}`; recall@5 `"
+        f"{hybrid.get('recall_at_5', 0.0)}`, MRR `{hybrid.get('mrr', 0.0)}`, "
+        f"RRF gate `{benchmark.get('hybrid_recall_at_5_gte_extended_lexical', False)}`"
+    )
+    semantic_integrity_text = (
+        f"pgvector `{semantic_integrity.get('actual_pgvector_type', 'UNKNOWN')}`, "
+        f"dimensions `{semantic_integrity.get('profile_dimensions', 'UNKNOWN')}`, "
+        "reuse without provider calls "
+        f"`{semantic_integrity.get('provider_requests_on_reuse', 'UNKNOWN')}`"
     )
     merge_settings = (
         f"squash `{repo_settings['allow_squash_merge']}`, "
@@ -643,6 +835,16 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"task provenance preserved `{integrity['task_provenance_preserved']}`, "
         f"cross-project isolation `{integrity['cross_project_duplicate_isolation']}`"
     )
+    approval_gate = cast(dict[str, Any], governance.get("approval_gate", {}))
+    auto_merge_text = (
+        f"`{review_state.get('auto_merge_armed', False)}` / "
+        f"`{review_state.get('auto_merge_method') or 'none'}`"
+    )
+    approval_text = (
+        f"`{ruleset.get('required_approving_review_count')}`; "
+        f"independent approvals observed: "
+        f"`{approval_gate.get('independent_approval_count', 0)}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -659,7 +861,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Work Order: `{manifest["work_order"]}`
 - Exact HEAD SHA: `{head["sha"]}`
 - Base SHA: `{base["sha"]}`
-- PR state: **{"DRAFT" if pr["is_draft"] else "NOT DRAFT"}**
+- PR state: **{review_state["status"]}**
 - Validate result: **{checks["validation"]}**
 - Integration health result: **{checks["integration"]}**
 - Review Evidence result: **{checks["review_evidence"]}**
@@ -670,16 +872,21 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Git race-integrity tests: {race_summary}
 - Duplicate task candidate tests: {duplicate_summary}
 - Benchmark summary: {benchmark_text}
+- Semantic benchmark: {semantic_text}
+- Hybrid benchmark: {hybrid_text}
+- Semantic integrity: {semantic_integrity_text}
 - Canonical verifier: **{security["canonical_verifier"]["status"]}**
 - Secret scan: **{security["secret_scan"]["status"]}**
 - Known warnings: `{warnings["count"]}` recorded
 {warning_lines}
 - Ruleset: {ruleset_text}
 - Repository merge settings: {merge_settings}
+- Auto-merge armed: {auto_merge_text}
+- Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
 - Workflow run URL: {workflow_url}
 
-Sol Review State: AWAITING_SOL
+Sol Review State: {review_state.get("sol_review_state", "AWAITING_SOL")}
 """
 
 
@@ -736,10 +943,11 @@ def manifest_log(manifest: dict[str, object]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--work-order", default="WO-006")
+    parser.add_argument("--work-order", default="WO-007")
     parser.add_argument("--repository")
     parser.add_argument("--pr-number", type=int)
     parser.add_argument("--draft", action="store_true")
+    parser.add_argument("--ready", action="store_true")
     parser.add_argument("--draft-env", default="")
     parser.add_argument("--base-branch", default="main")
     parser.add_argument("--base-sha", default="")

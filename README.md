@@ -64,6 +64,11 @@ See [docs/TASK-INTAKE-CAS.md](docs/TASK-INTAKE-CAS.md) for durable task intake,
 exact-byte CAS recovery, Zstandard, project isolation, limits and storage
 metrics.
 
+See [docs/RETRIEVAL-LEXICAL.md](docs/RETRIEVAL-LEXICAL.md) and
+[docs/RETRIEVAL-SEMANTIC-HYBRID.md](docs/RETRIEVAL-SEMANTIC-HYBRID.md) for the
+project-scoped corpus, pgvector embeddings, hybrid RRF queries and fallback
+operation.
+
 See docs/INSTALLATION.md for the full lifecycle and docs/TROUBLESHOOTING.md for
 common failures.
 

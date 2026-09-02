@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -18,7 +20,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0004_retrieval_lexical"
+SCHEMA_REVISION = "0005_semantic_retrieval"
 MANIFEST = ROOT / "benchmarks" / "retrieval_lexical_manifest.json"
 BENCHMARK_OUTPUT = ROOT / "tmp" / "validation" / "retrieval-benchmark.json"
 
@@ -120,6 +122,56 @@ def benchmark(
     }
 
 
+def semantic_benchmark(
+    base_url: str,
+    project_id: str,
+    queries: list[dict[str, Any]],
+    *,
+    endpoint: str,
+    run_number: int,
+) -> dict[str, Any]:
+    latencies: list[float] = []
+    reciprocal_ranks: list[float] = []
+    recall_at_1 = 0
+    recall_at_5 = 0
+    critical_misses: list[str] = []
+    for item in queries:
+        started = time.perf_counter()
+        status, payload = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/{endpoint}",
+            {"query": item["query"], "top_k": 5},
+        )
+        latencies.append((time.perf_counter() - started) * 1000)
+        assert_equal(status, 200, f"{endpoint} benchmark query status: {item['query']}")
+        assert isinstance(payload, dict)
+        results = payload.get("results", [])
+        assert isinstance(results, list)
+        positions = [index for index, result in enumerate(results) if is_relevant(result, item)]
+        if positions:
+            position = positions[0]
+            reciprocal_ranks.append(1 / (position + 1))
+            if position == 0:
+                recall_at_1 += 1
+            recall_at_5 += 1
+        else:
+            reciprocal_ranks.append(0.0)
+            if item.get("critical"):
+                critical_misses.append(str(item["query"]))
+    count = len(queries)
+    return {
+        "run": run_number,
+        "query_count": count,
+        "recall_at_1": recall_at_1 / count if count else 0.0,
+        "recall_at_5": recall_at_5 / count if count else 0.0,
+        "mrr": sum(reciprocal_ranks) / count if count else 0.0,
+        "critical_context_misses": critical_misses,
+        "average_latency_ms": sum(latencies) / count if count else 0.0,
+        "max_latency_ms": max(latencies) if latencies else 0.0,
+    }
+
+
 def main() -> int:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     queries = manifest["queries"]
@@ -127,6 +179,7 @@ def main() -> int:
     project_name = f"hive-retrieval-{os.getpid()}"
     api_port = free_port()
     dashboard_port = free_port()
+    fixture_port = free_port()
     projects_root = temporary_root / "projects"
     data_root = temporary_root / "data"
     projects_root.mkdir()
@@ -141,6 +194,13 @@ def main() -> int:
             "POSTGRES_DB": "hive",
             "POSTGRES_USER": "hive",
             "POSTGRES_PASSWORD": "hive",
+            "HIVE_EMBEDDING_ENABLED": "true",
+            "HIVE_EMBEDDING_BASE_URL": f"http://host.docker.internal:{fixture_port}",
+            "HIVE_EMBEDDING_MODEL": "hive-fixture-v1",
+            "HIVE_EMBEDDING_MODEL_REVISION": "fixture-2026-09-02",
+            "HIVE_EMBEDDING_DIMENSIONS": "8",
+            "HIVE_EMBEDDING_BATCH_SIZE": "2",
+            "HIVE_EMBEDDING_CANDIDATE_POOL": "20",
         }
     )
     repository = projects_root / "retrieval-sample"
@@ -177,6 +237,13 @@ def main() -> int:
         "# Retrieval fixture\n\nA small real Git project for lexical retrieval.\n",
         encoding="utf-8",
     )
+    (repository / "src" / "durability.py").write_text(
+        "def durable_retention_ledger():\n"
+        '    """Durable retention ledger survives process recovery through\n'
+        '    replay-safe checkpoints."""\n'
+        '    return "continuation-guaranteed"\n',
+        encoding="utf-8",
+    )
     first_head = commit(repository, "initial retrieval fixture", git_environment)
 
     (isolated / "worker.py").write_text(
@@ -184,7 +251,33 @@ def main() -> int:
     )
     commit(isolated, "isolated fixture", git_environment)
 
+    fixture_process = subprocess.Popen(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "embedding_fixture.py"),
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(fixture_port),
+        ],
+        cwd=ROOT,
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
     try:
+        for _ in range(30):
+            try:
+                fixture_status, _fixture_payload = request(
+                    f"http://127.0.0.1:{fixture_port}", "GET", "/health"
+                )
+                if fixture_status == 200:
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.2)
+        else:
+            raise RuntimeError("embedding fixture did not become ready")
         compose(project_name, ["up", "-d", "--build"], env=environment)
         migration = scalar(project_name, environment, "SELECT version_num FROM alembic_version")
         assert_equal(migration, SCHEMA_REVISION, "retrieval migration revision")
@@ -278,6 +371,107 @@ def main() -> int:
         assert_equal(corpus["state"], "CURRENT", "retrieval corpus current state")
         assert_equal(corpus["task_reference_count"] > 0, True, "task references")
 
+        status, semantic_sync = request(
+            base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/semantic/sync"
+        )
+        assert_equal(status, 200, "first semantic sync")
+        assert isinstance(semantic_sync, dict)
+        assert_equal(semantic_sync["status"], "COMPLETED", "first semantic sync state")
+        assert_equal(
+            semantic_sync["current_chunk_count"],
+            semantic_sync["newly_embedded_count"],
+            "semantic complete coverage",
+        )
+        status, semantic_state = request(
+            base_url, "GET", f"/api/v1/projects/{project_id}/retrieval/semantic"
+        )
+        assert_equal(status, 200, "semantic status")
+        assert isinstance(semantic_state, dict)
+        assert_equal(semantic_state["state"], "CURRENT", "semantic current state")
+        assert_equal(semantic_state["profile"]["dimensions"], 8, "semantic dimensions")
+        vector_type = scalar(
+            project_name,
+            environment,
+            "SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "WHERE c.relname = 'retrieval_chunk_embeddings' AND a.attname = 'embedding'",
+        )
+        assert_equal(vector_type, "vector", "actual pgvector column type")
+        embedding_rows = scalar(
+            project_name,
+            environment,
+            "SELECT count(*) FROM retrieval_chunk_embeddings",
+        )
+        assert_equal(
+            int(embedding_rows), semantic_sync["current_chunk_count"], "persisted embedding count"
+        )
+
+        status, semantic_symbol = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/semantic",
+            {"query": "project order service symbol", "top_k": 5},
+        )
+        assert_equal(status, 200, "semantic symbol query")
+        assert isinstance(semantic_symbol, dict)
+        if not any(
+            result.get("qualified_symbol") == "OrderService.get_project_order"
+            for result in semantic_symbol["results"]
+        ):
+            raise AssertionError(f"semantic symbol was not retrieved: {semantic_symbol}")
+        semantic_challenge = [
+            {
+                "query": "resilient continuity semantics",
+                "expected_path": "src/durability.py",
+                "critical": True,
+            }
+        ]
+        status, lexical_challenge = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/lexical",
+            {"query": semantic_challenge[0]["query"], "top_k": 5},
+        )
+        assert_equal(status, 200, "lexical semantic challenge")
+        assert isinstance(lexical_challenge, dict)
+        lexical_challenge_recovered = any(
+            result.get("path") == "src/durability.py" for result in lexical_challenge["results"]
+        )
+        assert_equal(lexical_challenge_recovered, False, "lexical challenge remains weak")
+        status, hybrid_challenge = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": semantic_challenge[0]["query"], "top_k": 5},
+        )
+        assert_equal(status, 200, "hybrid semantic challenge")
+        assert isinstance(hybrid_challenge, dict)
+        assert_equal(hybrid_challenge["state"], "HYBRID", "hybrid state")
+        if not any(
+            result.get("path") == "src/durability.py" for result in hybrid_challenge["results"]
+        ):
+            raise AssertionError(f"hybrid challenge was not recovered: {hybrid_challenge}")
+        before_embedding_stats = request(f"http://127.0.0.1:{fixture_port}", "GET", "/stats")[1]
+        status, semantic_reused = request(
+            base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/semantic/sync"
+        )
+        assert_equal(status, 200, "unchanged semantic sync")
+        assert isinstance(semantic_reused, dict)
+        assert_equal(semantic_reused["newly_embedded_count"], 0, "semantic reuse new count")
+        assert_equal(
+            semantic_reused["reused_embedding_count"],
+            semantic_reused["current_chunk_count"],
+            "semantic reuse coverage",
+        )
+        after_embedding_stats = request(f"http://127.0.0.1:{fixture_port}", "GET", "/stats")[1]
+        assert isinstance(before_embedding_stats, dict)
+        assert isinstance(after_embedding_stats, dict)
+        assert_equal(
+            after_embedding_stats["request_count"],
+            before_embedding_stats["request_count"],
+            "semantic sync avoids provider calls on reuse",
+        )
+
         status, symbol_results = request(
             base_url,
             "POST",
@@ -346,6 +540,14 @@ def main() -> int:
         )
         assert_equal(status, 200, "isolated duplicate retrieval sync")
         assert isinstance(isolated_sync, dict)
+        status, isolated_semantic_sync = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{other_project_id}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "isolated semantic sync")
+        assert isinstance(isolated_semantic_sync, dict)
+        assert_equal(isolated_semantic_sync["status"], "COMPLETED", "isolated semantic state")
         status, isolated_task_results = request(
             base_url,
             "POST",
@@ -369,6 +571,25 @@ def main() -> int:
         assert_equal(status, 200, "cross-project lexical query")
         assert isinstance(isolated_query, dict)
         assert_equal(isolated_query["results"], [], "cross-project retrieval isolation")
+        status, isolated_semantic_query = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{other_project_id}/retrieval/semantic",
+            {
+                "query": "project order service symbol",
+                "top_k": 5,
+                "source_kind": "REPOSITORY_SYMBOL",
+            },
+        )
+        assert_equal(status, 200, "cross-project semantic query")
+        assert isinstance(isolated_semantic_query, dict)
+        if any(
+            result.get("qualified_symbol") == "OrderService.get_project_order"
+            for result in isolated_semantic_query["results"]
+        ):
+            raise AssertionError(
+                f"cross-project semantic result leaked OrderService: {isolated_semantic_query}"
+            )
 
         first_benchmark = benchmark(base_url, project_id, queries, run_number=1)
         second_benchmark = benchmark(base_url, project_id, queries, run_number=2)
@@ -376,6 +597,72 @@ def main() -> int:
             assert_equal(result["critical_context_misses"], [], "critical benchmark misses")
             if result["recall_at_5"] < 0.90:
                 raise AssertionError(f"lexical recall@5 below gate: {result}")
+        lexical_extended = benchmark(
+            base_url, project_id, queries + semantic_challenge, run_number=1
+        )
+        first_semantic_benchmark = semantic_benchmark(
+            base_url,
+            project_id,
+            semantic_challenge,
+            endpoint="semantic",
+            run_number=1,
+        )
+        second_semantic_benchmark = semantic_benchmark(
+            base_url,
+            project_id,
+            semantic_challenge,
+            endpoint="semantic",
+            run_number=2,
+        )
+        first_hybrid_benchmark = semantic_benchmark(
+            base_url,
+            project_id,
+            semantic_challenge,
+            endpoint="hybrid",
+            run_number=1,
+        )
+        second_hybrid_benchmark = semantic_benchmark(
+            base_url,
+            project_id,
+            semantic_challenge,
+            endpoint="hybrid",
+            run_number=2,
+        )
+        assert_equal(
+            first_semantic_benchmark["critical_context_misses"],
+            [],
+            "semantic challenge recovery",
+        )
+        assert_equal(
+            first_hybrid_benchmark["critical_context_misses"],
+            [],
+            "hybrid challenge recovery",
+        )
+        if first_hybrid_benchmark["recall_at_5"] < lexical_extended["recall_at_5"]:
+            raise AssertionError(
+                "hybrid recall@5 regressed against the extended lexical set: "
+                f"{first_hybrid_benchmark} vs {lexical_extended}"
+            )
+        status, provider_fallback = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": "__fixture_provider_error__", "top_k": 5},
+        )
+        assert_equal(status, 200, "provider failure hybrid fallback")
+        assert isinstance(provider_fallback, dict)
+        assert_equal(
+            provider_fallback["state"],
+            "LEXICAL_FALLBACK_PROVIDER_ERROR",
+            "provider failure fallback state",
+        )
+        status, provider_semantic_only = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/semantic",
+            {"query": "__fixture_provider_error__", "top_k": 5},
+        )
+        assert_equal(status, 503, "provider failure semantic-only response")
 
         status, reused = request(
             base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
@@ -403,6 +690,27 @@ def main() -> int:
         assert isinstance(changed_sync, dict)
         if changed_sync["new_chunk_count"] == 0:
             raise AssertionError(f"changed file did not create a new chunk: {changed_sync}")
+        status, stale_semantic = request(
+            base_url, "GET", f"/api/v1/projects/{project_id}/retrieval/semantic"
+        )
+        assert_equal(status, 200, "semantic status after lexical change")
+        assert isinstance(stale_semantic, dict)
+        assert_equal(stale_semantic["state"], "STALE", "semantic stale after lexical change")
+        status, stale_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": semantic_challenge[0]["query"], "top_k": 5},
+        )
+        assert_equal(status, 200, "stale semantic hybrid fallback")
+        assert isinstance(stale_hybrid, dict)
+        assert_equal(stale_hybrid["state"], "LEXICAL_FALLBACK_SEMANTIC_STALE", "stale fallback")
+        status, changed_semantic_sync = request(
+            base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/semantic/sync"
+        )
+        assert_equal(status, 200, "changed semantic resync")
+        assert isinstance(changed_semantic_sync, dict)
+        assert_equal(changed_semantic_sync["status"], "COMPLETED", "changed semantic resync state")
 
         (repository / "src" / "api.py").unlink()
         removed_head = commit(repository, "remove API fixture", git_environment)
@@ -569,6 +877,12 @@ def main() -> int:
         assert_equal(status, 200, "head race recovery sync")
         assert isinstance(race_recovered, dict)
         assert_equal(race_recovered["status"], "COMPLETED", "head race recovery state")
+        status, final_semantic_sync = request(
+            base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/semantic/sync"
+        )
+        assert_equal(status, 200, "final semantic resync")
+        assert isinstance(final_semantic_sync, dict)
+        assert_equal(final_semantic_sync["status"], "COMPLETED", "final semantic state")
 
         compose(project_name, ["restart", "redis"], env=environment)
         compose(project_name, ["restart", "api"], env=environment)
@@ -579,12 +893,20 @@ def main() -> int:
         assert_equal(status, 200, "retrieval status after restart")
         assert isinstance(after_restart, dict)
         assert_equal(after_restart["state"], "CURRENT", "retrieval persistence after restart")
+        status, semantic_after_restart = request(
+            base_url, "GET", f"/api/v1/projects/{project_id}/retrieval/semantic"
+        )
+        assert_equal(status, 200, "semantic status after restart")
+        assert isinstance(semantic_after_restart, dict)
+        assert_equal(
+            semantic_after_restart["state"], "CURRENT", "semantic persistence after restart"
+        )
 
         benchmark_result = {
-            "schema_version": 1,
+            "schema_version": 2,
             "fixture": manifest["name"],
             "repository": "KayzenRoot/hive",
-            "work_order": "WO-006",
+            "work_order": "WO-007",
             "project_id": project_id,
             "query_count": first_benchmark["query_count"],
             "recall_at_1": first_benchmark["recall_at_1"],
@@ -600,6 +922,19 @@ def main() -> int:
                 "same_recall_at_5": first_benchmark["recall_at_5"]
                 == second_benchmark["recall_at_5"],
             },
+            "semantic": {
+                "queries": semantic_challenge,
+                "run_1": first_semantic_benchmark,
+                "run_2": second_semantic_benchmark,
+                "provider": "deterministic local OpenAI-compatible fixture",
+                "mechanical_fixture_not_production_quality": True,
+            },
+            "hybrid": {
+                "run_1": first_hybrid_benchmark,
+                "run_2": second_hybrid_benchmark,
+                "fusion": "weighted reciprocal rank fusion",
+                "rrf_k": 60,
+            },
             "corpus": {
                 "chunks": race_recovered["chunk_count"],
                 "references": race_recovered["reference_count"],
@@ -610,9 +945,30 @@ def main() -> int:
                 "recall_at_5_minimum": 0.90,
                 "critical_queries_top_5": True,
                 "cross_project_isolation": True,
+                "hybrid_recall_at_5_gte_extended_lexical": True,
+                "semantic_challenge_recovered": True,
             },
             "cross_project_isolation": True,
-            "persistence": {"redis_restart": True, "api_restart": True},
+            "persistence": {
+                "redis_restart": True,
+                "api_restart": True,
+                "semantic_current_after_restart": True,
+            },
+            "fallback": {
+                "provider_failure": provider_fallback["state"],
+                "semantic_only_provider_failure_status": 503,
+                "stale_after_lexical_change": stale_hybrid["state"],
+            },
+            "semantic_integrity": {
+                "migration": SCHEMA_REVISION,
+                "actual_pgvector_type": vector_type,
+                "project_scoped": True,
+                "current_only_after_complete_run": True,
+                "unchanged_sync_reused_embeddings": True,
+                "provider_requests_on_reuse": 0,
+                "profile_dimensions": semantic_state["profile"]["dimensions"],
+            },
+            "lexical_extended": lexical_extended,
             "retrieval_integrity": {
                 "head_race_rejected": True,
                 "inventory_race_rejected": True,
@@ -620,6 +976,10 @@ def main() -> int:
                 "duplicate_task_candidate_collapsed": True,
                 "task_provenance_preserved": True,
                 "cross_project_duplicate_isolation": True,
+                "semantic_challenge_recovered": True,
+                "hybrid_fallback_provider_error": True,
+                "hybrid_fallback_stale": True,
+                "semantic_project_isolation": True,
             },
         }
         BENCHMARK_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -631,7 +991,7 @@ def main() -> int:
             "retrieval_integrity="
             + json.dumps(benchmark_result["retrieval_integrity"], sort_keys=True)
         )
-        print("Retrieval Corpus/Lexical integration passed.")
+        print("Retrieval Corpus/Lexical/Semantic/Hybrid integration passed.")
         return 0
     except Exception:
         logs = compose(project_name, ["logs", "--no-color"], env=environment, check=False)
@@ -640,6 +1000,8 @@ def main() -> int:
         raise
     finally:
         compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)
+        fixture_process.terminate()
+        fixture_process.wait(timeout=10)
         cleanup_temporary_root(temporary_root, env=environment)
 
 
