@@ -502,7 +502,10 @@ def main() -> int:
 
         staged_path = repository / "src" / "staged_inventory_race.py"
         staged_path.write_text("def staged_only():\n    return True\n", encoding="utf-8")
-        run(["git", "add", "src/staged_inventory_race.py"], env=git_environment)
+        run(
+            ["git", "-C", str(repository), "add", "src/staged_inventory_race.py"],
+            env=git_environment,
+        )
         try:
             status, inventory_race = request(
                 base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
@@ -522,7 +525,17 @@ def main() -> int:
             if not inventory_preserved["results"]:
                 raise AssertionError("inventory race destroyed the previous valid corpus")
         finally:
-            run(["git", "restore", "--staged", "src/staged_inventory_race.py"], env=git_environment)
+            run(
+                [
+                    "git",
+                    "-C",
+                    str(repository),
+                    "restore",
+                    "--staged",
+                    "src/staged_inventory_race.py",
+                ],
+                env=git_environment,
+            )
             staged_path.unlink()
 
         (repository / "src" / "head_race.py").write_text(
