@@ -68,9 +68,10 @@ def migration_head() -> str:
 
 
 def validation_status(text: str, marker: str) -> str:
-    if marker not in text:
+    normalized_text = text.casefold()
+    if marker.casefold() not in normalized_text:
         return "UNKNOWN"
-    return "PASS" if "exit_code: 0" in text else "FAIL"
+    return "PASS" if "exit_code: 0" in normalized_text else "FAIL"
 
 
 def read_text(path: Path) -> str:
@@ -111,15 +112,18 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
     all_validation = summary + "\n" + lint + "\n" + tests
+    validation_passed = summary.strip() == "PASS"
     checks = {
         "canonical": validation_status(all_validation, "canonical source verification"),
         "secrets": validation_status(all_validation, "secret scan"),
-        "lint": "PASS" if summary.strip() == "PASS" and "ruff lint" in lint else "UNKNOWN",
-        "typecheck": "PASS"
-        if summary.strip() == "PASS" and "dashboard typecheck" in lint
+        "lint": "PASS"
+        if validation_passed and "ruff check" in lint and "run lint" in lint
         else "UNKNOWN",
-        "tests": "PASS" if summary.strip() == "PASS" and "backend tests" in tests else "UNKNOWN",
-        "build": "PASS" if summary.strip() == "PASS" and "dashboard build" in lint else "UNKNOWN",
+        "typecheck": "PASS" if validation_passed and "run typecheck" in lint else "UNKNOWN",
+        "tests": "PASS"
+        if validation_passed and "pytest --junitxml" in tests and "run test:run" in tests
+        else "UNKNOWN",
+        "build": "PASS" if validation_passed and "run build" in lint else "UNKNOWN",
         "integration": "PASS" if args.integration_status == "PASS" else args.integration_status,
         "review_evidence": "PASS",
     }
