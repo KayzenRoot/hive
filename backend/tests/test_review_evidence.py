@@ -6,6 +6,8 @@ from pathlib import Path
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
     SCHEMA_PATH,
+    dashboard_counts,
+    junit_counts,
     manifest_log,
     summary_markdown,
     validate_manifest,
@@ -144,6 +146,22 @@ def test_review_evidence_rejects_merge_claim() -> None:
         assert "merge" in str(error)
     else:
         raise AssertionError("merged evidence must be rejected")
+
+
+def test_review_evidence_aggregates_wrapped_junit_and_strips_dashboard_ansi(
+    tmp_path: Path,
+) -> None:
+    junit = tmp_path / "backend-junit.xml"
+    junit.write_text(
+        '<testsuites><testsuite tests="81" failures="0" errors="0" skipped="0" /></testsuites>',
+        encoding="utf-8",
+    )
+    assert junit_counts(junit) == {"passed": 81, "failed": 0, "skipped": 0, "errors": 0}
+    assert dashboard_counts("\x1b[2m Tests 7 passed (7)\x1b[0m") == {
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+    }
 
 
 def test_review_manifest_is_emitted_between_stable_log_delimiters() -> None:

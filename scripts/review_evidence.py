@@ -126,26 +126,28 @@ def junit_counts(path: Path) -> dict[str, int]:
         return {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
     try:
         root = ET.parse(path).getroot()
+        suites = [root] if "tests" in root.attrib else list(root.iter("testsuite"))
+        if not suites:
+            return {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
+        tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
+        failures = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
+        errors = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
+        skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
         return {
-            "passed": max(
-                0,
-                int(root.attrib.get("tests", 0))
-                - int(root.attrib.get("failures", 0))
-                - int(root.attrib.get("errors", 0))
-                - int(root.attrib.get("skipped", 0)),
-            ),
-            "failed": int(root.attrib.get("failures", 0)),
-            "skipped": int(root.attrib.get("skipped", 0)),
-            "errors": int(root.attrib.get("errors", 0)),
+            "passed": max(0, tests - failures - errors - skipped),
+            "failed": failures,
+            "skipped": skipped,
+            "errors": errors,
         }
     except (OSError, ET.ParseError, TypeError, ValueError):
         return {"passed": 0, "failed": 0, "skipped": 0, "errors": 0}
 
 
 def dashboard_counts(text: str) -> dict[str, int]:
-    match = re.search(r"Tests\s+(\d+) passed", text)
-    skipped_match = re.search(r"Tests\s+.*?(\d+) skipped", text)
-    failed = re.search(r"(\d+) failed", text)
+    plain_text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+    match = re.search(r"Tests\s+(\d+) passed", plain_text)
+    skipped_match = re.search(r"Tests\s+.*?(\d+) skipped", plain_text)
+    failed = re.search(r"(\d+) failed", plain_text)
     passed = int(match.group(1)) if match else 0
     skipped = int(skipped_match.group(1)) if skipped_match else 0
     return {"passed": passed, "failed": int(failed.group(1)) if failed else 0, "skipped": skipped}
@@ -389,6 +391,31 @@ def governance_evidence(repository: str) -> dict[str, object]:
         else None,
         "allow_auto_merge": repo.get("allow_auto_merge") if isinstance(repo, dict) else None,
     }
+    if any(value is None for value in repo_settings.values()):
+        code, output = run(
+            [
+                "gh",
+                "repo",
+                "view",
+                repository,
+                "--json",
+                "mergeCommitAllowed,rebaseMergeAllowed,squashMergeAllowed,deleteBranchOnMerge",
+            ]
+        )
+        if code == 0:
+            try:
+                graphql_settings = json.loads(output)
+            except json.JSONDecodeError:
+                graphql_settings = {}
+            fallback_settings = {
+                "allow_squash_merge": graphql_settings.get("squashMergeAllowed"),
+                "allow_merge_commit": graphql_settings.get("mergeCommitAllowed"),
+                "allow_rebase_merge": graphql_settings.get("rebaseMergeAllowed"),
+                "delete_branch_on_merge": graphql_settings.get("deleteBranchOnMerge"),
+            }
+            for key, value in fallback_settings.items():
+                if repo_settings[key] is None and value is not None:
+                    repo_settings[key] = value
     available = bool(detail and repo)
     return {
         "status": "PASS" if available else "UNKNOWN",

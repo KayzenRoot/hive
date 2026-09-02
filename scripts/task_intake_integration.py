@@ -401,6 +401,7 @@ def main() -> int:
                 indent=2,
             )
         )
+        print("Task Intake and CAS integration passed.")
         passed = True
         return 0
     finally:
