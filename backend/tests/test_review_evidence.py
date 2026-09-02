@@ -11,9 +11,13 @@ from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, 
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
     SCHEMA_PATH,
+    canonical_change_evidence,
+    canonical_change_statement,
     dashboard_counts,
     junit_counts,
     manifest_log,
+    parse_work_order_marker,
+    require_hive_final_handoff,
     summary_markdown,
     validate_manifest,
     warnings_evidence,
@@ -132,7 +136,10 @@ def evidence_fixture() -> dict[str, object]:
             "bounded": True,
         },
         "review_state": {"status": "DRAFT", "merge_performed": False},
-        "negative_scope": ["No merge or release was performed."],
+        "negative_scope": [
+            "No merge or release was performed.",
+            canonical_change_statement(canonical_change_evidence(["backend/app/main.py"])),
+        ],
     }
 
 
@@ -141,6 +148,123 @@ def test_review_evidence_schema_is_validated() -> None:
     validate_manifest(manifest)
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert schema["properties"]["schema_version"]["const"] == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("<!-- HIVE-WORK-ORDER: WO-007-P -->", "WO-007-P"),
+        ("<!-- HIVE-WORK-ORDER: WO-008 -->", "WO-008"),
+        ("<!-- HIVE-WORK-ORDER: WO-007-P-C1 -->", "WO-007-P-C1"),
+    ],
+)
+def test_work_order_marker_parser_accepts_bounded_future_and_corrective_ids(
+    body: str, expected: str
+) -> None:
+    assert parse_work_order_marker(body) == expected
+
+
+def test_work_order_marker_parser_rejects_missing_conflicting_and_untrusted_ids() -> None:
+    with pytest.raises(ValueError, match="missing exactly one"):
+        parse_work_order_marker("ordinary product pull request")
+    with pytest.raises(ValueError, match="multiple conflicting"):
+        parse_work_order_marker(
+            "<!-- HIVE-WORK-ORDER: WO-007-P -->\n<!-- HIVE-WORK-ORDER: WO-008 -->"
+        )
+    with pytest.raises(ValueError, match="invalid or unbounded"):
+        parse_work_order_marker("<!-- HIVE-WORK-ORDER: WO-007-P; rm -rf / -->")
+    with pytest.raises(ValueError, match="invalid or unbounded"):
+        parse_work_order_marker(f"<!-- HIVE-WORK-ORDER: {'WO-' + '9' * 70} -->")
+
+
+def test_canonical_change_evidence_distinguishes_promotion_from_product_changes() -> None:
+    promotion = canonical_change_evidence(
+        [
+            "docs/project-brain/13-CHECKPOINT.md",
+            "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ]
+    )
+    assert promotion == {
+        "project_brain_changed": True,
+        "checkpoint_changed": True,
+        "authorized_paths": [
+            "docs/project-brain/13-CHECKPOINT.md",
+            "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ],
+    }
+    assert canonical_change_evidence(["backend/app/main.py"]) == {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }
+
+
+def test_promotion_evidence_does_not_emit_false_canonical_negative_scope() -> None:
+    manifest = evidence_fixture()
+    manifest["changed_files"] = {
+        "count": 2,
+        "paths": [
+            "docs/project-brain/13-CHECKPOINT.md",
+            "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ],
+    }
+    manifest["negative_scope"] = [
+        canonical_change_statement(
+            canonical_change_evidence(
+                [
+                    "docs/project-brain/13-CHECKPOINT.md",
+                    "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+                ]
+            )
+        )
+    ]
+    validate_manifest(manifest)
+    summary = summary_markdown(manifest, "https://example.invalid/run/1")
+    assert "project_brain_changed `True`" in summary
+    assert "checkpoint_changed `True`" in summary
+    assert "No canonical Project Brain checkpoint was modified" not in summary
+
+
+def handoff_governance(
+    *,
+    auto_merge_armed: bool = True,
+    auto_merge_method: str | None = "squash",
+    head_sha: str = "b" * 40,
+    base_sha: str = "a" * 40,
+    independent_approval_count: int = 0,
+) -> dict[str, object]:
+    return {
+        "pull_request": {
+            "state": "open",
+            "is_draft": False,
+            "head_sha": head_sha,
+            "base_sha": base_sha,
+            "auto_merge_armed": auto_merge_armed,
+            "auto_merge_method": auto_merge_method,
+        },
+        "approval_gate": {"independent_approval_count": independent_approval_count},
+    }
+
+
+def test_hive_final_handoff_requires_armed_squash_and_zero_approvals() -> None:
+    with pytest.raises(ValueError, match="auto-merge"):
+        require_hive_final_handoff(
+            "WO-007-P", 28, "a" * 40, "b" * 40, handoff_governance(auto_merge_armed=False)
+        )
+    with pytest.raises(ValueError, match="zero independent approvals"):
+        require_hive_final_handoff(
+            "WO-007-P",
+            28,
+            "a" * 40,
+            "b" * 40,
+            handoff_governance(independent_approval_count=1),
+        )
+    require_hive_final_handoff("WO-007-P", 28, "a" * 40, "b" * 40, handoff_governance())
+
+
+def test_hive_final_handoff_rejects_manifest_pr_head_mismatch() -> None:
+    with pytest.raises(ValueError, match="does not match PR head"):
+        require_hive_final_handoff("WO-007-P", 28, "a" * 40, "c" * 40, handoff_governance())
 
 
 def test_review_evidence_rejects_merge_claim() -> None:

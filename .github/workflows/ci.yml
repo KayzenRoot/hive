@@ -104,7 +104,7 @@ jobs:
     needs: [validate, integration]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       actions: read
       pull-requests: write
     steps:
@@ -129,6 +129,19 @@ jobs:
         with:
           name: hive-integration-evidence-${{ github.event.pull_request.head.sha || github.sha }}
           path: tmp
+      - name: Resolve HIVE work-order marker
+        id: work_order
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          work_order="$(python scripts/review_evidence.py \
+            --resolve-work-order \
+            --repository "$REPOSITORY" \
+            --pr-number "$PR_NUMBER")"
+          printf 'work_order=%s\n' "$work_order" >> "$GITHUB_OUTPUT"
       - name: Enforce Ready pull request
         env:
           PR_DRAFT: ${{ github.event.pull_request.draft }}
@@ -137,12 +150,19 @@ jobs:
             echo "Review Evidence requires the pull request to be Ready for review."
             exit 1
           fi
+      - name: Arm native squash auto-merge before final evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --squash
       - name: Generate Review Evidence manifest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python scripts/review_evidence.py \
-            --work-order WO-007 \
             --repository "${{ github.repository }}" \
             --pr-number "${{ github.event.pull_request.number }}" \
             --ready \
@@ -150,7 +170,6 @@ jobs:
             --base-sha "${{ github.event.pull_request.base.sha }}" \
             --head-branch "${{ github.event.pull_request.head.ref }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
-            --artifact-name "hive-review-evidence-WO-007-${{ github.event.pull_request.head.sha }}" \
             --server-url "$GITHUB_SERVER_URL" \
             --run-id "$GITHUB_RUN_ID" \
             --integration-status PASS
@@ -158,7 +177,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: hive-review-evidence-WO-007-${{ github.event.pull_request.head.sha }}
+          name: hive-review-evidence-${{ steps.work_order.outputs.work_order }}-${{ github.event.pull_request.head.sha }}
           path: |
             tmp/review-evidence
             tmp/validation/retrieval-benchmark.json
@@ -169,13 +188,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
+          WORK_ORDER: ${{ steps.work_order.outputs.work_order }}
         run: |
           set -euo pipefail
-          marker='<!-- hive-review-evidence:WO-007 -->'
+          marker="<!-- hive-review-evidence:$WORK_ORDER -->"
           body="$(printf '%s\n\n' "$marker"; cat tmp/review-evidence/review-summary.md; printf '\nWorkflow run: %s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
-          comment_id="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments" --jq '.[] | select(.body | contains("hive-review-evidence:WO-007")) | .id' | tail -n 1)"
+          comments="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments")"
+          current_ids="$(printf '%s' "$comments" | jq -r --arg marker "$marker" '.[] | select(.user.login == "github-actions[bot]" and (.body | contains($marker))) | .id')"
+          comment_id="$(printf '%s\n' "$current_ids" | sed '/^$/d' | tail -n 1)"
+          stale_id="$(printf '%s' "$comments" | jq -r --arg marker "$marker" '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- hive-review-evidence:WO-007 -->")) and (.body | contains($marker) | not)) | .id' | tail -n 1)"
           if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          elif [[ -n "$stale_id" ]]; then
+            comment_id="$stale_id"
             gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
           else
             gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
           fi
+          duplicate_ids="$(printf '%s' "$comments" | jq -r --arg marker "$marker" --arg canonical "$comment_id" '.[] | select(.user.login == "github-actions[bot]" and (.body | contains($marker)) and ((.id | tostring) != $canonical)) | .id')"
+          old_ids="$(printf '%s' "$comments" | jq -r --arg marker "$marker" '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- hive-review-evidence:WO-007 -->")) and (.body | contains($marker) | not)) | .id')"
+          for stale in $duplicate_ids $old_ids; do
+            [[ -z "$stale" || "$stale" == "$comment_id" ]] || gh api --method DELETE "repos/$REPOSITORY/issues/comments/$stale" >/dev/null
+          done
