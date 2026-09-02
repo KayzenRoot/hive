@@ -18,6 +18,7 @@ RERANK_COUNT = 0
 LAST_DOCUMENT_COUNT = 0
 LAST_MODEL = ""
 LAST_QUERY = ""
+LAST_AUTHORIZATION_PRESENT = False
 
 
 class FixtureServer(ThreadingHTTPServer):
@@ -76,13 +77,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     "last_document_count": LAST_DOCUMENT_COUNT,
                     "last_model": LAST_MODEL,
                     "last_query": LAST_QUERY,
+                    "last_authorization_present": LAST_AUTHORIZATION_PRESENT,
                 },
             )
             return
         self._json(404, {"error": "not_found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        global LAST_DOCUMENT_COUNT, LAST_MODEL, LAST_QUERY, REQUEST_COUNT, RERANK_COUNT
+        global LAST_AUTHORIZATION_PRESENT, LAST_DOCUMENT_COUNT, LAST_MODEL, LAST_QUERY
+        global REQUEST_COUNT, RERANK_COUNT
         if self.path != "/rerank":
             self._json(404, {"error": "not_found"})
             return
@@ -119,6 +122,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
         LAST_DOCUMENT_COUNT = len(cast(list[str], documents))
         LAST_MODEL = model
         LAST_QUERY = query[:256]
+        LAST_AUTHORIZATION_PRESENT = bool(self.headers.get("Authorization"))
         if "__fixture_rerank_provider_error__" in query:
             self._json(503, {"error": "fixture_provider_error"})
             return
@@ -144,6 +148,28 @@ class FixtureHandler(BaseHTTPRequestHandler):
             results[0]["index"] = len(results)
         elif "__fixture_rerank_nan__" in query and results:
             results[0]["relevance_score"] = float("nan")
+            self._raw(
+                200,
+                json.dumps(
+                    {"model": model, "results": results},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    allow_nan=True,
+                ).encode("utf-8"),
+            )
+            return
+        elif "__fixture_rerank_infinity__" in query and results:
+            results[0]["relevance_score"] = float("inf")
+            self._raw(
+                200,
+                json.dumps(
+                    {"model": model, "results": results},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    allow_nan=True,
+                ).encode("utf-8"),
+            )
+            return
         elif "__fixture_rerank_invalid_score__" in query and results:
             results[0]["relevance_score"] = "not-a-score"
         elif "__fixture_rerank_model_mismatch__" in query:

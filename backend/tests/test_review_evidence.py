@@ -18,6 +18,7 @@ from scripts.review_evidence import (
     manifest_log,
     parse_work_order_marker,
     require_hive_final_handoff,
+    require_wo008_c1_evidence,
     summary_markdown,
     validate_manifest,
     warnings_evidence,
@@ -452,6 +453,26 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Sol Review State: AWAITING_SOL",
     ):
         assert field in summary
+
+
+def test_wo008_c1_evidence_fails_closed_on_missing_safety_proof() -> None:
+    required = {field: True for field in review_evidence.RERANK_C1_REQUIRED_FIELDS}
+    benchmark = {"status": "PASS", "rerank": {"status": "PASS", **required}}
+    integration = {"integrity_tests": required}
+    security = {"reranking": {"status": "PASS"}}
+
+    require_wo008_c1_evidence(
+        "WO-008", benchmark, integration, security, "bounded evidence", "review text"
+    )
+
+    failed_benchmark = {
+        "status": "PASS",
+        "rerank": {"status": "PASS", **required, "rerank_ordering_reproducible": False},
+    }
+    with pytest.raises(ValueError, match="mandatory rerank C1 evidence"):
+        require_wo008_c1_evidence(
+            "WO-008", failed_benchmark, integration, security, "bounded evidence", "review text"
+        )
 
 
 def test_generic_bundle_zip_is_byte_deterministic(tmp_path: Path) -> None:

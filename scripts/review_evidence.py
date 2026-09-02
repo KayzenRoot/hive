@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -22,6 +23,24 @@ HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
 WORK_ORDER_IDENTIFIER = re.compile(r"WO-[0-9]+(?:-[A-Z0-9]+)*")
 WORK_ORDER_MARKER = re.compile(r"<!--\s*HIVE-WORK-ORDER:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE)
+RERANK_SECRET_SENTINEL = re.compile(r"WO008_TEST_SECRET_DO_NOT_LEAK_[A-Za-z0-9_-]+")
+RERANK_C1_REQUIRED_FIELDS = (
+    "rerank_project_isolation",
+    "rerank_duplicate_task_collapsed",
+    "rerank_cross_project_duplicate_isolation",
+    "rerank_missing_index_safe",
+    "rerank_out_of_range_index_safe",
+    "rerank_duplicate_index_safe",
+    "rerank_non_finite_score_safe",
+    "rerank_model_mismatch_safe",
+    "rerank_malformed_response_matrix",
+    "rerank_default_order_preserved",
+    "rerank_fallback_scores_null",
+    "rerank_strict_invalid_response_bounded",
+    "rerank_semantic_stale_state_preserved",
+    "rerank_secret_not_leaked",
+    "rerank_ordering_reproducible",
+)
 CHECKPOINT_PATH = "docs/project-brain/13-CHECKPOINT.md"
 CANONICAL_PATHS = (
     CHECKPOINT_PATH,
@@ -218,6 +237,19 @@ def benchmark_fields(path: Path) -> dict[str, object]:
         "provenance_preserved",
     )
     rerank_gates = all(bool(rerank_run.get(name, False)) for name in rerank_gate_names)
+    rerank_c1 = {
+        field: bool(rerank.get(field.removeprefix("rerank_"), False))
+        for field in RERANK_C1_REQUIRED_FIELDS
+    }
+    order_digest_pattern = re.compile(r"^[0-9a-f]{64}$")
+    run_1_order_digest = rerank.get("run_1_order_digest")
+    run_2_order_digest = rerank.get("run_2_order_digest")
+    order_digests_valid = bool(
+        isinstance(run_1_order_digest, str)
+        and order_digest_pattern.fullmatch(run_1_order_digest)
+        and isinstance(run_2_order_digest, str)
+        and order_digest_pattern.fullmatch(run_2_order_digest)
+    )
     rerank_status = (
         "PASS"
         if rerank_run
@@ -230,6 +262,8 @@ def benchmark_fields(path: Path) -> dict[str, object]:
         and bool(rerank.get("strict_failure_bounded", False))
         and bool(rerank.get("profile_visible_without_secret", False))
         and bool(rerank.get("reproducible", False))
+        and order_digests_valid
+        and all(rerank_c1.values())
         else "FAIL"
         if rerank_run
         else "UNKNOWN"
@@ -287,6 +321,7 @@ def benchmark_fields(path: Path) -> dict[str, object]:
                 rerank.get("run_1", {}).get("recall_at_5")
                 == rerank.get("run_2", {}).get("recall_at_5")
                 and rerank.get("run_1", {}).get("mrr") == rerank.get("run_2", {}).get("mrr")
+                and rerank.get("ordering_reproducible", False)
             ),
             "hybrid_recall_at_5": float(rerank_run.get("hybrid_recall_at_5", 0.0)),
             "hybrid_mrr": float(rerank_run.get("hybrid_mrr", 0.0)),
@@ -300,9 +335,15 @@ def benchmark_fields(path: Path) -> dict[str, object]:
             ),
             "provider_down_exact_fallback": bool(rerank.get("provider_down_exact_fallback", False)),
             "strict_failure_bounded": bool(rerank.get("strict_failure_bounded", False)),
+            "strict_invalid_response_bounded": bool(
+                rerank.get("strict_invalid_response_bounded", False)
+            ),
             "profile_visible_without_secret": bool(
                 rerank.get("profile_visible_without_secret", False)
             ),
+            "run_1_order_digest": run_1_order_digest if isinstance(run_1_order_digest, str) else "",
+            "run_2_order_digest": run_2_order_digest if isinstance(run_2_order_digest, str) else "",
+            **rerank_c1,
         },
         "semantic_integrity": data.get("semantic_integrity", {}),
         "fallback": data.get("fallback", {}),
@@ -408,6 +449,7 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
             "rerank_invalid_response_safe": False,
             "rerank_provider_failure_safe": False,
             "rerank_provider_down_safe": False,
+            **{field: False for field in RERANK_C1_REQUIRED_FIELDS},
         }
     try:
         value = json.loads(match.group(1))
@@ -435,6 +477,7 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
             "rerank_invalid_response_safe",
             "rerank_provider_failure_safe",
             "rerank_provider_down_safe",
+            *RERANK_C1_REQUIRED_FIELDS,
         )
     }
 
@@ -502,6 +545,7 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
 def security_evidence(
     all_validation: str,
     test_results: str,
+    all_evidence: str,
     benchmark: dict[str, object],
     integration: dict[str, object],
 ) -> dict[str, object]:
@@ -521,6 +565,7 @@ def security_evidence(
     )
     isolation = "PASS" if benchmark["cross_project_isolation"] else "UNKNOWN"
     rerank = cast(dict[str, Any], benchmark.get("rerank", {}))
+    secret_not_leaked = not RERANK_SECRET_SENTINEL.search(all_evidence)
     values = {
         "canonical_verifier": {"status": canonical},
         "secret_scan": {"status": secrets},
@@ -537,6 +582,8 @@ def security_evidence(
             and rerank.get("candidate_pool_bounded")
             and rerank.get("provenance_preserved")
             and rerank.get("provider_failure_exact_fallback")
+            and rerank.get("rerank_secret_not_leaked")
+            and secret_not_leaked
             else "UNKNOWN"
         },
     }
@@ -546,6 +593,34 @@ def security_evidence(
         else "UNKNOWN",
         **values,
     }
+
+
+def require_wo008_c1_evidence(
+    work_order: str,
+    benchmark: Mapping[str, object],
+    integration: Mapping[str, object],
+    security: Mapping[str, object],
+    all_evidence: str,
+    github_evidence: str,
+) -> None:
+    if work_order != "WO-008":
+        return
+    rerank = cast(dict[str, Any], benchmark.get("rerank", {}))
+    integrity = cast(dict[str, Any], integration.get("integrity_tests", {}))
+    missing_benchmark = [field for field in RERANK_C1_REQUIRED_FIELDS if not rerank.get(field)]
+    missing_integration = [field for field in RERANK_C1_REQUIRED_FIELDS if not integrity.get(field)]
+    if benchmark.get("status") != "PASS" or rerank.get("status") != "PASS":
+        raise ValueError("WO-008 Review Evidence requires a passing rerank C1 benchmark")
+    if missing_benchmark or missing_integration:
+        raise ValueError(
+            "WO-008 Review Evidence missing mandatory rerank C1 evidence: "
+            + ", ".join(sorted(set(missing_benchmark + missing_integration)))
+        )
+    security_rerank = cast(dict[str, Any], security.get("reranking", {}))
+    if security_rerank.get("status") != "PASS":
+        raise ValueError("WO-008 Review Evidence requires passing rerank security evidence")
+    if RERANK_SECRET_SENTINEL.search(all_evidence + "\n" + github_evidence):
+        raise ValueError("WO-008 Review Evidence detected a rerank secret sentinel in evidence")
 
 
 def warnings_evidence(all_text: str) -> dict[str, object]:
@@ -563,6 +638,23 @@ def _gh_json(repository: str, endpoint: str) -> dict[str, Any] | list[Any] | Non
     except json.JSONDecodeError:
         return None
     return value if isinstance(value, dict | list) else None
+
+
+def github_review_text(repository: str, pr_number: int | None) -> str:
+    if not pr_number:
+        return ""
+    parts: list[str] = []
+    pull_request = _gh_json(repository, f"pulls/{pr_number}")
+    if isinstance(pull_request, dict) and isinstance(pull_request.get("body"), str):
+        parts.append(pull_request["body"])
+    comments = _gh_json(repository, f"issues/{pr_number}/comments")
+    if isinstance(comments, list):
+        parts.extend(
+            str(comment.get("body"))
+            for comment in comments
+            if isinstance(comment, dict) and isinstance(comment.get("body"), str)
+        )
+    return "\n\n".join(parts)
 
 
 def governance_evidence(repository: str, pr_number: int | None = None) -> dict[str, object]:
@@ -781,11 +873,27 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
     all_validation = validation + "\n" + lint + "\n" + tests_text
+    evidence_text = all_evidence_text()
+    github_evidence = github_review_text(repository, args.pr_number)
     benchmark = benchmark_fields(VALIDATION / "retrieval-benchmark.json")
     tests = tests_evidence(validation, tests_text)
     integration = integration_evidence(benchmark)
-    security = security_evidence(all_validation, tests_text, benchmark, integration)
-    warnings = warnings_evidence(all_evidence_text())
+    security = security_evidence(
+        all_validation,
+        tests_text,
+        evidence_text + "\n" + github_evidence,
+        benchmark,
+        integration,
+    )
+    warnings = warnings_evidence(evidence_text)
+    require_wo008_c1_evidence(
+        work_order,
+        benchmark,
+        integration,
+        security,
+        evidence_text,
+        github_evidence,
+    )
     canonical_changes = canonical_change_evidence(paths)
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
@@ -1005,6 +1113,19 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"pool bounded `{rerank.get('candidate_pool_bounded', False)}`, "
         f"provenance `{rerank.get('provenance_preserved', False)}`"
     )
+    rerank_c1_text = (
+        f"project isolation `{rerank.get('rerank_project_isolation', False)}`, "
+        f"duplicate TASK collapse `{rerank.get('rerank_duplicate_task_collapsed', False)}`, "
+        f"cross-project duplicate isolation `"
+        f"{rerank.get('rerank_cross_project_duplicate_isolation', False)}`, "
+        f"malformed-response matrix `{rerank.get('rerank_malformed_response_matrix', False)}`, "
+        f"semantic STALE preservation `"
+        f"{rerank.get('rerank_semantic_stale_state_preserved', False)}`, "
+        f"secret non-leak `{rerank.get('rerank_secret_not_leaked', False)}`, "
+        f"ordering reproducible `{rerank.get('rerank_ordering_reproducible', False)}`, "
+        f"run 1 digest `{rerank.get('run_1_order_digest', '')}`, "
+        f"run 2 digest `{rerank.get('run_2_order_digest', '')}`"
+    )
     semantic_integrity_text = (
         f"pgvector `{semantic_integrity.get('actual_pgvector_type', 'UNKNOWN')}`, "
         f"dimensions `{semantic_integrity.get('profile_dimensions', 'UNKNOWN')}`, "
@@ -1086,6 +1207,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Semantic benchmark: {semantic_text}
 - Hybrid benchmark: {hybrid_text}
 - Reranking benchmark: {rerank_text}
+- Reranking C1 integration safety: {rerank_c1_text}
 - Semantic integrity: {semantic_integrity_text}
 - Canonical verifier: **{security["canonical_verifier"]["status"]}**
 - Secret scan: **{security["secret_scan"]["status"]}**

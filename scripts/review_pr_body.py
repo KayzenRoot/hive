@@ -1,4 +1,4 @@
-"""Render the twenty-section executor review for an auditable pull request."""
+"""Render the executor review for an auditable pull request."""
 
 from __future__ import annotations
 
@@ -108,6 +108,10 @@ fallbacks, incluindo strict mode.
 O fixture local determinístico e o stack real PostgreSQL/pgvector, Redis, API e
 dashboard validam candidatos híbridos apenas, promoção, isolamento, pool,
 fallback exato, resposta inválida, provider down, status strict e benchmark.
+A correção C1 também publica evidência real para isolamento project-scoped,
+colapso de TASK duplicada, matriz de respostas inválidas, preservação de
+semantic STALE, não vazamento de segredo-sentinela e reprodutibilidade da ordem
+de identidades/ranks; os valores auditáveis ficam no artefato e no sticky.
 
 ## 15. Resiliência
 
@@ -158,7 +162,7 @@ O checkpoint canônico não foi modificado. Após auditoria independente de Sol,
 fica proposta apenas a decisão de promover WO-008; nenhuma mutação canônica é
 executada por esta PR.
 
-WO-008 READY FOR SOL GITHUB AUDIT
+WO-008-C1 READY FOR SOL GITHUB AUDIT
 """
 
 
