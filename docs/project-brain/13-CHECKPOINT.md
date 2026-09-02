@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-REPOSITORY INDEXING APPROVED / V0.1 IMPLEMENTATION ACTIVE
+RETRIEVAL LEXICAL FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -64,12 +64,23 @@ See `03-SCOPE.md`.
 - Real Git/PostgreSQL integration proves incremental reuse, add/change/remove, qualified Python symbols, project isolation, cross-project FK rejection, transactional rollback and restart persistence.
 - PR #23 was approved at exact head `be71bc99d715d623b895bf4e1e7c95d3586ad053` and squash-merged as `ee2580473a0226ad38a40695366129f5473fa974`.
 - Post-merge CI run `33565088918` passed on `main` for `ee2580473a0226ad38a40695366129f5473fa974`.
+- Durable project-scoped retrieval corpus implemented over repository file/symbol metadata and ingested derived task text.
+- Deterministic chunk/reference provenance and bounded lexical candidate generation implemented.
+- Retrieval remains isolated by project and exposes provenance/source-kind metadata.
+- Corpus promotion revalidates exact Git HEAD, tracked inventory and source bytes fail-closed; stale/racing generations do not replace the prior valid corpus.
+- Duplicate READY task content is collapsed at candidate selection without destroying distinct durable task provenance or cross-project isolation.
+- Retrieval integration survives Redis restart and API restart without losing canonical corpus truth.
+- Accepted lexical benchmark has 4 queries, recall@1 1.0, recall@5 1.0, MRR 1.0, zero critical misses and two-run reproducibility.
+- Review evidence is consolidated and includes validation, integration, security and observed non-blocking warnings; bounded service-log capture is available for audit.
+- Protected-main Ruleset requires Validate, Integration health and Review Evidence for PRs, requires thread resolution and allows squash-only with no bypass.
+- PR #25 was approved at exact head `ee1b016b135d30d48d99d298788568e116396b23` and squash-merged as `e15690042041372febb565169e7bb80bef308337`.
+- Post-merge CI run `33641440244` passed on `main` for exact SHA `e15690042041372febb565169e7bb80bef308337`.
 
 ## IN PROGRESS
-- Preparing the smallest necessary project-scoped retrieval corpus and lexical candidate-generation foundation for hybrid retrieval.
+- Preparing the smallest necessary pgvector semantic-retrieval and hybrid-fusion foundation.
 
 ## PENDING
-- retrieval.
+- pgvector semantic retrieval, hybrid fusion and reranking.
 - memory.
 - ACCE beyond the intake/storage foundation.
 - MCP server product surface.
@@ -84,13 +95,13 @@ See `03-SCOPE.md`.
 - final V0.1 review.
 
 ## BLOCKERS
-None known after Repository Indexing approval.
+None known after Retrieval Lexical Foundation approval.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary retrieval foundation for V0.1: build a project-scoped retrieval corpus over repository file/symbol metadata and ingested derived text, add deterministic chunk/reference provenance and lexical candidate generation, and establish the benchmark/evidence surface needed for later pgvector semantic retrieval and reranking. Do not add memory, Context Manager orchestration, MCP product surface or autonomous retrieval execution in this increment.
+Implement the smallest necessary semantic-retrieval increment for V0.1: persist and query embeddings with pgvector behind a provider-independent embedding adapter, combine semantic candidates with the existing lexical candidates into a bounded project-scoped hybrid candidate set with deterministic provenance and benchmark evidence, and preserve lexical fallback. Do not add reranking, memory, Context Manager orchestration, MCP product surface or autonomous retrieval execution in this increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
