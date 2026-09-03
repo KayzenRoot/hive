@@ -218,6 +218,15 @@ SQUASH e owner User. Ele não executa `gh pr merge --auto`.
 Há fixtures para owner User aceito, `github-actions[bot]`, Bot, App, ausência
 de auto-merge e método incorreto rejeitados, além de cobertura do trigger push
 para `main` e da ausência da mutação no workflow.
+As gates de evidência C1 do WO-008 permanecem obrigatórias nesta correção.
+
+Comandos de validação: `python scripts/verify_canonical_sources.py`,
+`python scripts/check_secrets.py`, `python scripts/generate_maps.py --check`,
+`python -m ruff format --check backend scripts migrations`,
+`python -m ruff check backend scripts migrations`, `python -m mypy`,
+`python -m pytest`, `cd dashboard && npm ci && npm run lint && npm run typecheck
+&& npm run test:run && npm run build && npm audit`, e `docker compose config
+--quiet`.
 
 ## 7. CI da PR e artefato
 
@@ -225,18 +234,31 @@ Validate, Integration health e Review Evidence devem passar no head exato.
 O consolidado é `{artifact_name}` e o sticky comment deve expor o owner sem
 segredos.
 
-## 8. Governança
+## 8. Riscos conhecidos e fontes canônicas
+
+O fluxo depende de o executor armar o auto-merge como User; ausência, Bot ou
+App bloqueia o handoff. Em hosts Windows, o init de PostgreSQL em bind mount
+pode exceder o healthcheck padrão, sem alterar a configuração de produção.
+Fontes: [checkpoint](../blob/main/docs/project-brain/13-CHECKPOINT.md),
+[decisões](../blob/main/docs/project-brain/16-DECISIONS-LEDGER.md),
+[escopo](../blob/main/docs/project-brain/03-SCOPE.md),
+[Definition of Done](../blob/main/docs/project-brain/15-DEFINITION-OF-DONE.md),
+[arquitetura](../blob/main/docs/project-brain/04-ARCHITECTURE.md) e
+[requisitos](../blob/main/docs/project-brain/02-REQUIREMENTS.md).
+
+## 9. Governança
 
 Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
 {merge_after}. A proteção permanece ativa, com os três checks reais,
-SQUASH-only, uma aprovação independente exigida e zero bypass.
+SQUASH-only, uma aprovação independente exigida e zero bypass. Ruleset unchanged:
+`true`, verificado contra o Ruleset 21934284.
 
-## 9. Escopo negativo
+## 10. Escopo negativo
 
 Não foi feita alteração de produto, migration, promoção do checkpoint, merge
 manual, bypass, aprovação automática de Sol ou início de WO-009.
 
-## 10. Estado de Sol
+## 11. Estado de Sol
 
 A PR permanece aberta, Ready e não mesclada. Aprovações independentes
 observadas: zero. Sol Review State: AWAITING_SOL.

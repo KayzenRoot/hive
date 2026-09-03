@@ -46,6 +46,17 @@ CANONICAL_PATHS = (
     CHECKPOINT_PATH,
     "docs/project-brain/CANONICAL-SHA256SUMS.txt",
 )
+WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
+WO008_G1_ALLOWED_PATHS = frozenset(
+    {
+        ".github/workflows/ci.yml",
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+PROTECTED_MAIN_RULESET_ID = 21934284
 
 WARNING_RULES = (
     (
@@ -132,6 +143,19 @@ def canonical_change_evidence(paths: list[str]) -> dict[str, object]:
 def canonical_change_statement(evidence: dict[str, object]) -> str:
     payload = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
     return f"Canonical change evidence: {payload}"
+
+
+def require_wo008_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-008-G1":
+        return
+    if base_sha != WO008_G1_BASE_SHA:
+        raise ValueError(f"WO-008-G1 requires exact base {WO008_G1_BASE_SHA}, observed {base_sha}")
+    unauthorized = sorted(set(paths) - WO008_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            "WO-008-G1 changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
 
 
 def repository_name() -> str:
@@ -603,7 +627,7 @@ def require_wo008_c1_evidence(
     all_evidence: str,
     github_evidence: str,
 ) -> None:
-    if work_order != "WO-008":
+    if not work_order.startswith("WO-008"):
         return
     rerank = cast(dict[str, Any], benchmark.get("rerank", {}))
     integrity = cast(dict[str, Any], integration.get("integrity_tests", {}))
@@ -673,6 +697,21 @@ def auto_merge_evidence(auto_merge: Mapping[str, Any] | None) -> dict[str, objec
             and not is_app
             and normalized_login != "github-actions[bot]"
         ),
+    }
+
+
+def pull_request_auto_merge_evidence(
+    pull_request_governance: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    auto_merge = pull_request_governance.get("auto_merge")
+    if isinstance(auto_merge, Mapping):
+        return auto_merge
+    return {
+        "armed": pull_request_governance.get("auto_merge_armed"),
+        "method": pull_request_governance.get("auto_merge_method"),
+        "enabled_by_login": pull_request_governance.get("auto_merge_owner_login", ""),
+        "enabled_by_type": pull_request_governance.get("auto_merge_owner_type", ""),
+        "user_owned": pull_request_governance.get("auto_merge_user_owned", False),
     }
 
 
@@ -797,6 +836,22 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
         if isinstance(ruleset, dict)
         else []
     )
+    ruleset_unchanged = (
+        ruleset.get("id") == PROTECTED_MAIN_RULESET_ID
+        and ruleset.get("name") == "Protect main"
+        and ruleset.get("enforcement") == "active"
+        and sorted(required_contexts) == ["Integration health", "Review Evidence", "Validate"]
+        and thread_resolution is True
+        and sorted(allowed_methods) == ["squash"]
+        and not bypass
+        and has_deletion
+        and has_non_fast_forward
+        and has_pull_request
+        and strict_checks is True
+        and required_approving_review_count == 1
+        and dismiss_stale_reviews_on_push is True
+        and require_last_push_approval is True
+    )
     repo_settings = {
         "allow_squash_merge": repo.get("allow_squash_merge") if isinstance(repo, dict) else None,
         "allow_merge_commit": repo.get("allow_merge_commit") if isinstance(repo, dict) else None,
@@ -888,6 +943,7 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
             "dismiss_stale_reviews_on_push": dismiss_stale_reviews_on_push,
             "require_last_push_approval": require_last_push_approval,
         },
+        "ruleset_unchanged": ruleset_unchanged,
         "repository_merge_settings": repo_settings,
         "pull_request": {
             "number": pr_number,
@@ -946,6 +1002,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     if head_sha != actual_head:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
+    require_wo008_g1_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -971,8 +1028,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     canonical_changes = canonical_change_evidence(paths)
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
-    pr_auto_merge = pr_governance.get("auto_merge")
-    pr_auto_merge = pr_auto_merge if isinstance(pr_auto_merge, Mapping) else {}
+    pr_auto_merge = pull_request_auto_merge_evidence(pr_governance)
     require_hive_final_handoff(work_order, args.pr_number, base_sha, head_sha, governance)
     checks = {
         "validation": "PASS"
@@ -1071,6 +1127,21 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     }
     if set(manifest) != required or manifest["schema_version"] != 1:
         raise ValueError("manifest does not match the required top-level schema")
+    work_order = cast(str, manifest["work_order"])
+    if work_order == "WO-008-G1":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo008_g1_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
+        governance = cast(dict[str, Any], manifest["governance"])
+        if governance.get("ruleset_unchanged") is not True:
+            raise ValueError("WO-008-G1 evidence requires the protected ruleset to be unchanged")
+        review_state = cast(dict[str, Any], manifest["review_state"])
+        if review_state.get("auto_merge_user_owned") is not True:
+            raise ValueError("WO-008-G1 evidence requires user-owned auto-merge")
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1232,6 +1303,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"thread resolution `{ruleset['required_review_thread_resolution']}`; "
         f"merge methods `{methods}`; bypass actors `{len(ruleset['bypass_actors'])}`"
     )
+    ruleset_unchanged = governance.get("ruleset_unchanged", False)
     race_summary = (
         f"HEAD `{integrity['head_race_rejected']}`, "
         f"inventory `{integrity['inventory_race_rejected']}`, "
@@ -1298,6 +1370,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Known warnings: `{warnings["count"]}` recorded
 {warning_lines}
 - Ruleset: {ruleset_text}
+- Ruleset unchanged: `{ruleset_unchanged}`
 - Repository merge settings: {merge_settings}
 - Auto-merge armed: {auto_merge_text}
 - Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
@@ -1318,6 +1391,12 @@ def require_hive_final_handoff(
 ) -> None:
     if not pr_number or not work_order.startswith("WO-"):
         return
+    if work_order == "WO-008-G1" and base_sha != WO008_G1_BASE_SHA:
+        raise ValueError(
+            f"WO-008-G1 final handoff requires exact base {WO008_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if work_order == "WO-008-G1" and governance.get("ruleset_unchanged") is not True:
+        raise ValueError("WO-008-G1 final handoff requires the protected ruleset to be unchanged")
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     if pr_governance.get("head_sha") != head_sha:
         observed_head = pr_governance.get("head_sha")
@@ -1329,15 +1408,7 @@ def require_hive_final_handoff(
         raise ValueError("HIVE final-handoff evidence requires an open pull request")
     if pr_governance.get("is_draft") is not False:
         raise ValueError("HIVE final-handoff evidence requires a Ready pull request")
-    auto_merge_state = pr_governance.get("auto_merge")
-    if not isinstance(auto_merge_state, Mapping):
-        auto_merge_state = {
-            "armed": pr_governance.get("auto_merge_armed"),
-            "method": pr_governance.get("auto_merge_method"),
-            "enabled_by_login": pr_governance.get("auto_merge_owner_login", ""),
-            "enabled_by_type": pr_governance.get("auto_merge_owner_type", ""),
-            "user_owned": pr_governance.get("auto_merge_user_owned", False),
-        }
+    auto_merge_state = pull_request_auto_merge_evidence(pr_governance)
     if auto_merge_state.get("armed") is not True:
         raise ValueError("HIVE final-handoff evidence requires native auto-merge to be armed")
     if str(auto_merge_state.get("method", "")).casefold() != "squash":

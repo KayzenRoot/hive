@@ -306,6 +306,7 @@
             "allow_auto_merge": { "type": ["boolean", "null"] }
           }
         },
+        "ruleset_unchanged": { "type": "boolean" },
         "pull_request": {
           "type": "object",
           "additionalProperties": false,

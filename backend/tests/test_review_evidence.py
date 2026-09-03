@@ -11,6 +11,8 @@ from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, 
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
     SCHEMA_PATH,
+    WO008_G1_ALLOWED_PATHS,
+    WO008_G1_BASE_SHA,
     auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
@@ -20,6 +22,7 @@ from scripts.review_evidence import (
     parse_work_order_marker,
     require_hive_final_handoff,
     require_wo008_c1_evidence,
+    require_wo008_g1_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -132,6 +135,7 @@ def evidence_fixture() -> dict[str, object]:
                 "delete_branch_on_merge": True,
                 "allow_auto_merge": False,
             },
+            "ruleset_unchanged": True,
             "pull_request": {
                 "number": 42,
                 "state": "open",
@@ -259,6 +263,7 @@ def handoff_governance(
     independent_approval_count: int = 0,
 ) -> dict[str, object]:
     return {
+        "ruleset_unchanged": True,
         "pull_request": {
             "state": "open",
             "is_draft": False,
@@ -297,6 +302,53 @@ def test_hive_final_handoff_requires_armed_squash_and_zero_approvals() -> None:
 def test_hive_final_handoff_rejects_manifest_pr_head_mismatch() -> None:
     with pytest.raises(ValueError, match="does not match PR head"):
         require_hive_final_handoff("WO-007-P", 28, "a" * 40, "c" * 40, handoff_governance())
+
+
+def test_g1_handoff_requires_exact_base_ruleset_and_user_owned_auto_merge() -> None:
+    governance = handoff_governance(base_sha=WO008_G1_BASE_SHA)
+    require_hive_final_handoff("WO-008-G1", 30, WO008_G1_BASE_SHA, "b" * 40, governance)
+
+    wrong_base = handoff_governance(base_sha="a" * 40)
+    with pytest.raises(ValueError, match="exact base"):
+        require_hive_final_handoff("WO-008-G1", 30, "a" * 40, "b" * 40, wrong_base)
+
+    bot_owned = handoff_governance(base_sha=WO008_G1_BASE_SHA)
+    bot_pull_request = cast(dict[str, object], bot_owned["pull_request"])
+    bot_auto_merge = cast(dict[str, object], bot_pull_request["auto_merge"])
+    bot_auto_merge["user_owned"] = False
+    with pytest.raises(ValueError, match="user-owned"):
+        require_hive_final_handoff("WO-008-G1", 30, WO008_G1_BASE_SHA, "b" * 40, bot_owned)
+
+    changed_ruleset = handoff_governance(base_sha=WO008_G1_BASE_SHA)
+    changed_ruleset["ruleset_unchanged"] = False
+    with pytest.raises(ValueError, match="ruleset"):
+        require_hive_final_handoff("WO-008-G1", 30, WO008_G1_BASE_SHA, "b" * 40, changed_ruleset)
+
+
+def test_g1_scope_rejects_non_governance_files() -> None:
+    require_wo008_g1_scope("WO-008-G1", WO008_G1_BASE_SHA, sorted(WO008_G1_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="outside"):
+        require_wo008_g1_scope(
+            "WO-008-G1",
+            WO008_G1_BASE_SHA,
+            [".github/workflows/ci.yml", "backend/app/reranking.py"],
+        )
+
+
+def test_g1_manifest_records_user_owned_identity_and_scope() -> None:
+    manifest = evidence_fixture()
+    manifest["work_order"] = "WO-008-G1"
+    manifest["base"] = {"branch": "main", "sha": WO008_G1_BASE_SHA}
+    manifest["changed_files"] = {
+        "count": 1,
+        "paths": ["scripts/review_evidence.py"],
+    }
+
+    validate_manifest(manifest)
+    review_state = cast(dict[str, object], manifest["review_state"])
+    assert review_state["auto_merge_owner_login"] == "KayzenRoot"
+    assert review_state["auto_merge_owner_type"] == "User"
+    assert review_state["auto_merge_user_owned"] is True
 
 
 def native_auto_merge_pull_request(auto_merge: object) -> dict[str, object]:
@@ -371,6 +423,26 @@ def test_native_auto_merge_verification_fails_closed(
     monkeypatch.setattr(review_evidence, "_gh_json", lambda _repository, _endpoint: pull_request)
 
     with pytest.raises(ValueError, match=message):
+        verify_native_auto_merge("KayzenRoot/hive", 42, "b" * 40)
+
+
+def test_native_auto_merge_verification_rejects_draft_and_moved_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pull_request = native_auto_merge_pull_request(
+        {
+            "merge_method": "squash",
+            "enabled_by": {"login": "KayzenRoot", "type": "User"},
+        }
+    )
+    monkeypatch.setattr(review_evidence, "_gh_json", lambda _repository, _endpoint: pull_request)
+    pull_request["draft"] = True
+    with pytest.raises(ValueError, match="Ready"):
+        verify_native_auto_merge("KayzenRoot/hive", 42, "b" * 40)
+
+    pull_request["draft"] = False
+    cast(dict[str, object], pull_request["head"])["sha"] = "c" * 40
+    with pytest.raises(ValueError, match="head moved"):
         verify_native_auto_merge("KayzenRoot/hive", 42, "b" * 40)
 
 
@@ -529,6 +601,9 @@ def test_g1_pr_body_describes_identity_correction() -> None:
     assert body.startswith("<!-- HIVE-WORK-ORDER: WO-008-G1 -->")
     assert "GITHUB_TOKEN" in body
     assert "gh pr merge --auto" in body
+    assert "python -m pytest" in body
+    assert "Riscos conhecidos" in body
+    assert "docs/project-brain/13-CHECKPOINT.md" in body
     assert "WO-008-G1 READY FOR SOL GITHUB AUDIT" in body
     assert "fundação de reranking" not in body
 
@@ -604,20 +679,22 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Secret scan",
         "Consolidated artifact",
         "Workflow run URL",
+        "Ruleset unchanged",
         "Auto-merge owner: KayzenRoot (User)",
         "Sol Review State: AWAITING_SOL",
     ):
         assert field in summary
 
 
-def test_wo008_c1_evidence_fails_closed_on_missing_safety_proof() -> None:
+@pytest.mark.parametrize("work_order", ["WO-008", "WO-008-G1"])
+def test_wo008_c1_evidence_fails_closed_on_missing_safety_proof(work_order: str) -> None:
     required = {field: True for field in review_evidence.RERANK_C1_REQUIRED_FIELDS}
     benchmark = {"status": "PASS", "rerank": {"status": "PASS", **required}}
     integration = {"integrity_tests": required}
     security = {"reranking": {"status": "PASS"}}
 
     require_wo008_c1_evidence(
-        "WO-008", benchmark, integration, security, "bounded evidence", "review text"
+        work_order, benchmark, integration, security, "bounded evidence", "review text"
     )
 
     failed_benchmark = {
@@ -626,7 +703,12 @@ def test_wo008_c1_evidence_fails_closed_on_missing_safety_proof() -> None:
     }
     with pytest.raises(ValueError, match="mandatory rerank C1 evidence"):
         require_wo008_c1_evidence(
-            "WO-008", failed_benchmark, integration, security, "bounded evidence", "review text"
+            work_order,
+            failed_benchmark,
+            integration,
+            security,
+            "bounded evidence",
+            "review text",
         )
 
 
