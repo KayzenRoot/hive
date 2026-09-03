@@ -166,6 +166,85 @@ WO-008-C1 READY FOR SOL GITHUB AUDIT
 """
 
 
+def _render_wo008_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta correção preserva o CI pós-merge em `main`: o workflow não arma mais
+auto-merge com `GITHUB_TOKEN`. O executor deve armar o auto-merge nativo
+SQUASH a partir de uma identidade GitHub User; o Review Evidence apenas
+verifica e registra essa identidade.
+
+## 2. Base, branch e head
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata auditada: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+
+## 3. Arquivos alterados
+
+As alterações ficam restritas ao workflow CI, ao gerador/verificador de Review
+Evidence, ao schema e aos testes determinísticos de governança.
+
+## 4. Ownership do auto-merge
+
+O auto-merge deve estar armado externamente pelo executor autenticado como uma
+identidade GitHub User. O manifesto e o sticky comment registram o login e o
+tipo observados, sem expor credenciais; identidades Bot/App falham fechado.
+
+## 5. Mudança no workflow
+
+O job Review Evidence verifica PR Ready, head exato, auto-merge armado, método
+SQUASH e owner User. Ele não executa `gh pr merge --auto`.
+
+## 6. Testes
+
+Há fixtures para owner User aceito, `github-actions[bot]`, Bot, App, ausência
+de auto-merge e método incorreto rejeitados, além de cobertura do trigger push
+para `main` e da ausência da mutação no workflow.
+
+## 7. CI da PR e artefato
+
+Validate, Integration health e Review Evidence devem passar no head exato.
+O consolidado é `{artifact_name}` e o sticky comment deve expor o owner sem
+segredos.
+
+## 8. Governança
+
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. A proteção permanece ativa, com os três checks reais,
+SQUASH-only, uma aprovação independente exigida e zero bypass.
+
+## 9. Escopo negativo
+
+Não foi feita alteração de produto, migration, promoção do checkpoint, merge
+manual, bypass, aprovação automática de Sol ou início de WO-009.
+
+## 10. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Aprovações independentes
+observadas: zero. Sol Review State: AWAITING_SOL.
+
+WO-008-G1 READY FOR SOL GITHUB AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -181,6 +260,19 @@ def render_body(
 ) -> str:
     if work_order == "WO-008":
         return _render_wo008_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-008-G1":
+        return _render_wo008_g1_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

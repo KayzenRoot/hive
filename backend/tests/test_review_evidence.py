@@ -11,6 +11,7 @@ from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, 
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
     SCHEMA_PATH,
+    auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
     dashboard_counts,
@@ -21,6 +22,7 @@ from scripts.review_evidence import (
     require_wo008_c1_evidence,
     summary_markdown,
     validate_manifest,
+    verify_native_auto_merge,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -130,13 +132,35 @@ def evidence_fixture() -> dict[str, object]:
                 "delete_branch_on_merge": True,
                 "allow_auto_merge": False,
             },
+            "pull_request": {
+                "number": 42,
+                "state": "open",
+                "is_draft": True,
+                "head_sha": "b" * 40,
+                "base_sha": "a" * 40,
+                "auto_merge_armed": True,
+                "auto_merge_method": "squash",
+                "auto_merge": {
+                    "armed": True,
+                    "method": "squash",
+                    "enabled_by_login": "KayzenRoot",
+                    "enabled_by_type": "User",
+                    "user_owned": True,
+                },
+            },
         },
         "artifact": {
             "name": "hive-review-evidence-WO-006-head",
             "format": "consolidated-directory",
             "bounded": True,
         },
-        "review_state": {"status": "DRAFT", "merge_performed": False},
+        "review_state": {
+            "status": "DRAFT",
+            "merge_performed": False,
+            "auto_merge_owner_login": "KayzenRoot",
+            "auto_merge_owner_type": "User",
+            "auto_merge_user_owned": True,
+        },
         "negative_scope": [
             "No merge or release was performed.",
             canonical_change_statement(canonical_change_evidence(["backend/app/main.py"])),
@@ -242,6 +266,13 @@ def handoff_governance(
             "base_sha": base_sha,
             "auto_merge_armed": auto_merge_armed,
             "auto_merge_method": auto_merge_method,
+            "auto_merge": {
+                "armed": auto_merge_armed,
+                "method": auto_merge_method,
+                "enabled_by_login": "KayzenRoot" if auto_merge_armed else "",
+                "enabled_by_type": "User" if auto_merge_armed else "",
+                "user_owned": auto_merge_armed,
+            },
         },
         "approval_gate": {"independent_approval_count": independent_approval_count},
     }
@@ -266,6 +297,103 @@ def test_hive_final_handoff_requires_armed_squash_and_zero_approvals() -> None:
 def test_hive_final_handoff_rejects_manifest_pr_head_mismatch() -> None:
     with pytest.raises(ValueError, match="does not match PR head"):
         require_hive_final_handoff("WO-007-P", 28, "a" * 40, "c" * 40, handoff_governance())
+
+
+def native_auto_merge_pull_request(auto_merge: object) -> dict[str, object]:
+    return {
+        "state": "open",
+        "draft": False,
+        "head": {"sha": "b" * 40},
+        "auto_merge": auto_merge,
+    }
+
+
+def test_user_owned_squash_auto_merge_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pull_request = native_auto_merge_pull_request(
+        {
+            "merge_method": "squash",
+            "enabled_by": {"login": "KayzenRoot", "type": "User"},
+        }
+    )
+    monkeypatch.setattr(review_evidence, "_gh_json", lambda _repository, _endpoint: pull_request)
+
+    assert verify_native_auto_merge("KayzenRoot/hive", 42, "b" * 40) == {
+        "armed": True,
+        "method": "squash",
+        "enabled_by_login": "KayzenRoot",
+        "enabled_by_type": "User",
+        "user_owned": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("auto_merge", "message"),
+    [
+        (
+            {
+                "merge_method": "squash",
+                "enabled_by": {"login": "github-actions[bot]", "type": "Bot"},
+            },
+            "github-actions",
+        ),
+        (
+            {
+                "merge_method": "squash",
+                "enabled_by": {"login": "automation-app", "type": "App"},
+            },
+            "user-owned",
+        ),
+        (
+            {
+                "merge_method": "squash",
+                "enabled_by": {"login": "automation", "type": "Bot"},
+            },
+            "user-owned",
+        ),
+        (None, "not armed"),
+        (
+            {
+                "merge_method": "merge",
+                "enabled_by": {"login": "KayzenRoot", "type": "User"},
+            },
+            "SQUASH",
+        ),
+    ],
+)
+def test_native_auto_merge_verification_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    auto_merge: object,
+    message: str,
+) -> None:
+    pull_request = native_auto_merge_pull_request(auto_merge)
+    monkeypatch.setattr(review_evidence, "_gh_json", lambda _repository, _endpoint: pull_request)
+
+    with pytest.raises(ValueError, match=message):
+        verify_native_auto_merge("KayzenRoot/hive", 42, "b" * 40)
+
+
+def test_auto_merge_identity_is_recorded_without_secret_fields() -> None:
+    evidence = auto_merge_evidence(
+        {
+            "merge_method": "squash",
+            "enabled_by": {
+                "login": "KayzenRoot",
+                "type": "User",
+                "token": "must-not-be-copied",
+            },
+        }
+    )
+
+    assert evidence == {
+        "armed": True,
+        "method": "squash",
+        "enabled_by_login": "KayzenRoot",
+        "enabled_by_type": "User",
+        "user_owned": True,
+    }
+    assert "must-not-be-copied" not in json.dumps(evidence)
 
 
 def test_review_evidence_rejects_merge_claim() -> None:
@@ -384,6 +512,27 @@ def test_pr_body_template_contains_work_order_marker_and_sol_state() -> None:
     assert body.count("## ") == 20
 
 
+def test_g1_pr_body_describes_identity_correction() -> None:
+    body = render_body(
+        work_order="WO-008-G1",
+        pr_number=30,
+        branch="fix/wo008-postmerge-ci-automerge-identity",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-008-G1-b",
+        ruleset_before="old",
+        ruleset_after="unchanged",
+        merge_before="old",
+        merge_after="unchanged",
+    )
+
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-008-G1 -->")
+    assert "GITHUB_TOKEN" in body
+    assert "gh pr merge --auto" in body
+    assert "WO-008-G1 READY FOR SOL GITHUB AUDIT" in body
+    assert "fundação de reranking" not in body
+
+
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
     manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
@@ -431,6 +580,9 @@ def test_ci_persists_bounded_service_logs_and_uses_supported_action_majors() -> 
         encoding="utf-8"
     )
     assert DEFAULT_COMMAND == ("docker", "compose", "logs", "--no-color", "--tail=200")
+    assert "on:\n  push:\n    branches:\n      - main" in workflow
+    assert "--verify-auto-merge" in workflow
+    assert "gh pr merge" not in workflow
     assert "tmp/integration-logs/service-logs.log" in workflow
     assert "path: |\n            tmp/validation\n            tmp/integration-logs" in workflow
     assert "actions/upload-artifact@v7" in workflow
@@ -452,6 +604,7 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Secret scan",
         "Consolidated artifact",
         "Workflow run URL",
+        "Auto-merge owner: KayzenRoot (User)",
         "Sol Review State: AWAITING_SOL",
     ):
         assert field in summary

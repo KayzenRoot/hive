@@ -316,7 +316,8 @@
             "head_sha": { "type": ["string", "null"] },
             "base_sha": { "type": ["string", "null"] },
             "auto_merge_armed": { "type": "boolean" },
-            "auto_merge_method": { "type": ["string", "null"] }
+            "auto_merge_method": { "type": ["string", "null"] },
+            "auto_merge": { "$ref": "#/$defs/auto_merge" }
           }
         },
         "approval_gate": {
@@ -361,7 +362,10 @@
         "merge_performed": { "const": false },
         "sol_review_state": { "type": "string", "enum": ["AWAITING_SOL", "APPROVED", "REJECTED"] },
         "auto_merge_armed": { "type": "boolean" },
-        "auto_merge_method": { "type": ["string", "null"] }
+        "auto_merge_method": { "type": ["string", "null"] },
+        "auto_merge_owner_login": { "type": "string" },
+        "auto_merge_owner_type": { "type": "string" },
+        "auto_merge_user_owned": { "type": "boolean" }
       }
     },
     "negative_scope": {
@@ -378,6 +382,24 @@
       "properties": {
         "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
         "evidence_file": { "type": "string", "minLength": 1 }
+      }
+    },
+    "auto_merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "armed",
+        "method",
+        "enabled_by_login",
+        "enabled_by_type",
+        "user_owned"
+      ],
+      "properties": {
+        "armed": { "type": "boolean" },
+        "method": { "type": ["string", "null"] },
+        "enabled_by_login": { "type": "string" },
+        "enabled_by_type": { "type": "string" },
+        "user_owned": { "type": "boolean" }
       }
     },
     "bypass_actor": {

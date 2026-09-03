@@ -640,6 +640,78 @@ def _gh_json(repository: str, endpoint: str) -> dict[str, Any] | list[Any] | Non
     return value if isinstance(value, dict | list) else None
 
 
+def auto_merge_evidence(auto_merge: Mapping[str, Any] | None) -> dict[str, object]:
+    owner = auto_merge.get("enabled_by") if isinstance(auto_merge, Mapping) else None
+    owner = owner if isinstance(owner, Mapping) else {}
+    login_value = owner.get("login")
+    type_value = owner.get("type")
+    if not isinstance(type_value, str):
+        type_value = owner.get("__typename")
+    login = login_value.strip() if isinstance(login_value, str) else ""
+    owner_type = type_value.strip() if isinstance(type_value, str) else ""
+    normalized_login = login.casefold()
+    normalized_type = owner_type.casefold()
+    is_bot = (
+        owner.get("is_bot") is True
+        or normalized_type == "bot"
+        or normalized_login.endswith("[bot]")
+    )
+    is_app = normalized_type in {"app", "application"} or normalized_login.startswith("app/")
+    return {
+        "armed": auto_merge is not None,
+        "method": (
+            auto_merge.get("merge_method")
+            if isinstance(auto_merge, Mapping) and isinstance(auto_merge.get("merge_method"), str)
+            else None
+        ),
+        "enabled_by_login": login,
+        "enabled_by_type": owner_type,
+        "user_owned": bool(
+            login
+            and normalized_type == "user"
+            and not is_bot
+            and not is_app
+            and normalized_login != "github-actions[bot]"
+        ),
+    }
+
+
+def verify_native_auto_merge(
+    repository: str,
+    pr_number: int,
+    expected_head_sha: str | None = None,
+) -> dict[str, object]:
+    pull_request = _gh_json(repository, f"pulls/{pr_number}")
+    if not isinstance(pull_request, dict):
+        raise ValueError(f"unable to read pull request #{pr_number} for auto-merge verification")
+    if pull_request.get("state") != "open":
+        raise ValueError("auto-merge verification requires an open pull request")
+    if pull_request.get("draft") is not False:
+        raise ValueError("auto-merge verification requires a Ready pull request")
+    head = pull_request.get("head")
+    observed_head_sha = head.get("sha") if isinstance(head, Mapping) else None
+    if expected_head_sha and observed_head_sha != expected_head_sha:
+        raise ValueError(
+            f"pull request head moved: expected {expected_head_sha}, observed {observed_head_sha}"
+        )
+    raw_auto_merge = pull_request.get("auto_merge")
+    auto_merge = raw_auto_merge if isinstance(raw_auto_merge, Mapping) else None
+    evidence = auto_merge_evidence(auto_merge)
+    if evidence["armed"] is not True:
+        raise ValueError("native auto-merge is not armed")
+    if str(evidence["method"]).casefold() != "squash":
+        raise ValueError("native auto-merge must use SQUASH")
+    if not evidence["enabled_by_login"]:
+        raise ValueError("auto-merge owner login is missing")
+    if evidence["user_owned"] is not True:
+        raise ValueError(
+            "native auto-merge must be user-owned; enabled-by identity "
+            f"{evidence['enabled_by_login']} ({evidence['enabled_by_type'] or 'unknown'}) "
+            "is not a GitHub User"
+        )
+    return evidence
+
+
 def github_review_text(repository: str, pr_number: int | None) -> str:
     if not pr_number:
         return ""
@@ -795,6 +867,7 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
         if isinstance(pr, dict) and isinstance(pr.get("auto_merge"), dict)
         else None
     )
+    auto_merge_state = auto_merge_evidence(auto_merge)
     return {
         "status": "PASS" if available else "UNKNOWN",
         "ruleset": {
@@ -832,6 +905,7 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
             ),
             "auto_merge_armed": auto_merge is not None,
             "auto_merge_method": auto_merge.get("merge_method") if auto_merge else None,
+            "auto_merge": auto_merge_state,
         },
         "approval_gate": {
             "required_approving_review_count": required_approving_review_count,
@@ -897,6 +971,8 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     canonical_changes = canonical_change_evidence(paths)
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
+    pr_auto_merge = pr_governance.get("auto_merge")
+    pr_auto_merge = pr_auto_merge if isinstance(pr_auto_merge, Mapping) else {}
     require_hive_final_handoff(work_order, args.pr_number, base_sha, head_sha, governance)
     checks = {
         "validation": "PASS"
@@ -962,6 +1038,9 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             "sol_review_state": "AWAITING_SOL",
             "auto_merge_armed": bool(pr_governance.get("auto_merge_armed", False)),
             "auto_merge_method": pr_governance.get("auto_merge_method"),
+            "auto_merge_owner_login": pr_auto_merge.get("enabled_by_login", ""),
+            "auto_merge_owner_type": pr_auto_merge.get("enabled_by_type", ""),
+            "auto_merge_user_owned": bool(pr_auto_merge.get("user_owned", False)),
         },
         "negative_scope": [
             "No merge or release was performed.",
@@ -1168,6 +1247,11 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"`{review_state.get('auto_merge_armed', False)}` / "
         f"`{review_state.get('auto_merge_method') or 'none'}`"
     )
+    auto_merge_owner_text = (
+        f"{review_state.get('auto_merge_owner_login') or 'none'} "
+        f"({review_state.get('auto_merge_owner_type') or 'unknown'})"
+    )
+    auto_merge_user_owned = review_state.get("auto_merge_user_owned", False)
     approval_text = (
         f"`{ruleset.get('required_approving_review_count')}`; "
         f"independent approvals observed: "
@@ -1216,6 +1300,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Ruleset: {ruleset_text}
 - Repository merge settings: {merge_settings}
 - Auto-merge armed: {auto_merge_text}
+- Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
 - Workflow run URL: {workflow_url}
@@ -1244,10 +1329,23 @@ def require_hive_final_handoff(
         raise ValueError("HIVE final-handoff evidence requires an open pull request")
     if pr_governance.get("is_draft") is not False:
         raise ValueError("HIVE final-handoff evidence requires a Ready pull request")
-    if pr_governance.get("auto_merge_armed") is not True:
+    auto_merge_state = pr_governance.get("auto_merge")
+    if not isinstance(auto_merge_state, Mapping):
+        auto_merge_state = {
+            "armed": pr_governance.get("auto_merge_armed"),
+            "method": pr_governance.get("auto_merge_method"),
+            "enabled_by_login": pr_governance.get("auto_merge_owner_login", ""),
+            "enabled_by_type": pr_governance.get("auto_merge_owner_type", ""),
+            "user_owned": pr_governance.get("auto_merge_user_owned", False),
+        }
+    if auto_merge_state.get("armed") is not True:
         raise ValueError("HIVE final-handoff evidence requires native auto-merge to be armed")
-    if str(pr_governance.get("auto_merge_method", "")).casefold() != "squash":
+    if str(auto_merge_state.get("method", "")).casefold() != "squash":
         raise ValueError("HIVE final-handoff evidence requires SQUASH auto-merge")
+    if not auto_merge_state.get("enabled_by_login") or not auto_merge_state.get("enabled_by_type"):
+        raise ValueError("HIVE final-handoff evidence requires auto-merge owner identity")
+    if auto_merge_state.get("user_owned") is not True:
+        raise ValueError("HIVE final-handoff evidence requires user-owned auto-merge")
     approval_gate = cast(dict[str, Any], governance.get("approval_gate", {}))
     if approval_gate.get("independent_approval_count") != 0:
         raise ValueError(
@@ -1315,6 +1413,8 @@ def main() -> int:
     parser.add_argument("--repository")
     parser.add_argument("--pr-number", type=int)
     parser.add_argument("--resolve-work-order", action="store_true")
+    parser.add_argument("--verify-auto-merge", action="store_true")
+    parser.add_argument("--expected-head-sha", default="")
     parser.add_argument("--draft", action="store_true")
     parser.add_argument("--ready", action="store_true")
     parser.add_argument("--draft-env", default="")
@@ -1331,6 +1431,21 @@ def main() -> int:
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
+    if args.verify_auto_merge:
+        if args.pr_number is None:
+            parser.error("--verify-auto-merge requires --pr-number")
+        if not HEX_SHA.fullmatch(args.expected_head_sha):
+            parser.error("--verify-auto-merge requires a 40-character expected head SHA")
+        try:
+            evidence = verify_native_auto_merge(
+                args.repository or repository_name(),
+                args.pr_number,
+                args.expected_head_sha,
+            )
+        except ValueError as error:
+            parser.error(str(error))
+        print(json.dumps(evidence, sort_keys=True))
+        return 0
     if args.resolve_work_order:
         if args.pr_number is None:
             parser.error("--resolve-work-order requires --pr-number")
