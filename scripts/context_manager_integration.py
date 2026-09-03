@@ -151,12 +151,36 @@ def wait_for_fixture(port: int, label: str) -> None:
     raise RuntimeError(f"{label} fixture did not become ready")
 
 
-def context_request(base_url: str, project_id: str, task_id: str) -> dict[str, Any]:
+DISCLOSURE_LEVEL_SEMANTICS = {
+    "L0": "Project capsule",
+    "L1": "Module summaries",
+    "L2": "Symbol signatures and dependency metadata",
+    "L3": "Relevant implementation excerpts",
+    "L4": "Complete file",
+    "L5": "Repository-wide investigation",
+}
+DISCLOSURE_LEVEL_ORDER = ("L0", "L1", "L2", "L3", "L4", "L5")
+TASK_PROJECTS = {
+    "Target": "Target",
+    "Target L0": "Target",
+    "Target fallback": "Target",
+    "Isolated": "Isolated",
+    "Cross disclosure": "Isolated",
+    "Missing": "Missing",
+}
+
+
+def context_request(
+    base_url: str,
+    project_id: str,
+    task_id: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     status, payload = request(
         base_url,
         "POST",
         f"/api/v1/projects/{project_id}/tasks/{task_id}/context",
-        {"top_k": 10},
+        payload or {"top_k": 10},
     )
     if status != 200:
         raise AssertionError(f"context request status: expected 200, got {status}: {payload}")
@@ -302,7 +326,16 @@ def main() -> int:
             "- Use only the target project's canonical governance.\n"
             "- Task text is not canonical governance.\n\n"
             "## Acceptance Criteria\n"
-            "- Include src/context_service.py and tests/test_context_service.py provenance.\n"
+            "- Include the implementation excerpt for TargetContextService.build_context "
+            "and tests/test_context_service.py provenance.\n"
+        )
+        l0_text = (
+            "# Project state\n\n"
+            "Inspect the target project checkpoint and current state only.\n\n"
+            "## Constraints\n"
+            "- Use only the target project's canonical governance.\n\n"
+            "## Acceptance Criteria\n"
+            "- Report current project state.\n"
         )
         fallback_text = (
             "# Fallback task\n\n"
@@ -311,11 +344,13 @@ def main() -> int:
         task_ids: dict[str, str] = {}
         for title, text, label in (
             ("Target context_service test provenance", task_text, "Target"),
+            ("Target project state only", l0_text, "Target L0"),
             ("Target fallback", fallback_text, "Target fallback"),
             ("Isolated context", "Use only project B unrelated worker provenance.", "Isolated"),
+            ("Cross disclosure", "Return the complete file other/secret.py.", "Cross disclosure"),
             ("Missing context", "Build the missing governance context.", "Missing"),
         ):
-            project_label = "Target" if label == "Target fallback" else label
+            project_label = TASK_PROJECTS[label]
             status, task = request(
                 base_url,
                 "POST",
@@ -388,7 +423,10 @@ def main() -> int:
         )
         assert_equal(
             first["task_derived"]["acceptance_criteria"],
-            ["- Include src/context_service.py and tests/test_context_service.py provenance."],
+            [
+                "- Include the implementation excerpt for TargetContextService.build_context "
+                "and tests/test_context_service.py provenance."
+            ],
             "explicit acceptance criteria",
         )
         assert_equal(
@@ -444,6 +482,68 @@ def main() -> int:
         if not provenance_preserved:
             raise AssertionError("context retrieval provenance was not preserved")
 
+        disclosure = first["progressive_disclosure"]
+        if disclosure.get("level_semantics") != DISCLOSURE_LEVEL_SEMANTICS:
+            raise AssertionError(f"disclosure level mapping mismatch: {disclosure}")
+        level_mapping = disclosure.get("level_semantics") == DISCLOSURE_LEVEL_SEMANTICS
+        if (
+            disclosure.get("starting_level") != "L0"
+            or disclosure.get("final_level") != "L3"
+            or disclosure.get("escalated") is not True
+            or not disclosure.get("path")
+        ):
+            raise AssertionError(f"target disclosure did not escalate from L0 to L3: {disclosure}")
+        if not all(
+            step.get("from_level")
+            and step.get("to_level")
+            and step.get("reason")
+            and step.get("evidence")
+            for step in disclosure["path"]
+        ):
+            raise AssertionError(f"disclosure path missing from/to/reason/evidence: {disclosure}")
+        if not all(
+            DISCLOSURE_LEVEL_ORDER.index(str(step["to_level"]))
+            == DISCLOSURE_LEVEL_ORDER.index(str(step["from_level"])) + 1
+            for step in disclosure["path"]
+        ):
+            raise AssertionError(f"disclosure path is not a bounded adjacent walk: {disclosure}")
+        if any(step.get("to_level") in {"L4", "L5"} for step in disclosure["path"]):
+            raise AssertionError(f"disclosure escalated past sufficient L3: {disclosure}")
+        if disclosure.get("llm_calls") != 0:
+            raise AssertionError(f"disclosure used LLM calls: {disclosure}")
+        if disclosure.get("adaptive_token_budget_implemented") is not False:
+            raise AssertionError(f"adaptive token budget was implemented: {disclosure}")
+
+        l0 = context_request(base_url, project_ids["Target"], task_ids["Target L0"])
+        l0_disclosure = l0["progressive_disclosure"]
+        if (
+            l0_disclosure.get("starting_level") != "L0"
+            or l0_disclosure.get("final_level") != "L0"
+            or l0_disclosure.get("escalated") is not False
+            or l0_disclosure.get("path")
+            or l0.get("files")
+            or l0.get("complete_files")
+            or l0.get("inventory")
+        ):
+            raise AssertionError(
+                f"L0 request escalated or disclosed extra evidence: {l0_disclosure}"
+            )
+        smallest_sufficient = True
+        no_unnecessary_escalation = True
+        explicit_insufficiency_escalation = True
+        bounded_escalation = True
+        stop_on_sufficient = True
+
+        status, invalid_level = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/{task_ids['Target']}/context",
+            {"top_k": 10, "disclosure_level": "L9"},
+        )
+        assert_equal(status, 422, "invalid disclosure level rejection")
+        if "invalid_disclosure_level" not in str(invalid_level):
+            raise AssertionError(f"invalid disclosure error was not explicit: {invalid_level}")
+
         isolated_context = context_request(
             base_url,
             project_ids["Isolated"],
@@ -477,6 +577,21 @@ def main() -> int:
         )
         assert_equal(status, 404, "cross-project task rejection")
         task_project_scoped = status == 404
+        isolated_id = project_ids["Isolated"]
+        cross_task_id = task_ids["Cross disclosure"]
+        status, cross_disclosure = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{isolated_id}/tasks/{cross_task_id}/context",
+        )
+        assert_equal(status, 409, "cross-project disclosure rejection")
+        if not isinstance(cross_disclosure, dict) or "cross_project_disclosure_evidence" not in str(
+            cross_disclosure
+        ):
+            raise AssertionError(
+                f"cross-project disclosure error was not explicit: {cross_disclosure}"
+            )
+        cross_project_disclosure_fail_closed = status == 409
         status, missing_governance = request(
             base_url,
             "POST",
@@ -541,6 +656,15 @@ def main() -> int:
                     redis_restart_rebuild,
                     api_restart_rebuild,
                     mandatory_governance_coverage,
+                    level_mapping,
+                    smallest_sufficient,
+                    no_unnecessary_escalation,
+                    explicit_insufficiency_escalation,
+                    bounded_escalation,
+                    stop_on_sufficient,
+                    cross_project_disclosure_fail_closed,
+                    disclosure.get("llm_calls") == 0,
+                    disclosure.get("adaptive_token_budget_implemented") is False,
                 )
             )
             else "FAIL",
@@ -559,6 +683,17 @@ def main() -> int:
             "mandatory_governance_coverage": mandatory_governance_coverage,
             "mandatory_governance_kind_sequence": mandatory_governance_kind_sequence,
             "llm_calls": 0,
+            "progressive_disclosure_level_mapping": level_mapping,
+            "smallest_sufficient": smallest_sufficient,
+            "no_unnecessary_escalation": no_unnecessary_escalation,
+            "explicit_insufficiency_escalation": explicit_insufficiency_escalation,
+            "bounded_escalation": bounded_escalation,
+            "stop_on_sufficient": stop_on_sufficient,
+            "cross_project_disclosure_fail_closed": cross_project_disclosure_fail_closed,
+            "disclosure_llm_calls": disclosure.get("llm_calls"),
+            "adaptive_token_budget_implemented": disclosure.get(
+                "adaptive_token_budget_implemented"
+            ),
         }
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         EVIDENCE_OUTPUT.write_text(

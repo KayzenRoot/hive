@@ -15,6 +15,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .progressive_disclosure import (
+    CompleteFileExcerpt,
+    DisclosureConsistencyError,
+    DisclosureInputError,
+    ProgressiveDisclosure,
+    RepositoryInventoryEntry,
+    apply_disclosure,
+    parse_disclosure_level,
+)
 from .registry import (
     ProjectPathError,
     ProjectResponse,
@@ -139,6 +148,7 @@ class RepositoryEvidenceTrust(StrEnum):
 
 class ContextRequest(BaseModel):
     top_k: int = Field(default=DEFAULT_CONTEXT_TOP_K, ge=1, le=MAX_CONTEXT_TOP_K)
+    disclosure_level: str | None = None
 
 
 class ContextProject(BaseModel):
@@ -244,6 +254,9 @@ class ContextCapsule(BaseModel):
     files: list[ContextReferenceProjection]
     symbols: list[ContextReferenceProjection]
     tests: list[ContextReferenceProjection]
+    complete_files: list[CompleteFileExcerpt] = Field(default_factory=list)
+    inventory: list[RepositoryInventoryEntry] = Field(default_factory=list)
+    progressive_disclosure: ProgressiveDisclosure
     bounds: ContextBounds
 
 
@@ -775,9 +788,12 @@ def build_context(
     task_id: UUID,
     *,
     top_k: int = DEFAULT_CONTEXT_TOP_K,
+    disclosure_level: str | None = None,
 ) -> ContextCapsule:
     if not 1 <= top_k <= MAX_CONTEXT_TOP_K:
         raise ContextInputError("context top_k is outside the bounded contract")
+    if disclosure_level is not None:
+        parse_disclosure_level(disclosure_level)
     state = _resolve_source_state(settings, project_id)
     project = state.project
     checkpoint = _checkpoint_selection(state.snapshot)
@@ -851,6 +867,24 @@ def build_context(
         _is_test_candidate,
         lambda candidate: (candidate.path, candidate.qualified_symbol),
     )
+    presentation = apply_disclosure(
+        title=task.title,
+        constraints=constraints,
+        acceptance_criteria=acceptance_criteria,
+        task_text=extracted.text,
+        files=files,
+        symbols=symbols,
+        tests=tests,
+        results=results,
+        snapshot=state.snapshot,
+        requested_level=disclosure_level,
+    )
+    files = presentation.files
+    symbols = presentation.symbols
+    tests = presentation.tests
+    results = presentation.results
+    retrieval_chars = sum(len(item.snippet) for item in results)
+    retrieval_truncated = retrieval_truncated or presentation.disclosure.truncated
     governance_chars = sum(len(item.text) for item in governance.excerpts)
     task_structure_chars = sum(len(item) for item in (*constraints, *acceptance_criteria))
     total_emitted = len(task_excerpt) + task_structure_chars + governance_chars + retrieval_chars
@@ -921,6 +955,9 @@ def build_context(
         files=files,
         symbols=symbols,
         tests=tests,
+        complete_files=presentation.complete_files,
+        inventory=presentation.inventory,
+        progressive_disclosure=presentation.disclosure,
         bounds=bounds,
     )
     _assert_state_stable(
@@ -971,7 +1008,12 @@ def build_context_endpoint(
             project_id,
             task_id,
             top_k=request.top_k if request is not None else DEFAULT_CONTEXT_TOP_K,
+            disclosure_level=request.disclosure_level if request is not None else None,
         )
+    except DisclosureInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DisclosureConsistencyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ContextProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="project not found") from exc
     except TaskNotFoundError as exc:

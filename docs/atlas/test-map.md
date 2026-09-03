@@ -6,6 +6,7 @@ Generated deterministically by scripts/generate_maps.py.
 | --- | --- |
 | backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |
 | backend/tests/test_context_manager.py | Deterministic checkpoint-first context capsules, mandatory governance coverage, bounds, isolation, fallback and races. |
+| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, start versus escalation, per-level bounds, isolation and two-run identity. |
 | backend/tests/test_health.py | API response shape and degraded status. |
 | backend/tests/test_registry.py | Path boundary, canonical aliases, safe Git command construction, language detection and states. |
 | backend/tests/test_repository_indexer.py | Python qualified symbols, syntax failure and cached tracked-file inventory. |
@@ -30,9 +31,9 @@ Generated deterministically by scripts/generate_maps.py.
 | scripts/repository_indexing_integration.py | Real-Git/PostgreSQL full, incremental, symbol, syntax-failure, isolation and restart evidence. |
 | scripts/task_intake_integration.py | Isolated Docker PostgreSQL/CAS E2E for all formats, reuse, dedup, isolation, restarts, metrics and corruption. |
 | scripts/retrieval_integration.py | Real-Git corpus sync, lexical, semantic and hybrid benchmark, revalidation, isolation and restart persistence. |
-| scripts/context_manager_integration.py | Real Docker/Git two-project Context Manager, mandatory governance coverage, isolation, bounds and restart evidence. |
+| scripts/context_manager_integration.py | Real Docker/Git two-project Context Manager, progressive disclosure, mandatory governance coverage, isolation, bounds and restart evidence. |
 | scripts/check_secrets.py | Tracked-file secret scan. |
 | scripts/review_evidence.py | Review Evidence schema and exact-head validation. |
 | scripts/review_pr_body.py | Work-order marker, twenty-section review and Sol-state template. |
 
-Indexed source files: 62
+Indexed source files: 64

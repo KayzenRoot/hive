@@ -7,9 +7,10 @@ already-resolved `project_id` and durable `task_id`:
 POST /api/v1/projects/{project_id}/tasks/{task_id}/context
 ```
 
-The optional request body accepts only a bounded `top_k` presentation limit.
-The service does not accept a free-form retrieval query, persist a capsule,
-write memory, invoke an executor or require an LLM.
+The optional request body accepts a bounded `top_k` presentation limit and an
+optional `disclosure_level` (`L0`-`L5`). Invalid levels are rejected. The
+service does not accept a free-form retrieval query, persist a capsule, write
+memory, invoke an executor or require an LLM.
 
 ## Source ordering and authority
 
@@ -56,6 +57,27 @@ rerank service seam, which owns hybrid/semantic behavior and fallback policy.
 Reranking or semantic retrieval may safely return their existing disabled,
 unconfigured, provider-error or stale states.
 
+## Progressive disclosure
+
+After reranked retrieval, the capsule applies a deterministic L0-L5
+disclosure decision:
+
+- L0 Project capsule
+- L1 Module summaries
+- L2 Symbol signatures and dependency metadata
+- L3 Relevant implementation excerpts
+- L4 Complete file
+- L5 Repository-wide investigation
+
+The starting level uses the task title, explicit constraints and the task
+text before `## Acceptance Criteria`. Escalation happens only when that
+acceptance evidence is explicitly insufficient at the current level. Each
+step records `from_level`, `to_level`, a machine-readable reason and bounded
+evidence, then stops at the first sufficient level and never exceeds L5.
+Per-level item/character bounds are fixed and conservative. The capsule
+exposes `progressive_disclosure`, plus `complete_files` at L4 and
+`inventory` at L5.
+
 ## Fixed bounds
 
 - Task excerpt: 4,000 characters.
@@ -88,7 +110,7 @@ Database failures return 503 without host paths or credentials.
 ## Non-goals
 
 This foundation does not implement memory lifecycle, adaptive token budgets,
-token accounting, full progressive disclosure, fingerprints, delta context,
-provider prompt caches, semantic response caches, MCP, planner/router,
-executor dispatch, tool execution, telemetry expansion, dashboard UI, local
-rerankers, new embedding models, migrations or canonical Project Brain edits.
+token accounting, fingerprints, delta context, provider prompt caches,
+semantic response caches, MCP, planner/router, executor dispatch, tool
+execution, telemetry expansion, dashboard UI, local rerankers, new embedding
+models, migrations or canonical Project Brain edits.

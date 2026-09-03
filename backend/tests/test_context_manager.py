@@ -242,7 +242,7 @@ def patch_build_dependencies(
     active_task = task or task_response()
     active_extracted = extracted or task_text_response(
         "# Task\n\n## Constraints\n- Keep the capsule bounded.\n\n"
-        "## Acceptance Criteria\n- Preserve provenance.\n"
+        "## Acceptance Criteria\n- Include the implementation excerpt for build_context.\n"
     )
     active_response = response or rerank_response(
         [
@@ -281,7 +281,11 @@ def test_context_capsule_is_checkpoint_first_bounded_and_provenance_bearing(
     assert first.project.repository_head_sha == REPOSITORY_HEAD
     assert first.task.trust_classification == context_manager.TaskTrust.TASK_INPUT_NONCANONICAL
     assert first.task_derived.constraints == ["- Keep the capsule bounded."]
-    assert first.task_derived.acceptance_criteria == ["- Preserve provenance."]
+    assert first.task_derived.acceptance_criteria == [
+        "- Include the implementation excerpt for build_context."
+    ]
+    assert first.progressive_disclosure.final_level.value == "L3"
+    assert first.progressive_disclosure.level_semantics["L0"] == "Project capsule"
     assert first.retrieval.rerank_state == RerankState.RERANKED.value
     assert first.files[0].source_content_sha256 == "e" * 64
     assert first.symbols[0].qualified_symbol == "build_context"
@@ -724,7 +728,10 @@ def test_retrieval_and_task_bounds_are_truthful(monkeypatch: pytest.MonkeyPatch)
     ]
     patch_build_dependencies(
         monkeypatch,
-        extracted=task_text_response("task " * context_manager.MAX_TASK_EXCERPT_CHARS),
+        extracted=task_text_response(
+            "## Acceptance Criteria\n- Include the implementation excerpt.\n\n"
+            + ("task " * context_manager.MAX_TASK_EXCERPT_CHARS)
+        ),
         response=rerank_response(long_results),
     )
     monkeypatch.setattr(context_manager, "MAX_CAPSULE_CHARS", 100_000)
@@ -790,6 +797,17 @@ def test_context_api_rejects_unbounded_presentation_limit() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_context_api_rejects_invalid_disclosure_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_build_dependencies(monkeypatch)
+    response = TestClient(main.app).post(
+        f"/api/v1/projects/{PROJECT_ID}/tasks/{TASK_ID}/context",
+        json={"disclosure_level": "L9"},
+    )
+
+    assert response.status_code == 422
+    assert "invalid_disclosure_level" in str(response.json())
 
 
 def test_context_api_maps_missing_task_and_database_errors(

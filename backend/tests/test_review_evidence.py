@@ -18,6 +18,7 @@ from scripts.review_evidence import (
     WO010_G1_ALLOWED_PATHS,
     WO010_G1_BASE_SHA,
     authorize_merge_action,
+    WO010_BASE_SHA,
     auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
@@ -33,6 +34,8 @@ from scripts.review_evidence import (
     require_wo009_context_manager_evidence,
     require_wo009_scope,
     require_wo010_g1_scope,
+    require_wo010_progressive_disclosure_evidence,
+    require_wo010_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -631,6 +634,20 @@ def test_wo009_scope_rejects_wrong_base_and_canonical_changes() -> None:
         require_wo009_scope("WO-009", WO009_BASE_SHA, ["docs/project-brain/13-CHECKPOINT.md"])
 
 
+def test_wo010_scope_rejects_wrong_base_canonical_and_migrations() -> None:
+    require_wo010_scope("WO-010", WO010_BASE_SHA, ["backend/app/progressive_disclosure.py"])
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo010_scope("WO-010", "a" * 40, ["backend/app/progressive_disclosure.py"])
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo010_scope("WO-010", WO010_BASE_SHA, ["docs/project-brain/13-CHECKPOINT.md"])
+    with pytest.raises(ValueError, match="migrations"):
+        require_wo010_scope(
+            "WO-010",
+            WO010_BASE_SHA,
+            ["migrations/versions/0006_progressive_disclosure.py"],
+        )
+
+
 def native_auto_merge_pull_request(auto_merge: object) -> dict[str, object]:
     return {
         "state": "open",
@@ -1079,6 +1096,31 @@ def test_wo010_g1_pr_body_describes_single_account_governance() -> None:
     assert "21934284" in body
 
 
+def test_wo010_pr_body_describes_progressive_disclosure_handoff() -> None:
+    body = render_body(
+        work_order="WO-010",
+        pr_number=34,
+        branch="feature/wo010-progressive-disclosure-foundation",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-010-b",
+        ruleset_before="old",
+        ruleset_after="unchanged",
+        merge_before="old",
+        merge_after="unchanged",
+        auto_merge_owner_login="KayzenRoot",
+        auto_merge_owner_type="User",
+    )
+
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-010 -->")
+    assert "L0 Project capsule" in body
+    assert "disclosure_level" in body
+    assert "adaptive_token_budget_implemented: false" in body
+    assert "Auto-merge permanece desarmado" in body
+    assert "WO-010 READY FOR SOL GITHUB AUDIT" in body
+    assert "## 27. Proposta de checkpoint para WO-010-P" in body
+
+
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
     manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
@@ -1213,6 +1255,108 @@ def test_context_manager_review_evidence_fails_closed_when_missing_or_incomplete
         require_wo009_context_manager_evidence("WO-009", {"context_manager": sequence_evidence})
 
 
+def test_wo010_progressive_disclosure_review_evidence_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    payload = {
+        "status": "PASS",
+        **{field: True for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [
+            "CHECKPOINT",
+            "SCOPE",
+            "DEFINITION_OF_DONE",
+            "ARCHITECTURE",
+            "DECISIONS",
+        ],
+        "llm_calls": 0,
+        **{field: True for field in review_evidence.PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS},
+        "disclosure_llm_calls": 0,
+        "adaptive_token_budget_implemented": False,
+    }
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+
+    evidence = context_manager_evidence()
+    assert evidence["status"] == "PASS"
+    require_wo010_progressive_disclosure_evidence(
+        "WO-010",
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+
+    missing = dict(payload)
+    del missing["smallest_sufficient"]
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(missing),
+        encoding="utf-8",
+    )
+    missing_evidence = context_manager_evidence()
+    with pytest.raises(ValueError, match="Progressive Disclosure evidence"):
+        require_wo010_progressive_disclosure_evidence(
+            "WO-010",
+            {"context_manager": missing_evidence},
+            "0005_semantic_retrieval",
+        )
+
+    false_payload = dict(payload)
+    false_payload["no_unnecessary_escalation"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(false_payload),
+        encoding="utf-8",
+    )
+    false_evidence = context_manager_evidence()
+    assert false_evidence["no_unnecessary_escalation"] is False
+    with pytest.raises(ValueError, match="Progressive Disclosure evidence"):
+        require_wo010_progressive_disclosure_evidence(
+            "WO-010",
+            {"context_manager": false_evidence},
+            "0005_semantic_retrieval",
+        )
+
+    llm_payload = dict(payload)
+    llm_payload["disclosure_llm_calls"] = 1
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(llm_payload),
+        encoding="utf-8",
+    )
+    llm_evidence = context_manager_evidence()
+    assert llm_evidence["disclosure_llm_calls"] == 1
+    with pytest.raises(ValueError, match="zero disclosure LLM calls"):
+        require_wo010_progressive_disclosure_evidence(
+            "WO-010",
+            {"context_manager": llm_evidence},
+            "0005_semantic_retrieval",
+        )
+
+    adaptive_payload = dict(payload)
+    adaptive_payload["adaptive_token_budget_implemented"] = True
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(adaptive_payload),
+        encoding="utf-8",
+    )
+    adaptive_evidence = context_manager_evidence()
+    assert adaptive_evidence["adaptive_token_budget_implemented"] is True
+    with pytest.raises(ValueError, match="adaptive_token_budget_implemented"):
+        require_wo010_progressive_disclosure_evidence(
+            "WO-010",
+            {"context_manager": adaptive_evidence},
+            "0005_semantic_retrieval",
+        )
+
+    with pytest.raises(ValueError, match="migration head"):
+        require_wo010_progressive_disclosure_evidence(
+            "WO-010",
+            {"context_manager": evidence},
+            "0006_adaptive_token_budget",
+        )
+
+
 def test_sticky_summary_has_required_review_fields() -> None:
     summary = summary_markdown(evidence_fixture(), "https://example.invalid/run/1")
     for field in (
@@ -1229,6 +1373,7 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Consolidated artifact",
         "Workflow run URL",
         "Context Manager evidence",
+        "Progressive Disclosure evidence",
         "Ruleset unchanged",
         "Auto-merge owner: KayzenRoot (User)",
         "Sol Review State: AWAITING_SOL",
