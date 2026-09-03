@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, cast
@@ -75,6 +75,7 @@ GOVERNANCE_PATHS: tuple[tuple[str, str], ...] = (
     ("ARCHITECTURE", "docs/project-brain/04-ARCHITECTURE.md"),
     ("DECISIONS", "docs/project-brain/16-DECISIONS-LEDGER.md"),
 )
+MANDATORY_GOVERNANCE_KINDS: tuple[str, ...] = tuple(kind for kind, _path in GOVERNANCE_PATHS)
 CHECKPOINT_SECTION_GROUPS: tuple[tuple[str, frozenset[str]], ...] = (
     ("STATUS", frozenset({"status"})),
     ("VERSION", frozenset({"version", "version phase"})),
@@ -264,6 +265,16 @@ class _GovernanceSelection:
 
 
 @dataclass(frozen=True)
+class _GovernanceCandidate:
+    kind: str
+    entry: _TrackedFile
+    section: _MarkdownSection
+    score: int
+    source_index: int
+    kind_index: int
+
+
+@dataclass(frozen=True)
 class _SourceState:
     project: ProjectResponse
     snapshot: _RepositorySnapshot
@@ -371,6 +382,29 @@ def _checkpoint_sections(
     return selected
 
 
+def mandatory_governance_kind_sequence(
+    excerpts: Sequence[GovernanceExcerpt],
+) -> tuple[str, ...]:
+    sequence: list[str] = []
+    seen: set[str] = set()
+    for excerpt in excerpts:
+        if excerpt.kind in seen or excerpt.kind not in MANDATORY_GOVERNANCE_KINDS:
+            continue
+        sequence.append(excerpt.kind)
+        seen.add(excerpt.kind)
+    return tuple(sequence)
+
+
+def _assert_mandatory_governance_coverage(excerpts: Sequence[GovernanceExcerpt]) -> None:
+    observed = mandatory_governance_kind_sequence(excerpts)
+    if observed != MANDATORY_GOVERNANCE_KINDS:
+        missing = [kind for kind in MANDATORY_GOVERNANCE_KINDS if kind not in observed]
+        raise ContextGovernanceError(
+            "mandatory_governance_coverage_missing",
+            ",".join(missing) if missing else "order",
+        )
+
+
 def _governance_excerpt(
     kind: str,
     entry: _TrackedFile,
@@ -411,39 +445,137 @@ def _governance_excerpt(
     return excerpt, truncated
 
 
-def _checkpoint_selection(snapshot: _RepositorySnapshot) -> _GovernanceSelection:
+def _tracked_governance_file(
+    snapshot: _RepositorySnapshot,
+    kind: str,
+    path: str,
+) -> _TrackedFile:
     entries = {item.path: item for item in snapshot.files}
-    checkpoint_kind, checkpoint_path = GOVERNANCE_PATHS[0]
-    checkpoint_entry = entries.get(checkpoint_path)
-    if checkpoint_entry is None:
-        raise ContextGovernanceError(
-            "governance_not_git_tracked",
-            f"{checkpoint_kind}:{checkpoint_path}",
-        )
+    entry = entries.get(path)
+    if entry is None:
+        raise ContextGovernanceError("governance_not_git_tracked", f"{kind}:{path}")
     try:
-        checkpoint_text = checkpoint_entry.source.decode("utf-8")
+        entry.source.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ContextGovernanceError(
-            "governance_not_utf8",
-            f"{checkpoint_kind}:{checkpoint_path}",
-        ) from exc
+        raise ContextGovernanceError("governance_not_utf8", f"{kind}:{path}") from exc
+    if entry.git_blob_sha is None:
+        raise ContextGovernanceError("governance_git_identity_missing", kind)
+    return entry
+
+
+def _fair_excerpt_limit(remaining_budget: int, remaining_count: int) -> int:
+    if remaining_count <= 0 or remaining_budget < remaining_count:
+        raise ContextBoundsError("mandatory_governance_coverage_unsatisfiable")
+    share = remaining_budget // remaining_count
+    if share <= 0:
+        raise ContextBoundsError("mandatory_governance_coverage_unsatisfiable")
+    return min(MAX_GOVERNANCE_EXCERPT_CHARS, share)
+
+
+def _reserved_chars_for_later_kinds(checkpoint_excerpt_count: int) -> int:
+    later = max(0, len(GOVERNANCE_PATHS) - 1)
+    mandatory_count = checkpoint_excerpt_count + later
+    if mandatory_count > MAX_GOVERNANCE_EXCERPTS:
+        raise ContextBoundsError("mandatory_governance_coverage_unsatisfiable")
+    if mandatory_count > MAX_TOTAL_GOVERNANCE_CHARS:
+        raise ContextBoundsError("mandatory_governance_coverage_unsatisfiable")
+    available_after_checkpoint_min = MAX_TOTAL_GOVERNANCE_CHARS - checkpoint_excerpt_count
+    if available_after_checkpoint_min < later:
+        raise ContextBoundsError("mandatory_governance_coverage_unsatisfiable")
+    return min(later * MAX_GOVERNANCE_EXCERPT_CHARS, available_after_checkpoint_min)
+
+
+def _emit_mandatory_excerpt(
+    candidate: _GovernanceCandidate,
+    git_head_sha: str,
+    remaining_budget: int,
+    remaining_mandatory: int,
+) -> tuple[GovernanceExcerpt, bool]:
+    limit = _fair_excerpt_limit(remaining_budget, remaining_mandatory)
+    return _governance_excerpt(
+        candidate.kind,
+        candidate.entry,
+        candidate.section,
+        git_head_sha,
+        limit,
+    )
+
+
+def _checkpoint_selection(snapshot: _RepositorySnapshot) -> _GovernanceSelection:
+    checkpoint_kind, checkpoint_path = GOVERNANCE_PATHS[0]
+    checkpoint_entry = _tracked_governance_file(snapshot, checkpoint_kind, checkpoint_path)
+    checkpoint_text = checkpoint_entry.source.decode("utf-8")
     checkpoint_sections = _checkpoint_sections(_parse_markdown_sections(checkpoint_text))
-    selected = [(checkpoint_kind, checkpoint_entry, section) for section in checkpoint_sections]
+    reserved_chars = _reserved_chars_for_later_kinds(len(checkpoint_sections))
+    checkpoint_budget = MAX_TOTAL_GOVERNANCE_CHARS - reserved_chars
     excerpts: list[GovernanceExcerpt] = []
-    total_chars = 0
+    remaining_budget = checkpoint_budget
+    remaining_count = len(checkpoint_sections)
     truncated = False
-    for kind, entry, section in selected:
-        excerpt, excerpt_truncated = _governance_excerpt(
-            kind,
-            entry,
-            section,
+    for section in checkpoint_sections:
+        candidate = _GovernanceCandidate(
+            kind=checkpoint_kind,
+            entry=checkpoint_entry,
+            section=section,
+            score=0,
+            source_index=section.start_char,
+            kind_index=0,
+        )
+        excerpt, excerpt_truncated = _emit_mandatory_excerpt(
+            candidate,
             snapshot.repository_head_sha,
-            MAX_TOTAL_GOVERNANCE_CHARS - total_chars,
+            remaining_budget,
+            remaining_count,
         )
         excerpts.append(excerpt)
-        total_chars += len(excerpt.text)
+        remaining_budget -= len(excerpt.text)
+        remaining_count -= 1
         truncated |= excerpt_truncated
     return _GovernanceSelection(tuple(excerpts), truncated)
+
+
+def _later_governance_candidates(
+    snapshot: _RepositorySnapshot,
+    query_tokens: set[str],
+) -> tuple[list[_GovernanceCandidate], list[_GovernanceCandidate]]:
+    mandatory: list[_GovernanceCandidate] = []
+    optional: list[_GovernanceCandidate] = []
+    for kind_index, (kind, path) in enumerate(GOVERNANCE_PATHS[1:], start=1):
+        entry = _tracked_governance_file(snapshot, kind, path)
+        sections = _parse_markdown_sections(entry.source.decode("utf-8"))
+        if not sections:
+            raise ContextGovernanceError("governance_sections_missing", f"{kind}:{path}")
+        ranked = sorted(
+            enumerate(sections),
+            key=lambda item: (-_section_score(item[1], query_tokens), item[0]),
+        )
+        top_index, top_section = ranked[0]
+        mandatory.append(
+            _GovernanceCandidate(
+                kind=kind,
+                entry=entry,
+                section=top_section,
+                score=_section_score(top_section, query_tokens),
+                source_index=top_index,
+                kind_index=kind_index,
+            )
+        )
+        for source_index, section in ranked[1:]:
+            score = _section_score(section, query_tokens)
+            if score <= 0:
+                continue
+            optional.append(
+                _GovernanceCandidate(
+                    kind=kind,
+                    entry=entry,
+                    section=section,
+                    score=score,
+                    source_index=source_index,
+                    kind_index=kind_index,
+                )
+            )
+    optional.sort(key=lambda item: (item.kind_index, -item.score, item.source_index))
+    return mandatory, optional
 
 
 def _resolve_governance(
@@ -452,48 +584,43 @@ def _resolve_governance(
     checkpoint: _GovernanceSelection | None = None,
 ) -> _GovernanceSelection:
     checkpoint = checkpoint or _checkpoint_selection(snapshot)
-    entries = {item.path: item for item in snapshot.files}
-    selected: list[tuple[str, _TrackedFile, _MarkdownSection]] = []
-
-    for kind, path in GOVERNANCE_PATHS[1:]:
-        entry = entries.get(path)
-        if entry is None:
-            raise ContextGovernanceError("governance_not_git_tracked", f"{kind}:{path}")
-        try:
-            text = entry.source.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ContextGovernanceError("governance_not_utf8", f"{kind}:{path}") from exc
-        sections = _parse_markdown_sections(text)
-        if not sections:
-            raise ContextGovernanceError("governance_sections_missing", f"{kind}:{path}")
-        ranked = sorted(
-            enumerate(sections),
-            key=lambda item: (-_section_score(item[1], query_tokens), item[0]),
-        )
-        selected.append((kind, entry, ranked[0][1]))
-        for _, section in ranked[1:]:
-            if len(checkpoint.excerpts) + len(selected) >= MAX_GOVERNANCE_EXCERPTS:
-                break
-            if _section_score(section, query_tokens) > 0:
-                selected.append((kind, entry, section))
-
-    available = MAX_GOVERNANCE_EXCERPTS - len(checkpoint.excerpts)
-    selected = selected[: max(0, available)]
+    mandatory_later, optional_later = _later_governance_candidates(snapshot, query_tokens)
     excerpts = list(checkpoint.excerpts)
-    total_chars = sum(len(excerpt.text) for excerpt in excerpts)
+    remaining_slots = MAX_GOVERNANCE_EXCERPTS - len(excerpts)
+    remaining_chars = MAX_TOTAL_GOVERNANCE_CHARS - sum(len(item.text) for item in excerpts)
+    remaining_mandatory = len(mandatory_later)
+    if remaining_slots < remaining_mandatory or remaining_chars < remaining_mandatory:
+        raise ContextBoundsError("mandatory_governance_coverage_unsatisfiable")
     truncated = checkpoint.truncated
-    for kind, entry, section in selected:
-        excerpt, excerpt_truncated = _governance_excerpt(
-            kind,
-            entry,
-            section,
+    for candidate in mandatory_later:
+        excerpt, excerpt_truncated = _emit_mandatory_excerpt(
+            candidate,
             snapshot.repository_head_sha,
-            MAX_TOTAL_GOVERNANCE_CHARS - total_chars,
+            remaining_chars,
+            remaining_mandatory,
         )
         excerpts.append(excerpt)
-        total_chars += len(excerpt.text)
+        remaining_chars -= len(excerpt.text)
+        remaining_slots -= 1
+        remaining_mandatory -= 1
         truncated |= excerpt_truncated
-    return _GovernanceSelection(tuple(excerpts), truncated)
+    for candidate in optional_later:
+        if remaining_slots <= 0 or remaining_chars <= 0:
+            break
+        excerpt, excerpt_truncated = _governance_excerpt(
+            candidate.kind,
+            candidate.entry,
+            candidate.section,
+            snapshot.repository_head_sha,
+            min(MAX_GOVERNANCE_EXCERPT_CHARS, remaining_chars),
+        )
+        excerpts.append(excerpt)
+        remaining_chars -= len(excerpt.text)
+        remaining_slots -= 1
+        truncated |= excerpt_truncated
+    selection = _GovernanceSelection(tuple(excerpts), truncated)
+    _assert_mandatory_governance_coverage(selection.excerpts)
+    return selection
 
 
 def _resolve_source_state(
@@ -683,6 +810,7 @@ def build_context(
         _tokens(normalized_query),
         checkpoint,
     )
+    _assert_mandatory_governance_coverage(governance.excerpts)
     try:
         rerank_response = rerank_search(
             settings,
@@ -821,6 +949,7 @@ def build_context(
         raise ContextBoundsError("capsule_character_bound_exceeded")
     if capsule.bounds.serialized_capsule_characters != final_length:
         raise ContextBoundsError("capsule_serialization_length_unstable")
+    _assert_mandatory_governance_coverage(capsule.governance)
     return capsule
 
 

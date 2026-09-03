@@ -119,7 +119,8 @@ def build_files() -> dict[Path, str]:
         ),
         (
             "| scripts/context_manager_integration.py | Real Docker/Git two-project "
-            "Context Manager, governance ordering, isolation, bounds and restart evidence. |"
+            "Context Manager, mandatory governance coverage, isolation, bounds and "
+            "restart evidence. |"
         ),
         "| scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |",
         (
@@ -142,7 +143,8 @@ def build_files() -> dict[Path, str]:
         "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |",
         (
             "| backend/tests/test_context_manager.py | Deterministic checkpoint-first "
-            "context capsules, governance trust, bounds, isolation, fallback and races. |"
+            "context capsules, mandatory governance coverage, bounds, isolation, "
+            "fallback and races. |"
         ),
         "| backend/tests/test_health.py | API response shape and degraded status. |",
         (
@@ -218,7 +220,8 @@ def build_files() -> dict[Path, str]:
         ),
         (
             "| scripts/context_manager_integration.py | Real Docker/Git two-project "
-            "Context Manager, governance ordering, isolation, bounds and restart evidence. |"
+            "Context Manager, mandatory governance coverage, isolation, bounds and "
+            "restart evidence. |"
         ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "| scripts/review_evidence.py | Review Evidence schema and exact-head validation. |",

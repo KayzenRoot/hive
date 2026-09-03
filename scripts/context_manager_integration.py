@@ -24,6 +24,13 @@ from project_registry_integration import request as http_request
 
 SCHEMA_REVISION = "0005_semantic_retrieval"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "context-manager.json"
+MANDATORY_GOVERNANCE_KINDS = (
+    "CHECKPOINT",
+    "SCOPE",
+    "DEFINITION_OF_DONE",
+    "ARCHITECTURE",
+    "DECISIONS",
+)
 
 
 def free_port() -> int:
@@ -66,8 +73,15 @@ def write_governance(repository: Path, label: str) -> None:
         encoding="utf-8",
     )
     (brain / "03-SCOPE.md").write_text(
-        "# Scope\n\n## NECESSARY\nContext Manager and bounded retrieval.\n\n"
-        "## OUT OF SCOPE\nAutonomous executor dispatch.\n",
+        "# Scope\n\n"
+        "## NECESSARY\nContext Manager and bounded retrieval provenance.\n\n"
+        "## IMPORTANT context\nRelevant context capsule provenance.\n\n"
+        "## FUTURE context\nAdditional context capsule retrieval.\n\n"
+        "## OUT OF SCOPE\nAutonomous executor dispatch.\n\n"
+        "## Context bounds\nBounded context capsule limits.\n\n"
+        "## Context provenance\nPreserve context governance provenance.\n\n"
+        "## Context retrieval\nContext retrieval and reranking evidence.\n\n"
+        "## Context governance\nCanonical governance for the context capsule.\n",
         encoding="utf-8",
     )
     (brain / "15-DEFINITION-OF-DONE.md").write_text(
@@ -149,6 +163,20 @@ def context_request(base_url: str, project_id: str, task_id: str) -> dict[str, A
     if not isinstance(payload, dict):
         raise AssertionError(f"context response is not an object: {payload}")
     return payload
+
+
+def mandatory_kind_sequence(governance: list[Any]) -> list[str]:
+    sequence: list[str] = []
+    seen: set[str] = set()
+    for item in governance:
+        if not isinstance(item, dict):
+            raise AssertionError(f"governance excerpt is not an object: {item}")
+        kind = str(item.get("kind", ""))
+        if kind in seen or kind not in MANDATORY_GOVERNANCE_KINDS:
+            continue
+        sequence.append(kind)
+        seen.add(kind)
+    return sequence
 
 
 def main() -> int:
@@ -329,6 +357,27 @@ def main() -> int:
             "checkpoint-first path",
         )
         assert_equal(first["governance"][0]["kind"], "CHECKPOINT", "checkpoint-first kind")
+        observed_mandatory_sequence = mandatory_kind_sequence(first["governance"])
+        assert_equal(
+            observed_mandatory_sequence,
+            list(MANDATORY_GOVERNANCE_KINDS),
+            "mandatory governance kind sequence",
+        )
+        extra_scope = [
+            index for index, item in enumerate(first["governance"]) if item.get("kind") == "SCOPE"
+        ]
+        if len(extra_scope) < 2:
+            raise AssertionError(
+                "SCOPE pressure fixture did not emit extra relevant sections: "
+                f"{[item.get('kind') for item in first['governance']]}"
+            )
+        decisions_index = next(
+            index
+            for index, item in enumerate(first["governance"])
+            if item.get("kind") == "DECISIONS"
+        )
+        if min(extra_scope[1:]) <= decisions_index:
+            raise AssertionError("optional SCOPE excerpts displaced mandatory coverage")
         assert_equal(
             first["task_derived"]["constraints"],
             [
@@ -470,6 +519,10 @@ def main() -> int:
         reranked_retrieval_used = first["retrieval"]["rerank_state"] == "RERANKED"
         deterministic_two_run = first == second
         cross_project_isolation = governance_project_scoped and task_project_scoped
+        mandatory_governance_kind_sequence = observed_mandatory_sequence
+        mandatory_governance_coverage = mandatory_governance_kind_sequence == list(
+            MANDATORY_GOVERNANCE_KINDS
+        )
 
         evidence = {
             "status": "PASS"
@@ -487,6 +540,7 @@ def main() -> int:
                     head_race_fail_closed,
                     redis_restart_rebuild,
                     api_restart_rebuild,
+                    mandatory_governance_coverage,
                 )
             )
             else "FAIL",
@@ -502,6 +556,8 @@ def main() -> int:
             "head_race_fail_closed": head_race_fail_closed,
             "redis_restart_rebuild": redis_restart_rebuild,
             "api_restart_rebuild": api_restart_rebuild,
+            "mandatory_governance_coverage": mandatory_governance_coverage,
+            "mandatory_governance_kind_sequence": mandatory_governance_kind_sequence,
             "llm_calls": 0,
         }
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)

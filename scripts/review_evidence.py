@@ -54,6 +54,14 @@ CONTEXT_MANAGER_REQUIRED_FIELDS = (
     "head_race_fail_closed",
     "redis_restart_rebuild",
     "api_restart_rebuild",
+    "mandatory_governance_coverage",
+)
+MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
+    "CHECKPOINT",
+    "SCOPE",
+    "DEFINITION_OF_DONE",
+    "ARCHITECTURE",
+    "DECISIONS",
 )
 CHECKPOINT_PATH = "docs/project-brain/13-CHECKPOINT.md"
 CANONICAL_PATHS = (
@@ -482,6 +490,7 @@ def context_manager_evidence() -> dict[str, object]:
         "status": "UNKNOWN",
         "evidence_file": evidence_file,
         **{field: False for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [],
         "llm_calls": None,
     }
     if not text:
@@ -494,20 +503,32 @@ def context_manager_evidence() -> dict[str, object]:
         return unknown
     values = {field: data.get(field) is True for field in CONTEXT_MANAGER_REQUIRED_FIELDS}
     llm_calls = data.get("llm_calls")
+    sequence = data.get("mandatory_governance_kind_sequence")
     fields_are_boolean = all(
         isinstance(data.get(field), bool) for field in CONTEXT_MANAGER_REQUIRED_FIELDS
     )
+    sequence_valid = (
+        isinstance(sequence, list)
+        and all(isinstance(item, str) for item in sequence)
+        and sequence == list(MANDATORY_GOVERNANCE_KIND_SEQUENCE)
+    )
     if not fields_are_boolean or not isinstance(llm_calls, int) or isinstance(llm_calls, bool):
+        return unknown
+    if not isinstance(sequence, list) or not all(isinstance(item, str) for item in sequence):
         return unknown
     status = (
         "PASS"
-        if data.get("status") == "PASS" and all(values.values()) and llm_calls == 0
+        if data.get("status") == "PASS"
+        and all(values.values())
+        and sequence_valid
+        and llm_calls == 0
         else "FAIL"
     )
     return {
         "status": status,
         "evidence_file": evidence_file,
         **values,
+        "mandatory_governance_kind_sequence": sequence,
         "llm_calls": llm_calls,
     }
 
@@ -720,8 +741,6 @@ def require_wo009_context_manager_evidence(
     if work_order != "WO-009":
         return
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
-    if context_manager.get("status") != "PASS":
-        raise ValueError("WO-009 Review Evidence requires passing Context Manager evidence")
     missing = [
         field for field in CONTEXT_MANAGER_REQUIRED_FIELDS if context_manager.get(field) is not True
     ]
@@ -732,6 +751,16 @@ def require_wo009_context_manager_evidence(
         )
     if context_manager.get("llm_calls") != 0:
         raise ValueError("WO-009 Review Evidence requires zero Context Manager LLM calls")
+    if context_manager.get("mandatory_governance_coverage") is not True:
+        raise ValueError("WO-009 Review Evidence requires mandatory_governance_coverage=true")
+    if context_manager.get("mandatory_governance_kind_sequence") != list(
+        MANDATORY_GOVERNANCE_KIND_SEQUENCE
+    ):
+        raise ValueError(
+            "WO-009 Review Evidence requires the five mandatory governance kinds in order"
+        )
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-009 Review Evidence requires passing Context Manager evidence")
 
 
 def warnings_evidence(all_text: str) -> dict[str, object]:
@@ -1448,11 +1477,16 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     context_manager_text = (
         f"`{context_manager_evidence.get('status', 'UNKNOWN')}`; "
         f"checkpoint first `{context_manager_evidence.get('checkpoint_first', False)}`, "
+        "mandatory coverage `"
+        f"{context_manager_evidence.get('mandatory_governance_coverage', False)}`, "
+        "kind sequence `"
+        f"{context_manager_evidence.get('mandatory_governance_kind_sequence', [])}`, "
         f"project-scoped `{context_manager_evidence.get('governance_project_scoped', False)}`, "
         f"task-scoped `{context_manager_evidence.get('task_project_scoped', False)}`, "
         f"reranked `{context_manager_evidence.get('reranked_retrieval_used', False)}`, "
         f"bounded `{context_manager_evidence.get('bounded', False)}`, "
-        f"deterministic two-run `{context_manager_evidence.get('deterministic_two_run', False)}`, "
+        "deterministic two-run `"
+        f"{context_manager_evidence.get('deterministic_two_run', False)}`, "
         f"LLM calls `{context_manager_evidence.get('llm_calls', 'UNKNOWN')}`"
     )
     integration_summary = ", ".join(

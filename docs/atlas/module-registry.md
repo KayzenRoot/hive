@@ -23,7 +23,7 @@ Generated deterministically by scripts/generate_maps.py.
 | migrations/versions/0003_repository_indexing.py | Durable repository index runs, current files and Python symbol metadata. |
 | migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, chunk and reference metadata. |
 | migrations/versions/0005_semantic_retrieval.py | Durable project-scoped embedding profiles, runs and pgvector chunk embeddings. |
-| scripts/context_manager_integration.py | Real Docker/Git two-project Context Manager, governance ordering, isolation, bounds and restart evidence. |
+| scripts/context_manager_integration.py | Real Docker/Git two-project Context Manager, mandatory governance coverage, isolation, bounds and restart evidence. |
 | scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |
 | scripts/review_evidence.py | Versioned, secret-free Review Evidence manifest generation. |
 | scripts/review_pr_body.py | Generic twenty-section PT-BR PR review template. |

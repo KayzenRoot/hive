@@ -404,6 +404,8 @@
         "head_race_fail_closed",
         "redis_restart_rebuild",
         "api_restart_rebuild",
+        "mandatory_governance_coverage",
+        "mandatory_governance_kind_sequence",
         "llm_calls"
       ],
       "properties": {
@@ -421,6 +423,11 @@
         "head_race_fail_closed": { "type": "boolean" },
         "redis_restart_rebuild": { "type": "boolean" },
         "api_restart_rebuild": { "type": "boolean" },
+        "mandatory_governance_coverage": { "type": "boolean" },
+        "mandatory_governance_kind_sequence": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "llm_calls": { "type": ["integer", "null"], "minimum": 0 }
       }
     },

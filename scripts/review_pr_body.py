@@ -325,8 +325,12 @@ tarefa, retrieval, projeções de arquivos/símbolos/testes, proveniência e bou
 ## 6. Governança / checkpoint-first
 
 Somente os cinco caminhos `docs/project-brain` Git-tracked do projeto alvo são
-aceitos. O checkpoint é processado e emitido primeiro; autoridade canônica e
-trust de task/user input são distintos.
+aceitos. O checkpoint é processado e emitido primeiro. A seleção de governança
+é em duas fases: cobertura obrigatória das cinco fontes, depois extras
+opcionais. A ordem de autoridade obrigatória permanece
+CHECKPOINT -> SCOPE -> DEFINITION_OF_DONE -> ARCHITECTURE -> DECISIONS.
+O budget de caracteres reserva cobertura obrigatória antes de extras;
+cobertura impossível falha fechado.
 
 ## 7. Bounds e determinismo
 
@@ -369,9 +373,10 @@ Comandos executados incluem `python scripts/verify_canonical_sources.py`,
 ## 13. Review Evidence
 
 Artifact: `{artifact_name}`. A evidência Context Manager deve mostrar
-checkpoint-first, project/task scoped, reranked retrieval, provenance,
-deterministic two-run, bounds, isolation, missing-governance/HEAD fail-closed,
-Redis/API rebuild e `llm_calls: 0`.
+checkpoint-first, `mandatory_governance_coverage: true`, a sequência
+obrigatória das cinco fontes, project/task scoped, reranked retrieval,
+provenance, deterministic two-run, bounds, isolation, missing-governance/HEAD
+fail-closed, Redis/API rebuild e `llm_calls: 0`.
 
 ## 14. Ruleset / auto-merge
 

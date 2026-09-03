@@ -103,6 +103,14 @@ def evidence_fixture() -> dict[str, object]:
                     "head_race_fail_closed": True,
                     "redis_restart_rebuild": True,
                     "api_restart_rebuild": True,
+                    "mandatory_governance_coverage": True,
+                    "mandatory_governance_kind_sequence": [
+                        "CHECKPOINT",
+                        "SCOPE",
+                        "DEFINITION_OF_DONE",
+                        "ARCHITECTURE",
+                        "DECISIONS",
+                    ],
                     "llm_calls": 0,
                 },
                 "benchmark_gate": {
@@ -658,6 +666,8 @@ def test_wo009_pr_body_describes_context_manager_handoff() -> None:
     assert "/projects/{project_id}/tasks/{task_id}/context" in body
     assert "Auto-merge owner: `KayzenRoot` (User)" in body
     assert "context-capsule-v1" in body
+    assert "CHECKPOINT -> SCOPE -> DEFINITION_OF_DONE -> ARCHITECTURE -> DECISIONS" in body
+    assert "mandatory_governance_coverage" in body
     assert "WO-009 READY FOR SOL GITHUB AUDIT" in body
 
 
@@ -726,6 +736,13 @@ def test_context_manager_review_evidence_fails_closed_when_missing_or_incomplete
     payload = {
         "status": "PASS",
         **{field: True for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [
+            "CHECKPOINT",
+            "SCOPE",
+            "DEFINITION_OF_DONE",
+            "ARCHITECTURE",
+            "DECISIONS",
+        ],
         "llm_calls": 0,
     }
     (integration_logs / "context-manager.json").write_text(
@@ -751,6 +768,41 @@ def test_context_manager_review_evidence_fails_closed_when_missing_or_incomplete
 
     (integration_logs / "context-manager.json").write_text("{malformed", encoding="utf-8")
     assert context_manager_evidence()["status"] == "UNKNOWN"
+
+    missing_coverage = dict(payload)
+    del missing_coverage["mandatory_governance_coverage"]
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(missing_coverage),
+        encoding="utf-8",
+    )
+    assert context_manager_evidence()["status"] == "UNKNOWN"
+    with pytest.raises(ValueError, match="Context Manager evidence"):
+        require_wo009_context_manager_evidence(
+            "WO-009",
+            {"context_manager": context_manager_evidence()},
+        )
+
+    false_coverage = dict(payload)
+    false_coverage["mandatory_governance_coverage"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(false_coverage),
+        encoding="utf-8",
+    )
+    false_evidence = context_manager_evidence()
+    assert false_evidence["status"] == "FAIL"
+    with pytest.raises(ValueError, match="mandatory_governance_coverage"):
+        require_wo009_context_manager_evidence("WO-009", {"context_manager": false_evidence})
+
+    wrong_sequence = dict(payload)
+    wrong_sequence["mandatory_governance_kind_sequence"] = ["CHECKPOINT", "SCOPE"]
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(wrong_sequence),
+        encoding="utf-8",
+    )
+    sequence_evidence = context_manager_evidence()
+    assert sequence_evidence["status"] == "FAIL"
+    with pytest.raises(ValueError, match="mandatory governance kinds"):
+        require_wo009_context_manager_evidence("WO-009", {"context_manager": sequence_evidence})
 
 
 def test_sticky_summary_has_required_review_fields() -> None:

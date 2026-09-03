@@ -274,6 +274,9 @@ def test_context_capsule_is_checkpoint_first_bounded_and_provenance_bearing(
     assert first.governance[0].kind == "CHECKPOINT"
     assert first.governance[0].path == "docs/project-brain/13-CHECKPOINT.md"
     assert first.governance[0].authority == context_manager.GovernanceAuthority.CANONICAL_GOVERNANCE
+    assert context_manager.mandatory_governance_kind_sequence(first.governance) == (
+        context_manager.MANDATORY_GOVERNANCE_KINDS
+    )
     assert first.project.project_id == PROJECT_ID
     assert first.project.repository_head_sha == REPOSITORY_HEAD
     assert first.task.trust_classification == context_manager.TaskTrust.TASK_INPUT_NONCANONICAL
@@ -411,6 +414,182 @@ def test_hive_governance_is_not_substituted_for_target_project() -> None:
     assert selection.excerpts[0].path == "docs/project-brain/13-CHECKPOINT.md"
 
 
+def scope_pressure_documents() -> dict[str, str]:
+    documents = governance_documents()
+    sections = [
+        (
+            f"## Context section {index}\n"
+            "Context Manager capsule provenance retrieval bounded governance.\n"
+        )
+        for index in range(8)
+    ]
+    documents["docs/project-brain/03-SCOPE.md"] = "# Scope\n\n" + "\n".join(sections)
+    return documents
+
+
+def large_checkpoint_documents() -> dict[str, str]:
+    documents = governance_documents()
+    bulk = "approved context " * 400
+    documents["docs/project-brain/13-CHECKPOINT.md"] = (
+        "# Checkpoint\n\n"
+        f"## STATUS\n{bulk}\n\n"
+        f"## VERSION\n{bulk}\n\n"
+        f"## PHASE\n{bulk}\n\n"
+        f"## OBJECTIVE\n{bulk}\n\n"
+        f"## IN PROGRESS\n{bulk}\n\n"
+        f"## BLOCKERS\n{bulk}\n\n"
+        f"## NEXT STEP\n{bulk}\n"
+    )
+    return documents
+
+
+def _first_kind_indexes(excerpts: tuple[context_manager.GovernanceExcerpt, ...]) -> dict[str, int]:
+    indexes: dict[str, int] = {}
+    for index, excerpt in enumerate(excerpts):
+        if excerpt.kind not in indexes:
+            indexes[excerpt.kind] = index
+    return indexes
+
+
+def test_successful_capsule_always_contains_five_mandatory_governance_kinds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+    assert context_manager.mandatory_governance_kind_sequence(capsule.governance) == (
+        context_manager.MANDATORY_GOVERNANCE_KINDS
+    )
+    assert capsule.governance[0].kind == "CHECKPOINT"
+
+
+def test_scope_pressure_cannot_evict_mandatory_later_kinds() -> None:
+    query_tokens = {"context", "capsule", "provenance", "governance", "retrieval"}
+    selection = context_manager._resolve_governance(
+        repository_snapshot(scope_pressure_documents()),
+        query_tokens,
+    )
+    kinds = [excerpt.kind for excerpt in selection.excerpts]
+    first_indexes = _first_kind_indexes(selection.excerpts)
+
+    assert kinds[0] == "CHECKPOINT"
+    assert context_manager.mandatory_governance_kind_sequence(selection.excerpts) == (
+        context_manager.MANDATORY_GOVERNANCE_KINDS
+    )
+    assert first_indexes["SCOPE"] < first_indexes["DEFINITION_OF_DONE"]
+    assert first_indexes["DEFINITION_OF_DONE"] < first_indexes["ARCHITECTURE"]
+    assert first_indexes["ARCHITECTURE"] < first_indexes["DECISIONS"]
+    extra_scope = [index for index, kind in enumerate(kinds) if kind == "SCOPE"][1:]
+    assert extra_scope
+    assert min(extra_scope) > first_indexes["DECISIONS"]
+
+
+def test_optional_excerpts_are_added_only_after_mandatory_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(
+        monkeypatch,
+        state=source_state(scope_pressure_documents()),
+        extracted=task_text_response(
+            "# Task\n\n## Constraints\n- Keep the context capsule bounded.\n\n"
+            "## Acceptance Criteria\n- Preserve governance provenance.\n"
+        ),
+    )
+
+    first = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    second = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    first_indexes = _first_kind_indexes(tuple(first.governance))
+    extra_kinds = [
+        excerpt.kind
+        for index, excerpt in enumerate(first.governance)
+        if index > first_indexes["DECISIONS"]
+    ]
+
+    assert first.model_dump() == second.model_dump()
+    assert first.governance[0].kind == "CHECKPOINT"
+    assert context_manager.mandatory_governance_kind_sequence(first.governance) == (
+        context_manager.MANDATORY_GOVERNANCE_KINDS
+    )
+    assert extra_kinds
+    assert extra_kinds[0] == "SCOPE"
+
+
+def test_large_checkpoint_reserves_budget_for_other_mandatory_kinds() -> None:
+    selection = context_manager._resolve_governance(
+        repository_snapshot(large_checkpoint_documents()),
+        {"context", "capsule"},
+    )
+    by_kind = {
+        kind: [excerpt for excerpt in selection.excerpts if excerpt.kind == kind]
+        for kind in context_manager.MANDATORY_GOVERNANCE_KINDS
+    }
+
+    assert context_manager.mandatory_governance_kind_sequence(selection.excerpts) == (
+        context_manager.MANDATORY_GOVERNANCE_KINDS
+    )
+    assert all(by_kind[kind] for kind in context_manager.MANDATORY_GOVERNANCE_KINDS)
+    assert sum(len(excerpt.text) for excerpt in selection.excerpts) <= (
+        context_manager.MAX_TOTAL_GOVERNANCE_CHARS
+    )
+    checkpoint_chars = sum(len(excerpt.text) for excerpt in by_kind["CHECKPOINT"])
+    later_chars = sum(
+        len(excerpt.text)
+        for kind in context_manager.MANDATORY_GOVERNANCE_KINDS[1:]
+        for excerpt in by_kind[kind]
+    )
+    assert later_chars >= len(context_manager.MANDATORY_GOVERNANCE_KINDS) - 1
+    assert checkpoint_chars < context_manager.MAX_TOTAL_GOVERNANCE_CHARS
+
+
+def test_unsatisfiable_mandatory_coverage_fails_closed_without_partial_capsule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+    monkeypatch.setattr(context_manager, "MAX_GOVERNANCE_EXCERPTS", 8)
+
+    with pytest.raises(
+        context_manager.ContextBoundsError,
+        match="mandatory_governance_coverage_unsatisfiable",
+    ):
+        context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+    monkeypatch.setattr(
+        context_manager,
+        "MAX_GOVERNANCE_EXCERPTS",
+        12,
+    )
+    monkeypatch.setattr(context_manager, "MAX_TOTAL_GOVERNANCE_CHARS", 10)
+    with pytest.raises(
+        context_manager.ContextBoundsError,
+        match="mandatory_governance_coverage_unsatisfiable",
+    ):
+        context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+
+def test_capsule_invariant_rejects_missing_mandatory_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+
+    def drop_decisions(
+        snapshot: _RepositorySnapshot,
+        query_tokens: set[str],
+        checkpoint: context_manager._GovernanceSelection | None = None,
+    ) -> context_manager._GovernanceSelection:
+        del query_tokens
+        selected = checkpoint or context_manager._checkpoint_selection(snapshot)
+        return context_manager._GovernanceSelection(selected.excerpts, selected.truncated)
+
+    monkeypatch.setattr(context_manager, "_resolve_governance", drop_decisions)
+
+    with pytest.raises(
+        context_manager.ContextGovernanceError,
+        match="mandatory_governance_coverage_missing",
+    ):
+        context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+
 def test_task_project_binding_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_build_dependencies(
         monkeypatch,
@@ -528,6 +707,9 @@ def test_task_text_cannot_change_governance_authority_or_order(
     assert capsule.governance[0].kind == "CHECKPOINT"
     assert capsule.governance[0].authority == (
         context_manager.GovernanceAuthority.CANONICAL_GOVERNANCE
+    )
+    assert context_manager.mandatory_governance_kind_sequence(capsule.governance) == (
+        context_manager.MANDATORY_GOVERNANCE_KINDS
     )
     assert capsule.task.trust_classification == context_manager.TaskTrust.TASK_INPUT_NONCANONICAL
     assert capsule.task_derived.constraints == [

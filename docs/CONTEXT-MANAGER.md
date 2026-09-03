@@ -31,7 +31,13 @@ The HIVE contract is defined by the
 
 The checkpoint is emitted first and always includes bounded `STATUS`,
 `VERSION`, `PHASE`, `OBJECTIVE`, `IN PROGRESS`, `BLOCKERS` and `NEXT STEP`
-sections. Other sections are selected by deterministic heading/token overlap.
+sections. A successful capsule then includes at least one excerpt from
+`SCOPE`, `DEFINITION_OF_DONE`, `ARCHITECTURE` and `DECISIONS` in that
+authority order. Optional extra sections are added only after this mandatory
+coverage, using leftover excerpt slots and leftover character budget, and
+cannot displace a mandatory kind. Character budget is reserved for the four
+later mandatory kinds before checkpoint extras or optional excerpts spend it.
+If mandatory coverage cannot fit the fixed bounds, assembly fails closed.
 Excerpts preserve their source text, path, content SHA-256, Git blob SHA,
 repository HEAD and line/character ranges.
 
@@ -72,10 +78,12 @@ refer to that index. The stable Git snapshot and task/index/corpus identities
 are checked again before returning the capsule.
 
 Missing or untracked governance returns a bounded
-`governance_not_git_tracked`/`missing_governance_section` error. Project,
-task, source, index, corpus and HEAD mismatches fail closed with a stable
-HTTP 404/409 response. Database failures return 503 without host paths or
-credentials.
+`governance_not_git_tracked`/`missing_governance_section` error. Missing
+mandatory coverage returns `mandatory_governance_coverage_missing`; coverage
+that cannot fit the fixed bounds returns
+`mandatory_governance_coverage_unsatisfiable`. Project, task, source, index,
+corpus and HEAD mismatches fail closed with a stable HTTP 404/409 response.
+Database failures return 503 without host paths or credentials.
 
 ## Non-goals
 
