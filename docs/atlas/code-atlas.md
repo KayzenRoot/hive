@@ -7,6 +7,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/__init__.py: Python source or test module.
 - backend/app/cas.py: Python source or test module.
 - backend/app/config.py: Python source or test module.
+- backend/app/context_manager.py: Python source or test module.
 - backend/app/db.py: Python source or test module.
 - backend/app/health.py: Python source or test module.
 - backend/app/main.py: Python source or test module.
@@ -21,6 +22,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/__init__.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
+- backend/tests/test_context_manager.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_projects_api.py: Python source or test module.
 - backend/tests/test_registry.py: Python source or test module.
@@ -57,6 +59,7 @@ Generated deterministically by scripts/generate_maps.py.
 
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
+- scripts/context_manager_integration.py: deterministic maintenance or validation script.
 - scripts/embedding_fixture.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.

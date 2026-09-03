@@ -161,6 +161,7 @@
             "redis_restart": { "$ref": "#/$defs/result" },
             "api_restart": { "$ref": "#/$defs/result" },
             "reranking": { "$ref": "#/$defs/result" },
+            "context_manager": { "$ref": "#/$defs/context_manager_evidence" },
             "benchmark_gate": {
               "type": "object",
               "additionalProperties": false,
@@ -383,6 +384,51 @@
       "properties": {
         "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
         "evidence_file": { "type": "string", "minLength": 1 }
+      }
+    },
+    "context_manager_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence_file",
+        "checkpoint_first",
+        "governance_project_scoped",
+        "task_project_scoped",
+        "reranked_retrieval_used",
+        "provenance_preserved",
+        "deterministic_two_run",
+        "bounded",
+        "cross_project_isolation",
+        "missing_governance_fail_closed",
+        "head_race_fail_closed",
+        "redis_restart_rebuild",
+        "api_restart_rebuild",
+        "mandatory_governance_coverage",
+        "mandatory_governance_kind_sequence",
+        "llm_calls"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "evidence_file": { "type": "string", "minLength": 1 },
+        "checkpoint_first": { "type": "boolean" },
+        "governance_project_scoped": { "type": "boolean" },
+        "task_project_scoped": { "type": "boolean" },
+        "reranked_retrieval_used": { "type": "boolean" },
+        "provenance_preserved": { "type": "boolean" },
+        "deterministic_two_run": { "type": "boolean" },
+        "bounded": { "type": "boolean" },
+        "cross_project_isolation": { "type": "boolean" },
+        "missing_governance_fail_closed": { "type": "boolean" },
+        "head_race_fail_closed": { "type": "boolean" },
+        "redis_restart_rebuild": { "type": "boolean" },
+        "api_restart_rebuild": { "type": "boolean" },
+        "mandatory_governance_coverage": { "type": "boolean" },
+        "mandatory_governance_kind_sequence": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "llm_calls": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
     "auto_merge": {

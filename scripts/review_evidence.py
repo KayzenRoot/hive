@@ -41,12 +41,35 @@ RERANK_C1_REQUIRED_FIELDS = (
     "rerank_secret_not_leaked",
     "rerank_ordering_reproducible",
 )
+CONTEXT_MANAGER_REQUIRED_FIELDS = (
+    "checkpoint_first",
+    "governance_project_scoped",
+    "task_project_scoped",
+    "reranked_retrieval_used",
+    "provenance_preserved",
+    "deterministic_two_run",
+    "bounded",
+    "cross_project_isolation",
+    "missing_governance_fail_closed",
+    "head_race_fail_closed",
+    "redis_restart_rebuild",
+    "api_restart_rebuild",
+    "mandatory_governance_coverage",
+)
+MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
+    "CHECKPOINT",
+    "SCOPE",
+    "DEFINITION_OF_DONE",
+    "ARCHITECTURE",
+    "DECISIONS",
+)
 CHECKPOINT_PATH = "docs/project-brain/13-CHECKPOINT.md"
 CANONICAL_PATHS = (
     CHECKPOINT_PATH,
     "docs/project-brain/CANONICAL-SHA256SUMS.txt",
 )
 WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
+WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -156,6 +179,16 @@ def require_wo008_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> 
             "WO-008-G1 changed files outside the approved governance scope: "
             + ", ".join(unauthorized)
         )
+
+
+def require_wo009_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-009":
+        return
+    if base_sha != WO009_BASE_SHA:
+        raise ValueError(f"WO-009 requires exact base {WO009_BASE_SHA}, observed {base_sha}")
+    canonical = canonical_change_evidence(paths)
+    if canonical["project_brain_changed"] is True:
+        raise ValueError("WO-009 implementation evidence cannot change canonical Project Brain")
 
 
 def repository_name() -> str:
@@ -450,6 +483,56 @@ def integration_result(name: str, markers: tuple[str, ...]) -> dict[str, object]
     return {"status": "PASS" if passed else "UNKNOWN", "evidence_file": name}
 
 
+def context_manager_evidence() -> dict[str, object]:
+    evidence_file = "context-manager.json"
+    text = integration_file(evidence_file)
+    unknown = {
+        "status": "UNKNOWN",
+        "evidence_file": evidence_file,
+        **{field: False for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [],
+        "llm_calls": None,
+    }
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return unknown
+    if not isinstance(data, dict):
+        return unknown
+    values = {field: data.get(field) is True for field in CONTEXT_MANAGER_REQUIRED_FIELDS}
+    llm_calls = data.get("llm_calls")
+    sequence = data.get("mandatory_governance_kind_sequence")
+    fields_are_boolean = all(
+        isinstance(data.get(field), bool) for field in CONTEXT_MANAGER_REQUIRED_FIELDS
+    )
+    sequence_valid = (
+        isinstance(sequence, list)
+        and all(isinstance(item, str) for item in sequence)
+        and sequence == list(MANDATORY_GOVERNANCE_KIND_SEQUENCE)
+    )
+    if not fields_are_boolean or not isinstance(llm_calls, int) or isinstance(llm_calls, bool):
+        return unknown
+    if not isinstance(sequence, list) or not all(isinstance(item, str) for item in sequence):
+        return unknown
+    status = (
+        "PASS"
+        if data.get("status") == "PASS"
+        and all(values.values())
+        and sequence_valid
+        and llm_calls == 0
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        "evidence_file": evidence_file,
+        **values,
+        "mandatory_governance_kind_sequence": sequence,
+        "llm_calls": llm_calls,
+    }
+
+
 def retrieval_integrity(text: str) -> dict[str, bool]:
     match = re.search(r"retrieval_integrity=(\{.*\})", text)
     if not match:
@@ -516,6 +599,9 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
     )
     if benchmark["status"] == "FAIL":
         status = "FAIL"
+    context_manager = context_manager_evidence()
+    if context_manager["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     return {
         "status": status,
@@ -537,6 +623,7 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
             else "UNKNOWN",
             "evidence_file": "retrieval.log",
         },
+        "context_manager": context_manager,
         "benchmark_gate": {
             "status": benchmark["status"],
             "query_count": benchmark["query_count"],
@@ -645,6 +732,35 @@ def require_wo008_c1_evidence(
         raise ValueError("WO-008 Review Evidence requires passing rerank security evidence")
     if RERANK_SECRET_SENTINEL.search(all_evidence + "\n" + github_evidence):
         raise ValueError("WO-008 Review Evidence detected a rerank secret sentinel in evidence")
+
+
+def require_wo009_context_manager_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+) -> None:
+    if work_order != "WO-009":
+        return
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    missing = [
+        field for field in CONTEXT_MANAGER_REQUIRED_FIELDS if context_manager.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-009 Review Evidence missing mandatory Context Manager evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if context_manager.get("llm_calls") != 0:
+        raise ValueError("WO-009 Review Evidence requires zero Context Manager LLM calls")
+    if context_manager.get("mandatory_governance_coverage") is not True:
+        raise ValueError("WO-009 Review Evidence requires mandatory_governance_coverage=true")
+    if context_manager.get("mandatory_governance_kind_sequence") != list(
+        MANDATORY_GOVERNANCE_KIND_SEQUENCE
+    ):
+        raise ValueError(
+            "WO-009 Review Evidence requires the five mandatory governance kinds in order"
+        )
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-009 Review Evidence requires passing Context Manager evidence")
 
 
 def warnings_evidence(all_text: str) -> dict[str, object]:
@@ -1005,12 +1121,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
     require_wo008_g1_scope(work_order, base_sha, paths)
+    require_wo009_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
     benchmark = benchmark_fields(VALIDATION / "retrieval-benchmark.json")
     tests = tests_evidence(validation, tests_text)
     integration = integration_evidence(benchmark)
+    require_wo009_context_manager_evidence(work_order, integration)
     security = security_evidence(
         all_validation,
         tests_text,
@@ -1151,6 +1269,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         governance_pr = cast(dict[str, Any], governance.get("pull_request", {}))
         if not isinstance(governance_pr.get("auto_merge"), Mapping):
             raise ValueError("WO-008-G1 evidence requires structured auto-merge evidence")
+    if work_order == "WO-009":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo009_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1190,6 +1316,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     )
     if errors:
         raise ValueError(f"manifest schema validation failed: {errors[0].message}")
+    evidence = cast(dict[str, Any], manifest["evidence"])
+    require_wo009_context_manager_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+    )
     warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
     items = warnings["items"]
     if isinstance(items, list) and (
@@ -1199,7 +1330,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
 
 
 def all_evidence_text() -> str:
-    paths = sorted(VALIDATION.glob("*.txt")) + sorted(INTEGRATION_LOGS.glob("*.log"))
+    paths = (
+        sorted(VALIDATION.glob("*.txt"))
+        + sorted(INTEGRATION_LOGS.glob("*.log"))
+        + sorted(INTEGRATION_LOGS.glob("*.json"))
+    )
     return "\n\n".join(read_text(path) for path in paths)
 
 
@@ -1338,6 +1473,22 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"independent approvals observed: "
         f"`{approval_gate.get('independent_approval_count', 0)}`"
     )
+    context_manager_evidence = cast(dict[str, Any], integration.get("context_manager", {}))
+    context_manager_text = (
+        f"`{context_manager_evidence.get('status', 'UNKNOWN')}`; "
+        f"checkpoint first `{context_manager_evidence.get('checkpoint_first', False)}`, "
+        "mandatory coverage `"
+        f"{context_manager_evidence.get('mandatory_governance_coverage', False)}`, "
+        "kind sequence `"
+        f"{context_manager_evidence.get('mandatory_governance_kind_sequence', [])}`, "
+        f"project-scoped `{context_manager_evidence.get('governance_project_scoped', False)}`, "
+        f"task-scoped `{context_manager_evidence.get('task_project_scoped', False)}`, "
+        f"reranked `{context_manager_evidence.get('reranked_retrieval_used', False)}`, "
+        f"bounded `{context_manager_evidence.get('bounded', False)}`, "
+        "deterministic two-run `"
+        f"{context_manager_evidence.get('deterministic_two_run', False)}`, "
+        f"LLM calls `{context_manager_evidence.get('llm_calls', 'UNKNOWN')}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -1348,6 +1499,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("redis_restart", "Redis restart"),
             ("api_restart", "API restart"),
             ("reranking", "Reranking"),
+            ("context_manager", "Context Manager"),
         )
         if key in integration
     )
@@ -1383,6 +1535,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Repository merge settings: {merge_settings}
 - Auto-merge armed: {auto_merge_text}
 - Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
+- Context Manager evidence: {context_manager_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
 - Workflow run URL: {workflow_url}
@@ -1440,7 +1593,11 @@ def write_consolidated_artifact(
     changed = cast(dict[str, Any], manifest["changed_files"])
     migrations = cast(dict[str, Any], manifest["migrations"])
     warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
-    integration_sources = sorted(VALIDATION.glob("*.txt")) + sorted(INTEGRATION_LOGS.glob("*.log"))
+    integration_sources = (
+        sorted(VALIDATION.glob("*.txt"))
+        + sorted(INTEGRATION_LOGS.glob("*.log"))
+        + sorted(INTEGRATION_LOGS.glob("*.json"))
+    )
     integration_text = "\n\n".join(
         f"===== {path.as_posix()} =====\n{bounded(read_text(path))}" for path in integration_sources
     )

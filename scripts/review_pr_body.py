@@ -267,6 +267,154 @@ WO-008-G1 READY FOR SOL GITHUB AUDIT
 """
 
 
+def _render_wo009_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+    auto_merge_owner_login: str,
+    auto_merge_owner_type: str,
+) -> str:
+    owner_text = (
+        f"`{auto_merge_owner_login}` ({auto_merge_owner_type})"
+        if auto_merge_owner_login and auto_merge_owner_type
+        else "recorded by Review Evidence"
+    )
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo
+
+Esta PR implementa somente a fundação determinística do Context Manager sobre
+o Project Registry, Task Intake, índice/corpus, retrieval híbrido e reranking
+já aprovados. Não há LLM, memória, migration ou alteração do Project Brain.
+
+## 2. Base / branch / HEAD / PR
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- HEAD final: `{head_sha}`.
+
+## 3. Arquivos criados/alterados
+
+O conjunto está restrito ao Context Manager, API, testes determinísticos,
+integração Docker/Git, evidência/schema, workflow, documentação não canônica,
+atlas gerado e este template de handoff.
+
+## 4. Decisões locais de implementação
+
+O assembler reutiliza os serviços existentes para lookup de projeto e tarefa,
+currentness de índice/corpus e `rerank_search(...)`; não duplica retrieval,
+fusão semântica, fallback ou regras de segurança de paths.
+
+## 5. Contrato do Context Manager
+
+`POST /api/v1/projects/{{project_id}}/tasks/{{task_id}}/context` retorna
+`context-capsule-v1` com projeto, tarefa, governança, estrutura explícita da
+tarefa, retrieval, projeções de arquivos/símbolos/testes, proveniência e bounds.
+
+## 6. Governança / checkpoint-first
+
+Somente os cinco caminhos `docs/project-brain` Git-tracked do projeto alvo são
+aceitos. O checkpoint é processado e emitido primeiro. A seleção de governança
+é em duas fases: cobertura obrigatória das cinco fontes, depois extras
+opcionais. A ordem de autoridade obrigatória permanece
+CHECKPOINT -> SCOPE -> DEFINITION_OF_DONE -> ARCHITECTURE -> DECISIONS.
+O budget de caracteres reserva cobertura obrigatória antes de extras;
+cobertura impossível falha fechado.
+
+## 7. Bounds e determinismo
+
+Task, excerpts, seções, resultados, snippets e o JSON final usam limites fixos.
+Truncation flags e métricas de caracteres são emitidos; entradas idênticas em
+estado idêntico produzem o mesmo capsule sem timestamp ou UUID novo.
+
+## 8. Trust boundary / segurança
+
+Task text não é governança, não executa instruções e só produz constraints ou
+acceptance criteria quando headings explícitos existem. Paths, symlinks,
+project binding, Git tracking, SQL e erros permanecem fail-closed e bounded.
+
+## 9. Retrieval / rerank / fallback
+
+O query é derivado deterministicamente e normalizado pelo contrato existente.
+O pipeline rerank/hybrid/semantic preserva seus estados, fallbacks, scores e
+proveniência; o Context Manager não chama provider diretamente.
+
+## 10. Testes unitários
+
+Cobertura inclui ordem e identidade de governança, isolamento, task binding,
+trust, parsing explícito, query bound, projections, provenance, fallback,
+truncation, repetibilidade, races, errors e API contract.
+
+## 11. Integração real
+
+O cenário real usa dois projetos Git registrados, Task Intake, index, corpus,
+semantic/rerank fixtures, context API, missing governance, cross-project,
+HEAD race e rebuild após Redis/API restart.
+
+## 12. Lint / typecheck / build / audit
+
+Validate, secret scan, canonical/map checks, Ruff, mypy, pytest, dashboard
+lint/typecheck/tests/build/audit, Compose config e integrações existentes
+devem passar. Migration head permanece `0005_semantic_retrieval`.
+Comandos executados incluem `python scripts/verify_canonical_sources.py`,
+`python scripts/validate.py` e `python scripts/context_manager_integration.py`.
+
+## 13. Review Evidence
+
+Artifact: `{artifact_name}`. A evidência Context Manager deve mostrar
+checkpoint-first, `mandatory_governance_coverage: true`, a sequência
+obrigatória das cinco fontes, project/task scoped, reranked retrieval,
+provenance, deterministic two-run, bounds, isolation, missing-governance/HEAD
+fail-closed, Redis/API rebuild e `llm_calls: 0`.
+
+## 14. Ruleset / auto-merge
+
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. Ruleset unchanged, checks reais, squash-only e zero bypass.
+Auto-merge owner: {owner_text}; somente User é aceito.
+
+## 15. Erros corrigidos durante a execução
+
+Falhas de bounds e fixtures de integração foram corrigidas com limites e
+diagnósticos determinísticos; nenhuma alteração de produto foi necessária.
+
+## 16. Riscos pendentes
+
+O capsule é uma fundação bounded e não substitui memória, token accounting,
+progressive disclosure ou execução autônoma. O cenário local pode exigir
+tempo adicional para inicialização Docker em hosts Windows.
+
+## 17. Escopo negativo
+
+Não foi feita memória, adaptive token budget, token accounting, MCP, planner,
+executor dispatch, tool execution, dashboard UI, migration, release/tag,
+alteração canônica do checkpoint ou implementação de outro work order.
+
+## 18. Proposta de checkpoint
+
+Nenhuma atualização canônica é executada por esta PR. A promoção futura deve
+ser uma ordem separada após auditoria de Sol.
+
+## 19. Sol Review State
+
+A PR permanece aberta, Ready e não mesclada. Aprovações independentes
+observadas: zero. Sol Review State: AWAITING_SOL.
+
+WO-009 READY FOR SOL GITHUB AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -279,6 +427,8 @@ def render_body(
     ruleset_after: str,
     merge_before: str,
     merge_after: str,
+    auto_merge_owner_login: str = "",
+    auto_merge_owner_type: str = "",
 ) -> str:
     if work_order == "WO-008":
         return _render_wo008_body(
@@ -305,6 +455,21 @@ def render_body(
             ruleset_after=ruleset_after,
             merge_before=merge_before,
             merge_after=merge_after,
+        )
+    if work_order == "WO-009":
+        return _render_wo009_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+            auto_merge_owner_login=auto_merge_owner_login,
+            auto_merge_owner_type=auto_merge_owner_type,
         )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 
@@ -455,6 +620,8 @@ def main() -> int:
     parser.add_argument("--ruleset-after", default="captured in the final evidence")
     parser.add_argument("--merge-before", default="captured in the prior audit")
     parser.add_argument("--merge-after", default="captured in the final evidence")
+    parser.add_argument("--auto-merge-owner-login", default="")
+    parser.add_argument("--auto-merge-owner-type", default="")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     body = render_body(
@@ -468,6 +635,8 @@ def main() -> int:
         ruleset_after=args.ruleset_after,
         merge_before=args.merge_before,
         merge_after=args.merge_after,
+        auto_merge_owner_login=args.auto_merge_owner_login,
+        auto_merge_owner_type=args.auto_merge_owner_type,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

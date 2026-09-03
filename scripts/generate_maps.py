@@ -52,11 +52,15 @@ def build_files() -> dict[Path, str]:
         "| Module | Responsibility |",
         "| --- | --- |",
         "| backend/app/config.py | Environment and persistence configuration. |",
+        (
+            "| backend/app/context_manager.py | Deterministic bounded project/task "
+            "context capsule assembly. |"
+        ),
         "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",
         "| backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |",
         (
             "| backend/app/main.py | Versioned FastAPI health, Project Registry, "
-            "repository indexing and Task Intake API. |"
+            "repository indexing, Task Intake, and Context Manager API. |"
         ),
         (
             "| backend/app/registry.py | Project Registry schemas, canonical physical "
@@ -113,6 +117,11 @@ def build_files() -> dict[Path, str]:
             "| migrations/versions/0005_semantic_retrieval.py | Durable project-scoped "
             "embedding profiles, runs and pgvector chunk embeddings. |"
         ),
+        (
+            "| scripts/context_manager_integration.py | Real Docker/Git two-project "
+            "Context Manager, mandatory governance coverage, isolation, bounds and "
+            "restart evidence. |"
+        ),
         "| scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |",
         (
             "| scripts/review_evidence.py | Versioned, secret-free Review Evidence "
@@ -132,6 +141,11 @@ def build_files() -> dict[Path, str]:
         "| Test or check | Coverage |",
         "| --- | --- |",
         "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |",
+        (
+            "| backend/tests/test_context_manager.py | Deterministic checkpoint-first "
+            "context capsules, mandatory governance coverage, bounds, isolation, "
+            "fallback and races. |"
+        ),
         "| backend/tests/test_health.py | API response shape and degraded status. |",
         (
             "| backend/tests/test_registry.py | Path boundary, canonical aliases, "
@@ -203,6 +217,11 @@ def build_files() -> dict[Path, str]:
         (
             "| scripts/retrieval_integration.py | Real-Git corpus sync, lexical, "
             "semantic and hybrid benchmark, revalidation, isolation and restart persistence. |"
+        ),
+        (
+            "| scripts/context_manager_integration.py | Real Docker/Git two-project "
+            "Context Manager, mandatory governance coverage, isolation, bounds and "
+            "restart evidence. |"
         ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "| scripts/review_evidence.py | Review Evidence schema and exact-head validation. |",
