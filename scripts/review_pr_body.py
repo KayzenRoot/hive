@@ -1,9 +1,169 @@
-"""Render the twenty-section executor review for an auditable pull request."""
+"""Render the executor review for an auditable pull request."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
+
+def _render_wo008_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta entrega adiciona a fundação de reranking provider-independent, opcional e
+bounded sobre candidatos híbridos project-scoped já existentes.
+
+## 2. Base, branch e head
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata auditada: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+
+## 3. Arquitetura
+
+O reranker consome somente o conjunto híbrido limitado e não substitui lexical,
+semântico ou RRF. O núcleo depende de um contrato `RerankerAdapter` substituível;
+o transporte HTTP é uma implementação mínima sem SDK de fornecedor obrigatório.
+
+## 4. Perfil e configuração
+
+O recurso é desabilitado por padrão. Adapter, modelo, revisão e versão de
+serialização formam fingerprint estável; URL e chave não participam da
+identidade. Pool, query, documentos, resposta e timeout permanecem bounded.
+
+## 5. Serialização
+
+A versão `rerank-document-v1` serializa apenas source kind, path, title,
+qualified symbol e snippet limitado, com ordem de campos estável. Não há texto
+de arquivo inteiro, score bruto canônico ou payload persistido.
+
+## 6. Transporte
+
+O contrato local usa `{{model, query, documents, top_n}}` e exige
+`{{model?, results:[{{index, relevance_score}}]}}`. Índices são explícitos e a
+resposta precisa cobrir cada candidato exatamente uma vez.
+
+## 7. API
+
+`POST /api/v1/projects/{{project_id}}/retrieval/rerank` expõe query, top-k,
+source kind, candidate pool e `strict_rerank`. Status separado mostra estado,
+perfil, revisão, fingerprint curto, serializer e limites sem exibir segredos.
+
+## 8. Fallback
+
+Disabled, unconfigured, no candidates, provider error, timeout, stale/config
+inválido e resposta malformada preservam exatamente a ordem híbrida e deixam o
+score de rerank nulo. O modo estrito retorna erro 503 bounded.
+
+## 9. Proveniência
+
+Cada resultado preserva project/reference/chunk/corpus, hashes, snippet,
+linhas, chars, source kind e identidade de origem, além de pre-rerank rank,
+rerank rank, score e contribuições híbridas.
+
+## 10. Segurança
+
+Somente URL HTTP(S) confiável é aceita; credenciais inline, URL arbitrária e
+model caller-controlled são rejeitados. A API key usa `SecretStr`, header
+transitório e nunca é persistida, retornada ou registrada.
+
+## 11. Dashboard
+
+O Control Center mostra enabled/configured, adapter, modelo, revisão,
+fingerprint curto, serializer e pool. O lab permite rerank híbrido, pool,
+strict mode e inspeção antes/depois, contribuições e proveniência.
+
+## 12. Benchmark
+
+O benchmark preserva os baselines lexical, semantic e hybrid e adiciona um
+desafio determinístico em que um candidato relevante já está no pool e é
+promovido. Os gates exigem recall@5 e MRR não inferiores ao híbrido, melhoria
+estrita, zero miss crítico, pool limitado e duas execuções reproduzíveis.
+
+## 13. Testes unitários
+
+São cobertos disabled/default, bounds, fingerprint sem segredo, serialização,
+índices reversos explícitos, duplicados, ausentes, fora do range, NaN,
+Infinity, score inválido, mismatch de modelo, HTTP, timeout e todos os
+fallbacks, incluindo strict mode.
+
+## 14. Integração Docker
+
+O fixture local determinístico e o stack real PostgreSQL/pgvector, Redis, API e
+dashboard validam candidatos híbridos apenas, promoção, isolamento, pool,
+fallback exato, resposta inválida, provider down, status strict e benchmark.
+A correção C1 também publica evidência real para isolamento project-scoped,
+colapso de TASK duplicada, matriz de respostas inválidas, preservação de
+semantic STALE, não vazamento de segredo-sentinela e reprodutibilidade da ordem
+de identidades/ranks; os valores auditáveis ficam no artefato e no sticky.
+
+## 15. Resiliência
+
+O corpus corrente continua válido durante falhas de provider e reinícios de
+Redis/API. Não há migration nova, tabela durável de rerank, alteração de
+currentness semântica ou chamada a rede pública no gate.
+
+## 16. Review Evidence
+
+O marcador `<!-- hive-review-evidence:{work_order} -->` e o artefato
+`{artifact_name}` são derivados dinamicamente do work order e do head. O
+manifesto consolida testes, integração, benchmark, segurança, warnings e
+governança com limites determinísticos.
+
+## 17. Governança GitHub
+
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. A proteção permanece ativa, checks reais, squash-only, sem
+bypass e com uma aprovação independente elegível exigida. O executor não
+aprova e não faz merge.
+
+## 18. Arquivos e artefato
+
+As superfícies alteradas ficam em backend, dashboard, scripts, benchmark,
+schema de evidência, configuração Docker, `.env.example`, mapas gerados e
+documentação não canônica. O consolidado é `{artifact_name}`.
+
+## 19. Riscos e limites
+
+O adapter HTTP é deliberadamente mínimo e o fixture mede apenas propriedades
+mecânicas do contrato. Não há alegação de qualidade de produção, ranking
+universal, cache semântico ou dependência de um fornecedor específico.
+
+## 20. Escopo negativo
+
+Não foi feita migration, promoção de checkpoint canônico, release, tag, merge
+manual, bypass, aprovação automática de Sol, executor autônomo, memória,
+Context Manager, MCP ou WO-009.
+
+## 21. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Aprovações independentes
+observadas: zero. Sol Review State: AWAITING_SOL.
+
+## 22. Checkpoint proposto
+
+O checkpoint canônico não foi modificado. Após auditoria independente de Sol,
+fica proposta apenas a decisão de promover WO-008; nenhuma mutação canônica é
+executada por esta PR.
+
+WO-008-C1 READY FOR SOL GITHUB AUDIT
+"""
 
 
 def render_body(
@@ -19,6 +179,19 @@ def render_body(
     merge_before: str,
     merge_after: str,
 ) -> str:
+    if work_order == "WO-008":
+        return _render_wo008_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 
 # Revisão do executor — {work_order}

@@ -105,6 +105,7 @@
         "api_restart": { "type": "boolean" },
         "semantic": { "$ref": "#/$defs/benchmark_slice" },
         "hybrid": { "$ref": "#/$defs/benchmark_slice" },
+        "rerank": { "$ref": "#/$defs/rerank_benchmark" },
         "semantic_integrity": { "$ref": "#/$defs/semantic_integrity" },
         "fallback": { "$ref": "#/$defs/fallback" },
         "hybrid_recall_at_5_gte_extended_lexical": { "type": "boolean" },
@@ -159,6 +160,7 @@
             "retrieval": { "$ref": "#/$defs/result" },
             "redis_restart": { "$ref": "#/$defs/result" },
             "api_restart": { "$ref": "#/$defs/result" },
+            "reranking": { "$ref": "#/$defs/result" },
             "benchmark_gate": {
               "type": "object",
               "additionalProperties": false,
@@ -188,7 +190,31 @@
                 "semantic_challenge_recovered": { "type": "boolean" },
                 "hybrid_fallback_provider_error": { "type": "boolean" },
                 "hybrid_fallback_stale": { "type": "boolean" },
-                "semantic_project_isolation": { "type": "boolean" }
+                "semantic_project_isolation": { "type": "boolean" },
+                "rerank_recall_at_5_gte_hybrid": { "type": "boolean" },
+                "rerank_mrr_gte_hybrid": { "type": "boolean" },
+                "rerank_strict_rank_improvement": { "type": "boolean" },
+                "rerank_candidate_pool_bounded": { "type": "boolean" },
+                "rerank_provenance_preserved": { "type": "boolean" },
+                "rerank_disabled_exact_fallback": { "type": "boolean" },
+                "rerank_invalid_response_safe": { "type": "boolean" },
+                "rerank_provider_failure_safe": { "type": "boolean" },
+                "rerank_provider_down_safe": { "type": "boolean" },
+                "rerank_project_isolation": { "type": "boolean" },
+                "rerank_duplicate_task_collapsed": { "type": "boolean" },
+                "rerank_cross_project_duplicate_isolation": { "type": "boolean" },
+                "rerank_missing_index_safe": { "type": "boolean" },
+                "rerank_out_of_range_index_safe": { "type": "boolean" },
+                "rerank_duplicate_index_safe": { "type": "boolean" },
+                "rerank_non_finite_score_safe": { "type": "boolean" },
+                "rerank_model_mismatch_safe": { "type": "boolean" },
+                "rerank_malformed_response_matrix": { "type": "boolean" },
+                "rerank_default_order_preserved": { "type": "boolean" },
+                "rerank_fallback_scores_null": { "type": "boolean" },
+                "rerank_strict_invalid_response_bounded": { "type": "boolean" },
+                "rerank_semantic_stale_state_preserved": { "type": "boolean" },
+                "rerank_secret_not_leaked": { "type": "boolean" },
+                "rerank_ordering_reproducible": { "type": "boolean" }
               }
             },
             "semantic_hybrid": {
@@ -200,7 +226,8 @@
                 "semantic": { "$ref": "#/$defs/benchmark_slice" },
                 "hybrid": { "$ref": "#/$defs/benchmark_slice" },
                 "semantic_integrity": { "$ref": "#/$defs/semantic_integrity" },
-                "fallback": { "$ref": "#/$defs/fallback" }
+                "fallback": { "$ref": "#/$defs/fallback" },
+                "rerank": { "$ref": "#/$defs/rerank_benchmark" }
               }
             }
           }
@@ -224,7 +251,8 @@
                 "basis": { "type": "string", "minLength": 1 }
               }
             },
-            "source_staleness_fail_closed": { "$ref": "#/$defs/result" }
+            "source_staleness_fail_closed": { "$ref": "#/$defs/result" },
+            "reranking": { "$ref": "#/$defs/result" }
           }
         },
         "warnings": {
@@ -375,6 +403,51 @@
         "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
         "critical_context_misses": { "type": "integer", "minimum": 0 },
         "two_run_reproducibility": { "type": "boolean" }
+      }
+    },
+    "rerank_benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "query_count", "recall_at_1", "recall_at_5", "mrr", "critical_context_misses", "two_run_reproducibility"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "query_count": { "type": "integer", "minimum": 0 },
+        "recall_at_1": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "critical_context_misses": { "type": "integer", "minimum": 0 },
+        "two_run_reproducibility": { "type": "boolean" },
+        "hybrid_recall_at_5": { "type": "number", "minimum": 0, "maximum": 1 },
+        "hybrid_mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall_at_5_gte_hybrid": { "type": "boolean" },
+        "mrr_gte_hybrid": { "type": "boolean" },
+        "strict_rank_improvement": { "type": "boolean" },
+        "candidate_pool_bounded": { "type": "boolean" },
+        "provenance_preserved": { "type": "boolean" },
+        "disabled_exact_fallback": { "type": "boolean" },
+        "invalid_response_exact_fallback": { "type": "boolean" },
+        "provider_failure_exact_fallback": { "type": "boolean" },
+        "provider_down_exact_fallback": { "type": "boolean" },
+        "strict_failure_bounded": { "type": "boolean" },
+        "profile_visible_without_secret": { "type": "boolean" },
+        "strict_invalid_response_bounded": { "type": "boolean" },
+        "rerank_project_isolation": { "type": "boolean" },
+        "rerank_duplicate_task_collapsed": { "type": "boolean" },
+        "rerank_cross_project_duplicate_isolation": { "type": "boolean" },
+        "rerank_missing_index_safe": { "type": "boolean" },
+        "rerank_out_of_range_index_safe": { "type": "boolean" },
+        "rerank_duplicate_index_safe": { "type": "boolean" },
+        "rerank_non_finite_score_safe": { "type": "boolean" },
+        "rerank_model_mismatch_safe": { "type": "boolean" },
+        "rerank_malformed_response_matrix": { "type": "boolean" },
+        "rerank_default_order_preserved": { "type": "boolean" },
+        "rerank_fallback_scores_null": { "type": "boolean" },
+        "rerank_strict_invalid_response_bounded": { "type": "boolean" },
+        "rerank_semantic_stale_state_preserved": { "type": "boolean" },
+        "rerank_secret_not_leaked": { "type": "boolean" },
+        "rerank_ordering_reproducible": { "type": "boolean" },
+        "run_1_order_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "run_2_order_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "semantic_integrity": {

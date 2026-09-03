@@ -18,6 +18,7 @@ from scripts.review_evidence import (
     manifest_log,
     parse_work_order_marker,
     require_hive_final_handoff,
+    require_wo008_c1_evidence,
     summary_markdown,
     validate_manifest,
     warnings_evidence,
@@ -385,6 +386,7 @@ def test_pr_body_template_contains_work_order_marker_and_sol_state() -> None:
 
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
+    manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
     write_consolidated_artifact(tmp_path, manifest, "summary\n")
     expected = {
         "changed-files.txt",
@@ -402,6 +404,7 @@ def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path
         "github-governance.json",
     }
     assert expected <= {path.name for path in tmp_path.iterdir()}
+    assert json.loads((tmp_path / "review-manifest.json").read_text(encoding="utf-8")) == manifest
 
 
 def test_consolidated_artifact_contains_captured_service_warning_log(
@@ -452,6 +455,26 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Sol Review State: AWAITING_SOL",
     ):
         assert field in summary
+
+
+def test_wo008_c1_evidence_fails_closed_on_missing_safety_proof() -> None:
+    required = {field: True for field in review_evidence.RERANK_C1_REQUIRED_FIELDS}
+    benchmark = {"status": "PASS", "rerank": {"status": "PASS", **required}}
+    integration = {"integrity_tests": required}
+    security = {"reranking": {"status": "PASS"}}
+
+    require_wo008_c1_evidence(
+        "WO-008", benchmark, integration, security, "bounded evidence", "review text"
+    )
+
+    failed_benchmark = {
+        "status": "PASS",
+        "rerank": {"status": "PASS", **required, "rerank_ordering_reproducible": False},
+    }
+    with pytest.raises(ValueError, match="mandatory rerank C1 evidence"):
+        require_wo008_c1_evidence(
+            "WO-008", failed_benchmark, integration, security, "bounded evidence", "review text"
+        )
 
 
 def test_generic_bundle_zip_is_byte_deterministic(tmp_path: Path) -> None:

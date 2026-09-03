@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -15,14 +17,33 @@ from project_registry_integration import (
     assert_equal,
     cleanup_temporary_root,
     compose,
-    request,
     run,
     wait_for_health,
+)
+from project_registry_integration import (
+    request as http_request,
 )
 
 SCHEMA_REVISION = "0005_semantic_retrieval"
 MANIFEST = ROOT / "benchmarks" / "retrieval_lexical_manifest.json"
 BENCHMARK_OUTPUT = ROOT / "tmp" / "validation" / "retrieval-benchmark.json"
+RERANK_SECRET_SENTINEL = ""
+
+
+def request(
+    base_url: str, method: str, path: str, payload: dict[str, Any] | None = None
+) -> tuple[int, dict[str, Any] | list[Any]]:
+    status, response = http_request(base_url, method, path, payload)
+    if RERANK_SECRET_SENTINEL and RERANK_SECRET_SENTINEL in json.dumps(
+        response, ensure_ascii=False, sort_keys=True
+    ):
+        raise AssertionError("rerank secret leaked in an API response")
+    return status, response
+
+
+def ordering_digest(ordering: list[dict[str, Any]]) -> str:
+    canonical = json.dumps(ordering, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def free_port() -> int:
@@ -172,19 +193,175 @@ def semantic_benchmark(
     }
 
 
+def rerank_benchmark(
+    base_url: str,
+    project_id: str,
+    queries: list[dict[str, Any]],
+    *,
+    run_number: int,
+) -> dict[str, Any]:
+    latencies: list[float] = []
+    reciprocal_ranks: list[float] = []
+    hybrid_reciprocal_ranks: list[float] = []
+    recall_at_1 = 0
+    recall_at_5 = 0
+    hybrid_recall_at_5 = 0
+    critical_misses: list[str] = []
+    strict_improvements = 0
+    provenance_preserved = True
+    candidate_pool_bounded = True
+    ordering: list[dict[str, Any]] = []
+    for item in queries:
+        started = time.perf_counter()
+        status, payload = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {
+                "query": item["query"],
+                "top_k": 5,
+                "candidate_pool": 20,
+            },
+        )
+        latencies.append((time.perf_counter() - started) * 1000)
+        assert_equal(status, 200, f"rerank benchmark query status: {item['query']}")
+        assert isinstance(payload, dict)
+        results = payload.get("results", [])
+        assert isinstance(results, list)
+        assert_equal(payload.get("rerank_state"), "RERANKED", "rerank benchmark state")
+        candidate_pool_bounded = candidate_pool_bounded and payload.get("candidate_pool", 101) <= 20
+        ordered_reference_ids = [str(result.get("reference_id")) for result in results]
+        ordered_pre_rerank_ranks = [result.get("pre_rerank_rank") for result in results]
+        ordered_rerank_ranks = [result.get("rerank_rank") for result in results]
+        if (
+            any(result.get("reference_id") is None for result in results)
+            or any(not isinstance(rank, int) for rank in ordered_pre_rerank_ranks)
+            or any(not isinstance(rank, int) for rank in ordered_rerank_ranks)
+        ):
+            raise AssertionError(
+                f"rerank benchmark returned unstable identity/ranks: {item['query']}"
+            )
+        ordering.append(
+            {
+                "query": str(item["query"]),
+                "ordered_reference_ids": ordered_reference_ids,
+                "ordered_pre_rerank_ranks": ordered_pre_rerank_ranks,
+                "ordered_rerank_ranks": ordered_rerank_ranks,
+            }
+        )
+
+        hybrid_status, hybrid_payload = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": item["query"], "top_k": 20},
+        )
+        assert_equal(hybrid_status, 200, f"hybrid comparison status: {item['query']}")
+        assert isinstance(hybrid_payload, dict)
+        hybrid_results = hybrid_payload.get("results", [])
+        assert isinstance(hybrid_results, list)
+        rerank_positions = [
+            index for index, result in enumerate(results) if is_relevant(result, item)
+        ]
+        hybrid_positions = [
+            index for index, result in enumerate(hybrid_results[:5]) if is_relevant(result, item)
+        ]
+        if not rerank_positions:
+            if item.get("critical"):
+                critical_misses.append(str(item["query"]))
+            reciprocal_ranks.append(0.0)
+        else:
+            position = rerank_positions[0]
+            reciprocal_ranks.append(1 / (position + 1))
+            if position == 0:
+                recall_at_1 += 1
+            recall_at_5 += 1
+            matching = results[position]
+            pre_rank = matching.get("pre_rerank_rank")
+            if isinstance(pre_rank, int) and pre_rank > position + 1:
+                strict_improvements += 1
+        if hybrid_positions:
+            hybrid_position = hybrid_positions[0]
+            hybrid_recall_at_5 += 1
+            hybrid_reciprocal_ranks.append(1 / (hybrid_position + 1))
+        else:
+            hybrid_reciprocal_ranks.append(0.0)
+
+        if rerank_positions:
+            matching = results[rerank_positions[0]]
+            matching_reference = matching.get("reference_id")
+            provenance_preserved = provenance_preserved and all(
+                matching.get(field) is not None
+                for field in (
+                    "project_id",
+                    "reference_id",
+                    "chunk_id",
+                    "corpus_run_id",
+                    "source_content_sha256",
+                    "chunk_content_sha256",
+                    "snippet",
+                )
+            )
+            provenance_preserved = provenance_preserved and any(
+                result.get("reference_id") == matching_reference for result in hybrid_results
+            )
+
+    count = len(queries)
+    mrr = sum(reciprocal_ranks) / count if count else 0.0
+    hybrid_mrr = sum(hybrid_reciprocal_ranks) / count if count else 0.0
+    return {
+        "run": run_number,
+        "query_count": count,
+        "recall_at_1": recall_at_1 / count if count else 0.0,
+        "recall_at_5": recall_at_5 / count if count else 0.0,
+        "mrr": mrr,
+        "critical_context_misses": critical_misses,
+        "average_latency_ms": sum(latencies) / count if count else 0.0,
+        "max_latency_ms": max(latencies) if latencies else 0.0,
+        "hybrid_recall_at_5": hybrid_recall_at_5 / count if count else 0.0,
+        "hybrid_mrr": hybrid_mrr,
+        "recall_at_5_gte_hybrid": recall_at_5 >= hybrid_recall_at_5,
+        "mrr_gte_hybrid": mrr >= hybrid_mrr,
+        "strict_rank_improvement": strict_improvements > 0,
+        "strict_rank_improvements": strict_improvements,
+        "candidate_pool_bounded": candidate_pool_bounded,
+        "provenance_preserved": provenance_preserved,
+        "ordering": ordering,
+        "order_digest": ordering_digest(ordering),
+        "mechanical_fixture_not_production_quality": True,
+    }
+
+
+def wait_for_fixture(port: int, label: str) -> None:
+    for _ in range(30):
+        try:
+            fixture_status, _fixture_payload = request(f"http://127.0.0.1:{port}", "GET", "/health")
+            if fixture_status == 200:
+                return
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.2)
+    raise RuntimeError(f"{label} fixture did not become ready")
+
+
 def main() -> int:
+    global RERANK_SECRET_SENTINEL
+
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     queries = manifest["queries"]
+    rerank_queries = manifest.get("rerank_queries", [])
     temporary_root = Path(tempfile.mkdtemp(prefix="retrieval-", dir=ROOT / "tmp"))
     project_name = f"hive-retrieval-{os.getpid()}"
     api_port = free_port()
     dashboard_port = free_port()
     fixture_port = free_port()
+    rerank_fixture_port = free_port()
     projects_root = temporary_root / "projects"
     data_root = temporary_root / "data"
     projects_root.mkdir()
     data_root.mkdir()
     environment = os.environ.copy()
+    RERANK_SECRET_SENTINEL = f"WO008_TEST_SECRET_DO_NOT_LEAK_{secrets.token_urlsafe(18)}"
     environment.update(
         {
             "HIVE_API_PORT": str(api_port),
@@ -201,6 +378,15 @@ def main() -> int:
             "HIVE_EMBEDDING_DIMENSIONS": "8",
             "HIVE_EMBEDDING_BATCH_SIZE": "2",
             "HIVE_EMBEDDING_CANDIDATE_POOL": "20",
+            "HIVE_RERANK_ENABLED": "false",
+            "HIVE_RERANK_BASE_URL": f"http://host.docker.internal:{rerank_fixture_port}",
+            "HIVE_RERANK_MODEL": "hive-rerank-fixture-v1",
+            "HIVE_RERANK_MODEL_REVISION": "fixture-2026-09-02",
+            "HIVE_RERANK_API_KEY": RERANK_SECRET_SENTINEL,
+            "HIVE_RERANK_TIMEOUT_SECONDS": "1",
+            "HIVE_RERANK_CANDIDATE_POOL": "20",
+            "HIVE_RERANK_MAX_DOCUMENT_CHARS": "6000",
+            "HIVE_RERANK_MAX_QUERY_CHARS": "512",
         }
     )
     repository = projects_root / "retrieval-sample"
@@ -265,19 +451,23 @@ def main() -> int:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
+    rerank_fixture_process = subprocess.Popen(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "rerank_fixture.py"),
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(rerank_fixture_port),
+        ],
+        cwd=ROOT,
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
     try:
-        for _ in range(30):
-            try:
-                fixture_status, _fixture_payload = request(
-                    f"http://127.0.0.1:{fixture_port}", "GET", "/health"
-                )
-                if fixture_status == 200:
-                    break
-            except (OSError, ValueError):
-                pass
-            time.sleep(0.2)
-        else:
-            raise RuntimeError("embedding fixture did not become ready")
+        wait_for_fixture(fixture_port, "embedding")
+        wait_for_fixture(rerank_fixture_port, "rerank")
         compose(project_name, ["up", "-d", "--build"], env=environment)
         migration = scalar(project_name, environment, "SELECT version_num FROM alembic_version")
         assert_equal(migration, SCHEMA_REVISION, "retrieval migration revision")
@@ -643,6 +833,492 @@ def main() -> int:
                 "hybrid recall@5 regressed against the extended lexical set: "
                 f"{first_hybrid_benchmark} vs {lexical_extended}"
             )
+        rerank_query = rerank_queries[0]["query"]
+        status, disabled_status = request(
+            base_url,
+            "GET",
+            f"/api/v1/projects/{project_id}/retrieval/rerank/status",
+        )
+        assert_equal(status, 200, "disabled rerank status")
+        assert isinstance(disabled_status, dict)
+        assert_equal(disabled_status["enabled"], False, "rerank disabled by default")
+        assert_equal(disabled_status["configured"], False, "disabled rerank not configured")
+        status, disabled_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": rerank_query, "top_k": 20},
+        )
+        assert_equal(status, 200, "disabled rerank hybrid comparison")
+        assert isinstance(disabled_hybrid, dict)
+        status, disabled_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {"query": rerank_query, "top_k": 5, "candidate_pool": 20},
+        )
+        assert_equal(status, 200, "disabled rerank fallback")
+        assert isinstance(disabled_rerank, dict)
+        assert_equal(
+            disabled_rerank["rerank_state"],
+            "RERANK_FALLBACK_DISABLED",
+            "disabled rerank state",
+        )
+        assert_equal(
+            [item["reference_id"] for item in disabled_rerank["results"]],
+            [item["reference_id"] for item in disabled_hybrid["results"][:5]],
+            "disabled rerank exact order",
+        )
+        if any(item.get("rerank_score") is not None for item in disabled_rerank["results"]):
+            raise AssertionError("disabled rerank returned a score")
+
+        environment["HIVE_RERANK_ENABLED"] = "true"
+        compose(
+            project_name,
+            ["up", "-d", "--force-recreate", "api"],
+            env=environment,
+        )
+        wait_for_health(base_url)
+        status, active_status = request(
+            base_url,
+            "GET",
+            f"/api/v1/projects/{project_id}/retrieval/rerank/status",
+        )
+        assert_equal(status, 200, "active rerank status")
+        assert isinstance(active_status, dict)
+        assert_equal(active_status["enabled"], True, "rerank enabled status")
+        assert_equal(active_status["configured"], True, "rerank configured status")
+        profile = active_status.get("reranker_profile")
+        assert isinstance(profile, dict)
+        assert_equal(profile["model"], "hive-rerank-fixture-v1", "rerank profile model")
+        assert isinstance(profile.get("identity_fingerprint"), str)
+        if "api_key" in json.dumps(active_status).casefold():
+            raise AssertionError("rerank status exposed a secret field")
+
+        rerank_project_isolation = False
+        rerank_duplicate_task_collapsed = False
+        rerank_cross_project_duplicate_isolation = False
+        rerank_missing_index_safe = False
+        rerank_out_of_range_index_safe = False
+        rerank_duplicate_index_safe = False
+        rerank_non_finite_score_safe = False
+        rerank_model_mismatch_safe = False
+        rerank_malformed_response_matrix = False
+        rerank_default_order_preserved = False
+        rerank_fallback_scores_null = False
+        rerank_strict_invalid_response_bounded = False
+        rerank_semantic_stale_state_preserved = False
+
+        status, project_a_isolation_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {
+                "query": "OrderService.get_project_order rebuild checkout manifest",
+                "top_k": 20,
+            },
+        )
+        assert_equal(status, 200, "project A rerank isolation baseline")
+        assert isinstance(project_a_isolation_hybrid, dict)
+        project_a_reference_ids = {
+            str(result.get("reference_id"))
+            for result in project_a_isolation_hybrid.get("results", [])
+            if result.get("reference_id") is not None
+        }
+        status, project_b_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{other_project_id}/retrieval/rerank",
+            {
+                "query": "OrderService.get_project_order rebuild checkout manifest",
+                "top_k": 5,
+                "candidate_pool": 20,
+            },
+        )
+        assert_equal(status, 200, "project B rerank isolation")
+        assert isinstance(project_b_rerank, dict)
+        project_b_results = project_b_rerank.get("results", [])
+        assert isinstance(project_b_results, list)
+        if not project_b_results:
+            raise AssertionError("project B rerank isolation returned no bounded candidates")
+        assert_equal(
+            all(result.get("project_id") == other_project_id for result in project_b_results),
+            True,
+            "project B rerank project scope",
+        )
+        assert_equal(
+            all(
+                str(result.get("reference_id")) not in project_a_reference_ids
+                for result in project_b_results
+            ),
+            True,
+            "project B rerank reference isolation",
+        )
+        assert_equal(
+            all(result.get("path") != "src/order_service.py" for result in project_b_results),
+            True,
+            "project B rerank path isolation",
+        )
+        assert_equal(
+            all(
+                result.get("qualified_symbol") != "OrderService.get_project_order"
+                for result in project_b_results
+            ),
+            True,
+            "project B rerank symbol isolation",
+        )
+        assert_equal(
+            all(
+                result.get("task_id") not in {task_id, duplicate_task_id}
+                for result in project_b_results
+            ),
+            True,
+            "project B rerank task isolation",
+        )
+        rerank_project_isolation = True
+
+        status, project_a_task_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {
+                "query": "rebuild checkout manifest",
+                "top_k": 20,
+                "source_kind": "TASK",
+            },
+        )
+        assert_equal(status, 200, "project A duplicate task rerank baseline")
+        assert isinstance(project_a_task_hybrid, dict)
+        project_a_task_candidates = project_a_task_hybrid.get("results", [])
+        assert isinstance(project_a_task_candidates, list)
+        assert_equal(len(project_a_task_candidates), 1, "project A duplicate task hybrid collapse")
+        status, project_a_task_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {
+                "query": "rebuild checkout manifest",
+                "top_k": 5,
+                "candidate_pool": 20,
+                "source_kind": "TASK",
+            },
+        )
+        assert_equal(status, 200, "project A duplicate task rerank")
+        assert isinstance(project_a_task_rerank, dict)
+        project_a_task_results = project_a_task_rerank.get("results", [])
+        assert isinstance(project_a_task_results, list)
+        assert_equal(len(project_a_task_results), 1, "project A duplicate task rerank collapse")
+        assert_equal(
+            project_a_task_rerank.get("candidate_pool"), 1, "project A duplicate task bounded pool"
+        )
+        assert_equal(
+            project_a_task_results[0].get("source_kind"), "TASK", "project A task provenance kind"
+        )
+        assert_equal(
+            project_a_task_results[0].get("task_id") in {task_id, duplicate_task_id},
+            True,
+            "project A duplicate representative provenance",
+        )
+        assert_equal(
+            len({result.get("task_id") for result in project_a_task_results}),
+            1,
+            "project A duplicate task output uniqueness",
+        )
+        rerank_duplicate_task_collapsed = True
+
+        status, project_b_task_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{other_project_id}/retrieval/rerank",
+            {
+                "query": "rebuild checkout manifest",
+                "top_k": 5,
+                "candidate_pool": 20,
+                "source_kind": "TASK",
+            },
+        )
+        assert_equal(status, 200, "project B duplicate task rerank")
+        assert isinstance(project_b_task_rerank, dict)
+        project_b_task_results = project_b_task_rerank.get("results", [])
+        assert isinstance(project_b_task_results, list)
+        assert_equal(len(project_b_task_results), 1, "project B duplicate task rerank collapse")
+        assert_equal(
+            project_b_task_results[0].get("project_id"), other_project_id, "project B task scope"
+        )
+        assert_equal(
+            project_b_task_results[0].get("task_id"), isolated_task_id, "project B task provenance"
+        )
+        assert_equal(
+            project_b_task_results[0].get("task_id") not in {task_id, duplicate_task_id},
+            True,
+            "cross-project duplicate task isolation through rerank",
+        )
+        rerank_cross_project_duplicate_isolation = True
+
+        first_rerank_benchmark = rerank_benchmark(
+            base_url, project_id, rerank_queries, run_number=1
+        )
+        second_rerank_benchmark = rerank_benchmark(
+            base_url, project_id, rerank_queries, run_number=2
+        )
+        for result in (first_rerank_benchmark, second_rerank_benchmark):
+            assert_equal(result["critical_context_misses"], [], "rerank critical misses")
+            assert_equal(result["recall_at_5_gte_hybrid"], True, "rerank recall gate")
+            assert_equal(result["mrr_gte_hybrid"], True, "rerank mrr gate")
+            assert_equal(result["strict_rank_improvement"], True, "rerank strict improvement")
+            assert_equal(result["candidate_pool_bounded"], True, "rerank candidate pool bound")
+            assert_equal(result["provenance_preserved"], True, "rerank provenance")
+
+        rerank_ordering_reproducible = (
+            first_rerank_benchmark["ordering"] == second_rerank_benchmark["ordering"]
+            and first_rerank_benchmark["order_digest"] == second_rerank_benchmark["order_digest"]
+        )
+        assert_equal(rerank_ordering_reproducible, True, "rerank ordering reproducibility")
+        fixture_stats = request(f"http://127.0.0.1:{rerank_fixture_port}", "GET", "/stats")[1]
+        assert isinstance(fixture_stats, dict)
+        assert_equal(
+            fixture_stats.get("last_authorization_present"),
+            True,
+            "rerank fixture received authorization",
+        )
+
+        status, reversed_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {
+                "query": "OrderService __fixture_rerank_reversed__",
+                "top_k": 5,
+                "candidate_pool": 20,
+            },
+        )
+        assert_equal(status, 200, "reversed explicit index rerank")
+        assert isinstance(reversed_rerank, dict)
+        assert_equal(reversed_rerank["rerank_state"], "RERANKED", "reversed rerank state")
+        if not reversed_rerank["results"]:
+            raise AssertionError("reversed rerank returned no candidates")
+
+        failure_query = "OrderService __fixture_rerank_provider_error__"
+        status, failure_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": failure_query, "top_k": 20},
+        )
+        assert_equal(status, 200, "rerank provider failure hybrid baseline")
+        assert isinstance(failure_hybrid, dict)
+        status, provider_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {"query": failure_query, "top_k": 5, "candidate_pool": 20},
+        )
+        assert_equal(status, 200, "rerank provider failure fallback")
+        assert isinstance(provider_rerank, dict)
+        assert_equal(
+            provider_rerank["rerank_state"],
+            "RERANK_FALLBACK_PROVIDER_ERROR",
+            "rerank provider failure state",
+        )
+        assert_equal(
+            [item["reference_id"] for item in provider_rerank["results"]],
+            [item["reference_id"] for item in failure_hybrid["results"][:5]],
+            "rerank provider failure exact order",
+        )
+        if any(item.get("rerank_score") is not None for item in provider_rerank["results"]):
+            raise AssertionError("provider failure fallback returned scores")
+        status, strict_failure = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {
+                "query": failure_query,
+                "top_k": 5,
+                "candidate_pool": 20,
+                "strict_rerank": True,
+            },
+        )
+        assert_equal(status, 503, "strict rerank provider failure")
+        assert isinstance(strict_failure, dict)
+        if len(str(strict_failure.get("detail", ""))) > 256:
+            raise AssertionError("strict rerank error was not bounded")
+
+        malformed_cases = {
+            "missing_index": "__fixture_rerank_missing__",
+            "out_of_range_index": "__fixture_rerank_out_of_range__",
+            "duplicate_index": "__fixture_rerank_duplicate__",
+            "nan_score": "__fixture_rerank_nan__",
+            "infinity_score": "__fixture_rerank_infinity__",
+            "model_mismatch": "__fixture_rerank_model_mismatch__",
+        }
+        malformed_results: dict[str, dict[str, Any]] = {}
+        status, malformed_corpus_before = request(
+            base_url, "GET", f"/api/v1/projects/{project_id}/retrieval/corpus"
+        )
+        assert_equal(status, 200, "malformed response corpus baseline")
+        assert isinstance(malformed_corpus_before, dict)
+        for case, marker in malformed_cases.items():
+            invalid_query = f"OrderService {marker}"
+            status, invalid_hybrid = request(
+                base_url,
+                "POST",
+                f"/api/v1/projects/{project_id}/retrieval/hybrid",
+                {"query": invalid_query, "top_k": 20},
+            )
+            assert_equal(status, 200, f"{case} hybrid baseline")
+            assert isinstance(invalid_hybrid, dict)
+            status, invalid_rerank = request(
+                base_url,
+                "POST",
+                f"/api/v1/projects/{project_id}/retrieval/rerank",
+                {"query": invalid_query, "top_k": 5, "candidate_pool": 20},
+            )
+            assert_equal(status, 200, f"{case} rerank fallback")
+            assert isinstance(invalid_rerank, dict)
+            assert_equal(
+                invalid_rerank.get("rerank_state"),
+                "RERANK_FALLBACK_INVALID_RESPONSE",
+                f"{case} invalid response state",
+            )
+            fallback_results = invalid_rerank.get("results", [])
+            hybrid_results = invalid_hybrid.get("results", [])
+            assert isinstance(fallback_results, list)
+            assert isinstance(hybrid_results, list)
+            order_preserved = [item.get("reference_id") for item in fallback_results] == [
+                item.get("reference_id") for item in hybrid_results[:5]
+            ]
+            scores_null = all(item.get("rerank_score") is None for item in fallback_results)
+            state_preserved = invalid_rerank.get("hybrid_state") == invalid_hybrid.get(
+                "state"
+            ) and invalid_rerank.get("semantic_state") == invalid_hybrid.get("semantic_state")
+            assert_equal(order_preserved, True, f"{case} exact hybrid order")
+            assert_equal(scores_null, True, f"{case} null rerank scores")
+            assert_equal(state_preserved, True, f"{case} retrieval state preservation")
+            malformed_results[case] = {
+                "state": invalid_rerank["rerank_state"],
+                "order_preserved": order_preserved,
+                "scores_null": scores_null,
+                "retrieval_state_preserved": state_preserved,
+            }
+
+        status, malformed_corpus_after = request(
+            base_url, "GET", f"/api/v1/projects/{project_id}/retrieval/corpus"
+        )
+        assert_equal(status, 200, "malformed response corpus after")
+        assert isinstance(malformed_corpus_after, dict)
+        assert_equal(
+            malformed_corpus_after.get("state"),
+            malformed_corpus_before.get("state"),
+            "malformed response canonical corpus state",
+        )
+        assert_equal(
+            malformed_corpus_after.get("current_run_id"),
+            malformed_corpus_before.get("current_run_id"),
+            "malformed response canonical corpus run",
+        )
+        rerank_missing_index_safe = (
+            malformed_results["missing_index"]["order_preserved"]
+            and malformed_results["missing_index"]["scores_null"]
+        )
+        rerank_out_of_range_index_safe = (
+            malformed_results["out_of_range_index"]["order_preserved"]
+            and malformed_results["out_of_range_index"]["scores_null"]
+        )
+        rerank_duplicate_index_safe = (
+            malformed_results["duplicate_index"]["order_preserved"]
+            and malformed_results["duplicate_index"]["scores_null"]
+        )
+        rerank_non_finite_score_safe = (
+            malformed_results["nan_score"]["order_preserved"]
+            and malformed_results["nan_score"]["scores_null"]
+            and malformed_results["infinity_score"]["order_preserved"]
+            and malformed_results["infinity_score"]["scores_null"]
+        )
+        rerank_model_mismatch_safe = (
+            malformed_results["model_mismatch"]["order_preserved"]
+            and malformed_results["model_mismatch"]["scores_null"]
+        )
+        rerank_malformed_response_matrix = all(
+            result["order_preserved"]
+            and result["scores_null"]
+            and result["retrieval_state_preserved"]
+            for result in malformed_results.values()
+        )
+        rerank_default_order_preserved = all(
+            result["order_preserved"] for result in malformed_results.values()
+        )
+        rerank_fallback_scores_null = all(
+            result["scores_null"] for result in malformed_results.values()
+        )
+        assert_equal(rerank_malformed_response_matrix, True, "rerank malformed response matrix")
+
+        status, strict_invalid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {
+                "query": "OrderService __fixture_rerank_missing__",
+                "top_k": 5,
+                "candidate_pool": 20,
+                "strict_rerank": True,
+            },
+        )
+        assert_equal(status, 503, "strict rerank invalid response")
+        assert isinstance(strict_invalid, dict)
+        assert_equal(
+            len(str(strict_invalid.get("detail", ""))) <= 256,
+            True,
+            "strict invalid response bounded",
+        )
+        rerank_strict_invalid_response_bounded = True
+
+        rerank_fixture_process.terminate()
+        rerank_fixture_process.wait(timeout=10)
+        provider_down_query = "OrderService.get_project_order"
+        status, provider_down_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": provider_down_query, "top_k": 20},
+        )
+        assert_equal(status, 200, "rerank provider down hybrid baseline")
+        assert isinstance(provider_down_hybrid, dict)
+        status, provider_down_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {"query": provider_down_query, "top_k": 5, "candidate_pool": 20},
+        )
+        assert_equal(status, 200, "rerank provider down fallback")
+        assert isinstance(provider_down_rerank, dict)
+        assert_equal(
+            provider_down_rerank["rerank_state"],
+            "RERANK_FALLBACK_PROVIDER_ERROR",
+            "rerank provider down state",
+        )
+        assert_equal(
+            [item["reference_id"] for item in provider_down_rerank["results"]],
+            [item["reference_id"] for item in provider_down_hybrid["results"][:5]],
+            "rerank provider down exact order",
+        )
+        if any(item.get("rerank_score") is not None for item in provider_down_rerank["results"]):
+            raise AssertionError("provider down fallback returned scores")
+        rerank_fixture_process = subprocess.Popen(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "rerank_fixture.py"),
+                "--host",
+                "0.0.0.0",
+                "--port",
+                str(rerank_fixture_port),
+            ],
+            cwd=ROOT,
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+        wait_for_fixture(rerank_fixture_port, "rerank restart")
+
         status, provider_fallback = request(
             base_url,
             "POST",
@@ -705,6 +1381,82 @@ def main() -> int:
         assert_equal(status, 200, "stale semantic hybrid fallback")
         assert isinstance(stale_hybrid, dict)
         assert_equal(stale_hybrid["state"], "LEXICAL_FALLBACK_SEMANTIC_STALE", "stale fallback")
+        stale_rerank_query = "OrderService.get_project_order"
+        status, stale_rerank_hybrid = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/hybrid",
+            {"query": stale_rerank_query, "top_k": 5},
+        )
+        assert_equal(status, 200, "stale semantic rerank hybrid baseline")
+        assert isinstance(stale_rerank_hybrid, dict)
+        assert_equal(
+            stale_rerank_hybrid.get("state"),
+            "LEXICAL_FALLBACK_SEMANTIC_STALE",
+            "stale semantic rerank hybrid state",
+        )
+        stale_rerank_hybrid_results = stale_rerank_hybrid.get("results", [])
+        assert isinstance(stale_rerank_hybrid_results, list)
+        if not stale_rerank_hybrid_results:
+            raise AssertionError("stale semantic rerank hybrid has no lexical candidates")
+        status, stale_rerank = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            {
+                "query": stale_rerank_query,
+                "top_k": 5,
+                "candidate_pool": 5,
+            },
+        )
+        assert_equal(status, 200, "stale semantic rerank")
+        assert isinstance(stale_rerank, dict)
+        assert_equal(stale_rerank.get("rerank_state"), "RERANKED", "stale rerank state")
+        assert_equal(
+            stale_rerank.get("hybrid_state"),
+            stale_rerank_hybrid.get("state"),
+            "stale hybrid state visible through rerank",
+        )
+        assert_equal(
+            stale_rerank.get("semantic_state"),
+            stale_semantic.get("state"),
+            "stale semantic state visible through rerank",
+        )
+        stale_rerank_results = stale_rerank.get("results", [])
+        assert isinstance(stale_rerank_results, list)
+        if not stale_rerank_results:
+            raise AssertionError("stale semantic rerank did not expose fallback candidates")
+        assert_equal(
+            {item.get("reference_id") for item in stale_rerank_results},
+            {item.get("reference_id") for item in stale_rerank_hybrid_results},
+            "stale rerank preserves hybrid candidate identities",
+        )
+        assert_equal(
+            all(
+                item.get("semantic_contribution") == 0
+                and item.get("semantic_score") is None
+                and item.get("semantic_distance") is None
+                and item.get("semantic_rank") is None
+                for item in stale_rerank_results
+            ),
+            True,
+            "stale rerank does not fabricate semantic contribution",
+        )
+        assert_equal(
+            all(
+                item.get("project_id") == project_id
+                and item.get("reference_id") is not None
+                and item.get("chunk_id") is not None
+                and item.get("corpus_run_id") is not None
+                and item.get("source_content_sha256")
+                and item.get("chunk_content_sha256")
+                and item.get("snippet")
+                for item in stale_rerank_results
+            ),
+            True,
+            "stale rerank preserves provenance",
+        )
+        rerank_semantic_stale_state_preserved = True
         status, changed_semantic_sync = request(
             base_url, "POST", f"/api/v1/projects/{project_id}/retrieval/semantic/sync"
         )
@@ -901,12 +1653,53 @@ def main() -> int:
         assert_equal(
             semantic_after_restart["state"], "CURRENT", "semantic persistence after restart"
         )
+        status, rerank_after_restart = request(
+            base_url,
+            "GET",
+            f"/api/v1/projects/{project_id}/retrieval/rerank/status",
+        )
+        assert_equal(status, 200, "rerank status after restart")
+        assert isinstance(rerank_after_restart, dict)
+        assert_equal(rerank_after_restart["enabled"], True, "rerank enabled after restart")
+        assert_equal(rerank_after_restart["configured"], True, "rerank configured after restart")
+
+        service_logs = compose(project_name, ["logs", "--no-color"], env=environment, check=False)
+        rerank_secret_not_leaked = RERANK_SECRET_SENTINEL not in (
+            service_logs.stdout + "\n" + service_logs.stderr
+        )
+        assert_equal(rerank_secret_not_leaked, True, "rerank secret absent from service logs")
+        rerank_ordering_reproducible = (
+            first_rerank_benchmark["ordering"] == second_rerank_benchmark["ordering"]
+            and first_rerank_benchmark["order_digest"] == second_rerank_benchmark["order_digest"]
+        )
+        rerank_safety = {
+            "rerank_project_isolation": rerank_project_isolation,
+            "rerank_duplicate_task_collapsed": rerank_duplicate_task_collapsed,
+            "rerank_cross_project_duplicate_isolation": rerank_cross_project_duplicate_isolation,
+            "rerank_missing_index_safe": rerank_missing_index_safe,
+            "rerank_out_of_range_index_safe": rerank_out_of_range_index_safe,
+            "rerank_duplicate_index_safe": rerank_duplicate_index_safe,
+            "rerank_non_finite_score_safe": rerank_non_finite_score_safe,
+            "rerank_model_mismatch_safe": rerank_model_mismatch_safe,
+            "rerank_malformed_response_matrix": rerank_malformed_response_matrix,
+            "rerank_default_order_preserved": rerank_default_order_preserved,
+            "rerank_fallback_scores_null": rerank_fallback_scores_null,
+            "rerank_strict_invalid_response_bounded": rerank_strict_invalid_response_bounded,
+            "rerank_semantic_stale_state_preserved": rerank_semantic_stale_state_preserved,
+            "rerank_secret_not_leaked": rerank_secret_not_leaked,
+            "rerank_ordering_reproducible": rerank_ordering_reproducible,
+        }
+        assert_equal(
+            all(rerank_safety.values()),
+            True,
+            "rerank corrective integration safety matrix",
+        )
 
         benchmark_result = {
-            "schema_version": 2,
+            "schema_version": 3,
             "fixture": manifest["name"],
             "repository": "KayzenRoot/hive",
-            "work_order": "WO-007",
+            "work_order": "WO-008",
             "project_id": project_id,
             "query_count": first_benchmark["query_count"],
             "recall_at_1": first_benchmark["recall_at_1"],
@@ -935,6 +1728,53 @@ def main() -> int:
                 "fusion": "weighted reciprocal rank fusion",
                 "rrf_k": 60,
             },
+            "rerank": {
+                "queries": rerank_queries,
+                "run_1": first_rerank_benchmark,
+                "run_2": second_rerank_benchmark,
+                "provider": "deterministic local OpenAI-compatible fixture",
+                "disabled_exact_fallback": True,
+                "invalid_response_exact_fallback": True,
+                "provider_failure_exact_fallback": True,
+                "provider_down_exact_fallback": True,
+                "strict_failure_bounded": True,
+                "strict_invalid_response_bounded": rerank_strict_invalid_response_bounded,
+                "profile_visible_without_secret": True,
+                "project_isolation": rerank_project_isolation,
+                "duplicate_task_collapsed": rerank_duplicate_task_collapsed,
+                "cross_project_duplicate_isolation": rerank_cross_project_duplicate_isolation,
+                "missing_index_safe": rerank_missing_index_safe,
+                "out_of_range_index_safe": rerank_out_of_range_index_safe,
+                "duplicate_index_safe": rerank_duplicate_index_safe,
+                "non_finite_score_safe": rerank_non_finite_score_safe,
+                "model_mismatch_safe": rerank_model_mismatch_safe,
+                "malformed_response_matrix": rerank_malformed_response_matrix,
+                "default_order_preserved": rerank_default_order_preserved,
+                "fallback_scores_null": rerank_fallback_scores_null,
+                "semantic_stale_state_preserved": rerank_semantic_stale_state_preserved,
+                "secret_not_leaked": rerank_secret_not_leaked,
+                "ordering_reproducible": rerank_ordering_reproducible,
+                "run_1_order_digest": first_rerank_benchmark["order_digest"],
+                "run_2_order_digest": second_rerank_benchmark["order_digest"],
+                "malformed_response_cases": malformed_results,
+                "reproducible": all(
+                    first_rerank_benchmark[field] == second_rerank_benchmark[field]
+                    for field in (
+                        "query_count",
+                        "recall_at_1",
+                        "recall_at_5",
+                        "mrr",
+                        "critical_context_misses",
+                        "hybrid_recall_at_5",
+                        "hybrid_mrr",
+                        "recall_at_5_gte_hybrid",
+                        "mrr_gte_hybrid",
+                        "strict_rank_improvement",
+                        "strict_rank_improvements",
+                    )
+                )
+                and rerank_ordering_reproducible,
+            },
             "corpus": {
                 "chunks": race_recovered["chunk_count"],
                 "references": race_recovered["reference_count"],
@@ -947,12 +1787,23 @@ def main() -> int:
                 "cross_project_isolation": True,
                 "hybrid_recall_at_5_gte_extended_lexical": True,
                 "semantic_challenge_recovered": True,
+                "rerank_recall_at_5_gte_hybrid": first_rerank_benchmark["recall_at_5_gte_hybrid"],
+                "rerank_mrr_gte_hybrid": first_rerank_benchmark["mrr_gte_hybrid"],
+                "rerank_strict_rank_improvement": first_rerank_benchmark["strict_rank_improvement"],
+                "rerank_candidate_pool_bounded": first_rerank_benchmark["candidate_pool_bounded"],
+                "rerank_provenance_preserved": first_rerank_benchmark["provenance_preserved"],
+                "rerank_disabled_exact_fallback": True,
+                "rerank_invalid_response_safe": True,
+                "rerank_provider_failure_safe": True,
+                "rerank_provider_down_safe": True,
+                **rerank_safety,
             },
             "cross_project_isolation": True,
             "persistence": {
                 "redis_restart": True,
                 "api_restart": True,
                 "semantic_current_after_restart": True,
+                "rerank_configured_after_restart": True,
             },
             "fallback": {
                 "provider_failure": provider_fallback["state"],
@@ -980,6 +1831,16 @@ def main() -> int:
                 "hybrid_fallback_provider_error": True,
                 "hybrid_fallback_stale": True,
                 "semantic_project_isolation": True,
+                "rerank_recall_at_5_gte_hybrid": first_rerank_benchmark["recall_at_5_gte_hybrid"],
+                "rerank_mrr_gte_hybrid": first_rerank_benchmark["mrr_gte_hybrid"],
+                "rerank_strict_rank_improvement": first_rerank_benchmark["strict_rank_improvement"],
+                "rerank_candidate_pool_bounded": first_rerank_benchmark["candidate_pool_bounded"],
+                "rerank_provenance_preserved": first_rerank_benchmark["provenance_preserved"],
+                "rerank_disabled_exact_fallback": True,
+                "rerank_invalid_response_safe": True,
+                "rerank_provider_failure_safe": True,
+                "rerank_provider_down_safe": True,
+                **rerank_safety,
             },
         }
         BENCHMARK_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -991,7 +1852,7 @@ def main() -> int:
             "retrieval_integrity="
             + json.dumps(benchmark_result["retrieval_integrity"], sort_keys=True)
         )
-        print("Retrieval Corpus/Lexical/Semantic/Hybrid integration passed.")
+        print("Retrieval Corpus/Lexical/Semantic/Hybrid/Rerank integration passed.")
         return 0
     except Exception:
         logs = compose(project_name, ["logs", "--no-color"], env=environment, check=False)
@@ -1002,6 +1863,8 @@ def main() -> int:
         compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)
         fixture_process.terminate()
         fixture_process.wait(timeout=10)
+        rerank_fixture_process.terminate()
+        rerank_fixture_process.wait(timeout=10)
         cleanup_temporary_root(temporary_root, env=environment)
 
 

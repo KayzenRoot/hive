@@ -122,6 +122,23 @@ const semanticStatus = {
   last_error: null,
 };
 
+const rerankStatus = {
+  project_id: project.project_id,
+  enabled: true,
+  configured: true,
+  reranker_profile: {
+    adapter_kind: "openai-compatible-http",
+    model: "fixture-rerank",
+    model_revision: "v1",
+    serialization_version: "rerank-document-v1",
+    identity_fingerprint: "b".repeat(64),
+  },
+  serialization_version: "rerank-document-v1",
+  candidate_pool: 20,
+  max_document_chars: 6000,
+  max_query_chars: 512,
+};
+
 function response(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -291,6 +308,7 @@ describe("App", () => {
         ...semanticStatus,
         results: [{ ...result, semantic_run_id: "run", semantic_score: 0.9, semantic_distance: 0.1 }],
       }));
+      if (url.endsWith("/retrieval/rerank/status")) return Promise.resolve(response(rerankStatus));
       if (url.endsWith("/retrieval/lexical")) {
         return Promise.resolve(response({
           project_id: project.project_id,
@@ -298,6 +316,35 @@ describe("App", () => {
           normalized_query: "order service get project order",
           top_k: 5,
           results: [result],
+        }));
+      }
+      if (url.endsWith("/retrieval/rerank")) {
+        return Promise.resolve(response({
+          project_id: project.project_id,
+          query: "OrderService.get_project_order",
+          normalized_query: "orderservice get project order",
+          top_k: 5,
+          candidate_pool: 20,
+          hybrid_state: "HYBRID",
+          semantic_state: "CURRENT",
+          rerank_state: "RERANKED",
+          fallback_reason: null,
+          reranker_profile: rerankStatus.reranker_profile,
+          serialization_version: "rerank-document-v1",
+          results: [{
+            ...result,
+            hybrid_score: 0.8,
+            lexical_score: 4.2,
+            semantic_score: 0.9,
+            semantic_distance: 0.1,
+            lexical_rank: 1,
+            semantic_rank: 1,
+            lexical_contribution: 0.5,
+            semantic_contribution: 0.3,
+            pre_rerank_rank: 2,
+            rerank_rank: 1,
+            rerank_score: 0.99,
+          }],
         }));
       }
       if (url.endsWith("/retrieval/corpus")) return Promise.resolve(response(retrievalCorpus));
@@ -323,5 +370,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "semantic" } });
     fireEvent.click(screen.getByRole("button", { name: "Search semantic" }));
     expect(await screen.findByText(/score 0.900/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "rerank" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search rerank" }));
+    expect(await screen.findByText(/Pre-rerank #2/)).toBeInTheDocument();
+    expect(screen.getByText(/rerank score 0.990/)).toBeInTheDocument();
   });
 });
