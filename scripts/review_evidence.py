@@ -61,6 +61,7 @@ CANONICAL_PATHS = (
     "docs/project-brain/CANONICAL-SHA256SUMS.txt",
 )
 WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
+WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -170,6 +171,16 @@ def require_wo008_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> 
             "WO-008-G1 changed files outside the approved governance scope: "
             + ", ".join(unauthorized)
         )
+
+
+def require_wo009_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-009":
+        return
+    if base_sha != WO009_BASE_SHA:
+        raise ValueError(f"WO-009 requires exact base {WO009_BASE_SHA}, observed {base_sha}")
+    canonical = canonical_change_evidence(paths)
+    if canonical["project_brain_changed"] is True:
+        raise ValueError("WO-009 implementation evidence cannot change canonical Project Brain")
 
 
 def repository_name() -> str:
@@ -471,7 +482,7 @@ def context_manager_evidence() -> dict[str, object]:
         "status": "UNKNOWN",
         "evidence_file": evidence_file,
         **{field: False for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
-        "llm_calls": 0,
+        "llm_calls": None,
     }
     if not text:
         return unknown
@@ -1081,6 +1092,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
     require_wo008_g1_scope(work_order, base_sha, paths)
+    require_wo009_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -1228,6 +1240,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         governance_pr = cast(dict[str, Any], governance.get("pull_request", {}))
         if not isinstance(governance_pr.get("auto_merge"), Mapping):
             raise ValueError("WO-008-G1 evidence requires structured auto-merge evidence")
+    if work_order == "WO-009":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo009_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1433,7 +1453,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"reranked `{context_manager_evidence.get('reranked_retrieval_used', False)}`, "
         f"bounded `{context_manager_evidence.get('bounded', False)}`, "
         f"deterministic two-run `{context_manager_evidence.get('deterministic_two_run', False)}`, "
-        f"LLM calls `{context_manager_evidence.get('llm_calls', 0)}`"
+        f"LLM calls `{context_manager_evidence.get('llm_calls', 'UNKNOWN')}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"

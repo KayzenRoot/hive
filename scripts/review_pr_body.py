@@ -282,8 +282,11 @@ def _render_wo009_body(
     auto_merge_owner_login: str,
     auto_merge_owner_type: str,
 ) -> str:
-    owner_login = auto_merge_owner_login or "recorded by Review Evidence"
-    owner_type = auto_merge_owner_type or "User"
+    owner_text = (
+        f"`{auto_merge_owner_login}` ({auto_merge_owner_type})"
+        if auto_merge_owner_login and auto_merge_owner_type
+        else "recorded by Review Evidence"
+    )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 
 # Revisão do executor — {work_order}
@@ -360,6 +363,8 @@ HEAD race e rebuild após Redis/API restart.
 Validate, secret scan, canonical/map checks, Ruff, mypy, pytest, dashboard
 lint/typecheck/tests/build/audit, Compose config e integrações existentes
 devem passar. Migration head permanece `0005_semantic_retrieval`.
+Comandos executados incluem `python scripts/verify_canonical_sources.py`,
+`python scripts/validate.py` e `python scripts/context_manager_integration.py`.
 
 ## 13. Review Evidence
 
@@ -372,7 +377,7 @@ Redis/API rebuild e `llm_calls: 0`.
 
 Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
 {merge_after}. Ruleset unchanged, checks reais, squash-only e zero bypass.
-Auto-merge owner: `{owner_login}` ({owner_type}); somente User é aceito.
+Auto-merge owner: {owner_text}; somente User é aceito.
 
 ## 15. Erros corrigidos durante a execução
 

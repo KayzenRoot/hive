@@ -101,6 +101,7 @@ def write_project(repository: Path, label: str, *, governance: bool = True) -> N
         ["config", "user.name", "HIVE Context Manager Integration"],
         os.environ.copy(),
     )
+    git(repository, ["config", "core.autocrlf", "false"], os.environ.copy())
     if governance:
         write_governance(repository, label)
     (repository / "src").mkdir(parents=True, exist_ok=True)

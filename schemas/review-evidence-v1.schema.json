@@ -421,7 +421,7 @@
         "head_race_fail_closed": { "type": "boolean" },
         "redis_restart_rebuild": { "type": "boolean" },
         "api_restart_rebuild": { "type": "boolean" },
-        "llm_calls": { "type": "integer", "minimum": 0 }
+        "llm_calls": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
     "auto_merge": {

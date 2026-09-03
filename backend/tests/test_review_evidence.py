@@ -14,6 +14,7 @@ from scripts.review_evidence import (
     SCHEMA_PATH,
     WO008_G1_ALLOWED_PATHS,
     WO008_G1_BASE_SHA,
+    WO009_BASE_SHA,
     auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
@@ -26,6 +27,7 @@ from scripts.review_evidence import (
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
     require_wo009_context_manager_evidence,
+    require_wo009_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -369,6 +371,14 @@ def test_g1_manifest_records_user_owned_identity_and_scope() -> None:
     assert review_state["auto_merge_owner_login"] == "KayzenRoot"
     assert review_state["auto_merge_owner_type"] == "User"
     assert review_state["auto_merge_user_owned"] is True
+
+
+def test_wo009_scope_rejects_wrong_base_and_canonical_changes() -> None:
+    require_wo009_scope("WO-009", WO009_BASE_SHA, ["backend/app/context_manager.py"])
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo009_scope("WO-009", "a" * 40, ["backend/app/context_manager.py"])
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo009_scope("WO-009", WO009_BASE_SHA, ["docs/project-brain/13-CHECKPOINT.md"])
 
 
 def native_auto_merge_pull_request(auto_merge: object) -> dict[str, object]:

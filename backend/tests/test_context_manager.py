@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -288,6 +289,7 @@ def test_context_capsule_is_checkpoint_first_bounded_and_provenance_bearing(
     assert "created_at" not in serialized
     assert "generated_at" not in serialized
     assert "api_key" not in serialized
+    assert first.bounds.serialized_capsule_characters == len(serialized)
     assert first.model_dump() == second.model_dump()
 
 
@@ -309,6 +311,47 @@ def test_context_uses_existing_rerank_fallback_states(
     assert capsule.retrieval.hybrid_state == "LEXICAL_FALLBACK_SEMANTIC_UNAVAILABLE"
     assert capsule.retrieval.semantic_state == SemanticState.UNAVAILABLE
     assert capsule.retrieval.fallback_reason == "rerank_disabled"
+
+
+def test_checkpoint_is_processed_before_task_and_retrieval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+    events: list[str] = []
+    original_checkpoint_selection = context_manager._checkpoint_selection
+
+    def record_checkpoint(snapshot: _RepositorySnapshot) -> context_manager._GovernanceSelection:
+        events.append("checkpoint")
+        return original_checkpoint_selection(snapshot)
+
+    def record_task(
+        _settings: Settings,
+        _project_id: UUID,
+        _task_id: UUID,
+    ) -> TaskResponse:
+        events.append("task")
+        return task_response()
+
+    def record_retrieval(
+        _settings: Settings,
+        _project_id: UUID,
+        _request: RerankRequest,
+    ) -> RerankResponse:
+        events.append("retrieval")
+        return rerank_response([candidate(0)])
+
+    monkeypatch.setattr(
+        context_manager,
+        "_checkpoint_selection",
+        record_checkpoint,
+    )
+    monkeypatch.setattr(context_manager, "get_task", record_task)
+    monkeypatch.setattr(context_manager, "rerank_search", record_retrieval)
+
+    context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+    assert events.index("checkpoint") < events.index("task")
+    assert events.index("checkpoint") < events.index("retrieval")
 
 
 @pytest.mark.parametrize(
@@ -376,6 +419,26 @@ def test_task_project_binding_is_enforced(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(context_manager.ContextStaleError, match="task_project_mismatch"):
         context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+
+def test_dirty_project_fails_closed_before_assembly(monkeypatch: pytest.MonkeyPatch) -> None:
+    clean_project = project_response()
+    snapshot = repository_snapshot()
+    dirty_snapshot = _RepositorySnapshot(
+        project_path=snapshot.project_path,
+        repository_head_sha=snapshot.repository_head_sha,
+        git_branch=snapshot.git_branch,
+        git_inventory_fingerprint=snapshot.git_inventory_fingerprint,
+        files=(replace(snapshot.files[0], git_status="MODIFIED"), *snapshot.files[1:]),
+    )
+    monkeypatch.setattr(context_manager, "get_project", lambda *_args: clean_project)
+    monkeypatch.setattr(
+        context_manager, "normalize_project_path", lambda *_args: ("target", Path("target"))
+    )
+    monkeypatch.setattr(context_manager, "_collect_inventory", lambda *_args: dirty_snapshot)
+
+    with pytest.raises(context_manager.ContextStaleError, match="project_worktree_dirty"):
+        context_manager._resolve_source_state(Settings(), PROJECT_ID)
 
 
 def test_task_not_ready_is_propagated_without_partial_capsule(

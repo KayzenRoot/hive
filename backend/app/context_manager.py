@@ -411,10 +411,7 @@ def _governance_excerpt(
     return excerpt, truncated
 
 
-def _resolve_governance(
-    snapshot: _RepositorySnapshot,
-    query_tokens: set[str],
-) -> _GovernanceSelection:
+def _checkpoint_selection(snapshot: _RepositorySnapshot) -> _GovernanceSelection:
     entries = {item.path: item for item in snapshot.files}
     checkpoint_kind, checkpoint_path = GOVERNANCE_PATHS[0]
     checkpoint_entry = entries.get(checkpoint_path)
@@ -431,9 +428,32 @@ def _resolve_governance(
             f"{checkpoint_kind}:{checkpoint_path}",
         ) from exc
     checkpoint_sections = _checkpoint_sections(_parse_markdown_sections(checkpoint_text))
-    selected: list[tuple[str, _TrackedFile, _MarkdownSection]] = [
-        (checkpoint_kind, checkpoint_entry, section) for section in checkpoint_sections
-    ]
+    selected = [(checkpoint_kind, checkpoint_entry, section) for section in checkpoint_sections]
+    excerpts: list[GovernanceExcerpt] = []
+    total_chars = 0
+    truncated = False
+    for kind, entry, section in selected:
+        excerpt, excerpt_truncated = _governance_excerpt(
+            kind,
+            entry,
+            section,
+            snapshot.repository_head_sha,
+            MAX_TOTAL_GOVERNANCE_CHARS - total_chars,
+        )
+        excerpts.append(excerpt)
+        total_chars += len(excerpt.text)
+        truncated |= excerpt_truncated
+    return _GovernanceSelection(tuple(excerpts), truncated)
+
+
+def _resolve_governance(
+    snapshot: _RepositorySnapshot,
+    query_tokens: set[str],
+    checkpoint: _GovernanceSelection | None = None,
+) -> _GovernanceSelection:
+    checkpoint = checkpoint or _checkpoint_selection(snapshot)
+    entries = {item.path: item for item in snapshot.files}
+    selected: list[tuple[str, _TrackedFile, _MarkdownSection]] = []
 
     for kind, path in GOVERNANCE_PATHS[1:]:
         entry = entries.get(path)
@@ -452,16 +472,16 @@ def _resolve_governance(
         )
         selected.append((kind, entry, ranked[0][1]))
         for _, section in ranked[1:]:
-            if len(selected) >= MAX_GOVERNANCE_EXCERPTS:
+            if len(checkpoint.excerpts) + len(selected) >= MAX_GOVERNANCE_EXCERPTS:
                 break
             if _section_score(section, query_tokens) > 0:
                 selected.append((kind, entry, section))
 
-    if len(selected) > MAX_GOVERNANCE_EXCERPTS:
-        selected = selected[:MAX_GOVERNANCE_EXCERPTS]
-    excerpts: list[GovernanceExcerpt] = []
-    total_chars = 0
-    truncated = False
+    available = MAX_GOVERNANCE_EXCERPTS - len(checkpoint.excerpts)
+    selected = selected[: max(0, available)]
+    excerpts = list(checkpoint.excerpts)
+    total_chars = sum(len(excerpt.text) for excerpt in excerpts)
+    truncated = checkpoint.truncated
     for kind, entry, section in selected:
         excerpt, excerpt_truncated = _governance_excerpt(
             kind,
@@ -494,6 +514,9 @@ def _resolve_source_state(
         raise ContextStaleError("repository_snapshot_unavailable") from exc
     if snapshot.repository_head_sha.lower() != project.git_head_sha.lower():
         raise ContextStaleError("project_head_stale")
+    dirty_paths = [entry.path for entry in snapshot.files if entry.git_status != "CLEAN"]
+    if dirty_paths:
+        raise ContextStaleError("project_worktree_dirty", ",".join(dirty_paths))
     index_run = latest_index_run(settings, project_id)
     if (
         index_run is None
@@ -630,6 +653,7 @@ def build_context(
         raise ContextInputError("context top_k is outside the bounded contract")
     state = _resolve_source_state(settings, project_id)
     project = state.project
+    checkpoint = _checkpoint_selection(state.snapshot)
     try:
         task = get_task(settings, project_id, task_id)
         extracted = get_task_text(settings, project_id, task_id)
@@ -654,7 +678,11 @@ def build_context(
         constraints,
         acceptance_criteria,
     )
-    governance = _resolve_governance(state.snapshot, _tokens(normalized_query))
+    governance = _resolve_governance(
+        state.snapshot,
+        _tokens(normalized_query),
+        checkpoint,
+    )
     try:
         rerank_response = rerank_search(
             settings,
@@ -696,7 +724,8 @@ def build_context(
         lambda candidate: (candidate.path, candidate.qualified_symbol),
     )
     governance_chars = sum(len(item.text) for item in governance.excerpts)
-    total_emitted = len(task_excerpt) + governance_chars + retrieval_chars
+    task_structure_chars = sum(len(item) for item in (*constraints, *acceptance_criteria))
+    total_emitted = len(task_excerpt) + task_structure_chars + governance_chars + retrieval_chars
     bounds = ContextBounds(
         task_characters_included=len(task_excerpt),
         governance_characters_included=governance_chars,
@@ -773,17 +802,25 @@ def build_context(
         state,
         extracted_text_sha256,
     )
-    serialized_length = len(capsule.model_dump_json())
-    if serialized_length > MAX_CAPSULE_CHARS:
-        raise ContextBoundsError("capsule_character_bound_exceeded")
-    capsule = capsule.model_copy(
-        update={
-            "bounds": bounds.model_copy(update={"serialized_capsule_characters": serialized_length})
-        }
-    )
-    final_length = len(capsule.model_dump_json())
+    final_length = 0
+    for _ in range(4):
+        serialized_length = len(capsule.model_dump_json())
+        if serialized_length > MAX_CAPSULE_CHARS:
+            raise ContextBoundsError("capsule_character_bound_exceeded")
+        capsule = capsule.model_copy(
+            update={
+                "bounds": bounds.model_copy(
+                    update={"serialized_capsule_characters": serialized_length}
+                )
+            }
+        )
+        final_length = len(capsule.model_dump_json())
+        if capsule.bounds.serialized_capsule_characters == final_length:
+            break
     if final_length > MAX_CAPSULE_CHARS:
         raise ContextBoundsError("capsule_character_bound_exceeded")
+    if capsule.bounds.serialized_capsule_characters != final_length:
+        raise ContextBoundsError("capsule_serialization_length_unstable")
     return capsule
 
 
