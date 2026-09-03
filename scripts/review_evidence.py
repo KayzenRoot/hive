@@ -41,6 +41,20 @@ RERANK_C1_REQUIRED_FIELDS = (
     "rerank_secret_not_leaked",
     "rerank_ordering_reproducible",
 )
+CONTEXT_MANAGER_REQUIRED_FIELDS = (
+    "checkpoint_first",
+    "governance_project_scoped",
+    "task_project_scoped",
+    "reranked_retrieval_used",
+    "provenance_preserved",
+    "deterministic_two_run",
+    "bounded",
+    "cross_project_isolation",
+    "missing_governance_fail_closed",
+    "head_race_fail_closed",
+    "redis_restart_rebuild",
+    "api_restart_rebuild",
+)
 CHECKPOINT_PATH = "docs/project-brain/13-CHECKPOINT.md"
 CANONICAL_PATHS = (
     CHECKPOINT_PATH,
@@ -450,6 +464,43 @@ def integration_result(name: str, markers: tuple[str, ...]) -> dict[str, object]
     return {"status": "PASS" if passed else "UNKNOWN", "evidence_file": name}
 
 
+def context_manager_evidence() -> dict[str, object]:
+    evidence_file = "context-manager.json"
+    text = integration_file(evidence_file)
+    unknown = {
+        "status": "UNKNOWN",
+        "evidence_file": evidence_file,
+        **{field: False for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "llm_calls": 0,
+    }
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return unknown
+    if not isinstance(data, dict):
+        return unknown
+    values = {field: data.get(field) is True for field in CONTEXT_MANAGER_REQUIRED_FIELDS}
+    llm_calls = data.get("llm_calls")
+    fields_are_boolean = all(
+        isinstance(data.get(field), bool) for field in CONTEXT_MANAGER_REQUIRED_FIELDS
+    )
+    if not fields_are_boolean or not isinstance(llm_calls, int) or isinstance(llm_calls, bool):
+        return unknown
+    status = (
+        "PASS"
+        if data.get("status") == "PASS" and all(values.values()) and llm_calls == 0
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        "evidence_file": evidence_file,
+        **values,
+        "llm_calls": llm_calls,
+    }
+
+
 def retrieval_integrity(text: str) -> dict[str, bool]:
     match = re.search(r"retrieval_integrity=(\{.*\})", text)
     if not match:
@@ -516,6 +567,9 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
     )
     if benchmark["status"] == "FAIL":
         status = "FAIL"
+    context_manager = context_manager_evidence()
+    if context_manager["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     return {
         "status": status,
@@ -537,6 +591,7 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
             else "UNKNOWN",
             "evidence_file": "retrieval.log",
         },
+        "context_manager": context_manager,
         "benchmark_gate": {
             "status": benchmark["status"],
             "query_count": benchmark["query_count"],
@@ -645,6 +700,27 @@ def require_wo008_c1_evidence(
         raise ValueError("WO-008 Review Evidence requires passing rerank security evidence")
     if RERANK_SECRET_SENTINEL.search(all_evidence + "\n" + github_evidence):
         raise ValueError("WO-008 Review Evidence detected a rerank secret sentinel in evidence")
+
+
+def require_wo009_context_manager_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+) -> None:
+    if work_order != "WO-009":
+        return
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-009 Review Evidence requires passing Context Manager evidence")
+    missing = [
+        field for field in CONTEXT_MANAGER_REQUIRED_FIELDS if context_manager.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-009 Review Evidence missing mandatory Context Manager evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if context_manager.get("llm_calls") != 0:
+        raise ValueError("WO-009 Review Evidence requires zero Context Manager LLM calls")
 
 
 def warnings_evidence(all_text: str) -> dict[str, object]:
@@ -1011,6 +1087,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     benchmark = benchmark_fields(VALIDATION / "retrieval-benchmark.json")
     tests = tests_evidence(validation, tests_text)
     integration = integration_evidence(benchmark)
+    require_wo009_context_manager_evidence(work_order, integration)
     security = security_evidence(
         all_validation,
         tests_text,
@@ -1190,6 +1267,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     )
     if errors:
         raise ValueError(f"manifest schema validation failed: {errors[0].message}")
+    evidence = cast(dict[str, Any], manifest["evidence"])
+    require_wo009_context_manager_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+    )
     warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
     items = warnings["items"]
     if isinstance(items, list) and (
@@ -1199,7 +1281,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
 
 
 def all_evidence_text() -> str:
-    paths = sorted(VALIDATION.glob("*.txt")) + sorted(INTEGRATION_LOGS.glob("*.log"))
+    paths = (
+        sorted(VALIDATION.glob("*.txt"))
+        + sorted(INTEGRATION_LOGS.glob("*.log"))
+        + sorted(INTEGRATION_LOGS.glob("*.json"))
+    )
     return "\n\n".join(read_text(path) for path in paths)
 
 
@@ -1338,6 +1424,17 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"independent approvals observed: "
         f"`{approval_gate.get('independent_approval_count', 0)}`"
     )
+    context_manager_evidence = cast(dict[str, Any], integration.get("context_manager", {}))
+    context_manager_text = (
+        f"`{context_manager_evidence.get('status', 'UNKNOWN')}`; "
+        f"checkpoint first `{context_manager_evidence.get('checkpoint_first', False)}`, "
+        f"project-scoped `{context_manager_evidence.get('governance_project_scoped', False)}`, "
+        f"task-scoped `{context_manager_evidence.get('task_project_scoped', False)}`, "
+        f"reranked `{context_manager_evidence.get('reranked_retrieval_used', False)}`, "
+        f"bounded `{context_manager_evidence.get('bounded', False)}`, "
+        f"deterministic two-run `{context_manager_evidence.get('deterministic_two_run', False)}`, "
+        f"LLM calls `{context_manager_evidence.get('llm_calls', 0)}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -1348,6 +1445,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("redis_restart", "Redis restart"),
             ("api_restart", "API restart"),
             ("reranking", "Reranking"),
+            ("context_manager", "Context Manager"),
         )
         if key in integration
     )
@@ -1383,6 +1481,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Repository merge settings: {merge_settings}
 - Auto-merge armed: {auto_merge_text}
 - Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
+- Context Manager evidence: {context_manager_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
 - Workflow run URL: {workflow_url}
@@ -1440,7 +1539,11 @@ def write_consolidated_artifact(
     changed = cast(dict[str, Any], manifest["changed_files"])
     migrations = cast(dict[str, Any], manifest["migrations"])
     warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
-    integration_sources = sorted(VALIDATION.glob("*.txt")) + sorted(INTEGRATION_LOGS.glob("*.log"))
+    integration_sources = (
+        sorted(VALIDATION.glob("*.txt"))
+        + sorted(INTEGRATION_LOGS.glob("*.log"))
+        + sorted(INTEGRATION_LOGS.glob("*.json"))
+    )
     integration_text = "\n\n".join(
         f"===== {path.as_posix()} =====\n{bounded(read_text(path))}" for path in integration_sources
     )

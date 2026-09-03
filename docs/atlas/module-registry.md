@@ -5,9 +5,10 @@ Generated deterministically by scripts/generate_maps.py.
 | Module | Responsibility |
 | --- | --- |
 | backend/app/config.py | Environment and persistence configuration. |
+| backend/app/context_manager.py | Deterministic bounded project/task context capsule assembly. |
 | backend/app/db.py | PostgreSQL connection and schema revision gate. |
 | backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |
-| backend/app/main.py | Versioned FastAPI health, Project Registry, repository indexing and Task Intake API. |
+| backend/app/main.py | Versioned FastAPI health, Project Registry, repository indexing, Task Intake, and Context Manager API. |
 | backend/app/registry.py | Project Registry schemas, canonical physical identity, safe re-inspection and Git inspection. |
 | backend/app/repository_indexer.py | Git-aware bounded inventory, deterministic hashing, incremental reconciliation and Python AST symbols. |
 | backend/app/cas.py | Hash-derived Zstandard CAS with atomic publication and integrity verification. |
@@ -22,6 +23,7 @@ Generated deterministically by scripts/generate_maps.py.
 | migrations/versions/0003_repository_indexing.py | Durable repository index runs, current files and Python symbol metadata. |
 | migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, chunk and reference metadata. |
 | migrations/versions/0005_semantic_retrieval.py | Durable project-scoped embedding profiles, runs and pgvector chunk embeddings. |
+| scripts/context_manager_integration.py | Real Docker/Git two-project Context Manager, governance ordering, isolation, bounds and restart evidence. |
 | scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |
 | scripts/review_evidence.py | Versioned, secret-free Review Evidence manifest generation. |
 | scripts/review_pr_body.py | Generic twenty-section PT-BR PR review template. |

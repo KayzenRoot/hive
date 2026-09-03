@@ -10,12 +10,14 @@ import scripts.review_evidence as review_evidence
 from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, redact_service_logs
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
+    CONTEXT_MANAGER_REQUIRED_FIELDS,
     SCHEMA_PATH,
     WO008_G1_ALLOWED_PATHS,
     WO008_G1_BASE_SHA,
     auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
+    context_manager_evidence,
     dashboard_counts,
     junit_counts,
     manifest_log,
@@ -23,6 +25,7 @@ from scripts.review_evidence import (
     require_hive_final_handoff,
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
+    require_wo009_context_manager_evidence,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -83,6 +86,23 @@ def evidence_fixture() -> dict[str, object]:
                 "retrieval": {"status": "PASS", "evidence_file": "retrieval.log"},
                 "redis_restart": {"status": "PASS"},
                 "api_restart": {"status": "PASS"},
+                "context_manager": {
+                    "status": "PASS",
+                    "evidence_file": "context-manager.json",
+                    "checkpoint_first": True,
+                    "governance_project_scoped": True,
+                    "task_project_scoped": True,
+                    "reranked_retrieval_used": True,
+                    "provenance_preserved": True,
+                    "deterministic_two_run": True,
+                    "bounded": True,
+                    "cross_project_isolation": True,
+                    "missing_governance_fail_closed": True,
+                    "head_race_fail_closed": True,
+                    "redis_restart_rebuild": True,
+                    "api_restart_rebuild": True,
+                    "llm_calls": 0,
+                },
                 "benchmark_gate": {
                     "status": "PASS",
                     "query_count": 4,
@@ -608,6 +628,29 @@ def test_g1_pr_body_describes_identity_correction() -> None:
     assert "fundação de reranking" not in body
 
 
+def test_wo009_pr_body_describes_context_manager_handoff() -> None:
+    body = render_body(
+        work_order="WO-009",
+        pr_number=32,
+        branch="feature/wo009-context-manager-foundation",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-009-b",
+        ruleset_before="old",
+        ruleset_after="unchanged",
+        merge_before="old",
+        merge_after="unchanged",
+        auto_merge_owner_login="KayzenRoot",
+        auto_merge_owner_type="User",
+    )
+
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-009 -->")
+    assert "/projects/{project_id}/tasks/{task_id}/context" in body
+    assert "Auto-merge owner: `KayzenRoot` (User)" in body
+    assert "context-capsule-v1" in body
+    assert "WO-009 READY FOR SOL GITHUB AUDIT" in body
+
+
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
     manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
@@ -664,6 +707,42 @@ def test_ci_persists_bounded_service_logs_and_uses_supported_action_majors() -> 
     assert "actions/download-artifact@v8" in workflow
 
 
+def test_context_manager_review_evidence_fails_closed_when_missing_or_incomplete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    payload = {
+        "status": "PASS",
+        **{field: True for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "llm_calls": 0,
+    }
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+
+    evidence = context_manager_evidence()
+    assert evidence["status"] == "PASS"
+    require_wo009_context_manager_evidence("WO-009", {"context_manager": evidence})
+
+    incomplete = dict(payload)
+    incomplete["checkpoint_first"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(incomplete),
+        encoding="utf-8",
+    )
+    failed = context_manager_evidence()
+    assert failed["status"] == "FAIL"
+    with pytest.raises(ValueError, match="Context Manager evidence"):
+        require_wo009_context_manager_evidence("WO-009", {"context_manager": failed})
+
+    (integration_logs / "context-manager.json").write_text("{malformed", encoding="utf-8")
+    assert context_manager_evidence()["status"] == "UNKNOWN"
+
+
 def test_sticky_summary_has_required_review_fields() -> None:
     summary = summary_markdown(evidence_fixture(), "https://example.invalid/run/1")
     for field in (
@@ -679,6 +758,7 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Secret scan",
         "Consolidated artifact",
         "Workflow run URL",
+        "Context Manager evidence",
         "Ruleset unchanged",
         "Auto-merge owner: KayzenRoot (User)",
         "Sol Review State: AWAITING_SOL",

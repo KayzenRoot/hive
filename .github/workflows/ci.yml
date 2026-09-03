@@ -82,6 +82,11 @@ jobs:
           set -o pipefail
           mkdir -p tmp/integration-logs
           python scripts/retrieval_integration.py 2>&1 | tee tmp/integration-logs/retrieval.log
+      - name: Run Context Manager integration test
+        run: |
+          set -o pipefail
+          mkdir -p tmp/integration-logs
+          python scripts/context_manager_integration.py 2>&1 | tee tmp/integration-logs/context-manager.log
       - name: Collect bounded service logs
         if: always()
         run: python scripts/capture_service_logs.py --output tmp/integration-logs/service-logs.log
