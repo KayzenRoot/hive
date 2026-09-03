@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-SEMANTIC + HYBRID RETRIEVAL FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+RERANKING FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -96,12 +96,28 @@ See `03-SCOPE.md`.
 - Post-merge CI run `33664297759` passed on `main` for exact SHA `825134f1a4d4950ef95f8845941a86f2d65d1359`.
 - Reviewer `kayzenweb3` is an eligible Write collaborator for the independent approval gate.
 - GitHub native auto-merge is enabled for subsequent approval-gated PRs.
+- Provider-independent `RerankerAdapter` is implemented over bounded, project-scoped hybrid candidates.
+- Deterministic versioned candidate serialization and configurable HTTP rerank transport are implemented behind the adapter.
+- Reranking is disabled by default; local-only operation remains valid and no mandatory local reranker was promoted.
+- Reranker profile identity excludes secrets while capturing material model, revision and scoring identity.
+- Reranked responses preserve lexical, semantic and hybrid provenance plus pre-rerank and post-rerank ranks.
+- Deterministic score validation rejects duplicate, missing and out-of-range indexes, non-finite scores and provider model mismatches.
+- Default rerank failures preserve the exact hybrid order with null rerank scores; strict failures are bounded and explicit.
+- Rerank integration proves project isolation, duplicate TASK collapse, cross-project duplicate isolation and semantic `STALE` preservation.
+- Rerank evidence proves no secret-sentinel credential leakage and reproducible two-run ordering identity.
+- Accepted lexical, semantic and hybrid baselines remain green; the rerank challenge improves relevant rank without reducing recall@5.
+- Rerank benchmark records recall@5 `1.0`, hybrid recall@5 `1.0`, reranked MRR `1.0`, hybrid challenge MRR `0.2`, strict rank improvement and zero critical misses.
+- The deterministic rerank fixture proves contract mechanics, not production model quality.
+- PR #29 was independently approved at exact head `80ad25dcaae51fbb6a6dad6e0a653eea51d5a3ee` and squash-merged as `fcbf0849a54e0283ed523e09ce18ea31a8bd7849`.
+- WO-008-G1 moved auto-merge arming out of GitHub Actions; Review Evidence now verifies user-owned SQUASH auto-merge and rejects Bot/App ownership.
+- PR #30 was independently approved at exact head `f8165e1ea9544841b7e67c26d4beecf0e986624f` and squash-merged as `57397ec8f4ffb94fb8e0647e17d648f432430258`.
+- Post-merge CI run `33764713691` fired from `push` on exact main SHA `57397ec8f4ffb94fb8e0647e17d648f432430258`; Validate and Integration health passed and Review Evidence was skipped by design.
+- Approval-gated user-owned auto-merge now preserves the required post-merge validation flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary deterministic reranking foundation over the approved hybrid candidate set.
+- Preparing the smallest necessary Context Manager foundation over the approved project registry, canonical governance sources and reranked retrieval pipeline.
 
 ## PENDING
-- reranking.
 - memory.
 - ACCE beyond the intake/storage foundation.
 - MCP server product surface.
@@ -114,15 +130,23 @@ See `03-SCOPE.md`.
 - backup/recovery validation.
 - final documentation.
 - final V0.1 review.
+- Context Manager.
+- adaptive token budget.
+- progressive disclosure.
+- context fingerprints.
+- delta context.
+- provider/prompt cache adapter layer.
+- checkpoint awareness orchestration.
+- tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Semantic + Hybrid Retrieval Foundation approval.
+None known after Reranking Foundation approval and post-merge governance validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary provider-independent reranking foundation over the existing bounded project-scoped hybrid candidate set: add a replaceable reranker adapter, deterministic rerank contract, safe lexical/hybrid fallback when reranking is unavailable, provenance-preserving top-k selection, benchmark evidence that reranking does not materially degrade retrieval quality, and the minimal Control Center/API surface required to inspect reranked results. Do not add memory, Context Manager orchestration, MCP product surface, autonomous execution, a mandatory local reranker model or broad token-budget optimization in this increment.
+Implement the smallest necessary deterministic Context Manager foundation that, for an already-resolved project and task, reads the latest canonical checkpoint first, resolves the relevant scope/Definition of Done/architecture/decisions, invokes the approved bounded reranked retrieval pipeline, and builds a bounded provenance-bearing context capsule with explicit task, project state, constraints, acceptance criteria, relevant governance, relevant files/symbols/tests and retrieval provenance. Use fixed conservative bounds for this increment. Do not add memory lifecycle, adaptive token budgeting, full progressive-disclosure escalation, context fingerprints/delta context, prompt/provider cache, MCP product surface or autonomous executor dispatch in this increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
