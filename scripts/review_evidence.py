@@ -627,7 +627,7 @@ def require_wo008_c1_evidence(
     all_evidence: str,
     github_evidence: str,
 ) -> None:
-    if not work_order.startswith("WO-008"):
+    if work_order != "WO-008" and not work_order.startswith("WO-008-"):
         return
     rerank = cast(dict[str, Any], benchmark.get("rerank", {}))
     integrity = cast(dict[str, Any], integration.get("integrity_tests", {}))
@@ -723,6 +723,8 @@ def verify_native_auto_merge(
     pull_request = _gh_json(repository, f"pulls/{pr_number}")
     if not isinstance(pull_request, dict):
         raise ValueError(f"unable to read pull request #{pr_number} for auto-merge verification")
+    if expected_head_sha is not None and not HEX_SHA.fullmatch(expected_head_sha):
+        raise ValueError("auto-merge verification requires a 40-character expected head SHA")
     if pull_request.get("state") != "open":
         raise ValueError("auto-merge verification requires an open pull request")
     if pull_request.get("draft") is not False:
@@ -1142,6 +1144,13 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         review_state = cast(dict[str, Any], manifest["review_state"])
         if review_state.get("auto_merge_user_owned") is not True:
             raise ValueError("WO-008-G1 evidence requires user-owned auto-merge")
+        if not review_state.get("auto_merge_owner_login") or not review_state.get(
+            "auto_merge_owner_type"
+        ):
+            raise ValueError("WO-008-G1 evidence requires auto-merge owner identity")
+        governance_pr = cast(dict[str, Any], governance.get("pull_request", {}))
+        if not isinstance(governance_pr.get("auto_merge"), Mapping):
+            raise ValueError("WO-008-G1 evidence requires structured auto-merge evidence")
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
