@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-RERANKING FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+CONTEXT MANAGER FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -113,13 +113,46 @@ See `03-SCOPE.md`.
 - PR #30 was independently approved at exact head `f8165e1ea9544841b7e67c26d4beecf0e986624f` and squash-merged as `57397ec8f4ffb94fb8e0647e17d648f432430258`.
 - Post-merge CI run `33764713691` fired from `push` on exact main SHA `57397ec8f4ffb94fb8e0647e17d648f432430258`; Validate and Integration health passed and Review Evidence was skipped by design.
 - Approval-gated user-owned auto-merge now preserves the required post-merge validation flow.
+- Deterministic `context-capsule-v1` Context Manager foundation implemented over already-resolved project and durable task identity.
+- Context Manager remains project-scoped and does not accept a free-form retrieval query.
+- Latest target-project checkpoint is processed first.
+- Scope, Definition of Done, Architecture and Decisions are resolved from target-project Git-tracked canonical governance.
+- HIVE governance is never silently substituted for another registered project.
+- Task input remains explicitly noncanonical relative to canonical governance.
+- Constraints and Acceptance Criteria are parsed only from explicit task structure without LLM inference.
+- Retrieval query is derived deterministically from bounded task title, text and explicit sections.
+- Existing reranked retrieval seam is reused rather than duplicating retrieval or provider logic.
+- Hybrid, semantic and rerank fallback states and provenance remain visible.
+- Relevant files, symbols and tests are projected deterministically.
+- Fixed conservative item/character bounds and truthful truncation evidence are enforced.
+- Identical canonical inputs and state produce a deterministic capsule.
+- Missing or untracked mandatory governance fails closed.
+- Cross-project task or governance access fails closed.
+- HEAD/source race and stale project state fail closed.
+- Redis and API restarts rebuild the derived context from durable truth.
+- Context Manager construction uses zero LLM calls.
+- No context-memory persistence table or migration was introduced; migration head remains `0005_semantic_retrieval`.
+- Governance selection is two-phase: mandatory coverage first, then optional relevance expansion.
+- Mandatory governance coverage is guaranteed before optional excerpts.
+- Mandatory stable authority sequence is CHECKPOINT -> SCOPE -> DEFINITION_OF_DONE -> ARCHITECTURE -> DECISIONS.
+- Governance character and excerpt-slot budget reserves mandatory coverage before extras.
+- Optional SCOPE or relevance excerpts cannot evict mandatory Definition of Done, Architecture or Decisions.
+- A mandatory-coverage runtime invariant fails closed instead of returning a partial successful capsule.
+- Real pressure integration proves complete mandatory coverage under multi-relevant SCOPE sections.
+- Review Evidence requires `mandatory_governance_coverage = true` for WO-009.
+- Final exact-head evidence recorded 190 backend tests and 7 dashboard tests passing.
+- A governance-coverage correction (WO-009-C1) was required after Sol audit of the first implementation HEAD.
+- PR #32 was independently approved by `kayzenweb3` on exact corrected HEAD `cfd275626a107dc9cbbe877694d6d36d6d0f7fa9`.
+- Independent approval review ID `5106474439`.
+- PR #32 auto-squash-merged as `8d9421d9cdfb3779ba56e19083086c31e2a644bf`.
+- Post-merge CI run `33802185661` passed on exact `8d9421d9cdfb3779ba56e19083086c31e2a644bf`.
 
 ## IN PROGRESS
-- Preparing the smallest necessary Context Manager foundation over the approved project registry, canonical governance sources and reranked retrieval pipeline.
+- Preparing the smallest necessary deterministic Progressive Disclosure Foundation over the approved Context Manager and reranked retrieval pipeline.
 
 ## PENDING
 - memory.
-- ACCE beyond the intake/storage foundation.
+- ACCE beyond current intake/storage/context foundations.
 - MCP server product surface.
 - autonomous execution beyond the Local Verified Runner foundation.
 - telemetry.
@@ -130,23 +163,22 @@ See `03-SCOPE.md`.
 - backup/recovery validation.
 - final documentation.
 - final V0.1 review.
-- Context Manager.
 - adaptive token budget.
 - progressive disclosure.
 - context fingerprints.
 - delta context.
 - provider/prompt cache adapter layer.
-- checkpoint awareness orchestration.
+- checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Reranking Foundation approval and post-merge governance validation.
+None known after Context Manager Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary deterministic Context Manager foundation that, for an already-resolved project and task, reads the latest canonical checkpoint first, resolves the relevant scope/Definition of Done/architecture/decisions, invokes the approved bounded reranked retrieval pipeline, and builds a bounded provenance-bearing context capsule with explicit task, project state, constraints, acceptance criteria, relevant governance, relevant files/symbols/tests and retrieval provenance. Use fixed conservative bounds for this increment. Do not add memory lifecycle, adaptive token budgeting, full progressive-disclosure escalation, context fingerprints/delta context, prompt/provider cache, MCP product surface or autonomous executor dispatch in this increment.
+Implement the smallest necessary deterministic Progressive Disclosure Foundation over the approved Context Manager. Define and expose stable disclosure levels aligned with the canonical L0-L5 model, start each context request at the smallest sufficient level, and permit deterministic bounded escalation only when explicit evidence shows lower-level context is insufficient. Reuse existing project/governance/retrieval/rerank provenance and preserve fail-closed project/Git consistency. Use fixed conservative per-level bounds in this increment. Do not add adaptive token budgeting, context fingerprints, delta context, provider/prompt cache, memory lifecycle, MCP product surface, autonomous executor dispatch or full telemetry in this increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
