@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-CONTEXT MANAGER FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+PROGRESSIVE DISCLOSURE FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -132,6 +132,22 @@ See `03-SCOPE.md`.
 - Redis and API restarts rebuild the derived context from durable truth.
 - Context Manager construction uses zero LLM calls.
 - No context-memory persistence table or migration was introduced; migration head remains `0005_semantic_retrieval`.
+- Deterministic Progressive Disclosure Foundation implemented over the approved Context Manager.
+- Canonical disclosure levels are L0 Project capsule, L1 Module summaries, L2 Symbol signatures and dependency metadata, L3 Relevant implementation excerpts, L4 Complete file and L5 Repository-wide investigation.
+- Smallest-sufficient initial selection uses explicit task and Acceptance Criteria plus already-resolved deterministic evidence.
+- Known requirements are not converted into synthetic escalation.
+- Deterministic bounded escalation occurs only on explicit insufficiency discovered at the current level.
+- L1 materializes deterministic module summaries; L2 materializes symbol signatures and dependency metadata.
+- An explicit valid `disclosure_level` acts as a defined floor.
+- L4 resolves target files from project-scoped evidence and emits selected textual files in full rather than clipping content.
+- Oversized L4 capsules fail closed rather than pretending complete-file success; Progressive Disclosure payload participates in truthful context bounds accounting.
+- Project isolation, cross-project fail-closed behavior and Git HEAD/source race protection remain preserved.
+- Redis/API restart determinism remains preserved; disclosure decision/model calls remain at 0.
+- Adaptive Token Budget was not implemented in WO-010; migration head remains `0005_semantic_retrieval`.
+- PR #34 final audited candidate HEAD before merge was `6c021ecccf5366536cf67f7495520747241a4109`; Sol approval/audit ID was `5113577988`.
+- PR #34 was squash-merged as `7a76e0f2055421226b27ab1731342508f671a53a`.
+- Post-merge push CI run `33878806231` passed Validate and Integration health on exact main SHA `7a76e0f2055421226b27ab1731342508f671a53a`; Review Evidence was skipped by design on push.
+- Final PR evidence recorded backend `250 passed, 0 failed, 0 skipped`, dashboard `7 passed, 0 failed`, Validate PASS, Integration health PASS, Review Evidence PASS, canonical verifier PASS and secret scan PASS.
 - Governance selection is two-phase: mandatory coverage first, then optional relevance expansion.
 - Mandatory governance coverage is guaranteed before optional excerpts.
 - Mandatory stable authority sequence is CHECKPOINT -> SCOPE -> DEFINITION_OF_DONE -> ARCHITECTURE -> DECISIONS.
@@ -152,10 +168,10 @@ See `03-SCOPE.md`.
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
 
-Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) is not approved or merged by this governance transition.
+Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary deterministic Progressive Disclosure Foundation over the approved Context Manager and reranked retrieval pipeline.
+- Preparing the smallest necessary Adaptive Token Budget Foundation over the approved Context Manager and Progressive Disclosure pipeline.
 
 ## PENDING
 - memory.
@@ -171,7 +187,6 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - final documentation.
 - final V0.1 review.
 - adaptive token budget.
-- progressive disclosure.
 - context fingerprints.
 - delta context.
 - provider/prompt cache adapter layer.
@@ -179,13 +194,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Context Manager Foundation approval and post-merge validation.
+None known after Progressive Disclosure Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Implement the smallest necessary deterministic Progressive Disclosure Foundation over the approved Context Manager. Define and expose stable disclosure levels aligned with the canonical L0-L5 model, start each context request at the smallest sufficient level, and permit deterministic bounded escalation only when explicit evidence shows lower-level context is insufficient. Reuse existing project/governance/retrieval/rerank provenance and preserve fail-closed project/Git consistency. Use fixed conservative per-level bounds in this increment. Do not add adaptive token budgeting, context fingerprints, delta context, provider/prompt cache, memory lifecycle, MCP product surface, autonomous executor dispatch or full telemetry in this increment.
+Prepare the smallest necessary Adaptive Token Budget Foundation after rerank and Progressive Disclosure. Start with deterministic budgeting and an explicit bounded token/context budget contract, using a conservative fixed/default policy with deterministic adjustment only from approved signals. Preserve correctness over token savings, checkpoint-first governance, project isolation, provenance and truncation truth, and do not call an LLM merely to decide a token budget when deterministic code is sufficient. This increment must not add memory lifecycle, context fingerprints, delta context, provider/prompt cache implementation, MCP product surface, autonomous dispatch or full telemetry expansion.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
