@@ -58,7 +58,7 @@ def build_files() -> dict[Path, str]:
         ),
         (
             "| backend/app/progressive_disclosure.py | Deterministic L0-L5 start from "
-            "all available evidence, L1/L2 materialization, L4 resolution and "
+            "all available evidence, L1/L2 materialization, full L4 files and "
             "post-materialize escalation. |"
         ),
         "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",

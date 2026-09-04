@@ -51,7 +51,6 @@ L2_MAX_DEPENDENCIES = 8
 L3_MAX_EXCERPTS = 5
 L3_MAX_EXCERPT_CHARS = 800
 L4_MAX_COMPLETE_FILES = 2
-L4_MAX_COMPLETE_FILE_CHARS = 800
 L5_MAX_INVENTORY_ENTRIES = 20
 DISCLOSURE_EVIDENCE_CHARS = 160
 
@@ -236,7 +235,7 @@ def disclosure_level_bound(level: DisclosureLevel) -> DisclosureLevelBound:
         max_excerpts=L3_MAX_EXCERPTS if index >= 3 else 0,
         max_excerpt_characters=L3_MAX_EXCERPT_CHARS if index >= 3 else 0,
         max_complete_files=L4_MAX_COMPLETE_FILES if index >= 4 else 0,
-        max_complete_file_characters=L4_MAX_COMPLETE_FILE_CHARS if index >= 4 else 0,
+        max_complete_file_characters=0,
         max_inventory_entries=L5_MAX_INVENTORY_ENTRIES if index >= 5 else 0,
     )
 
@@ -698,6 +697,19 @@ def _l4_target_paths(
     return evidence_paths
 
 
+def _decode_complete_file_text(entry: _TrackedFile) -> str:
+    if b"\x00" in entry.source:
+        raise DisclosureConsistencyError("l4_complete_file_not_textual", entry.path)
+    suffix = Path(entry.path).suffix.casefold()
+    try:
+        if entry.language == "python" or suffix in {".py", ".pyi"}:
+            encoding, _ = tokenize.detect_encoding(io.BytesIO(entry.source).readline)
+            return entry.source.decode(encoding)
+        return entry.source.decode("utf-8")
+    except (LookupError, UnicodeError, ValueError) as exc:
+        raise DisclosureConsistencyError("l4_complete_file_not_textual", entry.path) from exc
+
+
 def _complete_files(
     snapshot: _RepositorySnapshot,
     requested_paths: Sequence[str],
@@ -712,18 +724,15 @@ def _complete_files(
             raise DisclosureConsistencyError("cross_project_disclosure_evidence", path)
         if entry.git_blob_sha is None:
             raise DisclosureConsistencyError("disclosure_git_identity_missing", path)
-        text = entry.source.decode("utf-8", errors="replace")
-        excerpt_truncated = len(text) > bound.max_complete_file_characters
         excerpts.append(
             CompleteFileExcerpt(
                 path=path,
                 source_content_sha256=entry.content_sha256,
                 git_blob_sha=entry.git_blob_sha,
-                text=text[: bound.max_complete_file_characters],
-                truncated=excerpt_truncated,
+                text=_decode_complete_file_text(entry),
+                truncated=False,
             )
         )
-        truncated |= excerpt_truncated
     return excerpts, truncated
 
 

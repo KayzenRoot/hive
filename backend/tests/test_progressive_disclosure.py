@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from uuid import UUID
 
 import pytest
@@ -21,9 +22,12 @@ from app.progressive_disclosure import (
 from tests.test_context_manager import (
     candidate,
     governance_documents,
+    large_python_source,
     patch_build_dependencies,
+    python_source_documents,
     repository_snapshot,
     rerank_response,
+    source_state,
     task_response,
     task_text_response,
 )
@@ -258,7 +262,8 @@ def test_l4_complete_file_and_l5_inventory(monkeypatch: pytest.MonkeyPatch) -> N
     assert capsule.progressive_disclosure.final_level == DisclosureLevel.L4
     assert capsule.complete_files
     assert capsule.complete_files[0].path == "src/context.py"
-    assert "def build_context" in capsule.complete_files[0].text
+    assert capsule.complete_files[0].truncated is False
+    assert capsule.complete_files[0].text == python_source_documents()["src/context.py"]
     assert capsule.bounds.disclosure_characters_included >= len(capsule.complete_files[0].text)
 
 
@@ -275,6 +280,114 @@ def test_l4_resolves_file_from_retrieval_without_literal_path(
     assert capsule.progressive_disclosure.final_level == DisclosureLevel.L4
     assert capsule.complete_files
     assert capsule.complete_files[0].path == "src/context.py"
+    assert capsule.complete_files[0].truncated is False
+    assert capsule.complete_files[0].text == python_source_documents()["src/context.py"]
+
+
+def test_l4_emits_full_file_larger_than_800_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = large_python_source(2_500, "LARGE_CONTEXT_FILE")
+    documents = python_source_documents()
+    documents["src/large_module.py"] = source
+    patch_build_dependencies(
+        monkeypatch,
+        state=source_state(documents),
+        extracted=task_text_response(
+            "Return the complete file src/large_module.py.\n\n"
+            "## Acceptance Criteria\n- Return the complete file src/large_module.py.\n"
+        ),
+    )
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    payload = capsule.complete_files[0]
+    assert capsule.progressive_disclosure.final_level == DisclosureLevel.L4
+    assert payload.path == "src/large_module.py"
+    assert payload.truncated is False
+    assert len(payload.text) > 800
+    assert payload.text == source
+    assert payload.source_content_sha256 == hashlib.sha256(source.encode("utf-8")).hexdigest()
+    assert payload.git_blob_sha
+
+
+def test_l4_resolved_target_emits_full_file_without_literal_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = (
+        "import json\n\n"
+        "class TargetContextService:\n"
+        "    def build_context(self, task_id):\n"
+        "        return {'task_id': task_id}\n\n"
+        'PADDING = """' + ("x" * 2_000) + '"""\n'
+    )
+    documents = python_source_documents()
+    documents["src/context.py"] = source
+    patch_build_dependencies(
+        monkeypatch,
+        state=source_state(documents),
+        extracted=task_text_response(
+            "Return the complete file for TargetContextService.build_context.\n"
+        ),
+        response=rerank_response(
+            [
+                candidate(0, qualified_symbol="TargetContextService.build_context"),
+                candidate(1, qualified_symbol=None, source_kind="REPOSITORY_FILE"),
+            ]
+        ),
+    )
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    payload = capsule.complete_files[0]
+    assert capsule.progressive_disclosure.final_level == DisclosureLevel.L4
+    assert payload.path == "src/context.py"
+    assert payload.truncated is False
+    assert len(payload.text) > 800
+    assert payload.text == source
+    assert payload.source_content_sha256 == hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def test_l4_oversize_complete_file_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = large_python_source(30_000, "OVERSIZE_CONTEXT_FILE")
+    documents = python_source_documents()
+    documents["src/oversize_module.py"] = source
+    patch_build_dependencies(
+        monkeypatch,
+        state=source_state(documents),
+        extracted=task_text_response(
+            "Return the complete file src/oversize_module.py.\n\n"
+            "## Acceptance Criteria\n- Return the complete file src/oversize_module.py.\n"
+        ),
+    )
+    with pytest.raises(
+        context_manager.ContextBoundsError,
+        match="l4_complete_file_exceeds_capsule_bound",
+    ):
+        context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+
+def test_l4_file_count_bound_keeps_selected_files_complete() -> None:
+    documents = python_source_documents()
+    documents["src/alpha.py"] = "VALUE = 'alpha-complete'\n"
+    documents["src/beta.py"] = "VALUE = 'beta-complete'\n"
+    documents["src/gamma.py"] = "VALUE = 'gamma-complete'\n"
+    presentation = apply_disclosure(
+        title="Return the complete files",
+        constraints=[],
+        acceptance_criteria=["- Return the complete file src/alpha.py src/beta.py src/gamma.py."],
+        task_text="Return the complete file src/alpha.py src/beta.py src/gamma.py.",
+        files=[],
+        symbols=[],
+        tests=[],
+        results=[],
+        snapshot=repository_snapshot(documents),
+    )
+    assert presentation.disclosure.final_level == DisclosureLevel.L4
+    assert len(presentation.complete_files) == 2
+    assert presentation.disclosure.truncated is True
+    assert all(item.truncated is False for item in presentation.complete_files)
+    assert {item.text for item in presentation.complete_files} <= {
+        documents["src/alpha.py"],
+        documents["src/beta.py"],
+        documents["src/gamma.py"],
+    }
 
 
 def test_l4_never_claims_success_without_complete_file() -> None:

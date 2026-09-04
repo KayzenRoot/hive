@@ -996,6 +996,8 @@ def build_context(
     for _ in range(4):
         serialized_length = len(capsule.model_dump_json())
         if serialized_length > MAX_CAPSULE_CHARS:
+            if capsule.complete_files:
+                raise ContextBoundsError("l4_complete_file_exceeds_capsule_bound")
             raise ContextBoundsError("capsule_character_bound_exceeded")
         capsule = capsule.model_copy(
             update={
@@ -1008,6 +1010,8 @@ def build_context(
         if capsule.bounds.serialized_capsule_characters == final_length:
             break
     if final_length > MAX_CAPSULE_CHARS:
+        if capsule.complete_files:
+            raise ContextBoundsError("l4_complete_file_exceeds_capsule_bound")
         raise ContextBoundsError("capsule_character_bound_exceeded")
     if capsule.bounds.serialized_capsule_characters != final_length:
         raise ContextBoundsError("capsule_serialization_length_unstable")

@@ -450,7 +450,11 @@
         "l4_nonempty_when_selected": { "type": "boolean" },
         "l4_target_resolved_from_project_evidence": { "type": "boolean" },
         "progressive_payload_in_bounds_accounting": { "type": "boolean" },
-        "legitimate_escalation_fixture": { "type": "boolean" }
+        "legitimate_escalation_fixture": { "type": "boolean" },
+        "l4_complete_file_untruncated": { "type": "boolean" },
+        "l4_large_file_full_content": { "type": "boolean" },
+        "l4_full_content_source_identity": { "type": "boolean" },
+        "l4_oversize_capsule_fail_closed": { "type": "boolean" }
       }
     },
     "auto_merge": {

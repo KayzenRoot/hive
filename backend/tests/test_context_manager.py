@@ -133,6 +133,13 @@ def python_source_documents() -> dict[str, str]:
     return documents
 
 
+def large_python_source(size: int, marker: str) -> str:
+    header = f'MARKER = "{marker}"\nTEXT = """\n'
+    footer = '\n"""\n'
+    fill = size - len(header) - len(footer)
+    return header + ("x" * max(fill, 1)) + footer
+
+
 def repository_snapshot(
     documents: dict[str, str] | None = None,
 ) -> _RepositorySnapshot:

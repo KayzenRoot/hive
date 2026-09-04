@@ -607,10 +607,12 @@ nível suficiente e não passa de L5.
 
 ## 11. Bounds por nível
 
-Constantes fixas e conservadoras: módulos, símbolos, excerpts, arquivos
-completos e inventário. `total_emitted_context_characters` inclui o payload
-de disclosure (L1/L2/L4/L5) sem duplicar snippets de retrieval. Truncation
-é reportado. Não há budget adaptativo.
+Constantes fixas e conservadoras: módulos, símbolos, excerpts, contagem de
+arquivos completos e inventário. L4 emite o arquivo textual inteiro; o bound
+global do capsule continua fail-closed se o arquivo completo não couber.
+`total_emitted_context_characters` inclui o payload de disclosure (L1/L2/L4/L5)
+sem duplicar snippets de retrieval. Truncation de conteúdo L4 por caracteres
+não é usada. Não há budget adaptativo.
 
 ## 12. Contrato da API
 

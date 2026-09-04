@@ -166,11 +166,20 @@ TASK_PROJECTS = {
     "Target L0": "Target",
     "Target escalate": "Target",
     "Target L4": "Target",
+    "Target L4 large": "Isolated",
+    "Target L4 oversize": "Isolated",
     "Target fallback": "Target",
     "Isolated": "Isolated",
     "Cross disclosure": "Isolated",
     "Missing": "Missing",
 }
+
+
+def large_python_source(size: int, marker: str) -> str:
+    header = f'MARKER = "{marker}"\nTEXT = """\n'
+    footer = '\n"""\n'
+    fill = size - len(header) - len(footer)
+    return header + ("x" * max(fill, 1)) + footer
 
 
 def context_request(
@@ -247,6 +256,11 @@ def main() -> int:
     missing = projects_root / "project-missing"
     write_project(target, "Target", governance=True)
     write_project(isolated, "Isolated", governance=True)
+    large_source = large_python_source(2_500, "LARGE_PAD_FILE")
+    oversize_source = large_python_source(30_000, "OVERSIZE_PAD_FILE")
+    (isolated / "src" / "padding_block.py").write_text(large_source, encoding="utf-8")
+    (isolated / "src" / "padding_block_oversize.py").write_text(oversize_source, encoding="utf-8")
+    commit(isolated, "add L4 complete-file fixtures", os.environ.copy())
     write_project(missing, "Missing", governance=False)
     missing_checkpoint = missing / "docs" / "project-brain" / "13-CHECKPOINT.md"
     missing_checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -359,6 +373,16 @@ def main() -> int:
                 "Target complete file by symbol",
                 "Return the complete file for TargetContextService.build_context.\n",
                 "Target L4",
+            ),
+            (
+                "Isolated complete large file",
+                "Return the complete file src/padding_block.py.\n",
+                "Target L4 large",
+            ),
+            (
+                "Isolated complete oversize file",
+                "Return the complete file src/padding_block_oversize.py.\n",
+                "Target L4 oversize",
             ),
             ("Target fallback", fallback_text, "Target fallback"),
             ("Isolated context", "Use only project B unrelated worker provenance.", "Isolated"),
@@ -544,11 +568,57 @@ def main() -> int:
                 f"disclosure path is not a bounded adjacent walk: {escalate_disclosure}"
             )
         l4 = context_request(base_url, project_ids["Target"], task_ids["Target L4"])
-        l4_path = (l4.get("complete_files") or [{}])[0].get("path")
+        l4_file = (l4.get("complete_files") or [{}])[0]
+        l4_path = l4_file.get("path")
         if l4_path != "src/context_service.py":
             raise AssertionError(
                 f"L4 did not resolve the retrieved target file: {l4.get('complete_files')}"
             )
+        expected_l4_text = (target / "src" / "context_service.py").read_text(encoding="utf-8")
+        emitted_l4 = (l4_file.get("text") or "").replace("\r\n", "\n")
+        if (
+            l4_file.get("truncated") is not False
+            or emitted_l4 != expected_l4_text.replace("\r\n", "\n")
+            or not l4_file.get("source_content_sha256")
+            or not l4_file.get("git_blob_sha")
+        ):
+            raise AssertionError(f"L4 symbol-resolved file was truncated: {l4_file}")
+        large = context_request(base_url, project_ids["Isolated"], task_ids["Target L4 large"])
+        large_file = (large.get("complete_files") or [{}])[0]
+        emitted_large = (large_file.get("text") or "").replace("\r\n", "\n")
+        expected_large = large_source.replace("\r\n", "\n")
+        if (
+            large["progressive_disclosure"].get("final_level") != "L4"
+            or large_file.get("path") != "src/padding_block.py"
+            or large_file.get("truncated") is not False
+            or emitted_large != expected_large
+            or len(emitted_large) <= 800
+            or not large_file.get("source_content_sha256")
+            or not large_file.get("git_blob_sha")
+        ):
+            raise AssertionError(f"L4 large complete file was not full source: {large_file}")
+        oversize_task_id = task_ids["Target L4 oversize"]
+        status, oversize = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Isolated']}/tasks/{oversize_task_id}/context",
+            {"top_k": 10},
+        )
+        assert_equal(status, 409, "L4 oversize capsule rejection")
+        if not isinstance(oversize, dict) or "l4_complete_file_exceeds_capsule_bound" not in str(
+            oversize
+        ):
+            raise AssertionError(f"L4 oversize error was not explicit: {oversize}")
+        l4_complete_file_untruncated = (
+            l4_file.get("truncated") is False and large_file.get("truncated") is False
+        )
+        l4_large_file_full_content = emitted_large == expected_large and len(emitted_large) > 800
+        l4_full_content_source_identity = bool(
+            large_file.get("source_content_sha256") and large_file.get("git_blob_sha")
+        )
+        l4_oversize_capsule_fail_closed = (
+            status == 409 and "l4_complete_file_exceeds_capsule_bound" in str(oversize)
+        )
         explicit = context_request(
             base_url,
             project_ids["Target"],
@@ -747,6 +817,10 @@ def main() -> int:
                     l4_target_resolved_from_project_evidence,
                     progressive_payload_in_bounds_accounting,
                     legitimate_escalation_fixture,
+                    l4_complete_file_untruncated,
+                    l4_large_file_full_content,
+                    l4_full_content_source_identity,
+                    l4_oversize_capsule_fail_closed,
                 )
             )
             else "FAIL",
@@ -793,6 +867,10 @@ def main() -> int:
             "l4_target_resolved_from_project_evidence": (l4_target_resolved_from_project_evidence),
             "progressive_payload_in_bounds_accounting": (progressive_payload_in_bounds_accounting),
             "legitimate_escalation_fixture": legitimate_escalation_fixture,
+            "l4_complete_file_untruncated": l4_complete_file_untruncated,
+            "l4_large_file_full_content": l4_large_file_full_content,
+            "l4_full_content_source_identity": l4_full_content_source_identity,
+            "l4_oversize_capsule_fail_closed": l4_oversize_capsule_fail_closed,
         }
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         EVIDENCE_OUTPUT.write_text(

@@ -81,7 +81,12 @@ Per-level item/character bounds are fixed and conservative. L1 emits
 deterministic module summaries from the Git snapshot; L2 emits Python
 signatures and import dependency edges. L4 resolves complete files from
 literal paths or project-scoped retrieval/symbol evidence and never claims
-success with an empty payload. `total_emitted_context_characters` includes
+success with an empty payload. A successful L4 payload emits the entire
+selected textual source; `truncated` is reserved for file-count overflow,
+not per-file character clipping. If complete-file content would exceed the
+global serialized capsule bound, assembly fails closed with
+`l4_complete_file_exceeds_capsule_bound` instead of truncating the file.
+`total_emitted_context_characters` includes
 this disclosure payload without double-counting retrieval snippets.
 
 ## Fixed bounds

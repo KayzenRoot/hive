@@ -78,6 +78,12 @@ PROGRESSIVE_DISCLOSURE_C1_FIELDS = (
     "progressive_payload_in_bounds_accounting",
     "legitimate_escalation_fixture",
 )
+PROGRESSIVE_DISCLOSURE_C2_FIELDS = (
+    "l4_complete_file_untruncated",
+    "l4_large_file_full_content",
+    "l4_full_content_source_identity",
+    "l4_oversize_capsule_fail_closed",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -588,7 +594,11 @@ def context_manager_evidence() -> dict[str, object]:
         return unknown
     progressive_present = any(
         field in data
-        for field in (*PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS, *PROGRESSIVE_DISCLOSURE_C1_FIELDS)
+        for field in (
+            *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C2_FIELDS,
+        )
     )
     status = (
         "PASS"
@@ -615,6 +625,7 @@ def context_manager_evidence() -> dict[str, object]:
                     for field in (
                         *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
                         *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+                        *PROGRESSIVE_DISCLOSURE_C2_FIELDS,
                     )
                 },
                 "disclosure_llm_calls": (
@@ -874,7 +885,11 @@ def require_wo010_progressive_disclosure_evidence(
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
     missing = [
         field
-        for field in (*PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS, *PROGRESSIVE_DISCLOSURE_C1_FIELDS)
+        for field in (
+            *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C2_FIELDS,
+        )
         if context_manager.get(field) is not True
     ]
     if missing:
@@ -1801,7 +1816,12 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         "C1 L4 nonempty `"
         f"{context_manager_evidence.get('l4_nonempty_when_selected', False)}`, "
         "C1 explicit level `"
-        f"{context_manager_evidence.get('explicit_disclosure_level_contract_valid', False)}`"
+        f"{context_manager_evidence.get('explicit_disclosure_level_contract_valid', False)}`, "
+        "C2 L4 full file `"
+        f"{context_manager_evidence.get('l4_complete_file_untruncated', False)}/"
+        f"{context_manager_evidence.get('l4_large_file_full_content', False)}`, "
+        "C2 L4 oversize fail-closed `"
+        f"{context_manager_evidence.get('l4_oversize_capsule_fail_closed', False)}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
