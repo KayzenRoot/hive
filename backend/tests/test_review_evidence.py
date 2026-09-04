@@ -568,6 +568,44 @@ def test_wo010_g1_scope_and_manifest_require_unarmed_auto_merge() -> None:
         validate_manifest(manifest)
 
 
+def test_wo010_g1_canonical_change_evidence_is_work_order_aware() -> None:
+    intended = [
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/16-DECISIONS-LEDGER.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+    ]
+    evidence = canonical_change_evidence(intended, "WO-010-G1")
+    assert evidence["authorized_paths"] == intended
+
+    unrelated = canonical_change_evidence(
+        intended + ["docs/project-brain/04-ARCHITECTURE.md"], "WO-010-G1"
+    )
+    assert unrelated["authorized_paths"] == intended
+
+    non_g1 = canonical_change_evidence(intended, "WO-011")
+    assert non_g1["authorized_paths"] == [
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+    ]
+
+
+def test_wo010_g1_summary_prints_all_authorized_canonical_paths() -> None:
+    manifest = evidence_fixture()
+    manifest["work_order"] = "WO-010-G1"
+    manifest["changed_files"] = {
+        "count": 3,
+        "paths": [
+            "docs/project-brain/13-CHECKPOINT.md",
+            "docs/project-brain/16-DECISIONS-LEDGER.md",
+            "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ],
+    }
+    summary = summary_markdown(manifest, "https://example.invalid/run/1")
+    assert "docs/project-brain/13-CHECKPOINT.md" in summary
+    assert "docs/project-brain/16-DECISIONS-LEDGER.md" in summary
+    assert "docs/project-brain/CANONICAL-SHA256SUMS.txt" in summary
+
+
 def test_g1_manifest_records_user_owned_identity_and_scope() -> None:
     manifest = evidence_fixture()
     manifest["work_order"] = "WO-008-G1"
@@ -823,6 +861,29 @@ def test_pr_body_template_contains_work_order_marker_and_sol_state() -> None:
     assert body.startswith("<!-- HIVE-WORK-ORDER: WO-006 -->")
     assert body.count("Sol Review State: AWAITING_SOL") == 1
     assert body.count("## ") == 20
+
+
+def test_future_work_order_template_uses_single_account_stage_gate() -> None:
+    body = render_body(
+        work_order="WO-011",
+        pr_number=36,
+        branch="feature/wo011-future",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-011-b",
+        ruleset_before="baseline",
+        ruleset_after="unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+    folded = body.casefold()
+    assert "kayzenroot" in folded
+    assert "awaiting_sol" in folded
+    assert "auto-merge nativo desarmado" in folded
+    assert "approved" in folded and "auto-merge nativo squash" in folded
+    assert "kayzenweb3" not in folded
+    assert "aprovação independente elegível" not in folded
+    assert "independent native approval" not in folded
 
 
 def test_g1_pr_body_describes_identity_correction() -> None:

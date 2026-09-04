@@ -692,8 +692,14 @@ testes, governança e avisos observados.
 
 Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
 {merge_after}. A proteção permanece ativa, sem bypass, com checks reais,
-threads resolvidas e squash-only. Auto-merge só pode ser armado após o gate de
-uma aprovação independente elegível; o executor não aprova nem faz merge.
+threads resolvidas e squash-only. A única identidade operacional do GitHub é
+`KayzenRoot`; executor e Sol continuam papéis lógicos distintos. O fluxo futuro
+é `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL ARMS AUTO-MERGE ->
+MERGE -> PUSH CI -> CHECKPOINT`. O executor encerra com a PR Ready, checks
+verdes e auto-merge nativo desarmado. Sol audita o HEAD exato; se o resultado
+for `CORRECTION REQUIRED`, o auto-merge continua desarmado; se for `APPROVED`,
+Sol arma o auto-merge nativo SQUASH como `KayzenRoot`. O push CI pós-merge deve
+passar antes do checkpoint ou do próximo Work Order.
 
 ## 18. Limitações e avisos conhecidos
 
@@ -709,8 +715,9 @@ por `<!-- hive-review-evidence:{work_order} -->`.
 
 ## 20. Estado para revisão de Sol
 
-A PR permanece aberta e não mesclada. Nenhuma aprovação é atribuída a Sol;
-threads e checks devem ser verificados no current head antes de qualquer merge.
+A PR permanece aberta, Ready e não mesclada. O auto-merge permanece desarmado
+antes da auditoria de Sol; nenhuma aprovação ou merge é presumido. Threads e
+checks devem ser verificados no HEAD atual antes de qualquer merge.
 
 Sol Review State: AWAITING_SOL
 """

@@ -92,6 +92,11 @@ WO010_G1_ALLOWED_PATHS = frozenset(
         "scripts/review_pr_body.py",
     }
 )
+WO010_G1_CANONICAL_PATHS = (
+    CHECKPOINT_PATH,
+    "docs/project-brain/16-DECISIONS-LEDGER.md",
+    "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+)
 PROTECTED_MAIN_RULESET_ID = 21934284
 SOLE_GITHUB_OPERATOR_LOGIN = "KayzenRoot"
 
@@ -165,15 +170,18 @@ def derive_work_order(repository: str, pr_number: int) -> str:
     return parse_work_order_marker(body)
 
 
-def canonical_change_evidence(paths: list[str]) -> dict[str, object]:
+def canonical_change_evidence(paths: list[str], work_order: str = "") -> dict[str, object]:
     changed = set(paths)
     project_brain_changed = any(
         path == "docs/project-brain" or path.startswith("docs/project-brain/") for path in changed
     )
+    authorized_candidates = (
+        WO010_G1_CANONICAL_PATHS if work_order == "WO-010-G1" else CANONICAL_PATHS
+    )
     return {
         "project_brain_changed": project_brain_changed,
         "checkpoint_changed": CHECKPOINT_PATH in changed,
-        "authorized_paths": [path for path in CANONICAL_PATHS if path in changed],
+        "authorized_paths": [path for path in authorized_candidates if path in changed],
     }
 
 
@@ -1175,7 +1183,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         evidence_text,
         github_evidence,
     )
-    canonical_changes = canonical_change_evidence(paths)
+    canonical_changes = canonical_change_evidence(paths, work_order)
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     pr_auto_merge = pull_request_auto_merge_evidence(pr_governance)
@@ -1416,7 +1424,9 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     artifact = cast(dict[str, Any], manifest["artifact"])
     review_state = cast(dict[str, Any], manifest["review_state"])
     changed_files = cast(dict[str, Any], manifest["changed_files"])
-    canonical_changes = canonical_change_evidence(changed_files["paths"])
+    canonical_changes = canonical_change_evidence(
+        changed_files["paths"], cast(str, manifest["work_order"])
+    )
     integrity = cast(dict[str, Any], integration["integrity_tests"])
     semantic = cast(dict[str, Any], benchmark.get("semantic", {}))
     hybrid = cast(dict[str, Any], benchmark.get("hybrid", {}))
