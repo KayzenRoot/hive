@@ -452,8 +452,7 @@ auto-merge desarmado. Esta PR não mescla WO-010.
 ## 3. Arquivos alterados
 
 Somente documentação canônica de governança, Review Evidence, schema, testes,
-template de PR, workflow CI e o ajuste de auditoria da árvore instalada do
-dashboard. Nenhum código de Progressive Disclosure.
+template de PR e o workflow CI. Nenhum código de Progressive Disclosure.
 
 ## 4. Modelo operacional
 

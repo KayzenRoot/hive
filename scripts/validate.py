@@ -81,11 +81,7 @@ def command_steps() -> list[Step]:
         Step("dashboard build", [npm, "run", "build"], cwd=ROOT / "dashboard", bucket="build"),
         Step(
             "dashboard npm audit",
-            # npm's lockfile audit path currently falls back to the retired
-            # Quick Audit endpoint for this dependency tree. npm ci has
-            # already materialized the locked tree, so audit that installed
-            # tree directly and keep the security threshold unchanged.
-            [npm, "audit", "--no-package-lock", "--audit-level=high"],
+            [npm, "audit", "--audit-level=high"],
             cwd=ROOT / "dashboard",
             bucket="lint",
         ),
