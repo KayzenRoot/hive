@@ -84,6 +84,27 @@ PROGRESSIVE_DISCLOSURE_C2_FIELDS = (
     "l4_full_content_source_identity",
     "l4_oversize_capsule_fail_closed",
 )
+TOKEN_BUDGET_REQUIRED_FIELDS = (
+    "adaptive_token_budget_implemented",
+    "token_budget_policy_versioned",
+    "token_estimator_versioned",
+    "token_estimator_provider_independent",
+    "token_budget_uses_approved_deterministic_signals",
+    "token_budget_user_mode_required",
+    "mandatory_governance_preserved_under_budget",
+    "task_constraints_preserved_under_budget",
+    "acceptance_criteria_preserved_under_budget",
+    "progressive_disclosure_semantics_preserved_under_budget",
+    "l4_complete_file_preserved_under_budget",
+    "optional_tail_trim_deterministic",
+    "retained_rerank_order_preserved",
+    "required_context_over_budget_fail_closed",
+    "effective_budget_within_hard_bounds",
+    "token_budget_deterministic_two_run",
+    "token_budget_redis_restart_rebuild",
+    "token_budget_api_restart_rebuild",
+    "adaptive_token_budget_migration_changed",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -100,6 +121,7 @@ WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
 WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
 WO010_G1_BASE_SHA = "552d809f6e0a6e1f940084c35f3109dc4ec931a1"
 WO010_BASE_SHA = "68bb6679da32355b9e5c4bbb241bec0d1e685e26"
+WO011_BASE_SHA = "209a485227103872903a560872133aae5f203717"
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -265,6 +287,23 @@ def require_wo010_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
         raise ValueError("WO-010 implementation evidence cannot change canonical Project Brain")
     if any(path == "migrations" or path.startswith("migrations/") for path in paths):
         raise ValueError("WO-010 implementation evidence cannot change migrations")
+
+
+def require_wo011_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-011":
+        return
+    if base_sha != WO011_BASE_SHA:
+        raise ValueError(f"WO-011 requires exact base {WO011_BASE_SHA}, observed {base_sha}")
+    if any(
+        path == "docs/project-brain"
+        or path.startswith("docs/project-brain/")
+        or path == "migrations"
+        or path.startswith("migrations/")
+        for path in paths
+    ):
+        raise ValueError(
+            "WO-011 implementation evidence cannot change canonical Project Brain or migrations"
+        )
 
 
 def repository_name() -> str:
@@ -641,6 +680,37 @@ def context_manager_evidence() -> dict[str, object]:
                 ),
             }
         )
+    token_present = any(
+        field in data
+        for field in (
+            *TOKEN_BUDGET_REQUIRED_FIELDS,
+            "token_budget_benchmark_status",
+            "token_budget_benchmark_critical_context_misses",
+            "token_budget_benchmark_strict_reduction_fixture",
+            "token_budget_llm_calls",
+            "token_budget_provider_calls",
+        )
+    )
+    if token_present:
+        evidence.update({field: data.get(field) is True for field in TOKEN_BUDGET_REQUIRED_FIELDS})
+        for field in ("token_budget_llm_calls", "token_budget_provider_calls"):
+            value = data.get(field)
+            evidence[field] = (
+                value if isinstance(value, int) and not isinstance(value, bool) else None
+            )
+        benchmark_status = data.get("token_budget_benchmark_status")
+        evidence["token_budget_benchmark_status"] = (
+            benchmark_status if benchmark_status in {"PASS", "FAIL", "UNKNOWN"} else "UNKNOWN"
+        )
+        benchmark_misses = data.get("token_budget_benchmark_critical_context_misses")
+        evidence["token_budget_benchmark_critical_context_misses"] = (
+            benchmark_misses
+            if isinstance(benchmark_misses, int) and not isinstance(benchmark_misses, bool)
+            else 0
+        )
+        evidence["token_budget_benchmark_strict_reduction_fixture"] = (
+            data.get("token_budget_benchmark_strict_reduction_fixture") is True
+        )
     return evidence
 
 
@@ -906,6 +976,55 @@ def require_wo010_progressive_disclosure_evidence(
     if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
         raise ValueError(
             "WO-010 Review Evidence requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
+
+
+def require_wo011_context_manager_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != "WO-011":
+        return
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    positive_fields = [
+        field
+        for field in TOKEN_BUDGET_REQUIRED_FIELDS
+        if field
+        not in {"token_budget_user_mode_required", "adaptive_token_budget_migration_changed"}
+    ]
+    missing = [field for field in positive_fields if context_manager.get(field) is not True]
+    if missing:
+        raise ValueError(
+            "WO-011 Review Evidence missing mandatory adaptive token-budget evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if context_manager.get("token_budget_user_mode_required") is not False:
+        raise ValueError("WO-011 requires token_budget_user_mode_required=false")
+    if context_manager.get("adaptive_token_budget_migration_changed") is not False:
+        raise ValueError("WO-011 requires adaptive_token_budget_migration_changed=false")
+    if context_manager.get("llm_calls") != 0 or context_manager.get("disclosure_llm_calls") != 0:
+        raise ValueError(
+            "WO-011 Review Evidence requires zero Context Manager and disclosure LLM calls"
+        )
+    if context_manager.get("token_budget_llm_calls") != 0:
+        raise ValueError("WO-011 Review Evidence requires zero token-budget LLM calls")
+    if context_manager.get("token_budget_provider_calls") != 0:
+        raise ValueError("WO-011 Review Evidence requires zero token-budget provider calls")
+    if context_manager.get("token_budget_benchmark_status") != "PASS":
+        raise ValueError("WO-011 Review Evidence requires a passing token-budget benchmark")
+    if context_manager.get("token_budget_benchmark_critical_context_misses") != 0:
+        raise ValueError(
+            "WO-011 Review Evidence requires zero token-budget critical context misses"
+        )
+    if context_manager.get("token_budget_benchmark_strict_reduction_fixture") is not True:
+        raise ValueError("WO-011 Review Evidence requires a strict reduction fixture")
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-011 Review Evidence requires passing Context Manager evidence")
+    if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            "WO-011 Review Evidence requires migration head 0005_semantic_retrieval, "
             f"observed {migration_head_value}"
         )
 
@@ -1385,6 +1504,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo009_scope(work_order, base_sha, paths)
     require_wo010_g1_scope(work_order, base_sha, paths)
     require_wo010_scope(work_order, base_sha, paths)
+    require_wo011_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -1393,6 +1513,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     integration = integration_evidence(benchmark)
     require_wo009_context_manager_evidence(work_order, integration)
     require_wo010_progressive_disclosure_evidence(
+        work_order,
+        integration,
+        migration_head(),
+    )
+    require_wo011_context_manager_evidence(
         work_order,
         integration,
         migration_head(),
@@ -1574,6 +1699,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
+    if work_order == "WO-011":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo011_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1619,6 +1752,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(dict[str, Any], evidence["integration"]),
     )
     require_wo010_progressive_disclosure_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo011_context_manager_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),

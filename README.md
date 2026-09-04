@@ -69,6 +69,9 @@ See [docs/RETRIEVAL-LEXICAL.md](docs/RETRIEVAL-LEXICAL.md) and
 project-scoped corpus, pgvector embeddings, hybrid RRF queries and fallback
 operation.
 
+See [docs/ADAPTIVE-TOKEN-BUDGET.md](docs/ADAPTIVE-TOKEN-BUDGET.md) for the
+provider-independent bounded context-budget foundation and its evidence contract.
+
 See docs/INSTALLATION.md for the full lifecycle and docs/TROUBLESHOOTING.md for
 common failures.
 

@@ -5,6 +5,7 @@ Generated deterministically by scripts/generate_maps.py.
 ## Backend
 
 - backend/app/__init__.py: Python source or test module.
+- backend/app/adaptive_token_budget.py: Python source or test module.
 - backend/app/cas.py: Python source or test module.
 - backend/app/config.py: Python source or test module.
 - backend/app/context_manager.py: Python source or test module.
@@ -21,6 +22,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/task_intake.py: Python source or test module.
 - backend/app/tasks_api.py: Python source or test module.
 - backend/tests/__init__.py: Python source or test module.
+- backend/tests/test_adaptive_token_budget.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
 - backend/tests/test_context_manager.py: Python source or test module.
@@ -59,6 +61,7 @@ Generated deterministically by scripts/generate_maps.py.
 
 ## Operational scripts
 
+- scripts/adaptive_token_budget_benchmark.py: deterministic maintenance or validation script.
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
 - scripts/context_manager_integration.py: deterministic maintenance or validation script.

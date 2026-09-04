@@ -53,6 +53,10 @@ def build_files() -> dict[Path, str]:
         "| --- | --- |",
         "| backend/app/config.py | Environment and persistence configuration. |",
         (
+            "| backend/app/adaptive_token_budget.py | Deterministic UTF-8 token "
+            "estimation, bounded adaptive budget planning and focused benchmark. |"
+        ),
+        (
             "| backend/app/context_manager.py | Deterministic bounded project/task "
             "context capsule assembly. |"
         ),
@@ -127,6 +131,10 @@ def build_files() -> dict[Path, str]:
             "Context Manager, progressive disclosure, mandatory governance coverage, "
             "isolation, bounds and restart evidence. |"
         ),
+        (
+            "| scripts/adaptive_token_budget_benchmark.py | Provider-independent "
+            "adaptive budget benchmark and machine-readable evidence. |"
+        ),
         "| scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |",
         (
             "| scripts/review_evidence.py | Versioned, secret-free Review Evidence "
@@ -146,6 +154,10 @@ def build_files() -> dict[Path, str]:
         "| Test or check | Coverage |",
         "| --- | --- |",
         "| backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |",
+        (
+            "| backend/tests/test_adaptive_token_budget.py | UTF-8 estimator, deterministic "
+            "budget boundaries, tail trimming, fail-closed behavior and benchmark. |"
+        ),
         (
             "| backend/tests/test_context_manager.py | Deterministic checkpoint-first "
             "context capsules, mandatory governance coverage, bounds, isolation, "

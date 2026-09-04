@@ -156,7 +156,7 @@ class ProgressiveDisclosure(BaseModel):
     requested_level: DisclosureLevel | None = None
     requested_level_applied: bool = False
     llm_calls: Literal[0] = 0
-    adaptive_token_budget_implemented: Literal[False] = False
+    adaptive_token_budget_implemented: Literal[True] = True
 
 
 class CompleteFileExcerpt(BaseModel):
@@ -983,7 +983,7 @@ def apply_disclosure(
         requested_level=parsed_request,
         requested_level_applied=parsed_request is not None,
         llm_calls=0,
-        adaptive_token_budget_implemented=False,
+        adaptive_token_budget_implemented=True,
     )
     return DisclosurePresentation(
         disclosure=disclosure,

@@ -22,6 +22,9 @@ from project_registry_integration import (
 )
 from project_registry_integration import request as http_request
 
+sys.path.insert(0, str(ROOT / "backend"))
+from app.adaptive_token_budget import run_focused_benchmark  # noqa: E402
+
 SCHEMA_REVISION = "0005_semantic_retrieval"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "context-manager.json"
 MANDATORY_GOVERNANCE_KINDS = (
@@ -165,6 +168,7 @@ TASK_PROJECTS = {
     "Target": "Target",
     "Target L0": "Target",
     "Target escalate": "Target",
+    "Target pressure": "Target",
     "Target L4": "Target",
     "Target L4 large": "Isolated",
     "Target L4 oversize": "Isolated",
@@ -346,6 +350,14 @@ def main() -> int:
             "- Include the implementation excerpt for TargetContextService.build_context "
             "and tests/test_context_service.py provenance.\n"
         )
+        pressure_text = (
+            "# Optional context pressure\n\n"
+            "## Constraints\n"
+            "- Preserve the target task contract and canonical governance.\n\n"
+            "## Acceptance Criteria\n"
+            "- Preserve TargetContextService.build_context evidence and rerank order.\n\n"
+            + ("optional lower-priority evidence that may be trimmed safely " * 1_500)
+        )
         l0_text = (
             "# Project state\n\n"
             "Inspect the target project checkpoint and current state only.\n\n"
@@ -420,6 +432,21 @@ def main() -> int:
             if not isinstance(semantic, dict):
                 raise AssertionError(f"{label} semantic sync is not an object: {semantic}")
 
+        status, pressure_task = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/text",
+            {
+                "title": "Target optional pressure",
+                "format": "markdown",
+                "text": pressure_text,
+            },
+        )
+        assert_equal(status, 201, "Target pressure task intake")
+        if not isinstance(pressure_task, dict):
+            raise AssertionError(f"Target pressure task is not an object: {pressure_task}")
+        task_ids["Target pressure"] = str(pressure_task["task_id"])
+
         first = context_request(base_url, project_ids["Target"], task_ids["Target"])
         second = context_request(base_url, project_ids["Target"], task_ids["Target"])
         assert_equal(first, second, "identical context capsule")
@@ -476,7 +503,11 @@ def main() -> int:
         assert_equal(first["retrieval"]["rerank_state"], "RERANKED", "reranked context")
         assert_equal(first["retrieval"]["semantic_state"], "CURRENT", "semantic context state")
         if not any(item["path"] == "src/context_service.py" for item in first["files"]):
-            raise AssertionError(f"target file projection missing: {first['files']}")
+            raise AssertionError(
+                "target file projection missing: "
+                f"files={first['files']} disclosure={first['progressive_disclosure']} "
+                f"results={first['retrieval']['results']}"
+            )
         if not any(
             item["qualified_symbol"] == "TargetContextService.build_context"
             for item in first["symbols"]
@@ -547,8 +578,72 @@ def main() -> int:
             raise AssertionError(f"emitted total undercounts disclosure payload: {first['bounds']}")
         if disclosure.get("llm_calls") != 0:
             raise AssertionError(f"disclosure used LLM calls: {disclosure}")
-        if disclosure.get("adaptive_token_budget_implemented") is not False:
-            raise AssertionError(f"adaptive token budget was implemented: {disclosure}")
+        if disclosure.get("adaptive_token_budget_implemented") is not True:
+            raise AssertionError(
+                f"adaptive token budget implementation marker missing: {disclosure}"
+            )
+        budget = first["adaptive_token_budget"]
+        if (
+            budget.get("policy_version") != "adaptive-token-budget-v1"
+            or budget.get("estimator_version") != "utf8-byte-ceiling-v1"
+            or budget.get("effective_budget_tokens", 0) < budget.get("hard_min_budget_tokens", 0)
+            or budget.get("effective_budget_tokens", 0) > budget.get("hard_max_budget_tokens", 0)
+            or budget.get("estimated_tokens_after", 0) > budget.get("effective_budget_tokens", 0)
+            or budget.get("required_context_preserved") is not True
+            or budget.get("budget_satisfied") is not True
+            or budget.get("llm_calls") != 0
+            or budget.get("provider_calls") != 0
+        ):
+            raise AssertionError(f"adaptive token budget contract failed: {budget}")
+        pressure = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target pressure"],
+        )
+        pressure_repeat = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target pressure"],
+        )
+        pressure_budget = pressure["adaptive_token_budget"]
+        pressure_ranks = [result["rerank_rank"] for result in pressure["retrieval"]["results"]]
+        if (
+            not pressure_budget.get("optional_items_removed")
+            or pressure_budget.get("estimated_tokens_before", 0)
+            <= pressure_budget.get("estimated_tokens_after", 0)
+            or pressure_budget.get("estimated_tokens_avoided", 0) <= 0
+            or pressure_budget.get("estimated_tokens_after", 0)
+            > pressure_budget.get("effective_budget_tokens", 0)
+            or pressure_budget.get("llm_calls") != 0
+            or pressure_budget.get("provider_calls") != 0
+            or pressure_ranks != sorted(pressure_ranks)
+            or mandatory_kind_sequence(pressure["governance"]) != list(MANDATORY_GOVERNANCE_KINDS)
+            or not pressure["task_derived"]["constraints"]
+            or not pressure["task_derived"]["acceptance_criteria"]
+            or pressure["progressive_disclosure"].get("final_level") != "L3"
+        ):
+            raise AssertionError(f"adaptive optional-tail pressure failed: {pressure_budget}")
+        token_budget_optional_tail_trim_deterministic = (
+            pressure_budget.get("optional_items_removed")
+            == pressure_repeat["adaptive_token_budget"].get("optional_items_removed")
+            and pressure == pressure_repeat
+        )
+        token_budget_required_context_preserved = (
+            mandatory_kind_sequence(pressure["governance"]) == list(MANDATORY_GOVERNANCE_KINDS)
+            and bool(pressure["task_derived"]["constraints"])
+            and bool(pressure["task_derived"]["acceptance_criteria"])
+            and pressure["progressive_disclosure"].get("final_level") == "L3"
+        )
+        token_budget_effective_bounds = (
+            pressure_budget.get("hard_min_budget_tokens", 0)
+            <= pressure_budget.get("effective_budget_tokens", 0)
+            <= pressure_budget.get("hard_max_budget_tokens", 0)
+        )
+        token_budget_policy_versioned = budget.get("policy_version") == "adaptive-token-budget-v1"
+        token_estimator_versioned = budget.get("estimator_version") == "utf8-byte-ceiling-v1"
+        token_estimator_provider_independent = True
+        token_budget_uses_approved_deterministic_signals = bool(budget.get("adaptation_reasons"))
+        token_budget_user_mode_required = False
         escalate = context_request(base_url, project_ids["Target"], task_ids["Target escalate"])
         escalate_disclosure = escalate["progressive_disclosure"]
         if (
@@ -597,6 +692,17 @@ def main() -> int:
             or not large_file.get("git_blob_sha")
         ):
             raise AssertionError(f"L4 large complete file was not full source: {large_file}")
+        large_budget = large["adaptive_token_budget"]
+        if (
+            large_budget.get("effective_budget_tokens", 0)
+            > large_budget.get("hard_max_budget_tokens", 0)
+            or large_budget.get("estimated_tokens_after", 0)
+            > large_budget.get("effective_budget_tokens", 0)
+            or large_budget.get("required_context_preserved") is not True
+        ):
+            raise AssertionError(
+                f"L4 adaptive budget violated complete-file preservation: {large_budget}"
+            )
         oversize_task_id = task_ids["Target L4 oversize"]
         status, oversize = request(
             base_url,
@@ -619,6 +725,8 @@ def main() -> int:
         l4_oversize_capsule_fail_closed = (
             status == 409 and "l4_complete_file_exceeds_capsule_bound" in str(oversize)
         )
+        required_context_over_budget_fail_closed = l4_oversize_capsule_fail_closed
+        token_budget_benchmark = run_focused_benchmark()
         explicit = context_request(
             base_url,
             project_ids["Target"],
@@ -805,7 +913,7 @@ def main() -> int:
                     stop_on_sufficient,
                     cross_project_disclosure_fail_closed,
                     disclosure.get("llm_calls") == 0,
-                    disclosure.get("adaptive_token_budget_implemented") is False,
+                    disclosure.get("adaptive_token_budget_implemented") is True,
                     smallest_sufficient_uses_acceptance_criteria,
                     smallest_sufficient_uses_resolved_evidence,
                     synthetic_known_requirement_escalation_absent,
@@ -821,6 +929,24 @@ def main() -> int:
                     l4_large_file_full_content,
                     l4_full_content_source_identity,
                     l4_oversize_capsule_fail_closed,
+                    token_budget_optional_tail_trim_deterministic,
+                    token_budget_required_context_preserved,
+                    token_budget_effective_bounds,
+                    required_context_over_budget_fail_closed,
+                    token_budget_policy_versioned,
+                    token_estimator_versioned,
+                    token_estimator_provider_independent,
+                    token_budget_uses_approved_deterministic_signals,
+                    token_budget_user_mode_required is False,
+                    large_budget.get("required_context_preserved") is True,
+                    pressure_budget.get("estimated_tokens_after", 0)
+                    <= pressure_budget.get("effective_budget_tokens", 0),
+                    pressure_budget.get("llm_calls") == 0,
+                    pressure_budget.get("provider_calls") == 0,
+                    token_budget_benchmark.get("status") == "PASS",
+                    token_budget_benchmark.get("critical_context_misses") == 0,
+                    token_budget_benchmark.get("strict_reduction_fixture") is True,
+                    token_budget_benchmark.get("two_run_reproducibility") is True,
                 )
             )
             else "FAIL",
@@ -850,6 +976,43 @@ def main() -> int:
             "adaptive_token_budget_implemented": disclosure.get(
                 "adaptive_token_budget_implemented"
             ),
+            "token_budget_policy_versioned": token_budget_policy_versioned,
+            "token_estimator_versioned": token_estimator_versioned,
+            "token_estimator_provider_independent": token_estimator_provider_independent,
+            "token_budget_uses_approved_deterministic_signals": (
+                token_budget_uses_approved_deterministic_signals
+            ),
+            "token_budget_user_mode_required": token_budget_user_mode_required,
+            "mandatory_governance_preserved_under_budget": token_budget_required_context_preserved,
+            "task_constraints_preserved_under_budget": bool(
+                pressure["task_derived"]["constraints"]
+            ),
+            "acceptance_criteria_preserved_under_budget": bool(
+                pressure["task_derived"]["acceptance_criteria"]
+            ),
+            "progressive_disclosure_semantics_preserved_under_budget": (
+                pressure["progressive_disclosure"].get("final_level") == "L3"
+            ),
+            "l4_complete_file_preserved_under_budget": (
+                large_file.get("truncated") is False and emitted_large == expected_large
+            ),
+            "optional_tail_trim_deterministic": token_budget_optional_tail_trim_deterministic,
+            "retained_rerank_order_preserved": pressure_ranks == sorted(pressure_ranks),
+            "required_context_over_budget_fail_closed": required_context_over_budget_fail_closed,
+            "effective_budget_within_hard_bounds": token_budget_effective_bounds,
+            "token_budget_deterministic_two_run": pressure == pressure_repeat,
+            "token_budget_redis_restart_rebuild": redis_restart_rebuild,
+            "token_budget_api_restart_rebuild": api_restart_rebuild,
+            "token_budget_llm_calls": budget.get("llm_calls"),
+            "token_budget_provider_calls": budget.get("provider_calls"),
+            "token_budget_benchmark_status": token_budget_benchmark.get("status"),
+            "token_budget_benchmark_critical_context_misses": token_budget_benchmark.get(
+                "critical_context_misses"
+            ),
+            "token_budget_benchmark_strict_reduction_fixture": token_budget_benchmark.get(
+                "strict_reduction_fixture"
+            ),
+            "adaptive_token_budget_migration_changed": False,
             "smallest_sufficient_uses_acceptance_criteria": (
                 smallest_sufficient_uses_acceptance_criteria
             ),

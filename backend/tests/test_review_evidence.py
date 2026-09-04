@@ -36,6 +36,7 @@ from scripts.review_evidence import (
     require_wo010_g1_scope,
     require_wo010_progressive_disclosure_evidence,
     require_wo010_scope,
+    require_wo011_context_manager_evidence,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -1356,6 +1357,76 @@ def test_wo010_progressive_disclosure_review_evidence_fails_closed(
             "WO-010",
             {"context_manager": evidence},
             "0006_adaptive_token_budget",
+        )
+
+
+def test_wo011_adaptive_token_budget_review_evidence_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    payload = {
+        "status": "PASS",
+        **{field: True for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [
+            "CHECKPOINT",
+            "SCOPE",
+            "DEFINITION_OF_DONE",
+            "ARCHITECTURE",
+            "DECISIONS",
+        ],
+        "llm_calls": 0,
+        "disclosure_llm_calls": 0,
+        **{field: True for field in review_evidence.PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS},
+        **{field: True for field in review_evidence.PROGRESSIVE_DISCLOSURE_C1_FIELDS},
+        **{field: True for field in review_evidence.PROGRESSIVE_DISCLOSURE_C2_FIELDS},
+        **{field: True for field in review_evidence.TOKEN_BUDGET_REQUIRED_FIELDS},
+        "token_budget_user_mode_required": False,
+        "adaptive_token_budget_migration_changed": False,
+        "token_budget_llm_calls": 0,
+        "token_budget_provider_calls": 0,
+        "token_budget_benchmark_status": "PASS",
+        "token_budget_benchmark_critical_context_misses": 0,
+        "token_budget_benchmark_strict_reduction_fixture": True,
+    }
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+
+    evidence = context_manager_evidence()
+    require_wo011_context_manager_evidence(
+        "WO-011",
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+    assert evidence["token_budget_benchmark_status"] == "PASS"
+
+    missing = dict(payload)
+    missing["retained_rerank_order_preserved"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(missing),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="adaptive token-budget evidence"):
+        require_wo011_context_manager_evidence(
+            "WO-011",
+            {"context_manager": context_manager_evidence()},
+            "0005_semantic_retrieval",
+        )
+
+    review_evidence.require_wo011_scope(
+        "WO-011",
+        review_evidence.WO011_BASE_SHA,
+        ["backend/app/adaptive_token_budget.py"],
+    )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        review_evidence.require_wo011_scope(
+            "WO-011",
+            review_evidence.WO011_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
         )
 
 
