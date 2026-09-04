@@ -293,6 +293,7 @@
             ,"required_approving_review_count": { "type": ["integer", "null"], "minimum": 0 }
             ,"dismiss_stale_reviews_on_push": { "type": ["boolean", "null"] }
             ,"require_last_push_approval": { "type": ["boolean", "null"] }
+            ,"require_extra_approval_for_unattributed_changes": { "type": ["boolean", "null"] }
           }
         },
         "repository_merge_settings": {
@@ -329,6 +330,7 @@
             "required_approving_review_count": { "type": ["integer", "null"], "minimum": 0 },
             "dismiss_stale_reviews_on_push": { "type": ["boolean", "null"] },
             "require_last_push_approval": { "type": ["boolean", "null"] },
+            "require_extra_approval_for_unattributed_changes": { "type": ["boolean", "null"] },
             "independent_approvers": { "type": "array", "items": { "type": "string" } },
             "independent_approval_count": { "type": "integer", "minimum": 0 }
           }

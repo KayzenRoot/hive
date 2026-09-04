@@ -415,6 +415,101 @@ WO-009 READY FOR SOL GITHUB AUDIT
 """
 
 
+def _render_wo010_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta PR instala governança GitHub de conta única, aprovada pelo usuário:
+somente `KayzenRoot` opera o repositório. Executor e Sol continuam papéis
+lógicos distintos. A qualidade deixa de depender de Approve nativo do GitHub
+e passa a ser auditoria de Sol no HEAD exato, checks obrigatórios e
+auto-merge SQUASH armado somente após aprovação de Sol.
+
+## 2. Base, branch e head
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- A PR #34 de Progressive Disclosure permanece aberta, no HEAD C2, com
+auto-merge desarmado. Esta PR não mescla WO-010.
+
+## 3. Arquivos alterados
+
+Somente documentação canônica de governança, Review Evidence, schema, testes,
+template de PR e o workflow CI. Nenhum código de Progressive Disclosure.
+
+## 4. Modelo operacional
+
+Fluxo: `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL ARMS AUTO-MERGE
+-> MERGE -> PUSH CI -> CHECKPOINT`. O executor para com auto-merge desarmado.
+Sol audita o HEAD exato. Só a aprovação de Sol arma auto-merge SQUASH nativo.
+
+## 5. Ruleset Protect main
+
+O Ruleset `21934284` permanece ativo, com Protect main, deletion,
+non-fast-forward, PR obrigatório, resolução de threads, squash-only, os três
+checks reais e zero bypass. `required_approving_review_count` passa a 0;
+`require_last_push_approval` e `require_extra_approval_for_unattributed_changes`
+passam a false. Antes: {ruleset_before}; merge: {merge_before}. Depois:
+{ruleset_after}; merge: {merge_after}.
+
+## 6. Review Evidence
+
+A evidência falha fechado se o auto-merge estiver armado antes da auditoria
+de Sol. `ruleset_unchanged` compara o baseline de conta única. A permissão
+de colaborador `kayzenweb3` não é mais consultada nem exigida para PASS.
+Reviews históricas não bloqueiam o handoff. `--verify-auto-merge` permanece
+no CLI para o armamento posterior de Sol e saiu do job de PR.
+
+## 7. Testes
+
+Cobertura determinística para approvals=0, last-push false, extra
+unattributed false, checks/squash/zero bypass, auto-merge desarmado no
+pré-Sol, ausência de dependência de `kayzenweb3`, reviews históricas e
+escopo WO-010-G1.
+
+## 8. CI da PR e artefato
+
+Validate, Integration health e Review Evidence devem passar no head exato.
+O consolidado é `{artifact_name}`. Auto-merge desta PR permanece desarmado.
+
+## 9. Escopo negativo
+
+Não foi feito merge da PR #34, rearmamento de auto-merge em #34, aprovação
+inventada de Sol, bypass, merge-commit, rebase, início de WO-011 nem
+promoção de checkpoint de Progressive Disclosure.
+
+## 10. Riscos conhecidos e fontes canônicas
+
+Com zero aprovações nativas, squash manual de `KayzenRoot` é tecnicamente
+possível; o gate operacional é a separação de estágios e o armamento só por
+Sol. Fontes: [checkpoint](../blob/main/docs/project-brain/13-CHECKPOINT.md),
+[decisões](../blob/main/docs/project-brain/16-DECISIONS-LEDGER.md).
+
+## 11. Sol Review State
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-010-G1 READY FOR SOL AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -470,6 +565,19 @@ def render_body(
             merge_after=merge_after,
             auto_merge_owner_login=auto_merge_owner_login,
             auto_merge_owner_type=auto_merge_owner_type,
+        )
+    if work_order == "WO-010-G1":
+        return _render_wo010_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
         )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 
