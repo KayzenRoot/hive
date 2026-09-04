@@ -904,6 +904,118 @@ def verify_native_auto_merge(
     return evidence
 
 
+MERGE_AUTHORIZATION_DIRECT = "DIRECT_SQUASH_MERGE"
+MERGE_AUTHORIZATION_AUTO = "ARM_SQUASH_AUTO_MERGE"
+MERGE_AUTHORIZATION_REJECT = "REJECT"
+REQUIRED_STATUS_CONTEXTS = frozenset({"Validate", "Integration health", "Review Evidence"})
+PASSING_CHECK_CONCLUSIONS = frozenset({"pass", "passed", "success", "successful"})
+PENDING_CHECK_CONCLUSIONS = frozenset({"in_progress", "pending", "queued", "requested", "waiting"})
+
+
+def authorize_merge_action(
+    state: Mapping[str, Any],
+    *,
+    expected_head_sha: str,
+    expected_base_sha: str,
+    expected_base_branch: str = "main",
+) -> dict[str, object]:
+    """Decide the post-Sol merge action from one normalized, immutable snapshot.
+
+    This helper deliberately does not mutate GitHub state. The caller must take a
+    fresh snapshot immediately before acting and include the expected HEAD in the
+    direct merge request. Any missing or ambiguous safety input rejects the action.
+    """
+
+    def reject(reason: str) -> dict[str, object]:
+        return {
+            "authorized": False,
+            "action": MERGE_AUTHORIZATION_REJECT,
+            "reason": reason,
+        }
+
+    if not HEX_SHA.fullmatch(expected_head_sha) or not HEX_SHA.fullmatch(expected_base_sha):
+        return reject("expected HEAD and base must be valid commit SHAs")
+    if state.get("sol_approved") is not True:
+        return reject("Sol approval is required before any merge action")
+    if state.get("auto_merge_armed") is not False:
+        return reject("auto-merge must be unarmed before Sol authorization")
+    if state.get("pr_state") != "open":
+        return reject("pull request must be open")
+    if state.get("is_draft") is not False:
+        return reject("pull request must be Ready")
+    if state.get("head_sha") != expected_head_sha:
+        return reject("pull request HEAD moved")
+    if (
+        state.get("base_sha") != expected_base_sha
+        or state.get("base_branch") != expected_base_branch
+    ):
+        return reject("pull request base is not the expected safe base")
+    if state.get("ruleset_valid") is not True:
+        return reject("protected ruleset baseline does not match")
+    if state.get("unresolved_threads") != 0:
+        return reject("unresolved review threads must be zero")
+    if str(state.get("merge_method", "")).casefold() != "squash":
+        return reject("merge method must be SQUASH")
+
+    required_checks = state.get("required_checks")
+    if not isinstance(required_checks, Mapping):
+        return reject("required check conclusions are missing")
+    missing = sorted(REQUIRED_STATUS_CONTEXTS - set(required_checks))
+    if missing:
+        return reject(f"required checks are missing: {', '.join(missing)}")
+
+    conclusions: dict[str, str] = {}
+    for context in REQUIRED_STATUS_CONTEXTS:
+        value = required_checks[context]
+        if isinstance(value, Mapping):
+            value = value.get("conclusion", value.get("status", ""))
+        if not isinstance(value, str) or not value.strip():
+            return reject(f"required check conclusion is missing: {context}")
+        conclusions[context] = value.casefold().strip()
+    pending = [
+        context
+        for context, conclusion in conclusions.items()
+        if conclusion in PENDING_CHECK_CONCLUSIONS
+    ]
+    failed = [
+        context
+        for context, conclusion in conclusions.items()
+        if conclusion not in PASSING_CHECK_CONCLUSIONS
+        and conclusion not in PENDING_CHECK_CONCLUSIONS
+    ]
+    if failed:
+        return reject(f"required checks are not green: {', '.join(sorted(failed))}")
+
+    mergeable = state.get("mergeable")
+    mergeable_state = str(state.get("mergeable_state", "")).casefold()
+    if mergeable is not True:
+        return reject("pull request mergeability is not confirmed")
+    if state.get("mergeable_state") is None:
+        return reject("pull request mergeable state is missing")
+
+    if not pending:
+        if mergeable_state != "clean":
+            return reject("clean direct merge requires mergeable_state=clean")
+        return {
+            "authorized": True,
+            "action": MERGE_AUTHORIZATION_DIRECT,
+            "merge_method": "squash",
+            "expected_head_sha": expected_head_sha,
+            "reason": "all safety gates are green on the exact audited HEAD",
+        }
+
+    if mergeable_state != "blocked":
+        return reject("pending checks are not the only merge blocker")
+    return {
+        "authorized": True,
+        "action": MERGE_AUTHORIZATION_AUTO,
+        "merge_method": "squash",
+        "expected_head_sha": expected_head_sha,
+        "pending_checks": sorted(pending),
+        "reason": "only legitimate required checks remain pending",
+    }
+
+
 def github_review_text(repository: str, pr_number: int | None) -> str:
     if not pr_number:
         return ""

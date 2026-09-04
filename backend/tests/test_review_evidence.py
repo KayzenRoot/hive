@@ -17,6 +17,7 @@ from scripts.review_evidence import (
     WO009_BASE_SHA,
     WO010_G1_ALLOWED_PATHS,
     WO010_G1_BASE_SHA,
+    authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
@@ -639,6 +640,120 @@ def native_auto_merge_pull_request(auto_merge: object) -> dict[str, object]:
     }
 
 
+def merge_authorization_state(**overrides: object) -> dict[str, object]:
+    state: dict[str, object] = {
+        "sol_approved": True,
+        "auto_merge_armed": False,
+        "pr_state": "open",
+        "is_draft": False,
+        "head_sha": "b" * 40,
+        "base_sha": "a" * 40,
+        "base_branch": "main",
+        "ruleset_valid": True,
+        "unresolved_threads": 0,
+        "merge_method": "squash",
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "required_checks": {
+            "Validate": "success",
+            "Integration health": "success",
+            "Review Evidence": "success",
+        },
+    }
+    state.update(overrides)
+    return state
+
+
+def test_clean_post_sol_state_authorizes_direct_squash_without_auto_merge() -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision == {
+        "authorized": True,
+        "action": "DIRECT_SQUASH_MERGE",
+        "merge_method": "squash",
+        "expected_head_sha": "b" * 40,
+        "reason": "all safety gates are green on the exact audited HEAD",
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"head_sha": "c" * 40}, "HEAD moved"),
+        ({"base_sha": "c" * 40}, "base"),
+        (
+            {
+                "required_checks": {
+                    "Validate": "success",
+                    "Integration health": "success",
+                    "Review Evidence": "failure",
+                }
+            },
+            "not green",
+        ),
+        (
+            {
+                "required_checks": {
+                    "Validate": "success",
+                    "Integration health": "success",
+                }
+            },
+            "missing",
+        ),
+        ({"mergeable": False, "mergeable_state": "dirty"}, "mergeability"),
+        ({"is_draft": True}, "Ready"),
+        ({"unresolved_threads": 1}, "threads"),
+        ({"ruleset_valid": False}, "ruleset"),
+        ({"merge_method": "merge"}, "SQUASH"),
+        ({"auto_merge_armed": True}, "unarmed"),
+    ],
+)
+def test_post_sol_direct_merge_fails_closed(overrides: dict[str, object], message: str) -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(**overrides),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision["authorized"] is False
+    assert decision["action"] == "REJECT"
+    assert message.casefold() in str(decision["reason"]).casefold()
+
+
+def test_pending_required_checks_allow_only_conditional_auto_merge() -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(
+            mergeable_state="blocked",
+            required_checks={
+                "Validate": "success",
+                "Integration health": "pending",
+                "Review Evidence": "success",
+            },
+        ),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision["authorized"] is True
+    assert decision["action"] == "ARM_SQUASH_AUTO_MERGE"
+    assert decision["pending_checks"] == ["Integration health"]
+
+
+def test_sol_approval_is_required_for_any_post_sol_merge_action() -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(sol_approved=False),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision["authorized"] is False
+    assert decision["action"] == "REJECT"
+
+
 def test_user_owned_squash_auto_merge_is_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -880,7 +995,11 @@ def test_future_work_order_template_uses_single_account_stage_gate() -> None:
     assert "kayzenroot" in folded
     assert "awaiting_sol" in folded
     assert "auto-merge nativo desarmado" in folded
-    assert "approved" in folded and "auto-merge nativo squash" in folded
+    assert "sol merge authorization" in folded
+    assert "squash direto" in folded
+    assert "auto-merge nativo squash" in folded
+    assert "push ci" in folded
+    assert "sol arms auto-merge" not in folded
     assert "kayzenweb3" not in folded
     assert "aprovação independente elegível" not in folded
     assert "independent native approval" not in folded
@@ -953,6 +1072,9 @@ def test_wo010_g1_pr_body_describes_single_account_governance() -> None:
     assert "KayzenRoot" in body
     assert "kayzenweb3" in body
     assert "auto-merge desarmado" in body
+    assert "SOL MERGE AUTHORIZATION" in body
+    assert "SQUASH no HEAD" in body
+    assert "checks obrigatórios legítimos estiverem pendentes" in body
     assert "WO-010-G1 READY FOR SOL AUDIT" in body
     assert "21934284" in body
 

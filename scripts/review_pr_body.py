@@ -438,7 +438,7 @@ Esta PR instala governança GitHub de conta única, aprovada pelo usuário:
 somente `KayzenRoot` opera o repositório. Executor e Sol continuam papéis
 lógicos distintos. A qualidade deixa de depender de Approve nativo do GitHub
 e passa a ser auditoria de Sol no HEAD exato, checks obrigatórios e
-auto-merge SQUASH armado somente após aprovação de Sol.
+autorização explícita da ação de merge após a auditoria de Sol.
 
 ## 2. Base, branch e head
 
@@ -456,9 +456,14 @@ template de PR e o workflow CI. Nenhum código de Progressive Disclosure.
 
 ## 4. Modelo operacional
 
-Fluxo: `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL ARMS AUTO-MERGE
--> MERGE -> PUSH CI -> CHECKPOINT`. O executor para com auto-merge desarmado.
-Sol audita o HEAD exato. Só a aprovação de Sol arma auto-merge SQUASH nativo.
+Fluxo: `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL MERGE AUTHORIZATION ->\
+ MERGE -> PUSH CI -> CHECKPOINT`. O executor para com
+auto-merge desarmado. Após `APPROVED`, se a PR estiver limpa/mergeable e todos
+os checks obrigatórios estiverem verdes, Sol faz diretamente o SQUASH no HEAD\
+exato auditado. Se somente checks obrigatórios legítimos estiverem pendentes,
+Sol pode armar auto-merge nativo SQUASH como `KayzenRoot`. HEAD movido,
+check falho/ausente, conflito, draft, thread não resolvida, ruleset divergente
+ou evidência incompleta bloqueiam ambas as ações.
 
 ## 5. Ruleset Protect main
 
@@ -475,7 +480,9 @@ A evidência falha fechado se o auto-merge estiver armado antes da auditoria
 de Sol. `ruleset_unchanged` compara o baseline de conta única. A permissão
 de colaborador `kayzenweb3` não é mais consultada nem exigida para PASS.
 Reviews históricas não bloqueiam o handoff. `--verify-auto-merge` permanece
-no CLI para o armamento posterior de Sol e saiu do job de PR.
+no CLI para o caso condicional de checks pendentes e saiu do job de PR. A
+autorização de SQUASH direto exige rechecagem do PR Ready, HEAD/base exatos,
+mergeability, ruleset, checks verdes e threads resolvidas.
 
 ## 7. Testes
 
@@ -497,10 +504,11 @@ promoção de checkpoint de Progressive Disclosure.
 
 ## 10. Riscos conhecidos e fontes canônicas
 
-Com zero aprovações nativas, squash manual de `KayzenRoot` é tecnicamente
-possível; o gate operacional é a separação de estágios e o armamento só por
-Sol. Fontes: [checkpoint](../blob/main/docs/project-brain/13-CHECKPOINT.md),
-[decisões](../blob/main/docs/project-brain/16-DECISIONS-LEDGER.md).
+Com zero aprovações nativas, o SQUASH direto de `KayzenRoot` é tecnicamente
+possível; o gate operacional é a separação de estágios, a autorização de Sol
+no HEAD exato e o fail-closed em qualquer divergência. Fontes: [checkpoint]
+(../blob/main/docs/project-brain/13-CHECKPOINT.md), [decisões]
+(../blob/main/docs/project-brain/16-DECISIONS-LEDGER.md).
 
 ## 11. Sol Review State
 
@@ -694,12 +702,15 @@ Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
 {merge_after}. A proteção permanece ativa, sem bypass, com checks reais,
 threads resolvidas e squash-only. A única identidade operacional do GitHub é
 `KayzenRoot`; executor e Sol continuam papéis lógicos distintos. O fluxo futuro
-é `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL ARMS AUTO-MERGE ->
+é `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL MERGE AUTHORIZATION ->
 MERGE -> PUSH CI -> CHECKPOINT`. O executor encerra com a PR Ready, checks
-verdes e auto-merge nativo desarmado. Sol audita o HEAD exato; se o resultado
-for `CORRECTION REQUIRED`, o auto-merge continua desarmado; se for `APPROVED`,
-Sol arma o auto-merge nativo SQUASH como `KayzenRoot`. O push CI pós-merge deve
-passar antes do checkpoint ou do próximo Work Order.
+verdes e auto-merge nativo desarmado. Após `APPROVED`, Sol faz SQUASH direto no
+HEAD exato quando a PR estiver limpa/mergeable e todos os checks estiverem
+verdes; somente se checks obrigatórios legítimos estiverem pendentes pode armar
+auto-merge nativo SQUASH como `KayzenRoot`. HEAD movido, check falho/ausente,
+conflito, draft, thread não resolvida, ruleset divergente ou evidência
+incompleta bloqueiam merge e auto-merge. O push CI pós-merge deve passar no
+novo SHA exato de `main` antes do checkpoint ou do próximo Work Order.
 
 ## 18. Limitações e avisos conhecidos
 
