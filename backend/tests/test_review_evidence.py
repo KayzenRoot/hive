@@ -223,6 +223,10 @@ def test_review_evidence_schema_is_validated() -> None:
         ("<!-- HIVE-WORK-ORDER: WO-007-P -->", "WO-007-P"),
         ("<!-- HIVE-WORK-ORDER: WO-008 -->", "WO-008"),
         ("<!-- HIVE-WORK-ORDER: WO-007-P-C1 -->", "WO-007-P-C1"),
+        (
+            "<!-- HIVE-WORK-ORDER: ENG-PROTOCOL-ADOPTION-001 -->",
+            "ENG-PROTOCOL-ADOPTION-001",
+        ),
     ],
 )
 def test_work_order_marker_parser_accepts_bounded_future_and_corrective_ids(
