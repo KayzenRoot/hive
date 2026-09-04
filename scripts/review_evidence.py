@@ -65,6 +65,19 @@ PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS = (
     "stop_on_sufficient",
     "cross_project_disclosure_fail_closed",
 )
+PROGRESSIVE_DISCLOSURE_C1_FIELDS = (
+    "smallest_sufficient_uses_acceptance_criteria",
+    "smallest_sufficient_uses_resolved_evidence",
+    "synthetic_known_requirement_escalation_absent",
+    "l1_module_summary_materialized",
+    "l2_symbol_signature_materialized",
+    "l2_dependency_metadata_materialized",
+    "explicit_disclosure_level_contract_valid",
+    "l4_nonempty_when_selected",
+    "l4_target_resolved_from_project_evidence",
+    "progressive_payload_in_bounds_accounting",
+    "legitimate_escalation_fixture",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -573,7 +586,10 @@ def context_manager_evidence() -> dict[str, object]:
         return unknown
     if not isinstance(sequence, list) or not all(isinstance(item, str) for item in sequence):
         return unknown
-    progressive_present = any(field in data for field in PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS)
+    progressive_present = any(
+        field in data
+        for field in (*PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS, *PROGRESSIVE_DISCLOSURE_C1_FIELDS)
+    )
     status = (
         "PASS"
         if data.get("status") == "PASS"
@@ -596,7 +612,10 @@ def context_manager_evidence() -> dict[str, object]:
             {
                 **{
                     field: data.get(field) is True
-                    for field in PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS
+                    for field in (
+                        *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
+                        *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+                    )
                 },
                 "disclosure_llm_calls": (
                     disclosure_llm_calls
@@ -855,7 +874,7 @@ def require_wo010_progressive_disclosure_evidence(
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
     missing = [
         field
-        for field in PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS
+        for field in (*PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS, *PROGRESSIVE_DISCLOSURE_C1_FIELDS)
         if context_manager.get(field) is not True
     ]
     if missing:
@@ -1773,7 +1792,16 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         "disclosure LLM calls `"
         f"{context_manager_evidence.get('disclosure_llm_calls', 'UNKNOWN')}`, "
         "adaptive token budget `"
-        f"{context_manager_evidence.get('adaptive_token_budget_implemented', 'UNKNOWN')}`"
+        f"{context_manager_evidence.get('adaptive_token_budget_implemented', 'UNKNOWN')}`, "
+        "C1 acceptance `"
+        f"{context_manager_evidence.get('smallest_sufficient_uses_acceptance_criteria', False)}`, "
+        "C1 L1/L2 `"
+        f"{context_manager_evidence.get('l1_module_summary_materialized', False)}/"
+        f"{context_manager_evidence.get('l2_symbol_signature_materialized', False)}`, "
+        "C1 L4 nonempty `"
+        f"{context_manager_evidence.get('l4_nonempty_when_selected', False)}`, "
+        "C1 explicit level `"
+        f"{context_manager_evidence.get('explicit_disclosure_level_contract_valid', False)}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"

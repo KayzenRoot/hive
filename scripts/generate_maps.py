@@ -57,8 +57,9 @@ def build_files() -> dict[Path, str]:
             "context capsule assembly. |"
         ),
         (
-            "| backend/app/progressive_disclosure.py | Deterministic L0-L5 starting "
-            "level, bounded escalation and per-level presentation bounds. |"
+            "| backend/app/progressive_disclosure.py | Deterministic L0-L5 start from "
+            "all available evidence, L1/L2 materialization, L4 resolution and "
+            "post-materialize escalation. |"
         ),
         "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",
         "| backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |",
@@ -151,8 +152,8 @@ def build_files() -> dict[Path, str]:
             "fallback and races. |"
         ),
         (
-            "| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, start "
-            "versus escalation, per-level bounds, isolation and two-run identity. |"
+            "| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, smallest "
+            "sufficient start, L1/L2 payload, L4 resolution, bounds and isolation. |"
         ),
         "| backend/tests/test_health.py | API response shape and degraded status. |",
         (

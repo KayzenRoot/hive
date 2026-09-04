@@ -6,7 +6,7 @@ Generated deterministically by scripts/generate_maps.py.
 | --- | --- |
 | backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |
 | backend/tests/test_context_manager.py | Deterministic checkpoint-first context capsules, mandatory governance coverage, bounds, isolation, fallback and races. |
-| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, start versus escalation, per-level bounds, isolation and two-run identity. |
+| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, smallest sufficient start, L1/L2 payload, L4 resolution, bounds and isolation. |
 | backend/tests/test_health.py | API response shape and degraded status. |
 | backend/tests/test_registry.py | Path boundary, canonical aliases, safe Git command construction, language detection and states. |
 | backend/tests/test_repository_indexer.py | Python qualified symbols, syntax failure and cached tracked-file inventory. |

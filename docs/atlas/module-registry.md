@@ -6,7 +6,7 @@ Generated deterministically by scripts/generate_maps.py.
 | --- | --- |
 | backend/app/config.py | Environment and persistence configuration. |
 | backend/app/context_manager.py | Deterministic bounded project/task context capsule assembly. |
-| backend/app/progressive_disclosure.py | Deterministic L0-L5 starting level, bounded escalation and per-level presentation bounds. |
+| backend/app/progressive_disclosure.py | Deterministic L0-L5 start from all available evidence, L1/L2 materialization, L4 resolution and post-materialize escalation. |
 | backend/app/db.py | PostgreSQL connection and schema revision gate. |
 | backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |
 | backend/app/main.py | Versioned FastAPI health, Project Registry, repository indexing, Task Intake, and Context Manager API. |

@@ -17,11 +17,15 @@ from pydantic import BaseModel, Field
 from .config import Settings
 from .progressive_disclosure import (
     CompleteFileExcerpt,
+    DependencyEdge,
     DisclosureConsistencyError,
     DisclosureInputError,
+    ModuleSummary,
     ProgressiveDisclosure,
     RepositoryInventoryEntry,
+    SymbolSignature,
     apply_disclosure,
+    disclosure_payload_characters,
     parse_disclosure_level,
 )
 from .registry import (
@@ -238,6 +242,7 @@ class ContextBounds(BaseModel):
     file_projection_count: int
     symbol_projection_count: int
     test_projection_count: int
+    disclosure_characters_included: int = 0
     task_excerpt_truncated: bool
     governance_excerpt_truncated: bool
     retrieval_truncated: bool
@@ -256,6 +261,9 @@ class ContextCapsule(BaseModel):
     tests: list[ContextReferenceProjection]
     complete_files: list[CompleteFileExcerpt] = Field(default_factory=list)
     inventory: list[RepositoryInventoryEntry] = Field(default_factory=list)
+    module_summaries: list[ModuleSummary] = Field(default_factory=list)
+    symbol_signatures: list[SymbolSignature] = Field(default_factory=list)
+    dependencies: list[DependencyEdge] = Field(default_factory=list)
     progressive_disclosure: ProgressiveDisclosure
     bounds: ContextBounds
 
@@ -887,7 +895,20 @@ def build_context(
     retrieval_truncated = retrieval_truncated or presentation.disclosure.truncated
     governance_chars = sum(len(item.text) for item in governance.excerpts)
     task_structure_chars = sum(len(item) for item in (*constraints, *acceptance_criteria))
-    total_emitted = len(task_excerpt) + task_structure_chars + governance_chars + retrieval_chars
+    disclosure_chars = disclosure_payload_characters(
+        presentation.module_summaries,
+        presentation.symbol_signatures,
+        presentation.dependencies,
+        presentation.complete_files,
+        presentation.inventory,
+    )
+    total_emitted = (
+        len(task_excerpt)
+        + task_structure_chars
+        + governance_chars
+        + retrieval_chars
+        + disclosure_chars
+    )
     bounds = ContextBounds(
         task_characters_included=len(task_excerpt),
         governance_characters_included=governance_chars,
@@ -901,6 +922,7 @@ def build_context(
         file_projection_count=len(files),
         symbol_projection_count=len(symbols),
         test_projection_count=len(tests),
+        disclosure_characters_included=disclosure_chars,
         task_excerpt_truncated=task_excerpt_truncated
         or constraints_truncated
         or acceptance_truncated,
@@ -957,6 +979,9 @@ def build_context(
         tests=tests,
         complete_files=presentation.complete_files,
         inventory=presentation.inventory,
+        module_summaries=presentation.module_summaries,
+        symbol_signatures=presentation.symbol_signatures,
+        dependencies=presentation.dependencies,
         progressive_disclosure=presentation.disclosure,
         bounds=bounds,
     )

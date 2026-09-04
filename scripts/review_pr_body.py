@@ -593,25 +593,32 @@ capsule sem duplicar retrieval, governança ou isolamento.
 
 ## 9. Nível inicial
 
-O start usa título, constraints e texto da tarefa antes de `## Acceptance
-Criteria`. Não há default para L3/L4/L5.
+O start usa título, constraints, corpo da tarefa, Acceptance Criteria,
+evidência já resolvida (arquivos/símbolos/testes/retrieval) e o piso
+opcional `disclosure_level`. Requisitos já conhecidos de L3/L4/L5 começam
+nesse nível; não há escalada sintética L0→L1→L2→L3.
 
 ## 10. Escalada e evidência
 
-A escalada só ocorre por insuficiência explícita e registra `from_level`,
-`to_level`, `reason` e `evidence` bounded. Para no primeiro nível suficiente e
-não passa de L5.
+A escalada só ocorre depois da materialização, quando o nível inicial não
+consegue emitir assinatura ou excerpt exigido. Cada passo registra
+`from_level`, `to_level`, `reason` e `evidence` bounded. Para no primeiro
+nível suficiente e não passa de L5.
 
 ## 11. Bounds por nível
 
 Constantes fixas e conservadoras: módulos, símbolos, excerpts, arquivos
-completos e inventário. Truncation é reportado. Não há budget adaptativo.
+completos e inventário. `total_emitted_context_characters` inclui o payload
+de disclosure (L1/L2/L4/L5) sem duplicar snippets de retrieval. Truncation
+é reportado. Não há budget adaptativo.
 
 ## 12. Contrato da API
 
 `POST /api/v1/projects/{{project_id}}/tasks/{{task_id}}/context` aceita
-`disclosure_level` opcional L0-L5. O capsule passa a expor
-`progressive_disclosure`, `complete_files` e `inventory`.
+`disclosure_level` opcional L0-L5 como piso (nunca retorna nível mais raso
+que o pedido válido). O capsule expõe `progressive_disclosure` (com
+`requested_level` / `requested_level_applied`), `module_summaries`,
+`symbol_signatures`, `dependencies`, `complete_files` e `inventory`.
 
 ## 13. Migration
 
@@ -620,13 +627,15 @@ Head permanece `0005_semantic_retrieval`. Nenhuma migration foi criada.
 ## 14. Testes
 
 Cobertura unitária/contrato para mapeamento canônico, rejeição inválida,
-L0-L5, start vs escalada, bounds, L4/L5, isolamento, duas execuções idênticas
-e 422 de nível inválido.
+start a partir de Acceptance Criteria e evidência resolvida, materialização
+L1/L2, piso explícito L0/L3/L4/L5, resolução L4 sem path literal, L4 vazio
+fail-closed, bounds com payload de disclosure, escalada legítima, isolamento
+e duas execuções idênticas.
 
 ## 15. Contagens
 
 As contagens exatas entram no Review Evidence do head candidato; o baseline
-pré-WO-010 era backend 190 e dashboard 7.
+rejeitado de WO-010 era backend 213 e dashboard 7.
 
 ## 16. Lint / typecheck / build
 
@@ -635,9 +644,11 @@ devem passar no head candidato.
 
 ## 17. Integração real
 
-O cenário real prova L0 sem escalada, escalada L0-L3 por insuficiência
-explícita, isolamento, disclosure cross-project 409, missing governance, HEAD
-race e rebuild após Redis/API restart.
+O cenário real prova start L3 sem escalada sintética, L0 de estado de
+projeto, escalada legítima L2→L3 por assinatura ausente, L4 resolvido por
+símbolo sem path literal, piso explícito L4, isolamento, disclosure
+cross-project 409, missing governance, HEAD race e rebuild após Redis/API
+restart.
 
 ## 18. Benchmark / regressão
 

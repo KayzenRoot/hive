@@ -69,14 +69,20 @@ disclosure decision:
 - L4 Complete file
 - L5 Repository-wide investigation
 
-The starting level uses the task title, explicit constraints and the task
-text before `## Acceptance Criteria`. Escalation happens only when that
-acceptance evidence is explicitly insufficient at the current level. Each
-step records `from_level`, `to_level`, a machine-readable reason and bounded
+The starting level uses every explicit signal already available: title,
+constraints, full task text including acceptance criteria, requested
+`disclosure_level` (a floor, never a no-op), and resolved file/symbol/test
+evidence when the task is an implementation task that would otherwise stay
+at L0. Escalation happens only after that initial selection, when the
+current level cannot materialize required signatures or excerpts. Each step
+records `from_level`, `to_level`, a machine-readable reason and bounded
 evidence, then stops at the first sufficient level and never exceeds L5.
-Per-level item/character bounds are fixed and conservative. The capsule
-exposes `progressive_disclosure`, plus `complete_files` at L4 and
-`inventory` at L5.
+Per-level item/character bounds are fixed and conservative. L1 emits
+deterministic module summaries from the Git snapshot; L2 emits Python
+signatures and import dependency edges. L4 resolves complete files from
+literal paths or project-scoped retrieval/symbol evidence and never claims
+success with an empty payload. `total_emitted_context_characters` includes
+this disclosure payload without double-counting retrieval snippets.
 
 ## Fixed bounds
 

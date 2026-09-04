@@ -1273,6 +1273,7 @@ def test_wo010_progressive_disclosure_review_evidence_fails_closed(
         ],
         "llm_calls": 0,
         **{field: True for field in review_evidence.PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS},
+        **{field: True for field in review_evidence.PROGRESSIVE_DISCLOSURE_C1_FIELDS},
         "disclosure_llm_calls": 0,
         "adaptive_token_budget_implemented": False,
     }
