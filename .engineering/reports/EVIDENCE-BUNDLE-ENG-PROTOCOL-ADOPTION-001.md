@@ -24,7 +24,7 @@
   `.github/ISSUE_TEMPLATE/implementation.md`,
   `.github/ISSUE_TEMPLATE/bug_report.yml`, `scripts/review_evidence.py` e
   `backend/tests/test_review_evidence.py`.
-- Diff review: `PENDING AFTER commit`
+- Diff review: `PASS` — `git diff --check` e guard de escopo sem produto/canonical/migration.
 
 ## BEFORE × AFTER
 
