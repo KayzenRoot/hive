@@ -4,9 +4,9 @@
 
 - ID: `ENG-PROTOCOL-ADOPTION-001`
 - Title: Universal existing-project engineering delivery adoption
-- Status: `APPROVED / IN_PROGRESS`
+- Status: `READY_FOR_REVIEW`
 - Branch: `chore/eng-protocol-adoption-001`
-- PR: `PENDING`
+- PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Owner/authority: user-approved increment; canonical promotion remains with Sol/owner
 
 ## Source lock
@@ -37,6 +37,8 @@ contratos ou comportamento do produto.
 - adaptação do template existente de PR;
 - template de issue de implementação;
 - adaptação do template de defeito existente;
+- compatibilidade mínima no parser de marcador de `Review Evidence` e seu teste
+  para aceitar `ENG-PROTOCOL-ADOPTION-001`, preservando IDs `WO-*`;
 - inspeção e documentação da configuração GitHub existente.
 
 ## Explicitly out of scope
@@ -47,6 +49,8 @@ contratos ou comportamento do produto.
   configuração, flag ou contrato;
 - alteração dos documentos canônicos em `docs/project-brain/`;
 - alteração de CI, required-check names, Ruleset ou branch protection;
+- alteração de comportamento do produto; a única alteração executável permitida
+  é o contrato de identificação do Review Evidence;
 - merge, release, promoção de checkpoint ou início do primeiro cleanup;
 - operação destrutiva ou alteração de dados runtime.
 
@@ -97,4 +101,7 @@ contratos ou comportamento do produto.
 - Checkpoint Delta: `.engineering/reports/CHECKPOINT-DELTA-ENG-PROTOCOL-ADOPTION-001.md`
 - Auto-merge: `DISABLED`
 - Merge/release: `NOT AUTHORIZED`
+- Commit/head SHA: `d8c93435115b957dca7df672b1fc5f2d5ab48aca` before final evidence update;
+  final head must be revalidated after the evidence commit.
+- PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Review final: português brasileiro; aguardar auditoria independente.

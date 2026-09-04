@@ -5,8 +5,9 @@
 - ID: `ENG-PROTOCOL-ADOPTION-001`
 - Repository: `KayzenRoot/hive`
 - Base branch/SHA: `main/209a485227103872903a560872133aae5f203717`
-- Head branch/SHA: `chore/eng-protocol-adoption-001/PENDING`
-- PR: `PENDING`
+- Head branch/SHA: `chore/eng-protocol-adoption-001/d8c93435115b957dca7df672b1fc5f2d5ab48aca`;
+  final head será o commit desta atualização de evidência.
+- PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Work Order: `.engineering/work-orders/ENG-PROTOCOL-ADOPTION-001.md`
 - Context Lock: `.engineering/context-locks/ENG-PROTOCOL-ADOPTION-001.md`
 
@@ -19,22 +20,23 @@
 - Intended paths: `.engineering/**`, `AGENTS.md`,
   `.github/PULL_REQUEST_TEMPLATE.md`,
   `.github/ISSUE_TEMPLATE/implementation.md`,
-  `.github/ISSUE_TEMPLATE/bug_report.yml`.
+  `.github/ISSUE_TEMPLATE/bug_report.yml`, `scripts/review_evidence.py` e
+  `backend/tests/test_review_evidence.py`.
 - Diff review: `PENDING AFTER commit`
 
 ## BEFORE × AFTER
 
 | Área | BEFORE | AFTER | Evidência |
 | --- | --- | --- | --- |
-| Testes backend | PASS — 250 passed | PENDING | `tmp/validation/backend-junit.xml` |
-| Testes dashboard | PASS — 7 passed | PENDING | CI/local validation |
-| Lint/format | PASS | PENDING | `python scripts/validate.py` |
-| Typecheck | PASS | PENDING | `python scripts/validate.py` |
-| Build/release dry-run | PASS | PENDING | `tmp/validation` |
-| Compose config | PASS | PENDING | `tmp/validation/docker-compose-config.txt` |
-| Integration/E2E | UNKNOWN — Docker daemon local indisponível | PENDING CI | `.github/workflows/ci.yml` |
-| Security/dependencies | PASS — secret scan/npm audit | PENDING | `tmp/validation` |
-| CI required checks | PASS no baseline PR; main post-merge #36 | PENDING | PR checks |
+| Testes backend | PASS — 250 passed | PASS — 251 passed; +1 teste de compatibilidade do marcador | `tmp/validation/backend-junit.xml` |
+| Testes dashboard | PASS — 7 passed | PASS — 7 passed | CI/local validation |
+| Lint/format | PASS | PASS | `python scripts/validate.py` |
+| Typecheck | PASS | PASS | `python scripts/validate.py` |
+| Build/release dry-run | PASS | PASS | `tmp/validation` |
+| Compose config | PASS | PASS | `tmp/validation/docker-compose-config.txt` |
+| Integration/E2E | UNKNOWN — Docker daemon local indisponível | UNKNOWN — mesmo bloqueio ambiental; CI pendente | `.github/workflows/ci.yml` |
+| Security/dependencies | PASS — secret scan/npm audit | PASS — secret scan/npm audit | `tmp/validation` |
+| CI required checks | PASS no baseline PR; main post-merge #36 | PENDING — PR #37 | PR checks |
 
 ## Warnings/pre-existing conditions
 
@@ -44,13 +46,13 @@
   testes terminaram com código 0.
 - Docker Desktop daemon indisponível localmente: bloqueou integração BEFORE;
   não é falha do produto.
-- Falhas introduzidas: `PENDING AFTER`.
+- Falhas introduzidas: `NONE`.
 
 ## Provenance and safety
 
-- Secret scan BEFORE: `PASS`; AFTER: `PENDING`.
-- Context Lock: `LOCKED` no baseline; revalidação AFTER `PENDING`.
-- Canonical verifier AFTER: `PENDING`.
+- Secret scan BEFORE: `PASS`; AFTER: `PASS`.
+- Context Lock: `LOCKED` no baseline e re-lock controlado AFTER; fontes canônicas inalteradas.
+- Canonical verifier AFTER: `PASS`.
 - Canonical files changed: `NO`.
 - Auto-merge armed: `NO`.
 - Merge/release performed: `NO`.
