@@ -15,11 +15,15 @@ from scripts.review_evidence import (
     WO008_G1_ALLOWED_PATHS,
     WO008_G1_BASE_SHA,
     WO009_BASE_SHA,
+    WO010_G1_ALLOWED_PATHS,
+    WO010_G1_BASE_SHA,
+    authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
     canonical_change_statement,
     context_manager_evidence,
     dashboard_counts,
+    governance_evidence,
     junit_counts,
     manifest_log,
     parse_work_order_marker,
@@ -28,6 +32,7 @@ from scripts.review_evidence import (
     require_wo008_g1_scope,
     require_wo009_context_manager_evidence,
     require_wo009_scope,
+    require_wo010_g1_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -313,20 +318,21 @@ def handoff_governance(
     }
 
 
-def test_hive_final_handoff_requires_armed_squash_and_zero_approvals() -> None:
-    with pytest.raises(ValueError, match="auto-merge"):
+def test_hive_final_handoff_requires_unarmed_auto_merge_before_sol() -> None:
+    with pytest.raises(ValueError, match="unarmed"):
         require_hive_final_handoff(
-            "WO-007-P", 28, "a" * 40, "b" * 40, handoff_governance(auto_merge_armed=False)
+            "WO-007-P", 28, "a" * 40, "b" * 40, handoff_governance(auto_merge_armed=True)
         )
-    with pytest.raises(ValueError, match="zero independent approvals"):
-        require_hive_final_handoff(
-            "WO-007-P",
-            28,
-            "a" * 40,
-            "b" * 40,
-            handoff_governance(independent_approval_count=1),
-        )
-    require_hive_final_handoff("WO-007-P", 28, "a" * 40, "b" * 40, handoff_governance())
+    require_hive_final_handoff(
+        "WO-007-P",
+        28,
+        "a" * 40,
+        "b" * 40,
+        handoff_governance(auto_merge_armed=False, independent_approval_count=1),
+    )
+    require_hive_final_handoff(
+        "WO-007-P", 28, "a" * 40, "b" * 40, handoff_governance(auto_merge_armed=False)
+    )
 
 
 def test_hive_final_handoff_rejects_manifest_pr_head_mismatch() -> None:
@@ -365,6 +371,242 @@ def test_g1_scope_rejects_non_governance_files() -> None:
         )
 
 
+def protect_main_ruleset(
+    *,
+    required_approving_review_count: int = 0,
+    require_last_push_approval: bool = False,
+    require_extra_approval_for_unattributed_changes: bool = False,
+) -> dict[str, object]:
+    return {
+        "id": 21934284,
+        "name": "Protect main",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "rules": [
+            {"type": "deletion"},
+            {"type": "non_fast_forward"},
+            {
+                "type": "pull_request",
+                "parameters": {
+                    "required_approving_review_count": required_approving_review_count,
+                    "dismiss_stale_reviews_on_push": True,
+                    "require_last_push_approval": require_last_push_approval,
+                    "required_review_thread_resolution": True,
+                    "require_extra_approval_for_unattributed_changes": (
+                        require_extra_approval_for_unattributed_changes
+                    ),
+                    "allowed_merge_methods": ["squash"],
+                },
+            },
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": [
+                        {"context": "Validate"},
+                        {"context": "Integration health"},
+                        {"context": "Review Evidence"},
+                    ],
+                },
+            },
+        ],
+    }
+
+
+def fake_github_governance(
+    *,
+    ruleset: dict[str, object] | None = None,
+    reviews: list[dict[str, object]] | None = None,
+    auto_merge: dict[str, object] | None = None,
+) -> object:
+    selected_ruleset = ruleset if ruleset is not None else protect_main_ruleset()
+
+    def _gh_json(_repository: str, endpoint: str) -> object:
+        if "kayzenweb3" in endpoint:
+            raise AssertionError("kayzenweb3 collaborator permission must not be queried")
+        if endpoint.startswith("rulesets"):
+            if endpoint.startswith("rulesets/"):
+                return selected_ruleset
+            return [{"id": 21934284, "name": "Protect main"}]
+        if endpoint == "":
+            return {
+                "allow_squash_merge": True,
+                "allow_merge_commit": False,
+                "allow_rebase_merge": False,
+                "delete_branch_on_merge": True,
+                "allow_auto_merge": True,
+            }
+        if endpoint.endswith("/reviews"):
+            return reviews if reviews is not None else []
+        if endpoint.startswith("pulls/"):
+            return {
+                "state": "open",
+                "draft": False,
+                "user": {"login": "KayzenRoot"},
+                "head": {"sha": "b" * 40},
+                "base": {"sha": "a" * 40},
+                "auto_merge": auto_merge,
+            }
+        return None
+
+    return _gh_json
+
+
+def test_single_account_ruleset_baseline_and_no_kayzenweb3_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "_gh_json", fake_github_governance())
+    evidence = governance_evidence("KayzenRoot/hive", 35)
+    ruleset = cast(dict[str, object], evidence["ruleset"])
+    approval_gate = cast(dict[str, object], evidence["approval_gate"])
+    sol_reviewer = cast(dict[str, object], evidence["sol_reviewer"])
+    pull_request = cast(dict[str, object], evidence["pull_request"])
+
+    assert evidence["ruleset_unchanged"] is True
+    assert ruleset["required_approving_review_count"] == 0
+    assert ruleset["require_last_push_approval"] is False
+    assert ruleset["require_extra_approval_for_unattributed_changes"] is False
+    assert ruleset["required_contexts"] == [
+        "Integration health",
+        "Review Evidence",
+        "Validate",
+    ]
+    assert ruleset["allowed_merge_methods"] == ["squash"]
+    assert ruleset["bypass_actors"] == []
+    assert approval_gate["independent_approval_count"] == 0
+    assert sol_reviewer["login"] == "KayzenRoot"
+    assert sol_reviewer["can_satisfy_required_approval"] is False
+    assert pull_request["auto_merge_armed"] is False
+
+
+def test_legacy_two_account_ruleset_is_not_the_current_baseline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_evidence,
+        "_gh_json",
+        fake_github_governance(
+            ruleset=protect_main_ruleset(
+                required_approving_review_count=1,
+                require_last_push_approval=True,
+                require_extra_approval_for_unattributed_changes=True,
+            )
+        ),
+    )
+    evidence = governance_evidence("KayzenRoot/hive", 35)
+    assert evidence["ruleset_unchanged"] is False
+
+
+def test_historical_independent_reviews_do_not_block_pre_sol_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_evidence,
+        "_gh_json",
+        fake_github_governance(
+            reviews=[
+                {
+                    "user": {"login": "kayzenweb3"},
+                    "state": "APPROVED",
+                    "submitted_at": "2026-09-01T00:00:00Z",
+                }
+            ]
+        ),
+    )
+    evidence = governance_evidence("KayzenRoot/hive", 35)
+    approval_gate = cast(dict[str, object], evidence["approval_gate"])
+    assert approval_gate["independent_approvers"] == ["kayzenweb3"]
+    assert approval_gate["independent_approval_count"] == 1
+    require_hive_final_handoff(
+        "WO-010-G1",
+        35,
+        "a" * 40,
+        "b" * 40,
+        {
+            "ruleset_unchanged": True,
+            "pull_request": evidence["pull_request"],
+            "approval_gate": approval_gate,
+        },
+    )
+
+
+def test_wo010_g1_scope_and_manifest_require_unarmed_auto_merge() -> None:
+    require_wo010_g1_scope("WO-010-G1", WO010_G1_BASE_SHA, sorted(WO010_G1_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="outside"):
+        require_wo010_g1_scope(
+            "WO-010-G1",
+            WO010_G1_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md", "backend/app/progressive_disclosure.py"],
+        )
+    manifest = evidence_fixture()
+    manifest["work_order"] = "WO-010-G1"
+    manifest["base"] = {"branch": "main", "sha": WO010_G1_BASE_SHA}
+    manifest["changed_files"] = {
+        "count": 1,
+        "paths": ["docs/project-brain/16-DECISIONS-LEDGER.md"],
+    }
+    review_state = cast(dict[str, object], manifest["review_state"])
+    review_state["auto_merge_armed"] = False
+    review_state["sol_review_state"] = "AWAITING_SOL"
+    governance = cast(dict[str, object], manifest["governance"])
+    pull_request = cast(dict[str, object], governance["pull_request"])
+    pull_request["auto_merge_armed"] = False
+    pull_request["auto_merge_method"] = None
+    pull_request["auto_merge"] = {
+        "armed": False,
+        "method": None,
+        "enabled_by_login": "",
+        "enabled_by_type": "",
+        "user_owned": False,
+    }
+    validate_manifest(manifest)
+    review_state["auto_merge_armed"] = True
+    with pytest.raises(ValueError, match="unarmed"):
+        validate_manifest(manifest)
+    review_state["auto_merge_armed"] = False
+    review_state["sol_review_state"] = "APPROVED"
+    with pytest.raises(ValueError, match="Sol approval"):
+        validate_manifest(manifest)
+
+
+def test_wo010_g1_canonical_change_evidence_is_work_order_aware() -> None:
+    intended = [
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/16-DECISIONS-LEDGER.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+    ]
+    evidence = canonical_change_evidence(intended, "WO-010-G1")
+    assert evidence["authorized_paths"] == intended
+
+    unrelated = canonical_change_evidence(
+        intended + ["docs/project-brain/04-ARCHITECTURE.md"], "WO-010-G1"
+    )
+    assert unrelated["authorized_paths"] == intended
+
+    non_g1 = canonical_change_evidence(intended, "WO-011")
+    assert non_g1["authorized_paths"] == [
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+    ]
+
+
+def test_wo010_g1_summary_prints_all_authorized_canonical_paths() -> None:
+    manifest = evidence_fixture()
+    manifest["work_order"] = "WO-010-G1"
+    manifest["changed_files"] = {
+        "count": 3,
+        "paths": [
+            "docs/project-brain/13-CHECKPOINT.md",
+            "docs/project-brain/16-DECISIONS-LEDGER.md",
+            "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ],
+    }
+    summary = summary_markdown(manifest, "https://example.invalid/run/1")
+    assert "docs/project-brain/13-CHECKPOINT.md" in summary
+    assert "docs/project-brain/16-DECISIONS-LEDGER.md" in summary
+    assert "docs/project-brain/CANONICAL-SHA256SUMS.txt" in summary
+
+
 def test_g1_manifest_records_user_owned_identity_and_scope() -> None:
     manifest = evidence_fixture()
     manifest["work_order"] = "WO-008-G1"
@@ -396,6 +638,120 @@ def native_auto_merge_pull_request(auto_merge: object) -> dict[str, object]:
         "head": {"sha": "b" * 40},
         "auto_merge": auto_merge,
     }
+
+
+def merge_authorization_state(**overrides: object) -> dict[str, object]:
+    state: dict[str, object] = {
+        "sol_approved": True,
+        "auto_merge_armed": False,
+        "pr_state": "open",
+        "is_draft": False,
+        "head_sha": "b" * 40,
+        "base_sha": "a" * 40,
+        "base_branch": "main",
+        "ruleset_valid": True,
+        "unresolved_threads": 0,
+        "merge_method": "squash",
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "required_checks": {
+            "Validate": "success",
+            "Integration health": "success",
+            "Review Evidence": "success",
+        },
+    }
+    state.update(overrides)
+    return state
+
+
+def test_clean_post_sol_state_authorizes_direct_squash_without_auto_merge() -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision == {
+        "authorized": True,
+        "action": "DIRECT_SQUASH_MERGE",
+        "merge_method": "squash",
+        "expected_head_sha": "b" * 40,
+        "reason": "all safety gates are green on the exact audited HEAD",
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"head_sha": "c" * 40}, "HEAD moved"),
+        ({"base_sha": "c" * 40}, "base"),
+        (
+            {
+                "required_checks": {
+                    "Validate": "success",
+                    "Integration health": "success",
+                    "Review Evidence": "failure",
+                }
+            },
+            "not green",
+        ),
+        (
+            {
+                "required_checks": {
+                    "Validate": "success",
+                    "Integration health": "success",
+                }
+            },
+            "missing",
+        ),
+        ({"mergeable": False, "mergeable_state": "dirty"}, "mergeability"),
+        ({"is_draft": True}, "Ready"),
+        ({"unresolved_threads": 1}, "threads"),
+        ({"ruleset_valid": False}, "ruleset"),
+        ({"merge_method": "merge"}, "SQUASH"),
+        ({"auto_merge_armed": True}, "unarmed"),
+    ],
+)
+def test_post_sol_direct_merge_fails_closed(overrides: dict[str, object], message: str) -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(**overrides),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision["authorized"] is False
+    assert decision["action"] == "REJECT"
+    assert message.casefold() in str(decision["reason"]).casefold()
+
+
+def test_pending_required_checks_allow_only_conditional_auto_merge() -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(
+            mergeable_state="blocked",
+            required_checks={
+                "Validate": "success",
+                "Integration health": "pending",
+                "Review Evidence": "success",
+            },
+        ),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision["authorized"] is True
+    assert decision["action"] == "ARM_SQUASH_AUTO_MERGE"
+    assert decision["pending_checks"] == ["Integration health"]
+
+
+def test_sol_approval_is_required_for_any_post_sol_merge_action() -> None:
+    decision = authorize_merge_action(
+        merge_authorization_state(sol_approved=False),
+        expected_head_sha="b" * 40,
+        expected_base_sha="a" * 40,
+    )
+
+    assert decision["authorized"] is False
+    assert decision["action"] == "REJECT"
 
 
 def test_user_owned_squash_auto_merge_is_accepted(
@@ -622,6 +978,33 @@ def test_pr_body_template_contains_work_order_marker_and_sol_state() -> None:
     assert body.count("## ") == 20
 
 
+def test_future_work_order_template_uses_single_account_stage_gate() -> None:
+    body = render_body(
+        work_order="WO-011",
+        pr_number=36,
+        branch="feature/wo011-future",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-011-b",
+        ruleset_before="baseline",
+        ruleset_after="unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+    folded = body.casefold()
+    assert "kayzenroot" in folded
+    assert "awaiting_sol" in folded
+    assert "auto-merge nativo desarmado" in folded
+    assert "sol merge authorization" in folded
+    assert "squash direto" in folded
+    assert "auto-merge nativo squash" in folded
+    assert "push ci" in folded
+    assert "sol arms auto-merge" not in folded
+    assert "kayzenweb3" not in folded
+    assert "aprovação independente elegível" not in folded
+    assert "independent native approval" not in folded
+
+
 def test_g1_pr_body_describes_identity_correction() -> None:
     body = render_body(
         work_order="WO-008-G1",
@@ -669,6 +1052,31 @@ def test_wo009_pr_body_describes_context_manager_handoff() -> None:
     assert "CHECKPOINT -> SCOPE -> DEFINITION_OF_DONE -> ARCHITECTURE -> DECISIONS" in body
     assert "mandatory_governance_coverage" in body
     assert "WO-009 READY FOR SOL GITHUB AUDIT" in body
+
+
+def test_wo010_g1_pr_body_describes_single_account_governance() -> None:
+    body = render_body(
+        work_order="WO-010-G1",
+        pr_number=35,
+        branch="governance/wo010-g1-single-account",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-010-G1-b",
+        ruleset_before="approvals=1",
+        ruleset_after="approvals=0",
+        merge_before="old",
+        merge_after="unchanged",
+    )
+
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-010-G1 -->")
+    assert "KayzenRoot" in body
+    assert "kayzenweb3" in body
+    assert "auto-merge desarmado" in body
+    assert "SOL MERGE AUTHORIZATION" in body
+    assert "SQUASH no HEAD" in body
+    assert "checks obrigatórios legítimos estiverem pendentes" in body
+    assert "WO-010-G1 READY FOR SOL AUDIT" in body
+    assert "21934284" in body
 
 
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
@@ -719,7 +1127,7 @@ def test_ci_persists_bounded_service_logs_and_uses_supported_action_majors() -> 
     )
     assert DEFAULT_COMMAND == ("docker", "compose", "logs", "--no-color", "--tail=200")
     assert "on:\n  push:\n    branches:\n      - main" in workflow
-    assert "--verify-auto-merge" in workflow
+    assert "--verify-auto-merge" not in workflow
     assert "gh pr merge" not in workflow
     assert "tmp/integration-logs/service-logs.log" in workflow
     assert "path: |\n            tmp/validation\n            tmp/integration-logs" in workflow

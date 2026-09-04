@@ -146,6 +146,13 @@ See `03-SCOPE.md`.
 - Independent approval review ID `5106474439`.
 - PR #32 auto-squash-merged as `8d9421d9cdfb3779ba56e19083086c31e2a644bf`.
 - Post-merge CI run `33802185661` passed on exact `8d9421d9cdfb3779ba56e19083086c31e2a644bf`.
+- GitHub review now follows HIVE-ADR-019: single operational account `KayzenRoot`, stage-gated Sol audit of the exact HEAD, direct exact-head SQUASH when clean, and native auto-merge only for legitimate required checks still pending. Native GitHub Approve is no longer the quality gate.
+- Historical two-account independent approvals remain recorded and unchanged: PR #27, PR #29 and PR #32 were independently approved by `kayzenweb3`. That independent-account requirement is superseded for subsequent PRs.
+
+## GOVERNANCE
+Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
+
+Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) is not approved or merged by this governance transition.
 
 ## IN PROGRESS
 - Preparing the smallest necessary deterministic Progressive Disclosure Foundation over the approved Context Manager and reranked retrieval pipeline.

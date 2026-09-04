@@ -155,19 +155,6 @@ jobs:
             echo "Review Evidence requires the pull request to be Ready for review."
             exit 1
           fi
-      - name: Verify user-owned native squash auto-merge before final evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          python scripts/review_evidence.py \
-            --verify-auto-merge \
-            --repository "$REPOSITORY" \
-            --pr-number "$PR_NUMBER" \
-            --expected-head-sha "$EXPECTED_HEAD_SHA"
       - name: Generate Review Evidence manifest
         env:
           GH_TOKEN: ${{ github.token }}

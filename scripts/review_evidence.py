@@ -70,6 +70,7 @@ CANONICAL_PATHS = (
 )
 WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
 WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
+WO010_G1_BASE_SHA = "552d809f6e0a6e1f940084c35f3109dc4ec931a1"
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -79,7 +80,25 @@ WO008_G1_ALLOWED_PATHS = frozenset(
         "scripts/review_pr_body.py",
     }
 )
+WO010_G1_ALLOWED_PATHS = frozenset(
+    {
+        ".github/workflows/ci.yml",
+        "backend/tests/test_review_evidence.py",
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/16-DECISIONS-LEDGER.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO010_G1_CANONICAL_PATHS = (
+    CHECKPOINT_PATH,
+    "docs/project-brain/16-DECISIONS-LEDGER.md",
+    "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+)
 PROTECTED_MAIN_RULESET_ID = 21934284
+SOLE_GITHUB_OPERATOR_LOGIN = "KayzenRoot"
 
 WARNING_RULES = (
     (
@@ -151,15 +170,18 @@ def derive_work_order(repository: str, pr_number: int) -> str:
     return parse_work_order_marker(body)
 
 
-def canonical_change_evidence(paths: list[str]) -> dict[str, object]:
+def canonical_change_evidence(paths: list[str], work_order: str = "") -> dict[str, object]:
     changed = set(paths)
     project_brain_changed = any(
         path == "docs/project-brain" or path.startswith("docs/project-brain/") for path in changed
     )
+    authorized_candidates = (
+        WO010_G1_CANONICAL_PATHS if work_order == "WO-010-G1" else CANONICAL_PATHS
+    )
     return {
         "project_brain_changed": project_brain_changed,
         "checkpoint_changed": CHECKPOINT_PATH in changed,
-        "authorized_paths": [path for path in CANONICAL_PATHS if path in changed],
+        "authorized_paths": [path for path in authorized_candidates if path in changed],
     }
 
 
@@ -189,6 +211,19 @@ def require_wo009_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
     canonical = canonical_change_evidence(paths)
     if canonical["project_brain_changed"] is True:
         raise ValueError("WO-009 implementation evidence cannot change canonical Project Brain")
+
+
+def require_wo010_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-010-G1":
+        return
+    if base_sha != WO010_G1_BASE_SHA:
+        raise ValueError(f"WO-010-G1 requires exact base {WO010_G1_BASE_SHA}, observed {base_sha}")
+    unauthorized = sorted(set(paths) - WO010_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            "WO-010-G1 changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
 
 
 def repository_name() -> str:
@@ -869,6 +904,118 @@ def verify_native_auto_merge(
     return evidence
 
 
+MERGE_AUTHORIZATION_DIRECT = "DIRECT_SQUASH_MERGE"
+MERGE_AUTHORIZATION_AUTO = "ARM_SQUASH_AUTO_MERGE"
+MERGE_AUTHORIZATION_REJECT = "REJECT"
+REQUIRED_STATUS_CONTEXTS = frozenset({"Validate", "Integration health", "Review Evidence"})
+PASSING_CHECK_CONCLUSIONS = frozenset({"pass", "passed", "success", "successful"})
+PENDING_CHECK_CONCLUSIONS = frozenset({"in_progress", "pending", "queued", "requested", "waiting"})
+
+
+def authorize_merge_action(
+    state: Mapping[str, Any],
+    *,
+    expected_head_sha: str,
+    expected_base_sha: str,
+    expected_base_branch: str = "main",
+) -> dict[str, object]:
+    """Decide the post-Sol merge action from one normalized, immutable snapshot.
+
+    This helper deliberately does not mutate GitHub state. The caller must take a
+    fresh snapshot immediately before acting and include the expected HEAD in the
+    direct merge request. Any missing or ambiguous safety input rejects the action.
+    """
+
+    def reject(reason: str) -> dict[str, object]:
+        return {
+            "authorized": False,
+            "action": MERGE_AUTHORIZATION_REJECT,
+            "reason": reason,
+        }
+
+    if not HEX_SHA.fullmatch(expected_head_sha) or not HEX_SHA.fullmatch(expected_base_sha):
+        return reject("expected HEAD and base must be valid commit SHAs")
+    if state.get("sol_approved") is not True:
+        return reject("Sol approval is required before any merge action")
+    if state.get("auto_merge_armed") is not False:
+        return reject("auto-merge must be unarmed before Sol authorization")
+    if state.get("pr_state") != "open":
+        return reject("pull request must be open")
+    if state.get("is_draft") is not False:
+        return reject("pull request must be Ready")
+    if state.get("head_sha") != expected_head_sha:
+        return reject("pull request HEAD moved")
+    if (
+        state.get("base_sha") != expected_base_sha
+        or state.get("base_branch") != expected_base_branch
+    ):
+        return reject("pull request base is not the expected safe base")
+    if state.get("ruleset_valid") is not True:
+        return reject("protected ruleset baseline does not match")
+    if state.get("unresolved_threads") != 0:
+        return reject("unresolved review threads must be zero")
+    if str(state.get("merge_method", "")).casefold() != "squash":
+        return reject("merge method must be SQUASH")
+
+    required_checks = state.get("required_checks")
+    if not isinstance(required_checks, Mapping):
+        return reject("required check conclusions are missing")
+    missing = sorted(REQUIRED_STATUS_CONTEXTS - set(required_checks))
+    if missing:
+        return reject(f"required checks are missing: {', '.join(missing)}")
+
+    conclusions: dict[str, str] = {}
+    for context in REQUIRED_STATUS_CONTEXTS:
+        value = required_checks[context]
+        if isinstance(value, Mapping):
+            value = value.get("conclusion", value.get("status", ""))
+        if not isinstance(value, str) or not value.strip():
+            return reject(f"required check conclusion is missing: {context}")
+        conclusions[context] = value.casefold().strip()
+    pending = [
+        context
+        for context, conclusion in conclusions.items()
+        if conclusion in PENDING_CHECK_CONCLUSIONS
+    ]
+    failed = [
+        context
+        for context, conclusion in conclusions.items()
+        if conclusion not in PASSING_CHECK_CONCLUSIONS
+        and conclusion not in PENDING_CHECK_CONCLUSIONS
+    ]
+    if failed:
+        return reject(f"required checks are not green: {', '.join(sorted(failed))}")
+
+    mergeable = state.get("mergeable")
+    mergeable_state = str(state.get("mergeable_state", "")).casefold()
+    if mergeable is not True:
+        return reject("pull request mergeability is not confirmed")
+    if state.get("mergeable_state") is None:
+        return reject("pull request mergeable state is missing")
+
+    if not pending:
+        if mergeable_state != "clean":
+            return reject("clean direct merge requires mergeable_state=clean")
+        return {
+            "authorized": True,
+            "action": MERGE_AUTHORIZATION_DIRECT,
+            "merge_method": "squash",
+            "expected_head_sha": expected_head_sha,
+            "reason": "all safety gates are green on the exact audited HEAD",
+        }
+
+    if mergeable_state != "blocked":
+        return reject("pending checks are not the only merge blocker")
+    return {
+        "authorized": True,
+        "action": MERGE_AUTHORIZATION_AUTO,
+        "merge_method": "squash",
+        "expected_head_sha": expected_head_sha,
+        "pending_checks": sorted(pending),
+        "reason": "only legitimate required checks remain pending",
+    }
+
+
 def github_review_text(repository: str, pr_number: int | None) -> str:
     if not pr_number:
         return ""
@@ -915,6 +1062,7 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
     required_approving_review_count: int | None = None
     dismiss_stale_reviews_on_push: bool | None = None
     require_last_push_approval: bool | None = None
+    require_extra_approval_for_unattributed_changes: bool | None = None
     for rule in ruleset.get("rules", []) if isinstance(ruleset, dict) else []:
         if not isinstance(rule, dict):
             continue
@@ -938,6 +1086,10 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
                 dismiss_stale_reviews_on_push = bool(params["dismiss_stale_reviews_on_push"])
             if "require_last_push_approval" in params:
                 require_last_push_approval = bool(params["require_last_push_approval"])
+            if "require_extra_approval_for_unattributed_changes" in params:
+                require_extra_approval_for_unattributed_changes = bool(
+                    params["require_extra_approval_for_unattributed_changes"]
+                )
             if "required_review_thread_resolution" in params:
                 thread_resolution = bool(params["required_review_thread_resolution"])
     bypass = (
@@ -966,9 +1118,10 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
         and has_non_fast_forward
         and has_pull_request
         and strict_checks is True
-        and required_approving_review_count == 1
+        and required_approving_review_count == 0
         and dismiss_stale_reviews_on_push is True
-        and require_last_push_approval is True
+        and require_last_push_approval is False
+        and require_extra_approval_for_unattributed_changes is False
     )
     repo_settings = {
         "allow_squash_merge": repo.get("allow_squash_merge") if isinstance(repo, dict) else None,
@@ -1027,14 +1180,6 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
         for login, review in latest_review_by_user.items()
         if login != author and review.get("state") == "APPROVED"
     )
-    sol_permission = _gh_json(repository, "collaborators/kayzenweb3/permission")
-    sol_permissions = (
-        sol_permission.get("permissions", {}) if isinstance(sol_permission, dict) else {}
-    )
-    sol_eligible = bool(
-        isinstance(sol_permission, dict)
-        and sol_permission.get("permission") in {"write", "triage", "maintain", "admin"}
-    )
     auto_merge = (
         pr.get("auto_merge")
         if isinstance(pr, dict) and isinstance(pr.get("auto_merge"), dict)
@@ -1060,6 +1205,9 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
             "required_approving_review_count": required_approving_review_count,
             "dismiss_stale_reviews_on_push": dismiss_stale_reviews_on_push,
             "require_last_push_approval": require_last_push_approval,
+            "require_extra_approval_for_unattributed_changes": (
+                require_extra_approval_for_unattributed_changes
+            ),
         },
         "ruleset_unchanged": ruleset_unchanged,
         "repository_merge_settings": repo_settings,
@@ -1085,16 +1233,17 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
             "required_approving_review_count": required_approving_review_count,
             "dismiss_stale_reviews_on_push": dismiss_stale_reviews_on_push,
             "require_last_push_approval": require_last_push_approval,
+            "require_extra_approval_for_unattributed_changes": (
+                require_extra_approval_for_unattributed_changes
+            ),
             "independent_approvers": independent_approvers,
             "independent_approval_count": len(independent_approvers),
         },
         "sol_reviewer": {
-            "login": "kayzenweb3",
-            "permission": (
-                sol_permission.get("permission") if isinstance(sol_permission, dict) else None
-            ),
-            "permissions": sol_permissions,
-            "can_satisfy_required_approval": sol_eligible,
+            "login": SOLE_GITHUB_OPERATOR_LOGIN,
+            "permission": None,
+            "permissions": {},
+            "can_satisfy_required_approval": False,
         },
     }
 
@@ -1122,6 +1271,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     paths = changed_paths(base_sha, head_sha)
     require_wo008_g1_scope(work_order, base_sha, paths)
     require_wo009_scope(work_order, base_sha, paths)
+    require_wo010_g1_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -1145,7 +1295,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         evidence_text,
         github_evidence,
     )
-    canonical_changes = canonical_change_evidence(paths)
+    canonical_changes = canonical_change_evidence(paths, work_order)
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     pr_auto_merge = pull_request_auto_merge_evidence(pr_governance)
@@ -1277,6 +1427,27 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
+    if work_order == "WO-010-G1":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo010_g1_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
+        governance = cast(dict[str, Any], manifest["governance"])
+        if governance.get("ruleset_unchanged") is not True:
+            raise ValueError(
+                "WO-010-G1 evidence requires the protected ruleset to match "
+                "the single-account baseline"
+            )
+        review_state = cast(dict[str, Any], manifest["review_state"])
+        if review_state.get("auto_merge_armed") is True:
+            raise ValueError(
+                "WO-010-G1 evidence requires auto-merge to be unarmed before Sol audit"
+            )
+        if review_state.get("sol_review_state") != "AWAITING_SOL":
+            raise ValueError("WO-010-G1 evidence cannot invent a Sol approval state")
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1365,7 +1536,9 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     artifact = cast(dict[str, Any], manifest["artifact"])
     review_state = cast(dict[str, Any], manifest["review_state"])
     changed_files = cast(dict[str, Any], manifest["changed_files"])
-    canonical_changes = canonical_change_evidence(changed_files["paths"])
+    canonical_changes = canonical_change_evidence(
+        changed_files["paths"], cast(str, manifest["work_order"])
+    )
     integrity = cast(dict[str, Any], integration["integrity_tests"])
     semantic = cast(dict[str, Any], benchmark.get("semantic", {}))
     hybrid = cast(dict[str, Any], benchmark.get("hybrid", {}))
@@ -1571,18 +1744,31 @@ def require_hive_final_handoff(
     if pr_governance.get("is_draft") is not False:
         raise ValueError("HIVE final-handoff evidence requires a Ready pull request")
     auto_merge_state = pull_request_auto_merge_evidence(pr_governance)
-    if auto_merge_state.get("armed") is not True:
-        raise ValueError("HIVE final-handoff evidence requires native auto-merge to be armed")
-    if str(auto_merge_state.get("method", "")).casefold() != "squash":
-        raise ValueError("HIVE final-handoff evidence requires SQUASH auto-merge")
-    if not auto_merge_state.get("enabled_by_login") or not auto_merge_state.get("enabled_by_type"):
-        raise ValueError("HIVE final-handoff evidence requires auto-merge owner identity")
-    if auto_merge_state.get("user_owned") is not True:
-        raise ValueError("HIVE final-handoff evidence requires user-owned auto-merge")
-    approval_gate = cast(dict[str, Any], governance.get("approval_gate", {}))
-    if approval_gate.get("independent_approval_count") != 0:
+    if work_order == "WO-008-G1":
+        if auto_merge_state.get("armed") is not True:
+            raise ValueError("HIVE final-handoff evidence requires native auto-merge to be armed")
+        if str(auto_merge_state.get("method", "")).casefold() != "squash":
+            raise ValueError("HIVE final-handoff evidence requires SQUASH auto-merge")
+        if not auto_merge_state.get("enabled_by_login") or not auto_merge_state.get(
+            "enabled_by_type"
+        ):
+            raise ValueError("HIVE final-handoff evidence requires auto-merge owner identity")
+        if auto_merge_state.get("user_owned") is not True:
+            raise ValueError("HIVE final-handoff evidence requires user-owned auto-merge")
+        approval_gate = cast(dict[str, Any], governance.get("approval_gate", {}))
+        if approval_gate.get("independent_approval_count") != 0:
+            raise ValueError(
+                "HIVE final-handoff evidence requires zero independent approvals before Sol"
+            )
+        return
+    if governance.get("ruleset_unchanged") is not True:
         raise ValueError(
-            "HIVE final-handoff evidence requires zero independent approvals before Sol"
+            "HIVE final-handoff evidence requires the protected ruleset to match "
+            "the single-account baseline"
+        )
+    if auto_merge_state.get("armed") is True:
+        raise ValueError(
+            "HIVE final-handoff evidence requires native auto-merge to be unarmed before Sol audit"
         )
 
 

@@ -415,6 +415,109 @@ WO-009 READY FOR SOL GITHUB AUDIT
 """
 
 
+def _render_wo010_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta PR instala governança GitHub de conta única, aprovada pelo usuário:
+somente `KayzenRoot` opera o repositório. Executor e Sol continuam papéis
+lógicos distintos. A qualidade deixa de depender de Approve nativo do GitHub
+e passa a ser auditoria de Sol no HEAD exato, checks obrigatórios e
+autorização explícita da ação de merge após a auditoria de Sol.
+
+## 2. Base, branch e head
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- A PR #34 de Progressive Disclosure permanece aberta, no HEAD C2, com
+auto-merge desarmado. Esta PR não mescla WO-010.
+
+## 3. Arquivos alterados
+
+Somente documentação canônica de governança, Review Evidence, schema, testes,
+template de PR e o workflow CI. Nenhum código de Progressive Disclosure.
+
+## 4. Modelo operacional
+
+Fluxo: `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL MERGE AUTHORIZATION ->\
+ MERGE -> PUSH CI -> CHECKPOINT`. O executor para com
+auto-merge desarmado. Após `APPROVED`, se a PR estiver limpa/mergeable e todos
+os checks obrigatórios estiverem verdes, Sol faz diretamente o SQUASH no HEAD\
+exato auditado. Se somente checks obrigatórios legítimos estiverem pendentes,
+Sol pode armar auto-merge nativo SQUASH como `KayzenRoot`. HEAD movido,
+check falho/ausente, conflito, draft, thread não resolvida, ruleset divergente
+ou evidência incompleta bloqueiam ambas as ações.
+
+## 5. Ruleset Protect main
+
+O Ruleset `21934284` permanece ativo, com Protect main, deletion,
+non-fast-forward, PR obrigatório, resolução de threads, squash-only, os três
+checks reais e zero bypass. `required_approving_review_count` passa a 0;
+`require_last_push_approval` e `require_extra_approval_for_unattributed_changes`
+passam a false. Antes: {ruleset_before}; merge: {merge_before}. Depois:
+{ruleset_after}; merge: {merge_after}.
+
+## 6. Review Evidence
+
+A evidência falha fechado se o auto-merge estiver armado antes da auditoria
+de Sol. `ruleset_unchanged` compara o baseline de conta única. A permissão
+de colaborador `kayzenweb3` não é mais consultada nem exigida para PASS.
+Reviews históricas não bloqueiam o handoff. `--verify-auto-merge` permanece
+no CLI para o caso condicional de checks pendentes e saiu do job de PR. A
+autorização de SQUASH direto exige rechecagem do PR Ready, HEAD/base exatos,
+mergeability, ruleset, checks verdes e threads resolvidas.
+
+## 7. Testes
+
+Cobertura determinística para approvals=0, last-push false, extra
+unattributed false, checks/squash/zero bypass, auto-merge desarmado no
+pré-Sol, ausência de dependência de `kayzenweb3`, reviews históricas e
+escopo WO-010-G1.
+
+## 8. CI da PR e artefato
+
+Validate, Integration health e Review Evidence devem passar no head exato.
+O consolidado é `{artifact_name}`. Auto-merge desta PR permanece desarmado.
+
+## 9. Escopo negativo
+
+Não foi feito merge da PR #34, rearmamento de auto-merge em #34, aprovação
+inventada de Sol, bypass, merge-commit, rebase, início de WO-011 nem
+promoção de checkpoint de Progressive Disclosure.
+
+## 10. Riscos conhecidos e fontes canônicas
+
+Com zero aprovações nativas, o SQUASH direto de `KayzenRoot` é tecnicamente
+possível; o gate operacional é a separação de estágios, a autorização de Sol
+no HEAD exato e o fail-closed em qualquer divergência. Fontes: [checkpoint]
+(../blob/main/docs/project-brain/13-CHECKPOINT.md), [decisões]
+(../blob/main/docs/project-brain/16-DECISIONS-LEDGER.md).
+
+## 11. Sol Review State
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-010-G1 READY FOR SOL AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -470,6 +573,19 @@ def render_body(
             merge_after=merge_after,
             auto_merge_owner_login=auto_merge_owner_login,
             auto_merge_owner_type=auto_merge_owner_type,
+        )
+    if work_order == "WO-010-G1":
+        return _render_wo010_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
         )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 
@@ -584,8 +700,17 @@ testes, governança e avisos observados.
 
 Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
 {merge_after}. A proteção permanece ativa, sem bypass, com checks reais,
-threads resolvidas e squash-only. Auto-merge só pode ser armado após o gate de
-uma aprovação independente elegível; o executor não aprova nem faz merge.
+threads resolvidas e squash-only. A única identidade operacional do GitHub é
+`KayzenRoot`; executor e Sol continuam papéis lógicos distintos. O fluxo futuro
+é `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL MERGE AUTHORIZATION ->
+MERGE -> PUSH CI -> CHECKPOINT`. O executor encerra com a PR Ready, checks
+verdes e auto-merge nativo desarmado. Após `APPROVED`, Sol faz SQUASH direto no
+HEAD exato quando a PR estiver limpa/mergeable e todos os checks estiverem
+verdes; somente se checks obrigatórios legítimos estiverem pendentes pode armar
+auto-merge nativo SQUASH como `KayzenRoot`. HEAD movido, check falho/ausente,
+conflito, draft, thread não resolvida, ruleset divergente ou evidência
+incompleta bloqueiam merge e auto-merge. O push CI pós-merge deve passar no
+novo SHA exato de `main` antes do checkpoint ou do próximo Work Order.
 
 ## 18. Limitações e avisos conhecidos
 
@@ -601,8 +726,9 @@ por `<!-- hive-review-evidence:{work_order} -->`.
 
 ## 20. Estado para revisão de Sol
 
-A PR permanece aberta e não mesclada. Nenhuma aprovação é atribuída a Sol;
-threads e checks devem ser verificados no current head antes de qualquer merge.
+A PR permanece aberta, Ready e não mesclada. O auto-merge permanece desarmado
+antes da auditoria de Sol; nenhuma aprovação ou merge é presumido. Threads e
+checks devem ser verificados no HEAD atual antes de qualquer merge.
 
 Sol Review State: AWAITING_SOL
 """
