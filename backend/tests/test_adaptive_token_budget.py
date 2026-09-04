@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from app.adaptive_token_budget import (
     ADAPTIVE_TOKEN_BUDGET_POLICY_VERSION,
     BASE_BUDGET_TOKENS,
     HARD_MAX_BUDGET_TOKENS,
+    TOKEN_BUDGET_SERIALIZATION_VERSION,
+    TOKEN_ESTIMATOR_VERSION,
     AdaptiveTokenBudgetError,
     BudgetItem,
     BudgetSignals,
     apply_adaptive_token_budget,
+    estimate_context_payload_tokens,
     estimate_tokens,
     run_focused_benchmark,
 )
@@ -36,6 +41,8 @@ def test_budget_preserves_required_and_trims_optional_tail_in_order() -> None:
         signals=BudgetSignals(final_level="L3", retrieval_result_count=5),
     )
     assert result.evidence.policy_version == ADAPTIVE_TOKEN_BUDGET_POLICY_VERSION
+    assert result.evidence.estimator_version == TOKEN_ESTIMATOR_VERSION
+    assert result.evidence.estimate_serialization_version == TOKEN_BUDGET_SERIALIZATION_VERSION
     assert result.evidence.required_context_preserved is True
     assert result.evidence.budget_satisfied is True
     assert result.evidence.effective_budget_tokens <= HARD_MAX_BUDGET_TOKENS
@@ -90,4 +97,29 @@ def test_focused_benchmark_passes_without_llm_or_provider_calls() -> None:
     assert benchmark["provider_calls"] == 0
     assert benchmark["critical_context_misses"] == 0
     assert benchmark["strict_reduction_fixture"] is True
+    assert benchmark["strict_reduction_is_real"] is True
+    assert benchmark["benchmark_critical_misses_computed"] is True
+    assert benchmark["benchmark_required_identity_negative_fixture"] is True
+    assert benchmark["benchmark_mandatory_governance_computed"] is True
+    assert benchmark["benchmark_task_contract_computed"] is True
+    assert benchmark["benchmark_disclosure_retention_computed"] is True
+    fixtures = cast(list[dict[str, object]], benchmark["fixtures"])
+    negative_fixtures = cast(list[dict[str, object]], benchmark["negative_fixtures"])
+    assert all(
+        cast(int, fixture["baseline_estimated_tokens"])
+        >= cast(int, fixture["adaptive_estimated_tokens"])
+        for fixture in fixtures
+    )
+    no_op = next(fixture for fixture in fixtures if fixture["name"] == "small-no-op-baseline")
+    assert no_op["removed_optional_identities"] == []
+    assert no_op["strict_reduction"] is False
+    assert all(
+        fixture["detected_expected_failure"] and cast(int, fixture["critical_context_misses"]) > 0
+        for fixture in negative_fixtures
+    )
     assert benchmark["two_run_reproducibility"] is True
+
+
+def test_context_payload_serialization_is_deterministic_and_unicode_safe() -> None:
+    payload = {"unicode": "🙂", "code": "def build_context():\n    return True"}
+    assert estimate_context_payload_tokens(payload) == estimate_context_payload_tokens(payload)
