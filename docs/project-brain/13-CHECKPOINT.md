@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-PROGRESSIVE DISCLOSURE FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+ADAPTIVE TOKEN BUDGET FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -144,6 +144,17 @@ See `03-SCOPE.md`.
 - Project isolation, cross-project fail-closed behavior and Git HEAD/source race protection remain preserved.
 - Redis/API restart determinism remains preserved; disclosure decision/model calls remain at 0.
 - Adaptive Token Budget was not implemented in WO-010; migration head remains `0005_semantic_retrieval`.
+- Adaptive Token Budget Foundation was implemented after Progressive Disclosure and before final context emission under policy `adaptive-token-budget-v1`.
+- Its deterministic provider-independent estimator is `utf8-byte-ratio-approx-v1`: an explicit approximation, not provider-exact billing usage and not a guaranteed provider-token upper bound.
+- Token measurement uses versioned serialization `context-payload-v1`; only Adaptive Token Budget evidence and bounds transport/audit metadata are excluded to avoid self-reference.
+- The final materialized context payload is re-estimated and must satisfy the selected effective budget before success; base budget is `4096`, hard minimum `2048` and hard maximum `6144`.
+- Adaptation is automatic and deterministic from approved signals, with no user-managed mode or `max_tokens` requirement.
+- Five-kind governance, explicit task Constraints and Acceptance Criteria remain non-evictable; selected Progressive Disclosure semantics remain truthful and successful L4 complete files are never truncated for token savings.
+- Required context that cannot satisfy hard bounds fails closed; optional context tails reduce deterministically while preserving retained rerank order.
+- Final budget evidence exposes before/after/avoided estimates and adaptation reasons. The focused benchmark uses the same-fixture actual baseline, computes observed required-identity misses, detects negative governance/task/disclosure fixtures, records zero accepted critical misses, includes real strict reduction and preserves two-run reproducibility.
+- Redis/API restart determinism, project isolation, missing-governance fail-closed behavior and Git/source race protection remain preserved; token-budget LLM calls and provider calls are both `0`.
+- Final WO-011 evidence recorded backend `260 passed, 0 failed, 0 skipped`, dashboard `7 passed, 0 failed`, Validate PASS, Integration health PASS, Review Evidence PASS, canonical verifier PASS and secret scan PASS.
+- Final audited pre-merge HEAD was `8a6afd3cf99c0c39ab243f21fea7de31a1295711`; Sol approval/audit ID was `5117925246`; PR #38 was squash-merged as `59481f85cc39069dd2b8b9e96ed0cbf082cb64b2`; post-merge CI run `33920403507` passed Validate and Integration health on that exact main SHA, with Review Evidence skipped by design on push.
 - PR #34 final audited candidate HEAD before merge was `6c021ecccf5366536cf67f7495520747241a4109`; Sol approval/audit ID was `5113577988`.
 - PR #34 was squash-merged as `7a76e0f2055421226b27ab1731342508f671a53a`.
 - Post-merge push CI run `33878806231` passed Validate and Integration health on exact main SHA `7a76e0f2055421226b27ab1731342508f671a53a`; Review Evidence was skipped by design on push.
@@ -171,7 +182,7 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary Adaptive Token Budget Foundation over the approved Context Manager and Progressive Disclosure pipeline.
+- Preparing the smallest necessary deterministic Context Fingerprints Foundation over the approved Context Manager, Progressive Disclosure and Adaptive Token Budget pipeline.
 
 ## PENDING
 - memory.
@@ -186,7 +197,6 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - backup/recovery validation.
 - final documentation.
 - final V0.1 review.
-- adaptive token budget.
 - context fingerprints.
 - delta context.
 - provider/prompt cache adapter layer.
@@ -194,13 +204,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Progressive Disclosure Foundation approval and post-merge validation.
+None known after Adaptive Token Budget Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary Adaptive Token Budget Foundation after rerank and Progressive Disclosure. Start with deterministic budgeting and an explicit bounded token/context budget contract, using a conservative fixed/default policy with deterministic adjustment only from approved signals. Preserve correctness over token savings, checkpoint-first governance, project isolation, provenance and truncation truth, and do not call an LLM merely to decide a token budget when deterministic code is sufficient. This increment must not add memory lifecycle, context fingerprints, delta context, provider/prompt cache implementation, MCP product surface, autonomous dispatch or full telemetry expansion.
+Prepare the smallest necessary deterministic Context Fingerprints Foundation over the approved Context Manager, Progressive Disclosure and Adaptive Token Budget pipeline. Bind stable provider-independent fingerprints to exact source identity/version and material dependency inputs, recognize equivalent unchanged derived context without unnecessary rebuilding, preserve canonical Git/PostgreSQL truth, project scope and provenance, and fail closed on stale or mismatched source identity. Benchmark deterministic reuse/avoidance without correctness loss. Do not implement Delta Context, provider/prompt cache, memory lifecycle, MCP product surface, autonomous executor dispatch or full telemetry expansion.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
