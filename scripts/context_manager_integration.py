@@ -121,6 +121,7 @@ def write_project(repository: Path, label: str, *, governance: bool = True) -> N
     (repository / "src").mkdir(parents=True, exist_ok=True)
     (repository / "tests").mkdir(parents=True, exist_ok=True)
     (repository / "src" / "context_service.py").write_text(
+        "import json\n\n"
         f"class {label}ContextService:\n"
         "    def build_context(self, task_id):\n"
         "        return {'task_id': task_id, 'provenance': True}\n\n"
@@ -151,12 +152,47 @@ def wait_for_fixture(port: int, label: str) -> None:
     raise RuntimeError(f"{label} fixture did not become ready")
 
 
-def context_request(base_url: str, project_id: str, task_id: str) -> dict[str, Any]:
+DISCLOSURE_LEVEL_SEMANTICS = {
+    "L0": "Project capsule",
+    "L1": "Module summaries",
+    "L2": "Symbol signatures and dependency metadata",
+    "L3": "Relevant implementation excerpts",
+    "L4": "Complete file",
+    "L5": "Repository-wide investigation",
+}
+DISCLOSURE_LEVEL_ORDER = ("L0", "L1", "L2", "L3", "L4", "L5")
+TASK_PROJECTS = {
+    "Target": "Target",
+    "Target L0": "Target",
+    "Target escalate": "Target",
+    "Target L4": "Target",
+    "Target L4 large": "Isolated",
+    "Target L4 oversize": "Isolated",
+    "Target fallback": "Target",
+    "Isolated": "Isolated",
+    "Cross disclosure": "Isolated",
+    "Missing": "Missing",
+}
+
+
+def large_python_source(size: int, marker: str) -> str:
+    header = f'MARKER = "{marker}"\nTEXT = """\n'
+    footer = '\n"""\n'
+    fill = size - len(header) - len(footer)
+    return header + ("x" * max(fill, 1)) + footer
+
+
+def context_request(
+    base_url: str,
+    project_id: str,
+    task_id: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     status, payload = request(
         base_url,
         "POST",
         f"/api/v1/projects/{project_id}/tasks/{task_id}/context",
-        {"top_k": 10},
+        payload or {"top_k": 10},
     )
     if status != 200:
         raise AssertionError(f"context request status: expected 200, got {status}: {payload}")
@@ -220,6 +256,11 @@ def main() -> int:
     missing = projects_root / "project-missing"
     write_project(target, "Target", governance=True)
     write_project(isolated, "Isolated", governance=True)
+    large_source = large_python_source(2_500, "LARGE_PAD_FILE")
+    oversize_source = large_python_source(30_000, "OVERSIZE_PAD_FILE")
+    (isolated / "src" / "padding_block.py").write_text(large_source, encoding="utf-8")
+    (isolated / "src" / "padding_block_oversize.py").write_text(oversize_source, encoding="utf-8")
+    commit(isolated, "add L4 complete-file fixtures", os.environ.copy())
     write_project(missing, "Missing", governance=False)
     missing_checkpoint = missing / "docs" / "project-brain" / "13-CHECKPOINT.md"
     missing_checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -302,7 +343,16 @@ def main() -> int:
             "- Use only the target project's canonical governance.\n"
             "- Task text is not canonical governance.\n\n"
             "## Acceptance Criteria\n"
-            "- Include src/context_service.py and tests/test_context_service.py provenance.\n"
+            "- Include the implementation excerpt for TargetContextService.build_context "
+            "and tests/test_context_service.py provenance.\n"
+        )
+        l0_text = (
+            "# Project state\n\n"
+            "Inspect the target project checkpoint and current state only.\n\n"
+            "## Constraints\n"
+            "- Use only the target project's canonical governance.\n\n"
+            "## Acceptance Criteria\n"
+            "- Report current project state.\n"
         )
         fallback_text = (
             "# Fallback task\n\n"
@@ -311,11 +361,35 @@ def main() -> int:
         task_ids: dict[str, str] = {}
         for title, text, label in (
             ("Target context_service test provenance", task_text, "Target"),
+            ("Target project state only", l0_text, "Target L0"),
+            (
+                "Target missing signature",
+                "Need symbol signatures for TargetContextService.missing_method.\n\n"
+                "## Acceptance Criteria\n"
+                "- Need symbol signatures for TargetContextService.missing_method.\n",
+                "Target escalate",
+            ),
+            (
+                "Target complete file by symbol",
+                "Return the complete file for TargetContextService.build_context.\n",
+                "Target L4",
+            ),
+            (
+                "Isolated complete large file",
+                "Return the complete file src/padding_block.py.\n",
+                "Target L4 large",
+            ),
+            (
+                "Isolated complete oversize file",
+                "Return the complete file src/padding_block_oversize.py.\n",
+                "Target L4 oversize",
+            ),
             ("Target fallback", fallback_text, "Target fallback"),
             ("Isolated context", "Use only project B unrelated worker provenance.", "Isolated"),
+            ("Cross disclosure", "Return the complete file other/secret.py.", "Cross disclosure"),
             ("Missing context", "Build the missing governance context.", "Missing"),
         ):
-            project_label = "Target" if label == "Target fallback" else label
+            project_label = TASK_PROJECTS[label]
             status, task = request(
                 base_url,
                 "POST",
@@ -388,7 +462,10 @@ def main() -> int:
         )
         assert_equal(
             first["task_derived"]["acceptance_criteria"],
-            ["- Include src/context_service.py and tests/test_context_service.py provenance."],
+            [
+                "- Include the implementation excerpt for TargetContextService.build_context "
+                "and tests/test_context_service.py provenance."
+            ],
             "explicit acceptance criteria",
         )
         assert_equal(
@@ -444,6 +521,170 @@ def main() -> int:
         if not provenance_preserved:
             raise AssertionError("context retrieval provenance was not preserved")
 
+        disclosure = first["progressive_disclosure"]
+        if disclosure.get("level_semantics") != DISCLOSURE_LEVEL_SEMANTICS:
+            raise AssertionError(f"disclosure level mapping mismatch: {disclosure}")
+        level_mapping = disclosure.get("level_semantics") == DISCLOSURE_LEVEL_SEMANTICS
+        if (
+            disclosure.get("starting_level") != "L3"
+            or disclosure.get("final_level") != "L3"
+            or disclosure.get("escalated") is not False
+            or disclosure.get("path")
+        ):
+            raise AssertionError(f"target disclosure did not start at sufficient L3: {disclosure}")
+        if not first.get("module_summaries"):
+            raise AssertionError(f"L1 module summaries missing: {first.get('module_summaries')}")
+        if not first.get("symbol_signatures"):
+            raise AssertionError(f"L2 symbol signatures missing: {first.get('symbol_signatures')}")
+        if not first.get("dependencies"):
+            raise AssertionError(f"L2 dependency metadata missing: {first.get('dependencies')}")
+        if first["bounds"].get("disclosure_characters_included", 0) <= 0:
+            raise AssertionError(f"disclosure payload omitted from bounds: {first['bounds']}")
+        if first["bounds"]["total_emitted_context_characters"] < (
+            first["bounds"]["retrieval_characters_included"]
+            + first["bounds"]["disclosure_characters_included"]
+        ):
+            raise AssertionError(f"emitted total undercounts disclosure payload: {first['bounds']}")
+        if disclosure.get("llm_calls") != 0:
+            raise AssertionError(f"disclosure used LLM calls: {disclosure}")
+        if disclosure.get("adaptive_token_budget_implemented") is not False:
+            raise AssertionError(f"adaptive token budget was implemented: {disclosure}")
+        escalate = context_request(base_url, project_ids["Target"], task_ids["Target escalate"])
+        escalate_disclosure = escalate["progressive_disclosure"]
+        if (
+            escalate_disclosure.get("starting_level") != "L2"
+            or escalate_disclosure.get("final_level") != "L3"
+            or escalate_disclosure.get("escalated") is not True
+            or not escalate_disclosure.get("path")
+            or escalate_disclosure["path"][0].get("reason") != "required_signature_unresolved"
+        ):
+            raise AssertionError(f"legitimate escalation fixture failed: {escalate_disclosure}")
+        if not all(
+            DISCLOSURE_LEVEL_ORDER.index(str(step["to_level"]))
+            == DISCLOSURE_LEVEL_ORDER.index(str(step["from_level"])) + 1
+            for step in escalate_disclosure["path"]
+        ):
+            raise AssertionError(
+                f"disclosure path is not a bounded adjacent walk: {escalate_disclosure}"
+            )
+        l4 = context_request(base_url, project_ids["Target"], task_ids["Target L4"])
+        l4_file = (l4.get("complete_files") or [{}])[0]
+        l4_path = l4_file.get("path")
+        if l4_path != "src/context_service.py":
+            raise AssertionError(
+                f"L4 did not resolve the retrieved target file: {l4.get('complete_files')}"
+            )
+        expected_l4_text = (target / "src" / "context_service.py").read_text(encoding="utf-8")
+        emitted_l4 = (l4_file.get("text") or "").replace("\r\n", "\n")
+        if (
+            l4_file.get("truncated") is not False
+            or emitted_l4 != expected_l4_text.replace("\r\n", "\n")
+            or not l4_file.get("source_content_sha256")
+            or not l4_file.get("git_blob_sha")
+        ):
+            raise AssertionError(f"L4 symbol-resolved file was truncated: {l4_file}")
+        large = context_request(base_url, project_ids["Isolated"], task_ids["Target L4 large"])
+        large_file = (large.get("complete_files") or [{}])[0]
+        emitted_large = (large_file.get("text") or "").replace("\r\n", "\n")
+        expected_large = large_source.replace("\r\n", "\n")
+        if (
+            large["progressive_disclosure"].get("final_level") != "L4"
+            or large_file.get("path") != "src/padding_block.py"
+            or large_file.get("truncated") is not False
+            or emitted_large != expected_large
+            or len(emitted_large) <= 800
+            or not large_file.get("source_content_sha256")
+            or not large_file.get("git_blob_sha")
+        ):
+            raise AssertionError(f"L4 large complete file was not full source: {large_file}")
+        oversize_task_id = task_ids["Target L4 oversize"]
+        status, oversize = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Isolated']}/tasks/{oversize_task_id}/context",
+            {"top_k": 10},
+        )
+        assert_equal(status, 409, "L4 oversize capsule rejection")
+        if not isinstance(oversize, dict) or "l4_complete_file_exceeds_capsule_bound" not in str(
+            oversize
+        ):
+            raise AssertionError(f"L4 oversize error was not explicit: {oversize}")
+        l4_complete_file_untruncated = (
+            l4_file.get("truncated") is False and large_file.get("truncated") is False
+        )
+        l4_large_file_full_content = emitted_large == expected_large and len(emitted_large) > 800
+        l4_full_content_source_identity = bool(
+            large_file.get("source_content_sha256") and large_file.get("git_blob_sha")
+        )
+        l4_oversize_capsule_fail_closed = (
+            status == 409 and "l4_complete_file_exceeds_capsule_bound" in str(oversize)
+        )
+        explicit = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target L0"],
+            {"top_k": 10, "disclosure_level": "L4"},
+        )
+        if (
+            explicit["progressive_disclosure"].get("requested_level") != "L4"
+            or explicit["progressive_disclosure"].get("requested_level_applied") is not True
+            or explicit["progressive_disclosure"].get("final_level") != "L4"
+            or not explicit.get("complete_files")
+        ):
+            raise AssertionError(
+                f"explicit disclosure_level L4 was ignored: {explicit['progressive_disclosure']}"
+            )
+
+        l0 = context_request(base_url, project_ids["Target"], task_ids["Target L0"])
+        l0_disclosure = l0["progressive_disclosure"]
+        if (
+            l0_disclosure.get("starting_level") != "L0"
+            or l0_disclosure.get("final_level") != "L0"
+            or l0_disclosure.get("escalated") is not False
+            or l0_disclosure.get("path")
+            or l0.get("files")
+            or l0.get("complete_files")
+            or l0.get("inventory")
+        ):
+            raise AssertionError(
+                f"L0 request escalated or disclosed extra evidence: {l0_disclosure}"
+            )
+        smallest_sufficient = True
+        no_unnecessary_escalation = True
+        explicit_insufficiency_escalation = True
+        bounded_escalation = True
+        stop_on_sufficient = True
+        smallest_sufficient_uses_acceptance_criteria = disclosure.get("starting_level") == "L3"
+        smallest_sufficient_uses_resolved_evidence = (
+            escalate_disclosure.get("starting_level") == "L2"
+        )
+        synthetic_known_requirement_escalation_absent = disclosure.get("escalated") is False
+        l1_module_summary_materialized = bool(first.get("module_summaries"))
+        l2_symbol_signature_materialized = bool(first.get("symbol_signatures"))
+        l2_dependency_metadata_materialized = bool(first.get("dependencies"))
+        explicit_disclosure_level_contract_valid = (
+            explicit["progressive_disclosure"].get("requested_level_applied") is True
+            and explicit["progressive_disclosure"].get("final_level") == "L4"
+        )
+        l4_nonempty_when_selected = bool(l4.get("complete_files"))
+        l4_target_resolved_from_project_evidence = (
+            l4.get("complete_files", [{}])[0].get("path") == "src/context_service.py"
+        )
+        progressive_payload_in_bounds_accounting = (
+            first["bounds"].get("disclosure_characters_included", 0) > 0
+        )
+        legitimate_escalation_fixture = escalate_disclosure.get("escalated") is True
+
+        status, invalid_level = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/{task_ids['Target']}/context",
+            {"top_k": 10, "disclosure_level": "L9"},
+        )
+        assert_equal(status, 422, "invalid disclosure level rejection")
+        if "invalid_disclosure_level" not in str(invalid_level):
+            raise AssertionError(f"invalid disclosure error was not explicit: {invalid_level}")
+
         isolated_context = context_request(
             base_url,
             project_ids["Isolated"],
@@ -477,6 +718,21 @@ def main() -> int:
         )
         assert_equal(status, 404, "cross-project task rejection")
         task_project_scoped = status == 404
+        isolated_id = project_ids["Isolated"]
+        cross_task_id = task_ids["Cross disclosure"]
+        status, cross_disclosure = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{isolated_id}/tasks/{cross_task_id}/context",
+        )
+        assert_equal(status, 409, "cross-project disclosure rejection")
+        if not isinstance(cross_disclosure, dict) or "cross_project_disclosure_evidence" not in str(
+            cross_disclosure
+        ):
+            raise AssertionError(
+                f"cross-project disclosure error was not explicit: {cross_disclosure}"
+            )
+        cross_project_disclosure_fail_closed = status == 409
         status, missing_governance = request(
             base_url,
             "POST",
@@ -541,6 +797,30 @@ def main() -> int:
                     redis_restart_rebuild,
                     api_restart_rebuild,
                     mandatory_governance_coverage,
+                    level_mapping,
+                    smallest_sufficient,
+                    no_unnecessary_escalation,
+                    explicit_insufficiency_escalation,
+                    bounded_escalation,
+                    stop_on_sufficient,
+                    cross_project_disclosure_fail_closed,
+                    disclosure.get("llm_calls") == 0,
+                    disclosure.get("adaptive_token_budget_implemented") is False,
+                    smallest_sufficient_uses_acceptance_criteria,
+                    smallest_sufficient_uses_resolved_evidence,
+                    synthetic_known_requirement_escalation_absent,
+                    l1_module_summary_materialized,
+                    l2_symbol_signature_materialized,
+                    l2_dependency_metadata_materialized,
+                    explicit_disclosure_level_contract_valid,
+                    l4_nonempty_when_selected,
+                    l4_target_resolved_from_project_evidence,
+                    progressive_payload_in_bounds_accounting,
+                    legitimate_escalation_fixture,
+                    l4_complete_file_untruncated,
+                    l4_large_file_full_content,
+                    l4_full_content_source_identity,
+                    l4_oversize_capsule_fail_closed,
                 )
             )
             else "FAIL",
@@ -559,6 +839,38 @@ def main() -> int:
             "mandatory_governance_coverage": mandatory_governance_coverage,
             "mandatory_governance_kind_sequence": mandatory_governance_kind_sequence,
             "llm_calls": 0,
+            "progressive_disclosure_level_mapping": level_mapping,
+            "smallest_sufficient": smallest_sufficient,
+            "no_unnecessary_escalation": no_unnecessary_escalation,
+            "explicit_insufficiency_escalation": explicit_insufficiency_escalation,
+            "bounded_escalation": bounded_escalation,
+            "stop_on_sufficient": stop_on_sufficient,
+            "cross_project_disclosure_fail_closed": cross_project_disclosure_fail_closed,
+            "disclosure_llm_calls": disclosure.get("llm_calls"),
+            "adaptive_token_budget_implemented": disclosure.get(
+                "adaptive_token_budget_implemented"
+            ),
+            "smallest_sufficient_uses_acceptance_criteria": (
+                smallest_sufficient_uses_acceptance_criteria
+            ),
+            "smallest_sufficient_uses_resolved_evidence": (
+                smallest_sufficient_uses_resolved_evidence
+            ),
+            "synthetic_known_requirement_escalation_absent": (
+                synthetic_known_requirement_escalation_absent
+            ),
+            "l1_module_summary_materialized": l1_module_summary_materialized,
+            "l2_symbol_signature_materialized": l2_symbol_signature_materialized,
+            "l2_dependency_metadata_materialized": l2_dependency_metadata_materialized,
+            "explicit_disclosure_level_contract_valid": (explicit_disclosure_level_contract_valid),
+            "l4_nonempty_when_selected": l4_nonempty_when_selected,
+            "l4_target_resolved_from_project_evidence": (l4_target_resolved_from_project_evidence),
+            "progressive_payload_in_bounds_accounting": (progressive_payload_in_bounds_accounting),
+            "legitimate_escalation_fixture": legitimate_escalation_fixture,
+            "l4_complete_file_untruncated": l4_complete_file_untruncated,
+            "l4_large_file_full_content": l4_large_file_full_content,
+            "l4_full_content_source_identity": l4_full_content_source_identity,
+            "l4_oversize_capsule_fail_closed": l4_oversize_capsule_fail_closed,
         }
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         EVIDENCE_OUTPUT.write_text(

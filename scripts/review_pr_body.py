@@ -518,6 +518,207 @@ WO-010-G1 READY FOR SOL AUDIT
 """
 
 
+def _render_wo010_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+    auto_merge_owner_login: str,
+    auto_merge_owner_type: str,
+) -> str:
+    _ = (auto_merge_owner_login, auto_merge_owner_type)
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta PR implementa somente a fundação determinística de Progressive Disclosure
+L0-L5 sobre o Context Manager já aprovado. A seleção começa no menor nível
+suficiente e só escala com insuficiência explícita, sem LLM, Adaptive Token
+Budget, memória ou alteração canônica. O branch foi atualizado por rebase limpo
+sobre o `main` aprovado, sem mudança semântica do produto.
+
+## 2. Base, branch e HEAD
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata atual: `{base_sha}`.
+- HEAD exato desta revisão: `{head_sha}`.
+- Merge não executado; o branch deve permanecer com `behind_by=0`.
+
+## 3. Governança vigente
+
+O ADR-019 de conta única está vigente no `main`: `KayzenRoot` é a única conta
+operacional, Executor e Sol são papéis lógicos distintos, e não há dependência
+operacional de uma segunda conta ou de aprovação nativa independente.
+
+## 4. HEAD candidato final
+
+`{head_sha}`
+
+## 5. Estado da PR
+
+#{pr_number}, aberta como Ready for review, sem merge manual. Auto-merge
+permanece desarmado antes da auditoria de Sol; `Sol Review State: AWAITING_SOL`.
+
+## 6. Arquivos criados/alterados
+
+O conjunto está restrito ao modelo L0-L5, integração no Context Manager,
+testes determinísticos, integração Docker/Git, evidência/schema, documentação
+não canônica, atlas gerado e este template de handoff. Não há alteração em
+`docs/project-brain/`.
+
+## 7. Decisões de implementação
+
+O assembler reutiliza o pipeline existente e aplica disclosure depois do
+rerank. Níveis inválidos são rejeitados. Evidência estruturada entra no
+capsule sem duplicar retrieval, governança ou isolamento.
+
+## 8. Modelo L0-L5
+
+- L0 Project capsule
+- L1 Module summaries
+- L2 Symbol signatures and dependency metadata
+- L3 Relevant implementation excerpts
+- L4 Complete file
+- L5 Repository-wide investigation
+
+## 9. Nível inicial
+
+O start usa título, constraints, corpo da tarefa, Acceptance Criteria,
+evidência já resolvida (arquivos/símbolos/testes/retrieval) e o piso
+opcional `disclosure_level`. Requisitos já conhecidos de L3/L4/L5 começam
+nesse nível; não há escalada sintética L0→L1→L2→L3.
+
+## 10. Escalada e evidência
+
+A escalada só ocorre depois da materialização, quando o nível inicial não
+consegue emitir assinatura ou excerpt exigido. Cada passo registra
+`from_level`, `to_level`, `reason` e `evidence` bounded. Para no primeiro
+nível suficiente e não passa de L5.
+
+## 11. Bounds por nível
+
+Constantes fixas e conservadoras: módulos, símbolos, excerpts, contagem de
+arquivos completos e inventário. L4 emite o arquivo textual inteiro; o bound
+global do capsule continua fail-closed se o arquivo completo não couber.
+`total_emitted_context_characters` inclui o payload de disclosure (L1/L2/L4/L5)
+sem duplicar snippets de retrieval. Truncation de conteúdo L4 por caracteres
+não é usada. Não há budget adaptativo.
+
+## 12. Contrato da API
+
+`POST /api/v1/projects/{{project_id}}/tasks/{{task_id}}/context` aceita
+`disclosure_level` opcional L0-L5 como piso (nunca retorna nível mais raso
+que o pedido válido). O capsule expõe `progressive_disclosure` (com
+`requested_level` / `requested_level_applied`), `module_summaries`,
+`symbol_signatures`, `dependencies`, `complete_files` e `inventory`.
+
+## 13. Migration
+
+Head permanece `0005_semantic_retrieval`. Nenhuma migration foi criada.
+
+## 14. Testes
+
+Cobertura unitária/contrato para mapeamento canônico, rejeição inválida,
+start a partir de Acceptance Criteria e evidência resolvida, materialização
+L1/L2, piso explícito L0/L3/L4/L5, resolução L4 sem path literal, L4 vazio
+fail-closed, bounds com payload de disclosure, escalada legítima, isolamento
+e duas execuções idênticas.
+
+## 15. Contagens
+
+As contagens exatas entram no Review Evidence do head candidato; o baseline
+rejeitado de WO-010 era backend 213 e dashboard 7.
+
+## 16. Lint / typecheck / build
+
+Validate, Ruff, mypy, dashboard lint/typecheck/tests/build/audit e Compose
+devem passar no head candidato.
+
+## 17. Integração real
+
+O cenário real prova start L3 sem escalada sintética, L0 de estado de
+projeto, escalada legítima L2→L3 por assinatura ausente, L4 resolvido por
+símbolo sem path literal, piso explícito L4, isolamento, disclosure
+cross-project 409, missing governance, HEAD race e rebuild após Redis/API
+restart.
+
+## 18. Benchmark / regressão
+
+Retrieval/rerank e fixtures aceitas do Context Manager permanecem no gate
+existente. Progressive disclosure não gasta LLM.
+
+## 19. Segurança / isolamento / race
+
+Cross-project task continua 404; disclosure fora do snapshot falha fechado;
+governança obrigatória e HEAD/source race permanecem fail-closed.
+
+## 20. Restart / recovery
+
+Redis e API restart reconstroem o mesmo capsule e a mesma evidência de
+disclosure para o mesmo estado Git.
+
+## 21. Review Evidence e handoff
+
+Artifact: `{artifact_name}`. A evidência inclui mapping L0-L5, smallest
+sufficient, no unnecessary escalation, explicit insufficiency, bounded
+escalation, stop-on-sufficient, two-run, cross-project disclosure,
+Git/source race, Redis/API restart, `disclosure_llm_calls: 0` e
+`adaptive_token_budget_implemented: false`.
+Também registra base/HEAD exatos, PR Ready, auto-merge desarmado, Ruleset
+21934284 inalterado, zero aprovações independentes, canonical diff nulo,
+Validate/Integration/Review Evidence PASS e `AWAITING_SOL`.
+
+## 22. Erros corrigidos durante a execução
+
+Ajustes de fixtures e bounds foram feitos para preservar projeções L3 sem
+escalar L0 sem necessidade. Nenhuma expansão de produto foi necessária.
+
+## 23. Avisos conhecidos não bloqueantes
+
+Avisos de host Redis/npm/Node já registrados pelo Review Evidence podem
+reaparecer sem alterar o resultado determinístico.
+
+## 24. Riscos pendentes
+
+Esta fundação não substitui Adaptive Token Budget, memória, fingerprints ou
+execução autônoma. A promoção de checkpoint fica para WO-010-P.
+
+## 25. Diff / evidência
+
+A lista completa de arquivos, diff, testes, integração e governança está no
+artefato `{artifact_name}` e no comentário sticky
+`<!-- hive-review-evidence:{work_order} -->`.
+
+## 26. Auto-merge e ação posterior de Sol
+
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. Ruleset unchanged, checks reais, squash-only e zero bypass.
+Auto-merge permanece desarmado e nenhuma aprovação de Sol é inventada. Após
+`APPROVED`, Sol revalida o HEAD/base, Ready, mergeability, checks e threads:
+com todos os checks verdes, executa SQUASH direto no HEAD exato; somente se
+checks obrigatórios legítimos estiverem pendentes e o estado estiver bloqueado,
+pode armar condicionalmente o auto-merge nativo SQUASH. Qualquer divergência
+falha fechado.
+
+## 27. Proposta de checkpoint para WO-010-P
+
+Nenhuma atualização canônica é executada por esta PR. Texto futuro sugerido:
+`PROGRESSIVE DISCLOSURE FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE`.
+
+WO-010 READY FOR SOL GITHUB AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -586,6 +787,21 @@ def render_body(
             ruleset_after=ruleset_after,
             merge_before=merge_before,
             merge_after=merge_after,
+        )
+    if work_order == "WO-010":
+        return _render_wo010_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+            auto_merge_owner_login=auto_merge_owner_login,
+            auto_merge_owner_type=auto_merge_owner_type,
         )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 

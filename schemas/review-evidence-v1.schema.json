@@ -430,7 +430,31 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
-        "llm_calls": { "type": ["integer", "null"], "minimum": 0 }
+        "llm_calls": { "type": ["integer", "null"], "minimum": 0 },
+        "progressive_disclosure_level_mapping": { "type": "boolean" },
+        "smallest_sufficient": { "type": "boolean" },
+        "no_unnecessary_escalation": { "type": "boolean" },
+        "explicit_insufficiency_escalation": { "type": "boolean" },
+        "bounded_escalation": { "type": "boolean" },
+        "stop_on_sufficient": { "type": "boolean" },
+        "cross_project_disclosure_fail_closed": { "type": "boolean" },
+        "disclosure_llm_calls": { "type": ["integer", "null"], "minimum": 0, "maximum": 0 },
+        "adaptive_token_budget_implemented": { "type": ["boolean", "null"] },
+        "smallest_sufficient_uses_acceptance_criteria": { "type": "boolean" },
+        "smallest_sufficient_uses_resolved_evidence": { "type": "boolean" },
+        "synthetic_known_requirement_escalation_absent": { "type": "boolean" },
+        "l1_module_summary_materialized": { "type": "boolean" },
+        "l2_symbol_signature_materialized": { "type": "boolean" },
+        "l2_dependency_metadata_materialized": { "type": "boolean" },
+        "explicit_disclosure_level_contract_valid": { "type": "boolean" },
+        "l4_nonempty_when_selected": { "type": "boolean" },
+        "l4_target_resolved_from_project_evidence": { "type": "boolean" },
+        "progressive_payload_in_bounds_accounting": { "type": "boolean" },
+        "legitimate_escalation_fixture": { "type": "boolean" },
+        "l4_complete_file_untruncated": { "type": "boolean" },
+        "l4_large_file_full_content": { "type": "boolean" },
+        "l4_full_content_source_identity": { "type": "boolean" },
+        "l4_oversize_capsule_fail_closed": { "type": "boolean" }
       }
     },
     "auto_merge": {

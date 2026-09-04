@@ -56,6 +56,11 @@ def build_files() -> dict[Path, str]:
             "| backend/app/context_manager.py | Deterministic bounded project/task "
             "context capsule assembly. |"
         ),
+        (
+            "| backend/app/progressive_disclosure.py | Deterministic L0-L5 start from "
+            "all available evidence, L1/L2 materialization, full L4 files and "
+            "post-materialize escalation. |"
+        ),
         "| backend/app/db.py | PostgreSQL connection and schema revision gate. |",
         "| backend/app/health.py | Real PostgreSQL, Redis, and storage health checks. |",
         (
@@ -119,8 +124,8 @@ def build_files() -> dict[Path, str]:
         ),
         (
             "| scripts/context_manager_integration.py | Real Docker/Git two-project "
-            "Context Manager, mandatory governance coverage, isolation, bounds and "
-            "restart evidence. |"
+            "Context Manager, progressive disclosure, mandatory governance coverage, "
+            "isolation, bounds and restart evidence. |"
         ),
         "| scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |",
         (
@@ -145,6 +150,10 @@ def build_files() -> dict[Path, str]:
             "| backend/tests/test_context_manager.py | Deterministic checkpoint-first "
             "context capsules, mandatory governance coverage, bounds, isolation, "
             "fallback and races. |"
+        ),
+        (
+            "| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, smallest "
+            "sufficient start, L1/L2 payload, L4 resolution, bounds and isolation. |"
         ),
         "| backend/tests/test_health.py | API response shape and degraded status. |",
         (
@@ -220,8 +229,8 @@ def build_files() -> dict[Path, str]:
         ),
         (
             "| scripts/context_manager_integration.py | Real Docker/Git two-project "
-            "Context Manager, mandatory governance coverage, isolation, bounds and "
-            "restart evidence. |"
+            "Context Manager, progressive disclosure, mandatory governance coverage, "
+            "isolation, bounds and restart evidence. |"
         ),
         "| scripts/check_secrets.py | Tracked-file secret scan. |",
         "| scripts/review_evidence.py | Review Evidence schema and exact-head validation. |",

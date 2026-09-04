@@ -7,9 +7,10 @@ already-resolved `project_id` and durable `task_id`:
 POST /api/v1/projects/{project_id}/tasks/{task_id}/context
 ```
 
-The optional request body accepts only a bounded `top_k` presentation limit.
-The service does not accept a free-form retrieval query, persist a capsule,
-write memory, invoke an executor or require an LLM.
+The optional request body accepts a bounded `top_k` presentation limit and an
+optional `disclosure_level` (`L0`-`L5`). Invalid levels are rejected. The
+service does not accept a free-form retrieval query, persist a capsule, write
+memory, invoke an executor or require an LLM.
 
 ## Source ordering and authority
 
@@ -56,6 +57,38 @@ rerank service seam, which owns hybrid/semantic behavior and fallback policy.
 Reranking or semantic retrieval may safely return their existing disabled,
 unconfigured, provider-error or stale states.
 
+## Progressive disclosure
+
+After reranked retrieval, the capsule applies a deterministic L0-L5
+disclosure decision:
+
+- L0 Project capsule
+- L1 Module summaries
+- L2 Symbol signatures and dependency metadata
+- L3 Relevant implementation excerpts
+- L4 Complete file
+- L5 Repository-wide investigation
+
+The starting level uses every explicit signal already available: title,
+constraints, full task text including acceptance criteria, requested
+`disclosure_level` (a floor, never a no-op), and resolved file/symbol/test
+evidence when the task is an implementation task that would otherwise stay
+at L0. Escalation happens only after that initial selection, when the
+current level cannot materialize required signatures or excerpts. Each step
+records `from_level`, `to_level`, a machine-readable reason and bounded
+evidence, then stops at the first sufficient level and never exceeds L5.
+Per-level item/character bounds are fixed and conservative. L1 emits
+deterministic module summaries from the Git snapshot; L2 emits Python
+signatures and import dependency edges. L4 resolves complete files from
+literal paths or project-scoped retrieval/symbol evidence and never claims
+success with an empty payload. A successful L4 payload emits the entire
+selected textual source; `truncated` is reserved for file-count overflow,
+not per-file character clipping. If complete-file content would exceed the
+global serialized capsule bound, assembly fails closed with
+`l4_complete_file_exceeds_capsule_bound` instead of truncating the file.
+`total_emitted_context_characters` includes
+this disclosure payload without double-counting retrieval snippets.
+
 ## Fixed bounds
 
 - Task excerpt: 4,000 characters.
@@ -88,7 +121,7 @@ Database failures return 503 without host paths or credentials.
 ## Non-goals
 
 This foundation does not implement memory lifecycle, adaptive token budgets,
-token accounting, full progressive disclosure, fingerprints, delta context,
-provider prompt caches, semantic response caches, MCP, planner/router,
-executor dispatch, tool execution, telemetry expansion, dashboard UI, local
-rerankers, new embedding models, migrations or canonical Project Brain edits.
+token accounting, fingerprints, delta context, provider prompt caches,
+semantic response caches, MCP, planner/router, executor dispatch, tool
+execution, telemetry expansion, dashboard UI, local rerankers, new embedding
+models, migrations or canonical Project Brain edits.

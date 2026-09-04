@@ -56,6 +56,34 @@ CONTEXT_MANAGER_REQUIRED_FIELDS = (
     "api_restart_rebuild",
     "mandatory_governance_coverage",
 )
+PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS = (
+    "progressive_disclosure_level_mapping",
+    "smallest_sufficient",
+    "no_unnecessary_escalation",
+    "explicit_insufficiency_escalation",
+    "bounded_escalation",
+    "stop_on_sufficient",
+    "cross_project_disclosure_fail_closed",
+)
+PROGRESSIVE_DISCLOSURE_C1_FIELDS = (
+    "smallest_sufficient_uses_acceptance_criteria",
+    "smallest_sufficient_uses_resolved_evidence",
+    "synthetic_known_requirement_escalation_absent",
+    "l1_module_summary_materialized",
+    "l2_symbol_signature_materialized",
+    "l2_dependency_metadata_materialized",
+    "explicit_disclosure_level_contract_valid",
+    "l4_nonempty_when_selected",
+    "l4_target_resolved_from_project_evidence",
+    "progressive_payload_in_bounds_accounting",
+    "legitimate_escalation_fixture",
+)
+PROGRESSIVE_DISCLOSURE_C2_FIELDS = (
+    "l4_complete_file_untruncated",
+    "l4_large_file_full_content",
+    "l4_full_content_source_identity",
+    "l4_oversize_capsule_fail_closed",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -71,6 +99,7 @@ CANONICAL_PATHS = (
 WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
 WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
 WO010_G1_BASE_SHA = "552d809f6e0a6e1f940084c35f3109dc4ec931a1"
+WO010_BASE_SHA = "68bb6679da32355b9e5c4bbb241bec0d1e685e26"
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -224,6 +253,18 @@ def require_wo010_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> 
             "WO-010-G1 changed files outside the approved governance scope: "
             + ", ".join(unauthorized)
         )
+
+
+def require_wo010_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-010":
+        return
+    if base_sha != WO010_BASE_SHA:
+        raise ValueError(f"WO-010 requires exact base {WO010_BASE_SHA}, observed {base_sha}")
+    canonical = canonical_change_evidence(paths)
+    if canonical["project_brain_changed"] is True:
+        raise ValueError("WO-010 implementation evidence cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError("WO-010 implementation evidence cannot change migrations")
 
 
 def repository_name() -> str:
@@ -551,6 +592,14 @@ def context_manager_evidence() -> dict[str, object]:
         return unknown
     if not isinstance(sequence, list) or not all(isinstance(item, str) for item in sequence):
         return unknown
+    progressive_present = any(
+        field in data
+        for field in (
+            *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C2_FIELDS,
+        )
+    )
     status = (
         "PASS"
         if data.get("status") == "PASS"
@@ -559,13 +608,40 @@ def context_manager_evidence() -> dict[str, object]:
         and llm_calls == 0
         else "FAIL"
     )
-    return {
+    evidence = {
         "status": status,
         "evidence_file": evidence_file,
         **values,
         "mandatory_governance_kind_sequence": sequence,
         "llm_calls": llm_calls,
     }
+    if progressive_present:
+        disclosure_llm_calls = data.get("disclosure_llm_calls")
+        adaptive_token_budget_implemented = data.get("adaptive_token_budget_implemented")
+        evidence.update(
+            {
+                **{
+                    field: data.get(field) is True
+                    for field in (
+                        *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
+                        *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+                        *PROGRESSIVE_DISCLOSURE_C2_FIELDS,
+                    )
+                },
+                "disclosure_llm_calls": (
+                    disclosure_llm_calls
+                    if isinstance(disclosure_llm_calls, int)
+                    and not isinstance(disclosure_llm_calls, bool)
+                    else None
+                ),
+                "adaptive_token_budget_implemented": (
+                    adaptive_token_budget_implemented
+                    if isinstance(adaptive_token_budget_implemented, bool)
+                    else None
+                ),
+            }
+        )
+    return evidence
 
 
 def retrieval_integrity(text: str) -> dict[str, bool]:
@@ -796,6 +872,42 @@ def require_wo009_context_manager_evidence(
         )
     if context_manager.get("status") != "PASS":
         raise ValueError("WO-009 Review Evidence requires passing Context Manager evidence")
+
+
+def require_wo010_progressive_disclosure_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != "WO-010":
+        return
+    require_wo009_context_manager_evidence("WO-009", integration)
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    missing = [
+        field
+        for field in (
+            *PROGRESSIVE_DISCLOSURE_REQUIRED_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C1_FIELDS,
+            *PROGRESSIVE_DISCLOSURE_C2_FIELDS,
+        )
+        if context_manager.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-010 Review Evidence missing mandatory Progressive Disclosure evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if context_manager.get("disclosure_llm_calls") != 0:
+        raise ValueError("WO-010 Review Evidence requires zero disclosure LLM calls")
+    if context_manager.get("adaptive_token_budget_implemented") is not False:
+        raise ValueError("WO-010 Review Evidence requires adaptive_token_budget_implemented=false")
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-010 Review Evidence requires passing Context Manager evidence")
+    if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            "WO-010 Review Evidence requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
 
 
 def warnings_evidence(all_text: str) -> dict[str, object]:
@@ -1272,6 +1384,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo008_g1_scope(work_order, base_sha, paths)
     require_wo009_scope(work_order, base_sha, paths)
     require_wo010_g1_scope(work_order, base_sha, paths)
+    require_wo010_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -1279,6 +1392,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     tests = tests_evidence(validation, tests_text)
     integration = integration_evidence(benchmark)
     require_wo009_context_manager_evidence(work_order, integration)
+    require_wo010_progressive_disclosure_evidence(
+        work_order,
+        integration,
+        migration_head(),
+    )
     security = security_evidence(
         all_validation,
         tests_text,
@@ -1448,6 +1566,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             )
         if review_state.get("sol_review_state") != "AWAITING_SOL":
             raise ValueError("WO-010-G1 evidence cannot invent a Sol approval state")
+    if work_order == "WO-010":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo010_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1491,6 +1617,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     require_wo009_context_manager_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
+    )
+    require_wo010_progressive_disclosure_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     warnings = cast(dict[str, Any], cast(dict[str, Any], manifest["evidence"])["warnings"])
     items = warnings["items"]
@@ -1662,6 +1793,36 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{context_manager_evidence.get('deterministic_two_run', False)}`, "
         f"LLM calls `{context_manager_evidence.get('llm_calls', 'UNKNOWN')}`"
     )
+    progressive_disclosure_text = (
+        f"mapping `{context_manager_evidence.get('progressive_disclosure_level_mapping', False)}`, "
+        f"smallest sufficient `{context_manager_evidence.get('smallest_sufficient', False)}`, "
+        "no unnecessary escalation `"
+        f"{context_manager_evidence.get('no_unnecessary_escalation', False)}`, "
+        "explicit insufficiency `"
+        f"{context_manager_evidence.get('explicit_insufficiency_escalation', False)}`, "
+        f"bounded `{context_manager_evidence.get('bounded_escalation', False)}`, "
+        f"stop-on-sufficient `{context_manager_evidence.get('stop_on_sufficient', False)}`, "
+        "cross-project disclosure `"
+        f"{context_manager_evidence.get('cross_project_disclosure_fail_closed', False)}`, "
+        "disclosure LLM calls `"
+        f"{context_manager_evidence.get('disclosure_llm_calls', 'UNKNOWN')}`, "
+        "adaptive token budget `"
+        f"{context_manager_evidence.get('adaptive_token_budget_implemented', 'UNKNOWN')}`, "
+        "C1 acceptance `"
+        f"{context_manager_evidence.get('smallest_sufficient_uses_acceptance_criteria', False)}`, "
+        "C1 L1/L2 `"
+        f"{context_manager_evidence.get('l1_module_summary_materialized', False)}/"
+        f"{context_manager_evidence.get('l2_symbol_signature_materialized', False)}`, "
+        "C1 L4 nonempty `"
+        f"{context_manager_evidence.get('l4_nonempty_when_selected', False)}`, "
+        "C1 explicit level `"
+        f"{context_manager_evidence.get('explicit_disclosure_level_contract_valid', False)}`, "
+        "C2 L4 full file `"
+        f"{context_manager_evidence.get('l4_complete_file_untruncated', False)}/"
+        f"{context_manager_evidence.get('l4_large_file_full_content', False)}`, "
+        "C2 L4 oversize fail-closed `"
+        f"{context_manager_evidence.get('l4_oversize_capsule_fail_closed', False)}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -1709,6 +1870,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Auto-merge armed: {auto_merge_text}
 - Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
 - Context Manager evidence: {context_manager_text}
+- Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
 - Workflow run URL: {workflow_url}
