@@ -101,7 +101,6 @@ contratos ou comportamento do produto.
 - Checkpoint Delta: `.engineering/reports/CHECKPOINT-DELTA-ENG-PROTOCOL-ADOPTION-001.md`
 - Auto-merge: `DISABLED`
 - Merge/release: `NOT AUTHORIZED`
-- Commit/head SHA: `d8c93435115b957dca7df672b1fc5f2d5ab48aca` before final evidence update;
-  final head must be revalidated after the evidence commit.
+- Commit/head SHA: `37b86dc5d642602eec005bde8974760595d50658` before final validation.
 - PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Review final: português brasileiro; aguardar auditoria independente.

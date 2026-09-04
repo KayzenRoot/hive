@@ -5,8 +5,7 @@
 - ID: `ENG-PROTOCOL-ADOPTION-001`
 - Repository: `KayzenRoot/hive`
 - Base branch/SHA: `main/209a485227103872903a560872133aae5f203717`
-- Head branch/SHA: `chore/eng-protocol-adoption-001/d8c93435115b957dca7df672b1fc5f2d5ab48aca`;
-  final head será o commit desta atualização de evidência.
+- Head branch/SHA: `chore/eng-protocol-adoption-001/37b86dc5d642602eec005bde8974760595d50658`.
 - PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Work Order: `.engineering/work-orders/ENG-PROTOCOL-ADOPTION-001.md`
 - Context Lock: `.engineering/context-locks/ENG-PROTOCOL-ADOPTION-001.md`
