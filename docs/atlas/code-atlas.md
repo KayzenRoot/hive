@@ -8,6 +8,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/adaptive_token_budget.py: Python source or test module.
 - backend/app/cas.py: Python source or test module.
 - backend/app/config.py: Python source or test module.
+- backend/app/context_fingerprints.py: Python source or test module.
 - backend/app/context_manager.py: Python source or test module.
 - backend/app/db.py: Python source or test module.
 - backend/app/health.py: Python source or test module.
@@ -25,6 +26,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_adaptive_token_budget.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
+- backend/tests/test_context_fingerprints.py: Python source or test module.
 - backend/tests/test_context_manager.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_progressive_disclosure.py: Python source or test module.

@@ -13,6 +13,11 @@ from fastapi.testclient import TestClient
 from app import context_manager, main
 from app.adaptive_token_budget import estimate_context_payload_tokens
 from app.config import Settings
+from app.context_fingerprints import (
+    ContextFingerprintCacheEnvelope,
+    context_input_fingerprint,
+    context_output_fingerprint,
+)
 from app.registry import ProjectResponse, ProjectState
 from app.repository_indexer import _FileStamp, _RepositorySnapshot, _TrackedFile
 from app.reranking import RerankCandidate, RerankRequest, RerankResponse, RerankState
@@ -933,3 +938,95 @@ def test_context_api_maps_missing_task_and_database_errors(
     unavailable = client.post(f"/api/v1/projects/{PROJECT_ID}/tasks/{TASK_ID}/context")
     assert unavailable.status_code == 503
     assert unavailable.json() == {"detail": "context manager database unavailable"}
+
+
+def test_context_fingerprint_evidence_is_attached_and_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+
+    first = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    second = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+    assert first.context_fingerprint is not None
+    assert first.context_fingerprint == second.context_fingerprint
+    assert first.context_fingerprint.input_fingerprint
+    assert first.context_fingerprint.output_fingerprint == (
+        context_output_fingerprint(context_manager._context_payload_data(first))
+    )
+    assert first.context_fingerprint.provider_independent is True
+    assert first.context_fingerprint.llm_calls == 0
+    assert first.context_fingerprint.provider_calls == 0
+
+
+def test_valid_context_fingerprint_cache_hit_avoids_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    cache: ContextFingerprintCacheEnvelope | None = None
+    patch_build_dependencies(monkeypatch)
+    monkeypatch.setattr(
+        context_manager,
+        "_semantic_identity_for_cache",
+        lambda *_args: ({"state": "CURRENT", "profile_identity": "profile"}, True),
+    )
+
+    def record_retrieval(*_args: object, **_kwargs: object) -> RerankResponse:
+        nonlocal calls
+        calls += 1
+        return rerank_response([candidate(0)])
+
+    def read_cache(_settings: Settings, _key: str) -> ContextFingerprintCacheEnvelope | None:
+        return cache
+
+    def write_cache(
+        _settings: Settings,
+        _key: str,
+        envelope: ContextFingerprintCacheEnvelope,
+    ) -> bool:
+        nonlocal cache
+        cache = envelope
+        return True
+
+    monkeypatch.setattr(context_manager, "rerank_search", record_retrieval)
+    monkeypatch.setattr(context_manager, "_read_context_cache", read_cache)
+    monkeypatch.setattr(context_manager, "_write_context_cache", write_cache)
+
+    first = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    second = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+    assert cache is not None
+    assert first.model_dump() == second.model_dump()
+    assert calls == 1
+
+
+def test_material_context_input_identity_changes_for_task_request_profile_and_policy() -> None:
+    state = source_state()
+    task = task_response()
+    base = context_manager._context_input_payload(
+        state=state,
+        task=task,
+        extracted_text_sha256="a" * 64,
+        extraction_method="hive-text-normalizer",
+        extraction_version="1",
+        query="Build context capsule",
+        normalized_query="build context capsule",
+        constraints=["- bounded"],
+        acceptance_criteria=["- tested"],
+        top_k=5,
+        disclosure_level=None,
+        semantic_identity={"state": "CURRENT", "profile_identity": "embedding-a"},
+        rerank_identity={"enabled": False, "profile_identity": None},
+    )
+
+    def fingerprint(mutated: dict[str, object]) -> str:
+        return context_input_fingerprint(mutated)
+
+    assert fingerprint(base) != fingerprint({**base, "task": {"task_id": "different"}})
+    assert fingerprint(base) != fingerprint({**base, "request": {"top_k": 10}})
+    assert fingerprint(base) != fingerprint(
+        {**base, "retrieval": {"semantic": {"profile_identity": "embedding-b"}}}
+    )
+    assert fingerprint(base) != fingerprint(
+        {**base, "pipeline": {"fingerprint_policy_version": "context-fingerprint-v2"}}
+    )

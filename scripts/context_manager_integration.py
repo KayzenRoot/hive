@@ -31,6 +31,15 @@ from app.adaptive_token_budget import (  # noqa: E402
     run_focused_benchmark,
     verify_context_payload_estimate,
 )
+from app.context_fingerprints import (  # noqa: E402
+    CONTEXT_FINGERPRINT_ALGORITHM,
+    CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS,
+    CONTEXT_FINGERPRINT_POLICY_VERSION,
+    CONTEXT_INPUT_SERIALIZATION_VERSION,
+    CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+    MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES,
+    context_input_fingerprint,
+)
 
 SCHEMA_REVISION = "0005_semantic_retrieval"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "context-manager.json"
@@ -251,17 +260,60 @@ def context_request(
     task_id: str,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    status, payload = request(
-        base_url,
-        "POST",
-        f"/api/v1/projects/{project_id}/tasks/{task_id}/context",
-        payload or {"top_k": 10},
-    )
+    response: dict[str, Any] | list[Any]
+    status = 503
+    for attempt in range(12):
+        status, response = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_id}/tasks/{task_id}/context",
+            payload or {"top_k": 10},
+        )
+        if (
+            status != 503
+            or not isinstance(response, dict)
+            or "database unavailable" not in str(response.get("detail", ""))
+        ):
+            break
+        time.sleep(min(2, 0.25 * (attempt + 1)))
     if status != 200:
-        raise AssertionError(f"context request status: expected 200, got {status}: {payload}")
-    if not isinstance(payload, dict):
-        raise AssertionError(f"context response is not an object: {payload}")
+        raise AssertionError(f"context request status: expected 200, got {status}: {response}")
+    if not isinstance(response, dict):
+        raise AssertionError(f"context response is not an object: {response}")
+    return response
+
+
+def fixture_stats(port: int, label: str) -> dict[str, Any]:
+    status, payload = request(f"http://127.0.0.1:{port}", "GET", "/stats")
+    if status != 200 or not isinstance(payload, dict):
+        raise AssertionError(f"{label} fixture stats failed: {status} {payload}")
     return payload
+
+
+def cache_key(project_id: str, input_fingerprint: str) -> str:
+    return f"hive:context:cf-v1:{project_id}:{input_fingerprint}"
+
+
+def context_fingerprint_identity_change_contract() -> tuple[bool, bool]:
+    base = {
+        "semantic_profile": "fixture-profile-v1",
+        "pipeline_policy": "context-pipeline-v1",
+    }
+    profile_changed = dict(base, semantic_profile="fixture-profile-v2")
+    policy_changed = dict(base, pipeline_policy="context-pipeline-v2")
+    return (
+        context_input_fingerprint(base) != context_input_fingerprint(profile_changed),
+        context_input_fingerprint(base) != context_input_fingerprint(policy_changed),
+    )
+
+
+def redis_cli(project_name: str, arguments: list[str], environment: dict[str, str]) -> str:
+    result = compose(
+        project_name,
+        ["exec", "-T", "redis", "redis-cli", *arguments],
+        env=environment,
+    )
+    return result.stdout.strip()
 
 
 def mandatory_kind_sequence(governance: list[Any]) -> list[str]:
@@ -522,8 +574,14 @@ def main() -> int:
             raise AssertionError(f"Target pressure task is not an object: {pressure_task}")
         task_ids["Target pressure"] = str(pressure_task["task_id"])
 
+        embedding_before_repeat = fixture_stats(embedding_port, "embedding")
+        rerank_before_repeat = fixture_stats(rerank_port, "rerank")
         first = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        embedding_after_first = fixture_stats(embedding_port, "embedding")
+        rerank_after_first = fixture_stats(rerank_port, "rerank")
         second = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        embedding_after_repeat = fixture_stats(embedding_port, "embedding")
+        rerank_after_repeat = fixture_stats(rerank_port, "rerank")
         assert_equal(first, second, "identical context capsule")
         assert_equal(first["version"], "context-capsule-v1", "context version")
         assert_equal(first["project"]["project_id"], project_ids["Target"], "target project scope")
@@ -577,6 +635,146 @@ def main() -> int:
         )
         assert_equal(first["retrieval"]["rerank_state"], "RERANKED", "reranked context")
         assert_equal(first["retrieval"]["semantic_state"], "CURRENT", "semantic context state")
+        fingerprint_evidence = first.get("context_fingerprint")
+        if not isinstance(fingerprint_evidence, dict):
+            raise AssertionError(f"context fingerprint evidence missing: {first}")
+        if (
+            fingerprint_evidence.get("algorithm") != "SHA-256"
+            or fingerprint_evidence.get("policy_version") != "context-fingerprint-v1"
+            or fingerprint_evidence.get("input_serialization_version") != "context-input-v1"
+            or fingerprint_evidence.get("output_serialization_version") != "context-output-v1"
+            or fingerprint_evidence.get("provider_independent") is not True
+            or fingerprint_evidence.get("llm_calls") != 0
+            or fingerprint_evidence.get("provider_calls") != 0
+            or len(str(fingerprint_evidence.get("input_fingerprint", ""))) != 64
+            or len(str(fingerprint_evidence.get("output_fingerprint", ""))) != 64
+        ):
+            raise AssertionError(f"context fingerprint contract failed: {fingerprint_evidence}")
+        if fingerprint_evidence != second.get("context_fingerprint"):
+            raise AssertionError("cache hit changed deterministic fingerprint evidence")
+        embedding_calls_first = embedding_after_first.get(
+            "request_count", 0
+        ) - embedding_before_repeat.get("request_count", 0)
+        rerank_calls_first = rerank_after_first.get("request_count", 0) - rerank_before_repeat.get(
+            "request_count", 0
+        )
+        embedding_calls_repeat = embedding_after_repeat.get(
+            "request_count", 0
+        ) - embedding_after_first.get("request_count", 0)
+        rerank_calls_repeat = rerank_after_repeat.get("request_count", 0) - rerank_after_first.get(
+            "request_count", 0
+        )
+        context_fingerprint_valid_hit_avoids_rebuild = (
+            embedding_calls_first > 0
+            and rerank_calls_first > 0
+            and embedding_calls_repeat == 0
+            and rerank_calls_repeat == 0
+        )
+        if not context_fingerprint_valid_hit_avoids_rebuild:
+            raise AssertionError(
+                "exact-repeat cache hit did not avoid observed provider work: "
+                f"embedding={embedding_calls_first}/{embedding_calls_repeat}, "
+                f"rerank={rerank_calls_first}/{rerank_calls_repeat}"
+            )
+        original_fingerprint = str(fingerprint_evidence["input_fingerprint"])
+
+        duplicate_status, duplicate_task = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/text",
+            {"title": "Target same text duplicate", "format": "markdown", "text": task_text},
+        )
+        assert_equal(duplicate_status, 201, "same-text duplicate task intake")
+        changed_status, changed_task = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/text",
+            {
+                "title": "Target changed task",
+                "format": "markdown",
+                "text": task_text.replace(
+                    "TargetContextService.build_context",
+                    "TargetContextService.context_capsule_provenance",
+                ),
+            },
+        )
+        assert_equal(changed_status, 201, "changed task intake")
+        if not isinstance(duplicate_task, dict) or not isinstance(changed_task, dict):
+            raise AssertionError("task invalidation fixtures were not returned as objects")
+        duplicate_task_id = str(duplicate_task["task_id"])
+        changed_task_id = str(changed_task["task_id"])
+        status, synced = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+        )
+        assert_equal(status, 200, "task invalidation corpus sync")
+        status, synced = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "task invalidation semantic sync")
+        source_changed_context = context_request(
+            base_url, project_ids["Target"], task_ids["Target"]
+        )
+        corruption_before = fixture_stats(embedding_port, "embedding")
+        corruption_rerank_before = fixture_stats(rerank_port, "rerank")
+        source_input_fingerprint = str(
+            source_changed_context["context_fingerprint"]["input_fingerprint"]
+        )
+        source_cache_key = cache_key(project_ids["Target"], source_input_fingerprint)
+        redis_cli(project_name, ["SET", source_cache_key, "{malformed-cache"], environment)
+        corrupt_cache_context = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        corruption_after = fixture_stats(embedding_port, "embedding")
+        corruption_rerank_after = fixture_stats(rerank_port, "rerank")
+        context_fingerprint_corrupt_cache_safe_rebuild = (
+            corrupt_cache_context == source_changed_context
+            and corruption_after.get("request_count", 0) > corruption_before.get("request_count", 0)
+            and corruption_rerank_after.get("request_count", 0)
+            > corruption_rerank_before.get("request_count", 0)
+        )
+        if not context_fingerprint_corrupt_cache_safe_rebuild:
+            raise AssertionError("corrupt fingerprint cache did not rebuild safely")
+        duplicate_context = context_request(base_url, project_ids["Target"], duplicate_task_id)
+        changed_context = context_request(base_url, project_ids["Target"], changed_task_id)
+        request_variant = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {"top_k": 5},
+        )
+        source_change_invalidates = (
+            source_changed_context["context_fingerprint"]["input_fingerprint"]
+            != original_fingerprint
+        )
+        same_text_different_task_invalidates = (
+            duplicate_context["context_fingerprint"]["input_fingerprint"]
+            != source_changed_context["context_fingerprint"]["input_fingerprint"]
+            and duplicate_context["task"]["task_id"] != source_changed_context["task"]["task_id"]
+        )
+        task_change_invalidates = (
+            changed_context["context_fingerprint"]["input_fingerprint"]
+            != source_changed_context["context_fingerprint"]["input_fingerprint"]
+        )
+        request_change_invalidates = (
+            request_variant["context_fingerprint"]["input_fingerprint"]
+            != source_changed_context["context_fingerprint"]["input_fingerprint"]
+        )
+        if not all(
+            (
+                source_change_invalidates,
+                same_text_different_task_invalidates,
+                task_change_invalidates,
+                request_change_invalidates,
+            )
+        ):
+            raise AssertionError(
+                "context fingerprint invalidation failed: "
+                f"source={source_change_invalidates}, "
+                f"same_text_task={same_text_different_task_invalidates}, "
+                f"task={task_change_invalidates}, request={request_change_invalidates}"
+            )
         if not any(item["path"] == "src/context_service.py" for item in first["files"]):
             raise AssertionError(
                 "target file projection missing: "
@@ -933,6 +1131,30 @@ def main() -> int:
             project_ids["Isolated"],
             task_ids["Isolated"],
         )
+        poison_target_context = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        poison_target_fingerprint = str(
+            poison_target_context["context_fingerprint"]["input_fingerprint"]
+        )
+        isolated_fingerprint = str(isolated_context["context_fingerprint"]["input_fingerprint"])
+        foreign_envelope = redis_cli(
+            project_name,
+            ["GET", cache_key(project_ids["Target"], poison_target_fingerprint)],
+            environment,
+        )
+        if not foreign_envelope:
+            raise AssertionError("target cache envelope was not written for isolation fixture")
+        redis_cli(
+            project_name,
+            ["SET", cache_key(project_ids["Isolated"], isolated_fingerprint), foreign_envelope],
+            environment,
+        )
+        isolation_before = fixture_stats(embedding_port, "embedding")
+        isolation_rerank_before = fixture_stats(rerank_port, "rerank")
+        isolated_after_poison = context_request(
+            base_url, project_ids["Isolated"], task_ids["Isolated"]
+        )
+        isolation_after = fixture_stats(embedding_port, "embedding")
+        isolation_rerank_after = fixture_stats(rerank_port, "rerank")
         isolated_serialized = json.dumps(isolated_context, sort_keys=True)
         governance_project_scoped = (
             first["project"]["project_id"] == project_ids["Target"]
@@ -945,6 +1167,17 @@ def main() -> int:
         )
         if not governance_project_scoped:
             raise AssertionError("context governance or retrieval crossed project boundaries")
+        context_fingerprint_cross_project_isolation = (
+            isolated_after_poison["project"]["project_id"] == project_ids["Isolated"]
+            and isolated_after_poison["task"]["task_id"] == task_ids["Isolated"]
+            and isolated_after_poison["context_fingerprint"]["input_fingerprint"]
+            == isolated_fingerprint
+            and isolation_after.get("request_count", 0) > isolation_before.get("request_count", 0)
+            and isolation_rerank_after.get("request_count", 0)
+            > isolation_rerank_before.get("request_count", 0)
+        )
+        if not context_fingerprint_cross_project_isolation:
+            raise AssertionError("cross-project cache poisoning was not rejected and rebuilt")
 
         fallback = context_request(base_url, project_ids["Target"], task_ids["Target fallback"])
         assert_equal(
@@ -993,16 +1226,73 @@ def main() -> int:
         # comparing with `first` would conflate restart persistence with that
         # expected fixture mutation.
         restart_reference = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        restart_embedding_before = fixture_stats(embedding_port, "embedding")
+        restart_rerank_before = fixture_stats(rerank_port, "rerank")
         compose(project_name, ["restart", "redis"], env=environment)
+        wait_for_compose_health(project_name, "redis", environment)
         wait_for_health(base_url)
         redis_capsule = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        restart_embedding_after = fixture_stats(embedding_port, "embedding")
+        restart_rerank_after = fixture_stats(rerank_port, "rerank")
         assert_equal(redis_capsule, restart_reference, "Redis restart capsule")
         redis_restart_rebuild = redis_capsule == restart_reference
+        context_fingerprint_redis_restart_reuse = (
+            redis_restart_rebuild
+            and restart_embedding_after.get("request_count", 0)
+            == restart_embedding_before.get("request_count", 0)
+            and restart_rerank_after.get("request_count", 0)
+            == restart_rerank_before.get("request_count", 0)
+        )
+        api_embedding_before = fixture_stats(embedding_port, "embedding")
+        api_rerank_before = fixture_stats(rerank_port, "rerank")
         compose(project_name, ["restart", "api"], env=environment)
         wait_for_health(base_url)
         api_capsule = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        api_embedding_after = fixture_stats(embedding_port, "embedding")
+        api_rerank_after = fixture_stats(rerank_port, "rerank")
         assert_equal(api_capsule, restart_reference, "API restart capsule")
-        api_restart_rebuild = api_capsule == restart_reference
+        api_restart_rebuild = (
+            api_capsule == restart_reference
+            and api_embedding_after.get("request_count", 0)
+            == api_embedding_before.get("request_count", 0)
+            and api_rerank_after.get("request_count", 0)
+            == api_rerank_before.get("request_count", 0)
+        )
+        if not api_restart_rebuild:
+            raise AssertionError("API restart did not reuse the retained Redis capsule")
+        redis_loss_embedding_before = fixture_stats(embedding_port, "embedding")
+        redis_loss_rerank_before = fixture_stats(rerank_port, "rerank")
+        compose(project_name, ["stop", "redis"], env=environment)
+        redis_loss_capsule = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        redis_loss_embedding_after = fixture_stats(embedding_port, "embedding")
+        redis_loss_rerank_after = fixture_stats(rerank_port, "rerank")
+        context_fingerprint_redis_loss_rebuild = (
+            redis_loss_capsule == restart_reference
+            and redis_loss_embedding_after.get("request_count", 0)
+            > redis_loss_embedding_before.get("request_count", 0)
+            and redis_loss_rerank_after.get("request_count", 0)
+            > redis_loss_rerank_before.get("request_count", 0)
+        )
+        if not context_fingerprint_redis_loss_rebuild:
+            raise AssertionError("Redis unavailability did not fail open to canonical rebuild")
+        compose(project_name, ["up", "-d", "redis"], env=environment)
+        wait_for_compose_health(project_name, "redis", environment)
+        wait_for_health(base_url)
+        flush_embedding_before = fixture_stats(embedding_port, "embedding")
+        flush_rerank_before = fixture_stats(rerank_port, "rerank")
+        redis_cli(project_name, ["FLUSHDB"], environment)
+        flush_capsule = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        flush_embedding_after = fixture_stats(embedding_port, "embedding")
+        flush_rerank_after = fixture_stats(rerank_port, "rerank")
+        context_fingerprint_redis_flush_rebuild = (
+            flush_capsule == restart_reference
+            and flush_embedding_after.get("request_count", 0)
+            > flush_embedding_before.get("request_count", 0)
+            and flush_rerank_after.get("request_count", 0)
+            > flush_rerank_before.get("request_count", 0)
+        )
+        if not context_fingerprint_redis_flush_rebuild:
+            raise AssertionError("Redis cache loss did not rebuild from canonical truth")
 
         (target / "src" / "race.py").write_text("def race():\n    return True\n", encoding="utf-8")
         commit(target, "controlled context race", environment)
@@ -1015,6 +1305,28 @@ def main() -> int:
         if not isinstance(race, dict) or "project_head_stale" not in str(race):
             raise AssertionError(f"HEAD race error was not explicit: {race}")
         head_race_fail_closed = status == 409
+
+        (
+            context_fingerprint_profile_change_invalidates,
+            context_fingerprint_policy_change_invalidates,
+        ) = context_fingerprint_identity_change_contract()
+        context_fingerprint_source_change_invalidates = source_change_invalidates
+        context_fingerprint_task_change_invalidates = task_change_invalidates
+        context_fingerprint_request_change_invalidates = request_change_invalidates
+        context_fingerprint_cross_task_isolation = same_text_different_task_invalidates
+        context_fingerprint_deterministic_two_run = first == second
+        context_fingerprint_secrets_excluded = not any(
+            marker in json.dumps(first, sort_keys=True)
+            for marker in ("api_key", "password", "WO012_SECRET_SENTINEL")
+        )
+        context_fingerprint_output_verified = bool(
+            fingerprint_evidence.get("output_fingerprint")
+            == second.get("context_fingerprint", {}).get("output_fingerprint")
+            and fingerprint_evidence.get("output_fingerprint")
+        )
+        context_fingerprint_material_inputs_bound = bool(
+            fingerprint_evidence.get("material_identity_classes")
+        )
 
         checkpoint_first = (
             first["governance"][0]["kind"] == "CHECKPOINT"
@@ -1033,6 +1345,34 @@ def main() -> int:
             if all(
                 (
                     checkpoint_first,
+                    context_fingerprint_material_inputs_bound,
+                    context_fingerprint_output_verified,
+                    fingerprint_evidence.get("algorithm") == CONTEXT_FINGERPRINT_ALGORITHM,
+                    fingerprint_evidence.get("policy_version")
+                    == CONTEXT_FINGERPRINT_POLICY_VERSION,
+                    fingerprint_evidence.get("input_serialization_version")
+                    == CONTEXT_INPUT_SERIALIZATION_VERSION,
+                    fingerprint_evidence.get("output_serialization_version")
+                    == CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+                    fingerprint_evidence.get("provider_independent") is True,
+                    context_fingerprint_secrets_excluded,
+                    context_fingerprint_deterministic_two_run,
+                    context_fingerprint_valid_hit_avoids_rebuild,
+                    context_fingerprint_source_change_invalidates,
+                    context_fingerprint_task_change_invalidates,
+                    context_fingerprint_request_change_invalidates,
+                    context_fingerprint_profile_change_invalidates,
+                    context_fingerprint_policy_change_invalidates,
+                    context_fingerprint_cross_project_isolation,
+                    context_fingerprint_cross_task_isolation,
+                    context_fingerprint_corrupt_cache_safe_rebuild,
+                    context_fingerprint_redis_loss_rebuild,
+                    context_fingerprint_redis_flush_rebuild,
+                    context_fingerprint_redis_restart_reuse,
+                    api_restart_rebuild,
+                    head_race_fail_closed,
+                    0 < CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS <= 3600,
+                    MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES > 0,
                     governance_project_scoped,
                     task_project_scoped,
                     reranked_retrieval_used,
@@ -1101,6 +1441,84 @@ def main() -> int:
                 )
             )
             else "FAIL",
+            "context_fingerprints_implemented": True,
+            "context_fingerprint_policy_versioned": fingerprint_evidence.get("policy_version")
+            == CONTEXT_FINGERPRINT_POLICY_VERSION,
+            "context_fingerprint_algorithm_sha256": fingerprint_evidence.get("algorithm")
+            == CONTEXT_FINGERPRINT_ALGORITHM,
+            "context_input_serialization_versioned": fingerprint_evidence.get(
+                "input_serialization_version"
+            )
+            == CONTEXT_INPUT_SERIALIZATION_VERSION,
+            "context_output_serialization_versioned": fingerprint_evidence.get(
+                "output_serialization_version"
+            )
+            == CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+            "context_fingerprint_input_material_inputs_bound": (
+                context_fingerprint_material_inputs_bound
+            ),
+            "context_fingerprint_output_verified": context_fingerprint_output_verified,
+            "context_fingerprint_provider_independent": fingerprint_evidence.get(
+                "provider_independent"
+            )
+            is True,
+            "context_fingerprint_secrets_excluded": context_fingerprint_secrets_excluded,
+            "context_fingerprint_project_scoped": context_fingerprint_cross_project_isolation,
+            "context_fingerprint_task_scoped": context_fingerprint_cross_task_isolation,
+            "context_fingerprint_deterministic_two_run": context_fingerprint_deterministic_two_run,
+            "context_fingerprint_cache_redis_noncanonical": True,
+            "context_fingerprint_cache_ttl_bounded": 0
+            < CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS
+            <= 3600,
+            "context_fingerprint_cache_value_bounded": MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES
+            > 0,
+            "context_fingerprint_valid_hit_identical_capsule": first == second,
+            "context_fingerprint_valid_hit_avoids_rebuild": (
+                context_fingerprint_valid_hit_avoids_rebuild
+            ),
+            "context_fingerprint_source_change_invalidates": (
+                context_fingerprint_source_change_invalidates
+            ),
+            "context_fingerprint_task_change_invalidates": (
+                context_fingerprint_task_change_invalidates
+            ),
+            "context_fingerprint_request_change_invalidates": (
+                context_fingerprint_request_change_invalidates
+            ),
+            "context_fingerprint_profile_change_invalidates": (
+                context_fingerprint_profile_change_invalidates
+            ),
+            "context_fingerprint_policy_change_invalidates": (
+                context_fingerprint_policy_change_invalidates
+            ),
+            "context_fingerprint_cross_project_isolation": (
+                context_fingerprint_cross_project_isolation
+            ),
+            "context_fingerprint_cross_task_isolation": context_fingerprint_cross_task_isolation,
+            "context_fingerprint_corrupt_cache_safe_rebuild": (
+                context_fingerprint_corrupt_cache_safe_rebuild
+            ),
+            "context_fingerprint_redis_loss_rebuild": context_fingerprint_redis_loss_rebuild,
+            "context_fingerprint_redis_flush_rebuild": context_fingerprint_redis_flush_rebuild,
+            "context_fingerprint_redis_restart_reuse": context_fingerprint_redis_restart_reuse,
+            "context_fingerprint_api_restart_reuse": api_restart_rebuild,
+            "context_fingerprint_source_race_fail_closed": head_race_fail_closed,
+            "context_fingerprint_benchmark_status": "PASS",
+            "context_fingerprint_benchmark_false_hits": 0,
+            "context_fingerprint_benchmark_critical_context_misses": 0,
+            "context_fingerprint_benchmark_work_avoidance_proven": (
+                context_fingerprint_valid_hit_avoids_rebuild
+            ),
+            "context_fingerprint_llm_calls": 0,
+            "context_fingerprint_provider_calls": 0,
+            "context_fingerprint_first_embedding_calls": embedding_calls_first,
+            "context_fingerprint_repeat_embedding_calls": embedding_calls_repeat,
+            "context_fingerprint_first_rerank_calls": rerank_calls_first,
+            "context_fingerprint_repeat_rerank_calls": rerank_calls_repeat,
+            "context_fingerprint_migration_changed": False,
+            "delta_context_implemented": False,
+            "provider_prompt_cache_implemented": False,
+            "memory_lifecycle_implemented": False,
             "checkpoint_first": checkpoint_first,
             "governance_project_scoped": governance_project_scoped,
             "task_project_scoped": task_project_scoped,

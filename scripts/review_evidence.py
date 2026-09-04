@@ -116,6 +116,55 @@ TOKEN_BUDGET_REQUIRED_FIELDS = (
     "benchmark_baseline_is_actual_context",
     "benchmark_strict_reduction_is_real",
 )
+WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS = (
+    "context_fingerprints_implemented",
+    "context_fingerprint_policy_versioned",
+    "context_fingerprint_algorithm_sha256",
+    "context_input_serialization_versioned",
+    "context_output_serialization_versioned",
+    "context_fingerprint_input_material_inputs_bound",
+    "context_fingerprint_output_verified",
+    "context_fingerprint_provider_independent",
+    "context_fingerprint_secrets_excluded",
+    "context_fingerprint_project_scoped",
+    "context_fingerprint_task_scoped",
+    "context_fingerprint_deterministic_two_run",
+    "context_fingerprint_cache_redis_noncanonical",
+    "context_fingerprint_cache_ttl_bounded",
+    "context_fingerprint_cache_value_bounded",
+    "context_fingerprint_valid_hit_identical_capsule",
+    "context_fingerprint_valid_hit_avoids_rebuild",
+    "context_fingerprint_source_change_invalidates",
+    "context_fingerprint_task_change_invalidates",
+    "context_fingerprint_request_change_invalidates",
+    "context_fingerprint_profile_change_invalidates",
+    "context_fingerprint_policy_change_invalidates",
+    "context_fingerprint_cross_project_isolation",
+    "context_fingerprint_cross_task_isolation",
+    "context_fingerprint_corrupt_cache_safe_rebuild",
+    "context_fingerprint_redis_loss_rebuild",
+    "context_fingerprint_redis_flush_rebuild",
+    "context_fingerprint_redis_restart_reuse",
+    "context_fingerprint_api_restart_reuse",
+    "context_fingerprint_source_race_fail_closed",
+    "context_fingerprint_benchmark_work_avoidance_proven",
+)
+WO012_CONTEXT_FINGERPRINT_INTEGER_FIELDS = (
+    "context_fingerprint_benchmark_false_hits",
+    "context_fingerprint_benchmark_critical_context_misses",
+    "context_fingerprint_llm_calls",
+    "context_fingerprint_provider_calls",
+    "context_fingerprint_first_embedding_calls",
+    "context_fingerprint_repeat_embedding_calls",
+    "context_fingerprint_first_rerank_calls",
+    "context_fingerprint_repeat_rerank_calls",
+)
+WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS = (
+    "context_fingerprint_migration_changed",
+    "delta_context_implemented",
+    "provider_prompt_cache_implemented",
+    "memory_lifecycle_implemented",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -133,6 +182,7 @@ WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
 WO010_G1_BASE_SHA = "552d809f6e0a6e1f940084c35f3109dc4ec931a1"
 WO010_BASE_SHA = "68bb6679da32355b9e5c4bbb241bec0d1e685e26"
 WO011_BASE_SHA = "209a485227103872903a560872133aae5f203717"
+WO012_BASE_SHA = "19ecc6b505e884029a42d121309339977d46e626"
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -314,6 +364,23 @@ def require_wo011_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
     ):
         raise ValueError(
             "WO-011 implementation evidence cannot change canonical Project Brain or migrations"
+        )
+
+
+def require_wo012_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-012":
+        return
+    if base_sha != WO012_BASE_SHA:
+        raise ValueError(f"WO-012 requires exact base {WO012_BASE_SHA}, observed {base_sha}")
+    if any(
+        path == "docs/project-brain"
+        or path.startswith("docs/project-brain/")
+        or path == "migrations"
+        or path.startswith("migrations/")
+        for path in paths
+    ):
+        raise ValueError(
+            "WO-012 implementation evidence cannot change canonical Project Brain or migrations"
         )
 
 
@@ -616,6 +683,10 @@ def context_manager_evidence() -> dict[str, object]:
         "status": "UNKNOWN",
         "evidence_file": evidence_file,
         **{field: False for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        **{field: False for field in WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS},
+        **{field: 0 for field in WO012_CONTEXT_FINGERPRINT_INTEGER_FIELDS},
+        **{field: False for field in WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS},
+        "context_fingerprint_benchmark_status": "UNKNOWN",
         "mandatory_governance_kind_sequence": [],
         "llm_calls": None,
     }
@@ -721,6 +792,29 @@ def context_manager_evidence() -> dict[str, object]:
         )
         evidence["token_budget_benchmark_strict_reduction_fixture"] = (
             data.get("token_budget_benchmark_strict_reduction_fixture") is True
+        )
+    fingerprint_present = any(
+        field in data
+        for field in (
+            *WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS,
+            *WO012_CONTEXT_FINGERPRINT_INTEGER_FIELDS,
+            *WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS,
+            "context_fingerprint_benchmark_status",
+        )
+    )
+    if fingerprint_present:
+        evidence.update(
+            {field: data.get(field) is True for field in WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS}
+        )
+        for field in WO012_CONTEXT_FINGERPRINT_INTEGER_FIELDS:
+            value = data.get(field)
+            evidence[field] = value if isinstance(value, int) and not isinstance(value, bool) else 0
+        evidence.update(
+            {field: data.get(field) is True for field in WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS}
+        )
+        benchmark_status = data.get("context_fingerprint_benchmark_status")
+        evidence["context_fingerprint_benchmark_status"] = (
+            benchmark_status if benchmark_status in {"PASS", "FAIL", "UNKNOWN"} else "UNKNOWN"
         )
     return evidence
 
@@ -1036,6 +1130,51 @@ def require_wo011_context_manager_evidence(
     if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
         raise ValueError(
             "WO-011 Review Evidence requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
+
+
+def require_wo012_context_manager_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != "WO-012":
+        return
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    missing = [
+        field
+        for field in WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS
+        if context_manager.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-012 Review Evidence missing mandatory context-fingerprint evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if context_manager.get("context_fingerprint_benchmark_status") != "PASS":
+        raise ValueError("WO-012 requires a passing context-fingerprint benchmark")
+    if context_manager.get("context_fingerprint_benchmark_false_hits") != 0:
+        raise ValueError("WO-012 requires zero context-fingerprint false hits")
+    if context_manager.get("context_fingerprint_benchmark_critical_context_misses") != 0:
+        raise ValueError("WO-012 requires zero critical context misses")
+    if context_manager.get("context_fingerprint_llm_calls") != 0:
+        raise ValueError("WO-012 requires zero context-fingerprint LLM calls")
+    if context_manager.get("context_fingerprint_provider_calls") != 0:
+        raise ValueError("WO-012 requires zero context-fingerprint provider calls")
+    for field in (
+        "delta_context_implemented",
+        "provider_prompt_cache_implemented",
+        "memory_lifecycle_implemented",
+        "context_fingerprint_migration_changed",
+    ):
+        if context_manager.get(field) is not False:
+            raise ValueError(f"WO-012 requires {field}=false")
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-012 Review Evidence requires passing Context Manager evidence")
+    if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            "WO-012 Review Evidence requires migration head 0005_semantic_retrieval, "
             f"observed {migration_head_value}"
         )
 
@@ -1516,6 +1655,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo010_g1_scope(work_order, base_sha, paths)
     require_wo010_scope(work_order, base_sha, paths)
     require_wo011_scope(work_order, base_sha, paths)
+    require_wo012_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -1529,6 +1669,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     require_wo011_context_manager_evidence(
+        work_order,
+        integration,
+        migration_head(),
+    )
+    require_wo012_context_manager_evidence(
         work_order,
         integration,
         migration_head(),
@@ -1718,6 +1863,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
+    if work_order == "WO-012":
+        base = cast(dict[str, Any], manifest["base"])
+        changed_files = cast(dict[str, Any], manifest["changed_files"])
+        require_wo012_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -1768,6 +1921,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo011_context_manager_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo012_context_manager_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -1972,6 +2130,31 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         "C2 L4 oversize fail-closed `"
         f"{context_manager_evidence.get('l4_oversize_capsule_fail_closed', False)}`"
     )
+    fp_status = context_manager_evidence.get("context_fingerprint_benchmark_status", "UNKNOWN")
+    fp_valid_hit = context_manager_evidence.get(
+        "context_fingerprint_valid_hit_identical_capsule", False
+    )
+    fp_work_avoided = context_manager_evidence.get(
+        "context_fingerprint_valid_hit_avoids_rebuild", False
+    )
+    fp_source = context_manager_evidence.get("context_fingerprint_source_change_invalidates", False)
+    fp_task = context_manager_evidence.get("context_fingerprint_task_change_invalidates", False)
+    fp_request = context_manager_evidence.get(
+        "context_fingerprint_request_change_invalidates", False
+    )
+    fp_project = context_manager_evidence.get("context_fingerprint_cross_project_isolation", False)
+    fp_corrupt = context_manager_evidence.get(
+        "context_fingerprint_corrupt_cache_safe_rebuild", False
+    )
+    fp_redis = context_manager_evidence.get("context_fingerprint_redis_loss_rebuild", False)
+    fp_llm = context_manager_evidence.get("context_fingerprint_llm_calls", "UNKNOWN")
+    fp_provider = context_manager_evidence.get("context_fingerprint_provider_calls", "UNKNOWN")
+    fingerprint_text = (
+        f"`{fp_status}`; valid hit `{fp_valid_hit}`, work avoided `{fp_work_avoided}`, "
+        f"source/task/request invalidation `{fp_source}/{fp_task}/{fp_request}`, "
+        f"cross-project `{fp_project}`, corrupt-cache rebuild `{fp_corrupt}`, "
+        f"Redis loss `{fp_redis}`, LLM/provider calls `{fp_llm}/{fp_provider}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -2019,6 +2202,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Auto-merge armed: {auto_merge_text}
 - Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
 - Context Manager evidence: {context_manager_text}
+- Context Fingerprint evidence: {fingerprint_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
