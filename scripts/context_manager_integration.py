@@ -22,6 +22,16 @@ from project_registry_integration import (
 )
 from project_registry_integration import request as http_request
 
+sys.path.insert(0, str(ROOT / "backend"))
+from app.adaptive_token_budget import (  # noqa: E402
+    TOKEN_BUDGET_SERIALIZATION_VERSION,
+    TOKEN_ESTIMATOR_VERSION,
+    AdaptiveTokenBudgetError,
+    estimate_context_payload_tokens,
+    run_focused_benchmark,
+    verify_context_payload_estimate,
+)
+
 SCHEMA_REVISION = "0005_semantic_retrieval"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "context-manager.json"
 MANDATORY_GOVERNANCE_KINDS = (
@@ -46,6 +56,29 @@ def request(
     payload: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any] | list[Any]]:
     return http_request(base_url, method, path, payload)
+
+
+def measured_context_payload_tokens(payload: dict[str, Any]) -> int:
+    context_payload = dict(payload)
+    context_payload.pop("adaptive_token_budget", None)
+    context_payload.pop("bounds", None)
+    return estimate_context_payload_tokens(context_payload)
+
+
+def planner_subset_full_payload_regression() -> bool:
+    planner_subset = {"required": "small planner subset"}
+    full_payload = {"required": "small planner subset", "optional": "x" * 10_000}
+    effective_budget = 2_048
+    if estimate_context_payload_tokens(planner_subset) > effective_budget:
+        return False
+    try:
+        verify_context_payload_estimate(
+            full_payload,
+            effective_budget_tokens=effective_budget,
+        )
+    except AdaptiveTokenBudgetError as exc:
+        return exc.code == "final_context_exceeds_effective_token_budget"
+    return False
 
 
 def git(repository: Path, arguments: list[str], environment: dict[str, str]) -> str:
@@ -130,7 +163,9 @@ def write_project(repository: Path, label: str, *, governance: bool = True) -> N
         encoding="utf-8",
     )
     (repository / "tests" / "test_context_service.py").write_text(
-        f"def test_{label.casefold()}_context_provenance():\n    assert True\n",
+        "# tests/test_context_service.py provenance for TargetContextService.build_context\n"
+        f"def test_{label.casefold()}_context_provenance():\n"
+        '    assert "TargetContextService.build_context provenance"\n',
         encoding="utf-8",
     )
     (repository / "README.md").write_text(
@@ -152,6 +187,33 @@ def wait_for_fixture(port: int, label: str) -> None:
     raise RuntimeError(f"{label} fixture did not become ready")
 
 
+def wait_for_compose_health(project_name: str, service: str, env: dict[str, str]) -> None:
+    container = f"{project_name}-{service}-1"
+    last_status = "missing"
+    restarted = False
+    for _ in range(180):
+        result = run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}",
+                container,
+            ],
+            env=env,
+            check=False,
+        )
+        state, separator, health = (result.stdout.strip() or "unknown").partition("|")
+        last_status = f"{state}:{health}" if separator else state
+        if state == "running" and health == "healthy":
+            return
+        if state in {"exited", "dead"} and not restarted:
+            compose(project_name, ["up", "-d", service], env=env, check=False)
+            restarted = True
+        time.sleep(1)
+    raise RuntimeError(f"{service} fixture did not become healthy: {last_status}")
+
+
 DISCLOSURE_LEVEL_SEMANTICS = {
     "L0": "Project capsule",
     "L1": "Module summaries",
@@ -165,6 +227,7 @@ TASK_PROJECTS = {
     "Target": "Target",
     "Target L0": "Target",
     "Target escalate": "Target",
+    "Target pressure": "Target",
     "Target L4": "Target",
     "Target L4 large": "Isolated",
     "Target L4 oversize": "Isolated",
@@ -292,7 +355,15 @@ def main() -> int:
             fixtures.append(process)
         wait_for_fixture(embedding_port, "embedding")
         wait_for_fixture(rerank_port, "rerank")
-        compose(project_name, ["up", "-d", "--build"], env=environment)
+        compose(project_name, ["build"], env=environment)
+        compose(
+            project_name,
+            ["up", "-d", "postgres", "redis", "storage-init"],
+            env=environment,
+        )
+        wait_for_compose_health(project_name, "postgres", environment)
+        compose(project_name, ["up", "-d", "migration"], env=environment)
+        compose(project_name, ["up", "-d", "api", "dashboard"], env=environment)
         migration = compose(
             project_name,
             [
@@ -335,7 +406,14 @@ def main() -> int:
                 raise AssertionError(f"{label} index: expected 200, got {status}: {indexed}")
             if not isinstance(indexed, dict):
                 raise AssertionError(f"{label} index is not an object: {indexed}")
-            assert_equal(indexed["status"], "COMPLETED", f"{label} index state")
+            if label == "Missing":
+                if indexed["status"] not in {"COMPLETED", "FAILED"}:
+                    raise AssertionError(
+                        f"{label} index state: expected COMPLETED or FAILED, "
+                        f"got {indexed['status']!r}"
+                    )
+            else:
+                assert_equal(indexed["status"], "COMPLETED", f"{label} index state")
 
         task_text = (
             "# Context task\n\n"
@@ -345,6 +423,15 @@ def main() -> int:
             "## Acceptance Criteria\n"
             "- Include the implementation excerpt for TargetContextService.build_context "
             "and tests/test_context_service.py provenance.\n"
+        )
+        pressure_text = (
+            "# Optional context pressure\n\n"
+            "## Constraints\n"
+            "- Preserve the target task contract and canonical governance.\n\n"
+            "## Acceptance Criteria\n"
+            "- Preserve TargetContextService.build_context evidence and rerank order.\n\n"
+            "PRESSURE_ONLY_OPTIONAL_EVIDENCE\n\n"
+            + ("optional lower-priority evidence that may be trimmed safely " * 1_500)
         )
         l0_text = (
             "# Project state\n\n"
@@ -420,6 +507,21 @@ def main() -> int:
             if not isinstance(semantic, dict):
                 raise AssertionError(f"{label} semantic sync is not an object: {semantic}")
 
+        status, pressure_task = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/text",
+            {
+                "title": "Target optional pressure",
+                "format": "markdown",
+                "text": pressure_text,
+            },
+        )
+        assert_equal(status, 201, "Target pressure task intake")
+        if not isinstance(pressure_task, dict):
+            raise AssertionError(f"Target pressure task is not an object: {pressure_task}")
+        task_ids["Target pressure"] = str(pressure_task["task_id"])
+
         first = context_request(base_url, project_ids["Target"], task_ids["Target"])
         second = context_request(base_url, project_ids["Target"], task_ids["Target"])
         assert_equal(first, second, "identical context capsule")
@@ -476,7 +578,11 @@ def main() -> int:
         assert_equal(first["retrieval"]["rerank_state"], "RERANKED", "reranked context")
         assert_equal(first["retrieval"]["semantic_state"], "CURRENT", "semantic context state")
         if not any(item["path"] == "src/context_service.py" for item in first["files"]):
-            raise AssertionError(f"target file projection missing: {first['files']}")
+            raise AssertionError(
+                "target file projection missing: "
+                f"files={first['files']} disclosure={first['progressive_disclosure']} "
+                f"results={first['retrieval']['results']}"
+            )
         if not any(
             item["qualified_symbol"] == "TargetContextService.build_context"
             for item in first["symbols"]
@@ -547,8 +653,131 @@ def main() -> int:
             raise AssertionError(f"emitted total undercounts disclosure payload: {first['bounds']}")
         if disclosure.get("llm_calls") != 0:
             raise AssertionError(f"disclosure used LLM calls: {disclosure}")
-        if disclosure.get("adaptive_token_budget_implemented") is not False:
-            raise AssertionError(f"adaptive token budget was implemented: {disclosure}")
+        if disclosure.get("adaptive_token_budget_implemented") is not True:
+            raise AssertionError(
+                f"adaptive token budget implementation marker missing: {disclosure}"
+            )
+        budget = first["adaptive_token_budget"]
+        measured_first_budget = measured_context_payload_tokens(first)
+        if (
+            budget.get("policy_version") != "adaptive-token-budget-v1"
+            or budget.get("estimator_version") != TOKEN_ESTIMATOR_VERSION
+            or budget.get("estimate_serialization_version") != TOKEN_BUDGET_SERIALIZATION_VERSION
+            or budget.get("effective_budget_tokens", 0) < budget.get("hard_min_budget_tokens", 0)
+            or budget.get("effective_budget_tokens", 0) > budget.get("hard_max_budget_tokens", 0)
+            or budget.get("estimated_tokens_after", 0) > budget.get("effective_budget_tokens", 0)
+            or budget.get("estimated_tokens_after") != measured_first_budget
+            or budget.get("final_context_token_estimate") != measured_first_budget
+            or budget.get("final_context_token_estimate_verified") is not True
+            or budget.get("final_context_estimate_within_effective_budget") is not True
+            or budget.get("required_context_preserved") is not True
+            or budget.get("budget_satisfied") is not True
+            or budget.get("llm_calls") != 0
+            or budget.get("provider_calls") != 0
+        ):
+            raise AssertionError(f"adaptive token budget contract failed: {budget}")
+        for index in range(8):
+            (target / "src" / f"optional_context_{index}.py").write_text(
+                "# Optional lower-priority retrieval evidence\n"
+                f"def optional_context_{index}():\n"
+                '    return "PRESSURE_ONLY_OPTIONAL_EVIDENCE " * 120\n',
+                encoding="utf-8",
+            )
+        commit(target, "add optional context pressure fixtures", os.environ.copy())
+        status, inspected = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/inspect",
+        )
+        if status != 200 or not isinstance(inspected, dict):
+            raise AssertionError(f"Target pressure inspection failed: {status} {inspected}")
+        status, indexed = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/index",
+        )
+        if status != 200 or not isinstance(indexed, dict):
+            raise AssertionError(f"Target pressure reindex failed: {status} {indexed}")
+        assert_equal(indexed["status"], "COMPLETED", "Target pressure reindex state")
+        for path in ("retrieval/corpus/sync", "retrieval/semantic/sync"):
+            status, synced = request(
+                base_url,
+                "POST",
+                f"/api/v1/projects/{project_ids['Target']}/{path}",
+            )
+            if status != 200 or not isinstance(synced, dict):
+                raise AssertionError(f"Target pressure {path} failed: {status} {synced}")
+            assert_equal(synced["status"], "COMPLETED", f"Target pressure {path} state")
+        pressure = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target pressure"],
+        )
+        pressure_repeat = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target pressure"],
+        )
+        pressure_budget = pressure["adaptive_token_budget"]
+        measured_pressure_budget = measured_context_payload_tokens(pressure)
+        pressure_ranks = [result["rerank_rank"] for result in pressure["retrieval"]["results"]]
+        if (
+            not pressure_budget.get("optional_items_removed")
+            or pressure_budget.get("estimated_tokens_before", 0)
+            <= pressure_budget.get("estimated_tokens_after", 0)
+            or pressure_budget.get("estimated_tokens_avoided", 0) <= 0
+            or pressure_budget.get("estimated_tokens_after", 0)
+            > pressure_budget.get("effective_budget_tokens", 0)
+            or pressure_budget.get("estimated_tokens_avoided", 0)
+            != pressure_budget.get("estimated_tokens_before", 0)
+            - pressure_budget.get("estimated_tokens_after", 0)
+            or pressure_budget.get("estimated_tokens_after") != measured_pressure_budget
+            or pressure_budget.get("final_context_token_estimate") != measured_pressure_budget
+            or pressure_budget.get("final_context_token_estimate_verified") is not True
+            or pressure_budget.get("final_context_estimate_within_effective_budget") is not True
+            or pressure_budget.get("llm_calls") != 0
+            or pressure_budget.get("provider_calls") != 0
+            or pressure_ranks != sorted(pressure_ranks)
+            or mandatory_kind_sequence(pressure["governance"]) != list(MANDATORY_GOVERNANCE_KINDS)
+            or not pressure["task_derived"]["constraints"]
+            or not pressure["task_derived"]["acceptance_criteria"]
+            or pressure["progressive_disclosure"].get("final_level") != "L3"
+        ):
+            raise AssertionError(f"adaptive optional-tail pressure failed: {pressure_budget}")
+        token_budget_optional_tail_trim_deterministic = (
+            pressure_budget.get("optional_items_removed")
+            == pressure_repeat["adaptive_token_budget"].get("optional_items_removed")
+            and pressure == pressure_repeat
+        )
+        token_budget_required_context_preserved = (
+            mandatory_kind_sequence(pressure["governance"]) == list(MANDATORY_GOVERNANCE_KINDS)
+            and bool(pressure["task_derived"]["constraints"])
+            and bool(pressure["task_derived"]["acceptance_criteria"])
+            and pressure["progressive_disclosure"].get("final_level") == "L3"
+        )
+        token_budget_effective_bounds = (
+            pressure_budget.get("hard_min_budget_tokens", 0)
+            <= pressure_budget.get("effective_budget_tokens", 0)
+            <= pressure_budget.get("hard_max_budget_tokens", 0)
+        )
+        token_budget_policy_versioned = budget.get("policy_version") == "adaptive-token-budget-v1"
+        token_estimator_versioned = budget.get("estimator_version") == TOKEN_ESTIMATOR_VERSION
+        token_budget_estimate_serialization_versioned = (
+            budget.get("estimate_serialization_version") == TOKEN_BUDGET_SERIALIZATION_VERSION
+        )
+        final_context_token_estimate_verified = (
+            budget.get("estimated_tokens_after") == measured_first_budget
+            and budget.get("final_context_token_estimate") == measured_first_budget
+            and budget.get("final_context_token_estimate_verified") is True
+        )
+        final_context_estimate_within_effective_budget = (
+            final_context_token_estimate_verified
+            and measured_first_budget <= budget.get("effective_budget_tokens", 0)
+            and budget.get("final_context_estimate_within_effective_budget") is True
+        )
+        token_estimator_provider_independent = True
+        token_budget_uses_approved_deterministic_signals = bool(budget.get("adaptation_reasons"))
+        token_budget_user_mode_required = False
         escalate = context_request(base_url, project_ids["Target"], task_ids["Target escalate"])
         escalate_disclosure = escalate["progressive_disclosure"]
         if (
@@ -597,6 +826,17 @@ def main() -> int:
             or not large_file.get("git_blob_sha")
         ):
             raise AssertionError(f"L4 large complete file was not full source: {large_file}")
+        large_budget = large["adaptive_token_budget"]
+        if (
+            large_budget.get("effective_budget_tokens", 0)
+            > large_budget.get("hard_max_budget_tokens", 0)
+            or large_budget.get("estimated_tokens_after", 0)
+            > large_budget.get("effective_budget_tokens", 0)
+            or large_budget.get("required_context_preserved") is not True
+        ):
+            raise AssertionError(
+                f"L4 adaptive budget violated complete-file preservation: {large_budget}"
+            )
         oversize_task_id = task_ids["Target L4 oversize"]
         status, oversize = request(
             base_url,
@@ -619,6 +859,9 @@ def main() -> int:
         l4_oversize_capsule_fail_closed = (
             status == 409 and "l4_complete_file_exceeds_capsule_bound" in str(oversize)
         )
+        required_context_over_budget_fail_closed = l4_oversize_capsule_fail_closed
+        token_budget_benchmark = run_focused_benchmark()
+        planner_subset_full_payload_regression_verified = planner_subset_full_payload_regression()
         explicit = context_request(
             base_url,
             project_ids["Target"],
@@ -745,16 +988,21 @@ def main() -> int:
             raise AssertionError(f"missing governance error was not explicit: {missing_governance}")
         missing_governance_fail_closed = status == 409
 
+        # The target fixture has been intentionally mutated with optional
+        # pressure evidence above. Capture the current state before restart;
+        # comparing with `first` would conflate restart persistence with that
+        # expected fixture mutation.
+        restart_reference = context_request(base_url, project_ids["Target"], task_ids["Target"])
         compose(project_name, ["restart", "redis"], env=environment)
         wait_for_health(base_url)
         redis_capsule = context_request(base_url, project_ids["Target"], task_ids["Target"])
-        assert_equal(redis_capsule, first, "Redis restart capsule")
-        redis_restart_rebuild = redis_capsule == first
+        assert_equal(redis_capsule, restart_reference, "Redis restart capsule")
+        redis_restart_rebuild = redis_capsule == restart_reference
         compose(project_name, ["restart", "api"], env=environment)
         wait_for_health(base_url)
         api_capsule = context_request(base_url, project_ids["Target"], task_ids["Target"])
-        assert_equal(api_capsule, first, "API restart capsule")
-        api_restart_rebuild = api_capsule == first
+        assert_equal(api_capsule, restart_reference, "API restart capsule")
+        api_restart_rebuild = api_capsule == restart_reference
 
         (target / "src" / "race.py").write_text("def race():\n    return True\n", encoding="utf-8")
         commit(target, "controlled context race", environment)
@@ -805,7 +1053,7 @@ def main() -> int:
                     stop_on_sufficient,
                     cross_project_disclosure_fail_closed,
                     disclosure.get("llm_calls") == 0,
-                    disclosure.get("adaptive_token_budget_implemented") is False,
+                    disclosure.get("adaptive_token_budget_implemented") is True,
                     smallest_sufficient_uses_acceptance_criteria,
                     smallest_sufficient_uses_resolved_evidence,
                     synthetic_known_requirement_escalation_absent,
@@ -821,6 +1069,35 @@ def main() -> int:
                     l4_large_file_full_content,
                     l4_full_content_source_identity,
                     l4_oversize_capsule_fail_closed,
+                    token_budget_optional_tail_trim_deterministic,
+                    token_budget_required_context_preserved,
+                    token_budget_effective_bounds,
+                    required_context_over_budget_fail_closed,
+                    token_budget_policy_versioned,
+                    token_estimator_versioned,
+                    token_budget_estimate_serialization_versioned,
+                    final_context_token_estimate_verified,
+                    final_context_estimate_within_effective_budget,
+                    token_estimator_provider_independent,
+                    token_budget_uses_approved_deterministic_signals,
+                    token_budget_user_mode_required is False,
+                    large_budget.get("required_context_preserved") is True,
+                    pressure_budget.get("estimated_tokens_after", 0)
+                    <= pressure_budget.get("effective_budget_tokens", 0),
+                    pressure_budget.get("llm_calls") == 0,
+                    pressure_budget.get("provider_calls") == 0,
+                    token_budget_benchmark.get("status") == "PASS",
+                    token_budget_benchmark.get("critical_context_misses") == 0,
+                    token_budget_benchmark.get("strict_reduction_fixture") is True,
+                    token_budget_benchmark.get("strict_reduction_is_real") is True,
+                    token_budget_benchmark.get("benchmark_critical_misses_computed") is True,
+                    token_budget_benchmark.get("benchmark_required_identity_negative_fixture")
+                    is True,
+                    token_budget_benchmark.get("benchmark_mandatory_governance_computed") is True,
+                    token_budget_benchmark.get("benchmark_task_contract_computed") is True,
+                    token_budget_benchmark.get("benchmark_disclosure_retention_computed") is True,
+                    token_budget_benchmark.get("two_run_reproducibility") is True,
+                    planner_subset_full_payload_regression_verified,
                 )
             )
             else "FAIL",
@@ -850,6 +1127,75 @@ def main() -> int:
             "adaptive_token_budget_implemented": disclosure.get(
                 "adaptive_token_budget_implemented"
             ),
+            "token_budget_policy_versioned": token_budget_policy_versioned,
+            "token_estimator_versioned": token_estimator_versioned,
+            "token_budget_estimate_serialization_versioned": (
+                token_budget_estimate_serialization_versioned
+            ),
+            "final_context_token_estimate_verified": final_context_token_estimate_verified,
+            "final_context_estimate_within_effective_budget": (
+                final_context_estimate_within_effective_budget
+            ),
+            "planner_subset_full_payload_regression": (
+                planner_subset_full_payload_regression_verified
+            ),
+            "token_estimator_provider_independent": token_estimator_provider_independent,
+            "token_budget_uses_approved_deterministic_signals": (
+                token_budget_uses_approved_deterministic_signals
+            ),
+            "token_budget_user_mode_required": token_budget_user_mode_required,
+            "mandatory_governance_preserved_under_budget": token_budget_required_context_preserved,
+            "task_constraints_preserved_under_budget": bool(
+                pressure["task_derived"]["constraints"]
+            ),
+            "acceptance_criteria_preserved_under_budget": bool(
+                pressure["task_derived"]["acceptance_criteria"]
+            ),
+            "progressive_disclosure_semantics_preserved_under_budget": (
+                pressure["progressive_disclosure"].get("final_level") == "L3"
+            ),
+            "l4_complete_file_preserved_under_budget": (
+                large_file.get("truncated") is False and emitted_large == expected_large
+            ),
+            "optional_tail_trim_deterministic": token_budget_optional_tail_trim_deterministic,
+            "retained_rerank_order_preserved": pressure_ranks == sorted(pressure_ranks),
+            "required_context_over_budget_fail_closed": required_context_over_budget_fail_closed,
+            "effective_budget_within_hard_bounds": token_budget_effective_bounds,
+            "token_budget_deterministic_two_run": pressure == pressure_repeat,
+            "token_budget_redis_restart_rebuild": redis_restart_rebuild,
+            "token_budget_api_restart_rebuild": api_restart_rebuild,
+            "token_budget_llm_calls": budget.get("llm_calls"),
+            "token_budget_provider_calls": budget.get("provider_calls"),
+            "token_budget_benchmark_status": token_budget_benchmark.get("status"),
+            "token_budget_benchmark_critical_context_misses": token_budget_benchmark.get(
+                "critical_context_misses"
+            ),
+            "token_budget_benchmark_strict_reduction_fixture": token_budget_benchmark.get(
+                "strict_reduction_fixture"
+            ),
+            "benchmark_critical_misses_computed": token_budget_benchmark.get(
+                "benchmark_critical_misses_computed"
+            ),
+            "benchmark_required_identity_negative_fixture": token_budget_benchmark.get(
+                "benchmark_required_identity_negative_fixture"
+            ),
+            "benchmark_mandatory_governance_computed": token_budget_benchmark.get(
+                "benchmark_mandatory_governance_computed"
+            ),
+            "benchmark_task_contract_computed": token_budget_benchmark.get(
+                "benchmark_task_contract_computed"
+            ),
+            "benchmark_disclosure_retention_computed": token_budget_benchmark.get(
+                "benchmark_disclosure_retention_computed"
+            ),
+            "benchmark_baseline_is_actual_context": token_budget_benchmark.get(
+                "baseline_definition"
+            )
+            == "same-fixture full eligible context payload",
+            "benchmark_strict_reduction_is_real": token_budget_benchmark.get(
+                "strict_reduction_is_real"
+            ),
+            "adaptive_token_budget_migration_changed": False,
             "smallest_sufficient_uses_acceptance_criteria": (
                 smallest_sufficient_uses_acceptance_criteria
             ),

@@ -5,6 +5,7 @@ Generated deterministically by scripts/generate_maps.py.
 | Test or check | Coverage |
 | --- | --- |
 | backend/tests/test_config.py | Defaults and HIVE_DATA_ROOT/intake limit parsing. |
+| backend/tests/test_adaptive_token_budget.py | UTF-8 estimator, deterministic budget boundaries, tail trimming, fail-closed behavior and benchmark. |
 | backend/tests/test_context_manager.py | Deterministic checkpoint-first context capsules, mandatory governance coverage, bounds, isolation, fallback and races. |
 | backend/tests/test_progressive_disclosure.py | L0-L5 mapping, smallest sufficient start, L1/L2 payload, L4 resolution, bounds and isolation. |
 | backend/tests/test_health.py | API response shape and degraded status. |
@@ -36,4 +37,4 @@ Generated deterministically by scripts/generate_maps.py.
 | scripts/review_evidence.py | Review Evidence schema and exact-head validation. |
 | scripts/review_pr_body.py | Work-order marker, twenty-section review and Sol-state template. |
 
-Indexed source files: 64
+Indexed source files: 67

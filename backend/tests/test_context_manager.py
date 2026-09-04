@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import context_manager, main
+from app.adaptive_token_budget import estimate_context_payload_tokens
 from app.config import Settings
 from app.registry import ProjectResponse, ProjectState
 from app.repository_indexer import _FileStamp, _RepositorySnapshot, _TrackedFile
@@ -326,6 +327,79 @@ def test_context_capsule_is_checkpoint_first_bounded_and_provenance_bearing(
     assert "api_key" not in serialized
     assert first.bounds.serialized_capsule_characters == len(serialized)
     assert first.model_dump() == second.model_dump()
+
+
+def test_final_context_budget_uses_exact_materialized_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    measured = estimate_context_payload_tokens(context_manager._context_payload_data(capsule))
+
+    assert capsule.adaptive_token_budget.estimate_serialization_version == ("context-payload-v1")
+    assert capsule.adaptive_token_budget.estimated_tokens_after == measured
+    assert capsule.adaptive_token_budget.final_context_token_estimate == measured
+    assert capsule.adaptive_token_budget.final_context_token_estimate_verified is True
+    assert capsule.adaptive_token_budget.final_context_estimate_within_effective_budget is True
+    assert measured <= capsule.adaptive_token_budget.effective_budget_tokens
+
+
+def test_planner_subset_fit_but_final_payload_over_budget_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    assert (
+        capsule.adaptive_token_budget.estimated_tokens_after
+        <= capsule.adaptive_token_budget.effective_budget_tokens
+    )
+    oversized = capsule.model_copy(
+        update={
+            "task": capsule.task.model_copy(update={"excerpt": "x" * 20_000}),
+        }
+    )
+
+    with pytest.raises(
+        context_manager.ContextBoundsError,
+        match="final_context_exceeds_effective_token_budget",
+    ):
+        context_manager._verify_final_context_payload(
+            oversized,
+            effective_budget_tokens=capsule.adaptive_token_budget.effective_budget_tokens,
+        )
+
+
+def test_long_optional_context_is_reduced_to_verified_final_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    long_results = [
+        candidate(index, path=f"src/file_{index}.py", snippet="x" * 600)
+        for index in range(context_manager.MAX_RETRIEVAL_RESULTS)
+    ]
+    patch_build_dependencies(
+        monkeypatch,
+        state=source_state(scope_pressure_documents()),
+        extracted=task_text_response(
+            "# Optional context pressure\n\n"
+            "## Constraints\n- Preserve the target task contract.\n\n"
+            "## Acceptance Criteria\n- Preserve the implementation evidence.\n\n"
+            + ("optional lower-priority evidence " * 1_500)
+        ),
+        response=rerank_response(long_results),
+    )
+
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    measured = estimate_context_payload_tokens(context_manager._context_payload_data(capsule))
+    budget = capsule.adaptive_token_budget
+
+    assert budget.optional_items_removed
+    assert budget.estimated_tokens_after == measured
+    assert budget.estimated_tokens_avoided == (
+        budget.estimated_tokens_before - budget.estimated_tokens_after
+    )
+    assert measured <= budget.effective_budget_tokens
 
 
 def test_context_uses_existing_rerank_fallback_states(
@@ -766,8 +840,8 @@ def test_retrieval_and_task_bounds_are_truthful(monkeypatch: pytest.MonkeyPatch)
 
     capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
 
-    assert len(capsule.retrieval.results) == context_manager.MAX_RETRIEVAL_RESULTS
-    assert capsule.bounds.retrieval_result_count == context_manager.MAX_RETRIEVAL_RESULTS
+    assert 1 <= len(capsule.retrieval.results) <= context_manager.MAX_RETRIEVAL_RESULTS
+    assert capsule.bounds.retrieval_result_count == len(capsule.retrieval.results)
     assert capsule.bounds.retrieval_characters_included <= context_manager.MAX_TOTAL_RETRIEVAL_CHARS
     assert capsule.bounds.retrieval_truncated
     assert capsule.bounds.task_characters_included == context_manager.MAX_TASK_EXCERPT_CHARS

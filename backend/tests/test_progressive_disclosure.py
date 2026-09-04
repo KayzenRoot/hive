@@ -491,7 +491,7 @@ def test_two_run_disclosure_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     assert first.progressive_disclosure.model_dump() == second.progressive_disclosure.model_dump()
     assert first.model_dump() == second.model_dump()
     assert first.progressive_disclosure.llm_calls == 0
-    assert first.progressive_disclosure.adaptive_token_budget_implemented is False
+    assert first.progressive_disclosure.adaptive_token_budget_implemented is True
 
 
 def test_cross_project_disclosure_path_fails_closed() -> None:

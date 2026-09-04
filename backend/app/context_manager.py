@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -14,12 +15,23 @@ import psycopg
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from .adaptive_token_budget import (
+    AdaptiveTokenBudget,
+    AdaptiveTokenBudgetError,
+    BudgetItem,
+    BudgetSignals,
+    apply_adaptive_token_budget,
+    estimate_context_payload_tokens,
+    serialize_context_payload,
+    verify_context_payload_estimate,
+)
 from .config import Settings
 from .progressive_disclosure import (
     CompleteFileExcerpt,
     DependencyEdge,
     DisclosureConsistencyError,
     DisclosureInputError,
+    DisclosurePresentation,
     ModuleSummary,
     ProgressiveDisclosure,
     RepositoryInventoryEntry,
@@ -265,6 +277,7 @@ class ContextCapsule(BaseModel):
     symbol_signatures: list[SymbolSignature] = Field(default_factory=list)
     dependencies: list[DependencyEdge] = Field(default_factory=list)
     progressive_disclosure: ProgressiveDisclosure
+    adaptive_token_budget: AdaptiveTokenBudget
     bounds: ContextBounds
 
 
@@ -739,6 +752,267 @@ def _is_test_candidate(candidate: RerankCandidate) -> bool:
     return bool(path and _TEST_PATH_RE.search(path))
 
 
+def _json_default(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    raise TypeError(f"value of type {type(value).__name__} is not JSON serializable")
+
+
+def _context_payload_data(capsule: ContextCapsule) -> dict[str, object]:
+    """Return the exact semantic payload measured by Adaptive Token Budget.
+
+    Budget evidence and bounds are transport/audit metadata. They are excluded
+    to avoid self-reference; every project, task, governance, retrieval,
+    projection and Progressive Disclosure field is included.
+    """
+
+    data = capsule.model_dump(mode="json")
+    data.pop("adaptive_token_budget", None)
+    data.pop("bounds", None)
+    return data
+
+
+def _context_payload_serialization(capsule: ContextCapsule) -> str:
+    return serialize_context_payload(_context_payload_data(capsule))
+
+
+def _verify_final_context_payload(
+    capsule: ContextCapsule,
+    *,
+    effective_budget_tokens: int,
+) -> int:
+    """Measure the materialized payload and fail closed when it does not fit."""
+
+    try:
+        return verify_context_payload_estimate(
+            _context_payload_data(capsule),
+            effective_budget_tokens=effective_budget_tokens,
+        )
+    except AdaptiveTokenBudgetError as exc:
+        observed = estimate_context_payload_tokens(_context_payload_data(capsule))
+        raise ContextBoundsError(
+            exc.code,
+            f"estimated={observed};effective={effective_budget_tokens}",
+        ) from exc
+
+
+def _budget_item(identity: str, value: object) -> BudgetItem:
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    serialized = json.dumps(
+        value,
+        default=_json_default,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return BudgetItem(identity=identity, serialized=serialized)
+
+
+def _budget_required_result_indexes(
+    final_level: str,
+    corpus: str,
+    results: Sequence[RerankCandidate],
+    files: Sequence[ContextReferenceProjection],
+    symbols: Sequence[ContextReferenceProjection],
+    complete_files: Sequence[CompleteFileExcerpt],
+) -> set[int]:
+    corpus_folded = corpus.casefold()
+    required_paths = {
+        path
+        for path in (
+            *(getattr(item, "path", None) for item in files),
+            *(getattr(item, "path", None) for item in symbols),
+        )
+        if path and path.casefold().replace("\\", "/") in corpus_folded.replace("\\", "/")
+    }
+    required_paths.update(item.path for item in complete_files)
+    required_symbols = {
+        symbol
+        for symbol in (getattr(item, "qualified_symbol", None) for item in symbols)
+        if symbol
+        and (
+            symbol.casefold() in corpus_folded
+            or symbol.rsplit(".", 1)[-1].casefold() in corpus_folded
+        )
+    }
+    indexes = {
+        index
+        for index, result in enumerate(results)
+        if (result.path and result.path in required_paths)
+        or (
+            result.qualified_symbol
+            and (
+                result.qualified_symbol in required_symbols
+                or result.qualified_symbol.rsplit(".", 1)[-1] in required_symbols
+            )
+        )
+    }
+    if final_level == "L3" and not indexes and results:
+        indexes.add(0)
+    return indexes
+
+
+def _filter_reference_projections(
+    projections: Sequence[ContextReferenceProjection],
+    results: Sequence[RerankCandidate],
+) -> list[ContextReferenceProjection]:
+    retained_reference_ids = {result.reference_id for result in results}
+    return [
+        projection
+        for projection in projections
+        if projection.reference_id in retained_reference_ids
+    ]
+
+
+def _budget_context(
+    *,
+    task: TaskResponse,
+    task_excerpt: str,
+    constraints: Sequence[str],
+    acceptance_criteria: Sequence[str],
+    governance: Sequence[GovernanceExcerpt],
+    results: Sequence[RerankCandidate],
+    files: Sequence[ContextReferenceProjection],
+    symbols: Sequence[ContextReferenceProjection],
+    tests: Sequence[ContextReferenceProjection],
+    presentation: DisclosurePresentation,
+    task_excerpt_truncated: bool,
+    governance_truncated: bool,
+    retrieval_truncated: bool,
+) -> tuple[str, list[GovernanceExcerpt], list[RerankCandidate], AdaptiveTokenBudget]:
+    disclosure = presentation.disclosure
+    final_level = disclosure.final_level.value
+    corpus = " ".join((task.title or "", task_excerpt, *constraints, *acceptance_criteria))
+    required_governance: list[BudgetItem] = []
+    optional_governance: list[tuple[BudgetItem, GovernanceExcerpt]] = []
+    seen_kinds: set[str] = set()
+    required_governance_ids: set[str] = set()
+    for index, excerpt in enumerate(governance):
+        identity = f"governance:{index}:{excerpt.kind}:{excerpt.start_char}"
+        is_required = excerpt.kind == "CHECKPOINT" or excerpt.kind not in seen_kinds
+        if is_required:
+            required_governance_ids.add(identity)
+            required_governance.append(_budget_item(identity, excerpt))
+        else:
+            optional_governance.append((_budget_item(identity, excerpt), excerpt))
+        seen_kinds.add(excerpt.kind)
+
+    required_result_indexes = _budget_required_result_indexes(
+        final_level,
+        corpus,
+        results,
+        files,
+        symbols,
+        presentation.complete_files,
+    )
+    required_results: list[BudgetItem] = []
+    seen_result_identities: set[str] = set()
+    for index, result in enumerate(results):
+        identity = f"retrieval:{result.reference_id}"
+        if index in required_result_indexes and identity not in seen_result_identities:
+            required_results.append(_budget_item(identity, result))
+            seen_result_identities.add(identity)
+    optional_results: list[BudgetItem] = []
+    for index, result in enumerate(results):
+        identity = f"retrieval:{result.reference_id}"
+        if index not in required_result_indexes and identity not in seen_result_identities:
+            optional_results.append(_budget_item(identity, result))
+            seen_result_identities.add(identity)
+    required_items = [
+        _budget_item(
+            "task:contract",
+            {
+                "task_id": str(task.task_id),
+                "project_id": str(task.project_id),
+                "title": task.title,
+                "extracted_text_sha256": hashlib.sha256(task_excerpt.encode("utf-8")).hexdigest(),
+                "trust_classification": "TASK_INPUT_NONCANONICAL",
+            },
+        ),
+        _budget_item(
+            "task:explicit-structure",
+            {
+                "constraints": list(constraints),
+                "acceptance_criteria": list(acceptance_criteria),
+            },
+        ),
+        _budget_item(
+            "retrieval:envelope",
+            {
+                "files": list(files),
+                "symbols": list(symbols),
+                "tests": list(tests),
+                "result_count": len(results),
+            },
+        ),
+        _budget_item(
+            "disclosure:payload",
+            {
+                "disclosure": disclosure,
+                "module_summaries": presentation.module_summaries,
+                "symbol_signatures": presentation.symbol_signatures,
+                "dependencies": presentation.dependencies,
+                "complete_files": presentation.complete_files,
+                "inventory": presentation.inventory,
+            },
+        ),
+        *required_governance,
+        *required_results,
+    ]
+    optional_items = (
+        _budget_item("task:excerpt", {"excerpt": task_excerpt}),
+        *tuple(item for item, _excerpt in optional_governance),
+        *optional_results,
+    )
+    try:
+        budget_result = apply_adaptive_token_budget(
+            required_items=tuple(required_items),
+            optional_items=optional_items,
+            signals=BudgetSignals(
+                final_level=final_level,
+                resolved_file_count=len(files),
+                resolved_symbol_count=len(symbols),
+                resolved_test_count=len(tests),
+                retrieval_result_count=len(results),
+                constraint_count=len(constraints),
+                acceptance_criteria_count=len(acceptance_criteria),
+                l4_complete_file_required=bool(presentation.complete_files),
+                l5_repository_investigation=final_level == "L5",
+                task_excerpt_truncated=task_excerpt_truncated,
+                governance_truncated=governance_truncated,
+                retrieval_truncated=retrieval_truncated,
+                disclosure_truncated=presentation.disclosure.truncated,
+                final_payload_serialization_required=True,
+            ),
+        )
+    except AdaptiveTokenBudgetError as exc:
+        if exc.code == "required_context_exceeds_token_budget" and any(
+            len(item.text) > MAX_CAPSULE_CHARS for item in presentation.complete_files
+        ):
+            raise ContextBoundsError("l4_complete_file_exceeds_capsule_bound") from exc
+        raise ContextBoundsError(exc.code) from exc
+    retained_ids = {item.identity for item in budget_result.retained_optional_items}
+    retained_task_excerpt = task_excerpt if "task:excerpt" in retained_ids else ""
+    filtered_governance = [
+        excerpt
+        for index, excerpt in enumerate(governance)
+        if f"governance:{index}:{excerpt.kind}:{excerpt.start_char}" in required_governance_ids
+        or f"governance:{index}:{excerpt.kind}:{excerpt.start_char}" in retained_ids
+    ]
+    retained_result_ids = {
+        identity.removeprefix("retrieval:")
+        for identity in retained_ids
+        if identity.startswith("retrieval:")
+    }
+    filtered_results = [
+        result
+        for index, result in enumerate(results)
+        if index in required_result_indexes or str(result.reference_id) in retained_result_ids
+    ]
+    return retained_task_excerpt, filtered_governance, filtered_results, budget_result.evidence
+
+
 def _assert_state_stable(
     settings: Settings,
     project_id: UUID,
@@ -891,9 +1165,63 @@ def build_context(
     symbols = presentation.symbols
     tests = presentation.tests
     results = presentation.results
+    baseline_files = tuple(files)
+    baseline_symbols = tuple(symbols)
+    baseline_tests = tuple(tests)
+    baseline_results = tuple(results)
+    baseline_module_summaries = tuple(presentation.module_summaries)
+    baseline_symbol_signatures = tuple(presentation.symbol_signatures)
+    baseline_dependencies = tuple(presentation.dependencies)
+    baseline_task_excerpt = task_excerpt
+    retained_task_excerpt, governance_excerpts, results, adaptive_token_budget = _budget_context(
+        task=task,
+        task_excerpt=task_excerpt,
+        constraints=constraints,
+        acceptance_criteria=acceptance_criteria,
+        governance=governance.excerpts,
+        results=results,
+        files=files,
+        symbols=symbols,
+        tests=tests,
+        presentation=presentation,
+        task_excerpt_truncated=task_excerpt_truncated,
+        governance_truncated=governance.truncated,
+        retrieval_truncated=retrieval_truncated,
+    )
+    task_excerpt = retained_task_excerpt
+    task_excerpt_removed = task_excerpt != baseline_task_excerpt
+    files = _filter_reference_projections(files, results)
+    symbols = _filter_reference_projections(symbols, results)
+    tests = _filter_reference_projections(tests, results)
+    retained_paths = {item.path for item in files if item.path}
+    presentation = presentation.model_copy(
+        update={
+            "files": files,
+            "symbols": symbols,
+            "tests": tests,
+            "results": results,
+            "module_summaries": [
+                item for item in presentation.module_summaries if item.path in retained_paths
+            ],
+            "symbol_signatures": [
+                item for item in presentation.symbol_signatures if item.path in retained_paths
+            ],
+            "dependencies": [
+                item for item in presentation.dependencies if item.source_path in retained_paths
+            ],
+        }
+    )
+    removed_governance = any(
+        identity.startswith("governance:")
+        for identity in adaptive_token_budget.optional_items_removed
+    )
+    removed_retrieval = any(
+        identity.startswith("retrieval:")
+        for identity in adaptive_token_budget.optional_items_removed
+    )
     retrieval_chars = sum(len(item.snippet) for item in results)
     retrieval_truncated = retrieval_truncated or presentation.disclosure.truncated
-    governance_chars = sum(len(item.text) for item in governance.excerpts)
+    governance_chars = sum(len(item.text) for item in governance_excerpts)
     task_structure_chars = sum(len(item) for item in (*constraints, *acceptance_criteria))
     disclosure_chars = disclosure_payload_characters(
         presentation.module_summaries,
@@ -915,7 +1243,7 @@ def build_context(
         retrieval_characters_included=retrieval_chars,
         total_emitted_context_characters=total_emitted,
         serialized_capsule_characters=0,
-        governance_excerpt_count=len(governance.excerpts),
+        governance_excerpt_count=len(governance_excerpts),
         retrieval_result_count=len(results),
         task_constraint_count=len(constraints),
         task_acceptance_criteria_count=len(acceptance_criteria),
@@ -925,9 +1253,10 @@ def build_context(
         disclosure_characters_included=disclosure_chars,
         task_excerpt_truncated=task_excerpt_truncated
         or constraints_truncated
-        or acceptance_truncated,
-        governance_excerpt_truncated=governance.truncated,
-        retrieval_truncated=retrieval_truncated,
+        or acceptance_truncated
+        or task_excerpt_removed,
+        governance_excerpt_truncated=governance.truncated or removed_governance,
+        retrieval_truncated=retrieval_truncated or removed_retrieval,
         capsule_truncated=False,
     )
     capsule = ContextCapsule(
@@ -956,7 +1285,7 @@ def build_context(
             excerpt_truncated=task_excerpt_truncated,
             trust_classification=TaskTrust.TASK_INPUT_NONCANONICAL,
         ),
-        governance=list(governance.excerpts),
+        governance=governance_excerpts,
         task_derived=TaskDerivedStructure(
             constraints=constraints,
             acceptance_criteria=acceptance_criteria,
@@ -983,6 +1312,7 @@ def build_context(
         symbol_signatures=presentation.symbol_signatures,
         dependencies=presentation.dependencies,
         progressive_disclosure=presentation.disclosure,
+        adaptive_token_budget=adaptive_token_budget,
         bounds=bounds,
     )
     _assert_state_stable(
@@ -992,6 +1322,46 @@ def build_context(
         state,
         extracted_text_sha256,
     )
+    baseline_payload = _context_payload_data(capsule)
+    baseline_task = cast(dict[str, object], baseline_payload["task"])
+    baseline_task["excerpt"] = baseline_task_excerpt
+    baseline_task["excerpt_truncated"] = task_excerpt_truncated
+    baseline_payload["governance"] = [
+        excerpt.model_dump(mode="json") for excerpt in governance.excerpts
+    ]
+    baseline_payload["files"] = [item.model_dump(mode="json") for item in baseline_files]
+    baseline_payload["symbols"] = [item.model_dump(mode="json") for item in baseline_symbols]
+    baseline_payload["tests"] = [item.model_dump(mode="json") for item in baseline_tests]
+    baseline_payload["module_summaries"] = [
+        item.model_dump(mode="json") for item in baseline_module_summaries
+    ]
+    baseline_payload["symbol_signatures"] = [
+        item.model_dump(mode="json") for item in baseline_symbol_signatures
+    ]
+    baseline_payload["dependencies"] = [
+        item.model_dump(mode="json") for item in baseline_dependencies
+    ]
+    baseline_retrieval = cast(dict[str, object], baseline_payload["retrieval"])
+    baseline_retrieval["results"] = [result.model_dump(mode="json") for result in baseline_results]
+    baseline_context_token_estimate = estimate_context_payload_tokens(baseline_payload)
+    final_context_token_estimate = _verify_final_context_payload(
+        capsule,
+        effective_budget_tokens=adaptive_token_budget.effective_budget_tokens,
+    )
+    adaptive_token_budget = adaptive_token_budget.model_copy(
+        update={
+            "estimated_tokens_before": baseline_context_token_estimate,
+            "estimated_tokens_after": final_context_token_estimate,
+            "estimated_tokens_avoided": max(
+                0,
+                baseline_context_token_estimate - final_context_token_estimate,
+            ),
+            "final_context_token_estimate": final_context_token_estimate,
+            "final_context_token_estimate_verified": True,
+            "final_context_estimate_within_effective_budget": True,
+        }
+    )
+    capsule = capsule.model_copy(update={"adaptive_token_budget": adaptive_token_budget})
     final_length = 0
     for _ in range(4):
         serialized_length = len(capsule.model_dump_json())
