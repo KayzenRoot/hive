@@ -101,6 +101,7 @@ contratos ou comportamento do produto.
 - Checkpoint Delta: `.engineering/reports/CHECKPOINT-DELTA-ENG-PROTOCOL-ADOPTION-001.md`
 - Auto-merge: `DISABLED`
 - Merge/release: `NOT AUTHORIZED`
-- Commit/head SHA: `37b86dc5d642602eec005bde8974760595d50658` before final validation.
+- Last substantive local validation SHA: `15ee4ca5f06255d25b4ad4370a01036dd1c05551`;
+  o SHA exato do head da PR é rederivado pelo manifesto `Review Evidence`.
 - PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Review final: português brasileiro; aguardar auditoria independente.

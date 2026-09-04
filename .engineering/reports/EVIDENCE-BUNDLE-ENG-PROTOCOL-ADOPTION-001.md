@@ -5,7 +5,10 @@
 - ID: `ENG-PROTOCOL-ADOPTION-001`
 - Repository: `KayzenRoot/hive`
 - Base branch/SHA: `main/209a485227103872903a560872133aae5f203717`
-- Head branch/SHA: `chore/eng-protocol-adoption-001/37b86dc5d642602eec005bde8974760595d50658`.
+- Head branch: `chore/eng-protocol-adoption-001`.
+- Exact PR head: rederivado pelo manifesto gerado do `Review Evidence` na PR
+  #37; o bundle versionado não duplica um SHA autoinvalidante do próprio commit.
+- Last substantive local validation SHA: `15ee4ca5f06255d25b4ad4370a01036dd1c05551`.
 - PR: `#37 — https://github.com/KayzenRoot/hive/pull/37`
 - Work Order: `.engineering/work-orders/ENG-PROTOCOL-ADOPTION-001.md`
 - Context Lock: `.engineering/context-locks/ENG-PROTOCOL-ADOPTION-001.md`
@@ -35,7 +38,7 @@
 | Compose config | PASS | PASS | `tmp/validation/docker-compose-config.txt` |
 | Integration/E2E | UNKNOWN — Docker daemon local indisponível | UNKNOWN — mesmo bloqueio ambiental; CI pendente | `.github/workflows/ci.yml` |
 | Security/dependencies | PASS — secret scan/npm audit | PASS — secret scan/npm audit | `tmp/validation` |
-| CI required checks | PASS no baseline PR; main post-merge #36 | PENDING — PR #37 | PR checks |
+| CI required checks | PASS no baseline PR; main post-merge #36 | PASS no run `33886370929` para o head acima | [PR #37](https://github.com/KayzenRoot/hive/pull/37) |
 
 ## Warnings/pre-existing conditions
 
@@ -55,6 +58,8 @@
 - Canonical files changed: `NO`.
 - Auto-merge armed: `NO`.
 - Merge/release performed: `NO`.
+- CI Review Evidence run `33886370929`: `PASS`; artifact
+  `hive-review-evidence-ENG-PROTOCOL-ADOPTION-001-15ee4ca5f06255d25b4ad4370a01036dd1c05551`.
 - Checkpoint Delta: `.engineering/reports/CHECKPOINT-DELTA-ENG-PROTOCOL-ADOPTION-001.md` — `PROPOSED`.
 - Cleanup Inventory: `.engineering/reports/CLEANUP-INVENTORY.md` — inventory only.
 
