@@ -24,6 +24,9 @@ HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
 WORK_ORDER_IDENTIFIER = re.compile(r"WO-[0-9]+(?:-[A-Z0-9]+)*")
 WORK_ORDER_MARKER = re.compile(r"<!--\s*HIVE-WORK-ORDER:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE)
+AUTHORIZED_BASE_MARKER = re.compile(
+    r"<!--\s*HIVE-AUTHORIZED-BASE:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE
+)
 RERANK_SECRET_SENTINEL = re.compile(r"WO008_TEST_SECRET_DO_NOT_LEAK_[A-Za-z0-9_-]+")
 RERANK_C1_REQUIRED_FIELDS = (
     "rerank_project_isolation",
@@ -199,7 +202,7 @@ WO012P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO012P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
-CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
+HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     {
         "WO-007-P",
         "WO-007-P-C1",
@@ -207,9 +210,11 @@ CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         "WO-009-P",
         "WO-010-P",
         "WO-011-P",
-        "WO-012-P",
-        "WO-012-P-G1",
     }
+)
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({"WO-012-P-G1", "WO-012-P"})
+CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
+    HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
 PROMOTION_WORK_ORDER_IDENTIFIER = re.compile(r"^WO-[0-9]+-P(?:-[A-Z0-9]+)*$")
 EXPECTED_WO012P_STATUS = "CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
@@ -323,6 +328,20 @@ def parse_work_order_marker(body: str) -> str:
     return work_order
 
 
+def parse_authorized_base_marker(body: str) -> str:
+    markers = AUTHORIZED_BASE_MARKER.findall(body)
+    if len(markers) != 1:
+        if not markers:
+            raise ValueError("HIVE promotion PR is missing exactly one authorized-base marker")
+        raise ValueError("HIVE promotion PR has multiple conflicting authorized-base markers")
+    base_sha = str(markers[0]).strip()
+    if HEX_SHA.fullmatch(base_sha) is None:
+        raise ValueError(
+            "HIVE promotion PR authorized-base marker must contain one lowercase 40-hex SHA"
+        )
+    return base_sha
+
+
 def require_supported_work_order(work_order: str) -> None:
     if (
         PROMOTION_WORK_ORDER_IDENTIFIER.fullmatch(work_order)
@@ -334,15 +353,30 @@ def require_supported_work_order(work_order: str) -> None:
         )
 
 
-def derive_work_order(repository: str, pr_number: int) -> str:
+def require_current_work_order_authorization(work_order: str) -> None:
+    require_supported_work_order(work_order)
+    if (
+        PROMOTION_WORK_ORDER_IDENTIFIER.fullmatch(work_order)
+        and work_order not in ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    ):
+        raise ValueError(
+            "historical checkpoint-promotion work order cannot authorize a fresh current PR: "
+            + work_order
+        )
+
+
+def pull_request_body(repository: str, pr_number: int) -> str:
     pr = _gh_json(repository, f"pulls/{pr_number}")
     if not isinstance(pr, dict):
         raise ValueError(f"unable to read pull request #{pr_number} for work-order derivation")
     body = pr.get("body")
-    if not isinstance(body, str):
-        body = ""
+    return body if isinstance(body, str) else ""
+
+
+def derive_work_order(repository: str, pr_number: int) -> str:
+    body = pull_request_body(repository, pr_number)
     work_order = parse_work_order_marker(body)
-    require_supported_work_order(work_order)
+    require_current_work_order_authorization(work_order)
     return work_order
 
 
@@ -403,6 +437,71 @@ def normalized_checkpoint_value(sections: Mapping[str, str], name: str) -> str:
     return " ".join(sections.get(name, "").split())
 
 
+WO012P_COMPLETION_EVIDENCE_PATTERNS = (
+    r"context fingerprints foundation approval",
+    r"context-fingerprint-v2",
+    r"context-input-v2",
+    r"context-output-v2",
+    r"context-fingerprint-cache-v2",
+    r"sha\s*-\s*256",
+    r"redis.{0,80}(?:ttl|time\s+to\s+live).{0,20}300",
+    r"redis.{0,80}non.?canonical",
+    r"transient reranker.{0,80}not cached",
+    r"transient semantic provider failure.{0,80}not cached",
+    r"provider recovery.{0,40}retried",
+    r"equivalent rebuild.{0,40}stable",
+    r"false(?: cache)? hits\s*0",
+    r"critical(?: context)? misses\s*0",
+    r"exact repeat work avoidance",
+    r"fingerprint llm calls\s*0",
+    r"fingerprint provider calls\s*0",
+    r"0005_semantic_retrieval",
+    r"pr\s*#\s*40",
+    r"2a128dfcdeb97a45f174cf2dfa529826354f95ad",
+    r"5119310904",
+    r"743253ef079596370a7ff1102faf03b3a603b585",
+    r"33937782195",
+    r"backend\s*275",
+    r"dashboard\s*7",
+    r"delta context.{0,40}not implemented",
+    r"provider/prompt cache.{0,40}not implemented",
+    r"memory lifecycle.{0,40}not implemented",
+)
+WO012P_UNRELATED_COMPLETION_TARGETS = (
+    "mcp",
+    "memory",
+    "delta context",
+    "provider/prompt cache",
+    "full telemetry",
+    "full control center",
+    "backup/recovery",
+    "full deployment",
+)
+
+
+def normalized_checkpoint_evidence(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def has_unrelated_completion_claim(text: str) -> bool:
+    normalized = normalized_checkpoint_evidence(text)
+    positive_claim = r"\b(?:complete|completed|implemented|approved|promoted|done|finished)\b"
+    for target in WO012P_UNRELATED_COMPLETION_TARGETS:
+        start = 0
+        while True:
+            position = normalized.find(target, start)
+            if position < 0:
+                break
+            context = normalized[max(0, position - 48) : position + len(target) + 64]
+            if re.search(positive_claim, context) and not re.search(
+                r"\bnot\s+(?:yet\s+)?(?:complete|completed|implemented)\b|\bout of scope\b",
+                context,
+            ):
+                return True
+            start = position + len(target)
+    return False
+
+
 def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
     base = checkpoint_sections(base_text)
     candidate = checkpoint_sections(candidate_text)
@@ -415,24 +514,25 @@ def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
 
     base_completed = checkpoint_bullets(base, "COMPLETED")
     candidate_completed = checkpoint_bullets(candidate, "COMPLETED")
-    completed_cursor = 0
-    added_completed: list[str] = []
-    for item in candidate_completed:
-        if completed_cursor < len(base_completed) and item == base_completed[completed_cursor]:
-            completed_cursor += 1
-        else:
-            added_completed.append(item)
-    if completed_cursor != len(base_completed):
+    if candidate_completed[: len(base_completed)] != base_completed:
         raise ValueError("WO-012-P cannot rewrite historical COMPLETED checkpoint truth")
-    appended_completed = " ".join(added_completed).casefold()
-    for phrase in (
-        "delta context foundation implemented",
-        "delta context implemented",
-        "provider/prompt cache implemented",
-        "memory lifecycle implemented",
-    ):
-        if phrase in appended_completed:
-            raise ValueError("WO-012-P candidate falsely marks out-of-scope work completed")
+    appended_completed = candidate_completed[len(base_completed) :]
+    if not appended_completed:
+        raise ValueError("WO-012-P candidate must append deterministic completion evidence")
+    for item in appended_completed:
+        if has_unrelated_completion_claim(item):
+            raise ValueError("WO-012-P candidate falsely marks unrelated work completed")
+    appended_evidence = normalized_checkpoint_evidence(" ".join(appended_completed))
+    missing_evidence = [
+        pattern
+        for pattern in WO012P_COMPLETION_EVIDENCE_PATTERNS
+        if re.search(pattern, appended_evidence) is None
+    ]
+    if missing_evidence:
+        raise ValueError(
+            "WO-012-P candidate is missing deterministic completion evidence: "
+            + ", ".join(missing_evidence)
+        )
 
     base_pending = checkpoint_bullets(base, "PENDING")
     candidate_pending = checkpoint_bullets(candidate, "PENDING")
@@ -669,6 +769,8 @@ def require_wo012p_scope(
     *,
     base_branch: str = "main",
     registered_base_sha: str | None = None,
+    authorized_base_sha: str | None = None,
+    enforce_authorized_base: bool = True,
 ) -> None:
     if work_order != "WO-012-P":
         return
@@ -683,6 +785,13 @@ def require_wo012p_scope(
         )
     if sorted(set(paths)) != sorted(WO012P_PROMOTION_ALLOWED_PATHS) or len(paths) != 2:
         raise ValueError("WO-012-P requires exactly the checkpoint and canonical manifest files")
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError("WO-012-P requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError("WO-012-P authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError("WO-012-P authorized-base marker must match the pull request base SHA")
     base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
     base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
     candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
@@ -1947,8 +2056,11 @@ def governance_evidence(repository: str, pr_number: int | None = None) -> dict[s
 
 def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     repository = args.repository or repository_name()
+    pr_body = ""
     if args.pr_number:
-        work_order = derive_work_order(repository, args.pr_number)
+        pr_body = pull_request_body(repository, args.pr_number)
+        work_order = parse_work_order_marker(pr_body)
+        require_current_work_order_authorization(work_order)
         if args.work_order and args.work_order != work_order:
             raise ValueError(
                 f"work-order override {args.work_order!r} does not match PR marker {work_order!r}"
@@ -1957,7 +2069,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         work_order = args.work_order or "LOCAL-VALIDATION"
         if work_order != "LOCAL-VALIDATION" and WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None:
             raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
-    require_supported_work_order(work_order)
+    require_current_work_order_authorization(work_order)
     validation = read_text(VALIDATION / "summary.txt")
     lint = read_text(VALIDATION / "lint-typecheck-build-results.txt")
     tests_text = read_text(VALIDATION / "test-results.txt")
@@ -1967,8 +2079,17 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     if head_sha != actual_head:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
+    authorized_base_sha = (
+        parse_authorized_base_marker(pr_body) if work_order == "WO-012-P" else None
+    )
     require_wo012p_g1_scope(work_order, base_sha, paths)
-    require_wo012p_scope(work_order, base_sha, paths, base_branch=args.base_branch)
+    require_wo012p_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
     require_wo008_g1_scope(work_order, base_sha, paths)
     require_wo009_scope(work_order, base_sha, paths)
     require_wo010_g1_scope(work_order, base_sha, paths)
@@ -2131,6 +2252,7 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         base_branch=cast(str, manifest["base"].get("branch", "main"))
         if isinstance(manifest["base"], Mapping)
         else "main",
+        enforce_authorized_base=False,
     )
     if work_order == "WO-008-G1":
         require_wo008_g1_scope(

@@ -758,9 +758,10 @@ de execução.
 
 `WO-012-P-G1` é reconhecido e valida sua própria base exata, escopo exclusivo
 de tooling/testes e ausência de Project Brain, migrations e código de produto.
-`WO-012-P` possui registro explícito, usa a SHA exata do `origin/main` protegido
-no momento da validação, exige exatamente `13-CHECKPOINT.md` e
-`CANONICAL-SHA256SUMS.txt`, valida a transição semântica do checkpoint e
+`WO-012-P` possui registro explícito, exige um marcador imutável de base
+autorizada e ainda compara essa SHA com a base da PR e o `origin/main` protegido
+no momento da validação. A promoção futura exige exatamente `13-CHECKPOINT.md`
+e `CANONICAL-SHA256SUMS.txt`, valida a transição semântica do checkpoint e
 compara o manifesto byte-a-byte salvo pela única nova hash do checkpoint.
 
 O contrato também exige a evidência Context Fingerprints já aprovada para
@@ -803,6 +804,7 @@ def _render_wo012p_body(
     merge_after: str,
 ) -> str:
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
 
 # Revisão do executor — {work_order}
 

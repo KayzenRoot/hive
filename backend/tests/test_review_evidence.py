@@ -32,7 +32,9 @@ from scripts.review_evidence import (
     governance_evidence,
     junit_counts,
     manifest_log,
+    parse_authorized_base_marker,
     parse_work_order_marker,
+    require_current_work_order_authorization,
     require_hive_final_handoff,
     require_supported_work_order,
     require_wo008_c1_evidence,
@@ -394,7 +396,7 @@ def replace_checkpoint_section(text: str, name: str, body: str) -> str:
     return updated
 
 
-def wo012p_checkpoint_fixture() -> tuple[str, str]:
+def wo012p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
     base = review_evidence.git_blob_bytes(
         WO012P_G1_BASE_SHA,
         review_evidence.CHECKPOINT_PATH,
@@ -421,6 +423,33 @@ def wo012p_checkpoint_fixture() -> tuple[str, str]:
         review_evidence.EXPECTED_WO012P_NEXT_STEP_PREFIX
         + "\n\nDo not prescribe code unnecessarily.",
     )
+    if include_evidence:
+        completion_evidence = [
+            "Context Fingerprints Foundation approval is recorded with policy "
+            "context-fingerprint-v2, input context-input-v2, output context-output-v2 "
+            "and cache context-fingerprint-cache-v2.",
+            "The implementation uses SHA-256; Redis TTL 300 seconds remains "
+            "non-canonical; transient reranker failure is not cached; transient "
+            "semantic provider failure is not cached; provider recovery is retried; "
+            "equivalent rebuild is stable.",
+            "The context-fingerprint benchmark records false cache hits 0, critical "
+            "context misses 0, exact repeat work avoidance, fingerprint LLM calls 0 "
+            "and fingerprint provider calls 0.",
+            "Evidence references migration 0005_semantic_retrieval, PR #40, audited "
+            "HEAD 2a128dfcdeb97a45f174cf2dfa529826354f95ad, Sol review 5119310904, "
+            "merge 743253ef079596370a7ff1102faf03b3a603b585, post-merge CI "
+            "33937782195, backend 275/dashboard 7.",
+            "Delta Context not implemented; provider/prompt cache not implemented; "
+            "memory lifecycle not implemented.",
+        ]
+        completed = review_evidence.checkpoint_bullets(
+            review_evidence.checkpoint_sections(base), "COMPLETED"
+        )
+        candidate = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(f"- {item}" for item in completed + completion_evidence),
+        )
     return base, candidate
 
 
@@ -465,9 +494,83 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
         require_supported_work_order("WO-013-P")
 
 
+def test_current_checkpoint_promotion_authorization_separates_history() -> None:
+    require_current_work_order_authorization("WO-012-P-G1")
+    require_current_work_order_authorization("WO-012-P")
+    for historical in ("WO-010-P", "WO-011-P", "WO-007-P-C1"):
+        with pytest.raises(ValueError, match="historical checkpoint-promotion"):
+            require_current_work_order_authorization(historical)
+    with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
+        require_current_work_order_authorization("WO-013-P")
+
+
+def test_authorized_base_marker_requires_one_lowercase_exact_sha() -> None:
+    base = "a" * 40
+    assert parse_authorized_base_marker(f"<!-- HIVE-AUTHORIZED-BASE: {base} -->") == base
+    for body, message in (
+        ("no marker", "missing exactly one"),
+        (
+            f"<!-- HIVE-AUTHORIZED-BASE: {base} -->\n<!-- HIVE-AUTHORIZED-BASE: {base} -->",
+            "multiple conflicting",
+        ),
+        ("<!-- HIVE-AUTHORIZED-BASE: not-a-sha -->", "lowercase 40-hex"),
+        (f"<!-- HIVE-AUTHORIZED-BASE: {base.upper()} -->", "lowercase 40-hex"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            parse_authorized_base_marker(body)
+
+
 def test_wo012p_checkpoint_semantics_accept_exact_transition() -> None:
     base, candidate = wo012p_checkpoint_fixture()
     require_wo012p_checkpoint_semantics(base, candidate)
+
+
+def test_wo012p_checkpoint_semantics_rejects_missing_or_unrelated_completion_evidence() -> None:
+    base, candidate_without_evidence = wo012p_checkpoint_fixture(include_evidence=False)
+    with pytest.raises(ValueError, match="append deterministic completion evidence"):
+        require_wo012p_checkpoint_semantics(base, candidate_without_evidence)
+
+    _, candidate = wo012p_checkpoint_fixture()
+    missing_pr = candidate.replace("PR #40", "PR #41", 1)
+    with pytest.raises(ValueError, match="missing deterministic completion evidence"):
+        require_wo012p_checkpoint_semantics(base, missing_pr)
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    unrelated = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in completed + ["MCP complete"]),
+    )
+    with pytest.raises(ValueError, match="unrelated work completed"):
+        require_wo012p_checkpoint_semantics(base, unrelated)
+
+
+def test_wo012p_checkpoint_semantics_requires_exact_history_prefix_and_order() -> None:
+    base, candidate = wo012p_checkpoint_fixture()
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    history = completed[:-5]
+    evidence = completed[-5:]
+    inserted = history[:2] + [evidence[0]] + history[2:] + evidence[1:]
+    inserted_candidate = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in inserted),
+    )
+    with pytest.raises(ValueError, match="historical COMPLETED"):
+        require_wo012p_checkpoint_semantics(base, inserted_candidate)
+
+    reordered = history[:]
+    reordered[0], reordered[1] = reordered[1], reordered[0]
+    reordered_candidate = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in reordered + evidence),
+    )
+    with pytest.raises(ValueError, match="historical COMPLETED"):
+        require_wo012p_checkpoint_semantics(base, reordered_candidate)
 
 
 def test_wo012p_checkpoint_semantics_rejects_wrong_status_pending_or_next_step() -> None:
@@ -622,7 +725,20 @@ def test_wo012p_scope_accepts_registered_base_and_exact_files(
         "c" * 40,
         sorted(WO012P_PROMOTION_ALLOWED_PATHS),
         registered_base_sha="c" * 40,
+        authorized_base_sha="c" * 40,
     )
+
+
+def test_wo012p_scope_requires_authorized_base_to_match_pr_base() -> None:
+    for marker in (None, "d" * 40, "A" * 40):
+        with pytest.raises(ValueError, match="authorized-base"):
+            require_wo012p_scope(
+                "WO-012-P",
+                "c" * 40,
+                sorted(WO012P_PROMOTION_ALLOWED_PATHS),
+                registered_base_sha="c" * 40,
+                authorized_base_sha=marker,
+            )
 
 
 def protect_main_ruleset(
@@ -1430,7 +1546,9 @@ def test_wo012p_pr_body_is_promotion_specific() -> None:
     )
     folded = body.casefold()
     assert body.startswith("<!-- HIVE-WORK-ORDER: WO-012-P -->")
+    assert body.splitlines()[1] == f"<!-- HIVE-AUTHORIZED-BASE: {'a' * 40} -->"
     assert body.count("HIVE-WORK-ORDER") == 1
+    assert body.count("HIVE-AUTHORIZED-BASE") == 1
     assert "docs/project-brain/13-checkpoint.md" in folded
     assert "canonical-sha256sums.txt" in folded
     assert "delta context" in folded
