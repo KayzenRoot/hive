@@ -719,6 +719,133 @@ WO-010 READY FOR SOL GITHUB AUDIT
 """
 
 
+def _render_wo012p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta PR é uma correção de governança/tooling para tornar explícito e fail-closed
+o suporte do Review Evidence à promoção de checkpoint `WO-012-P`. Não altera
+produto, Context Fingerprints, checkpoint canônico, migrations ou comportamento
+de execução.
+
+## 2. Identidade e escopo
+
+- PR: #{pr_number}, aberta Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- Base G1 registrada: `743253ef079596370a7ff1102faf03b3a603b585`.
+- Arquivos permitidos: `scripts/review_evidence.py`, `scripts/review_pr_body.py` e
+  `backend/tests/test_review_evidence.py`.
+- Arquivos canônicos alterados: nenhum.
+
+## 3. Contratos adicionados
+
+`WO-012-P-G1` é reconhecido e valida sua própria base exata, escopo exclusivo
+de tooling/testes e ausência de Project Brain, migrations e código de produto.
+`WO-012-P` possui registro explícito, exige um marcador imutável de base
+autorizada e ainda compara essa SHA com a base da PR e o `origin/main` protegido
+no momento da validação. A promoção futura exige exatamente `13-CHECKPOINT.md`
+e `CANONICAL-SHA256SUMS.txt`, valida a transição semântica do checkpoint e
+compara o manifesto byte-a-byte salvo pela única nova hash do checkpoint.
+
+O contrato também exige a evidência Context Fingerprints já aprovada para
+`WO-012-P`, rejeita hashes inválidos, duplicados, reordenação e alterações
+canônicas não autorizadas. Marcadores de promoção desconhecidos, como
+`WO-013-P`, falham fechado em vez de cair no fallback genérico.
+
+## 4. Testes e governança
+
+Os testes cobrem bases incorretas, escopo G1, arquivos canônicos incompletos ou
+extras, semântica de STATUS/PENDING/IN PROGRESS/NEXT STEP, integridade do
+manifesto, reutilização da evidência WO-012 e marcadores de promoção
+desconhecidos. Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+Merge antes: {merge_before}; depois: {merge_after}.
+
+## 5. Estado para auditoria de Sol
+
+Migration head permanece `0005_semantic_retrieval`. A proposta local de
+`WO-012-P` não foi incluída, nenhum checkpoint foi promovido, nenhum Delta
+Context foi implementado e nenhum merge ocorreu. Auto-merge permanece
+desarmado; a PR está Ready e aberta.
+
+Evidence Bundle: `{artifact_name}`.
+
+Sol Review State: AWAITING_SOL
+"""
+
+
+def _render_wo012p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Promoção de checkpoint somente
+
+Esta PR promove somente o checkpoint Context Fingerprints já implementado,
+aprovado, mesclado e validado no pós-merge. Não implementa Delta Context,
+provider/prompt cache, memory lifecycle ou qualquer mudança de produto.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, aberta Ready for review.
+- Branch: `{branch}`.
+- Base exata registrada: `{base_sha}`.
+- Head exato: `{head_sha}`.
+- Arquivos alterados: exatamente `docs/project-brain/13-CHECKPOINT.md` e
+  `docs/project-brain/CANONICAL-SHA256SUMS.txt`.
+
+## 3. Contrato validado
+
+O status muda de Adaptive Token Budget para Context Fingerprints Foundation;
+somente `context fingerprints.` é removido de PENDING; os demais itens,
+histórico, migration `0005_semantic_retrieval` e hashes canônicos permanecem
+inalterados. IN PROGRESS e NEXT STEP apontam exclusivamente para a preparação
+do menor Delta Context Foundation determinístico. A evidência Context
+Fingerprints continua obrigatória, com false hits `0` e critical misses `0`.
+
+## 4. Gates e handoff
+
+Ruleset antes: {ruleset_before}; depois: {ruleset_after}. Merge antes:
+{merge_before}; depois: {merge_after}. Validate, Integration health, Review
+Evidence, canonical verifier e secret scan devem estar PASS. Auto-merge fica
+UNARMED, nenhum merge ocorreu e o executor não promove a verdade canônica fora
+desta PR.
+
+Evidence Bundle: `{artifact_name}`.
+
+Sol Review State: AWAITING_SOL
+"""
+
+
 def _render_wo012_body(
     *,
     work_order: str,
@@ -962,6 +1089,32 @@ def render_body(
         )
     if work_order == "WO-012":
         return _render_wo012_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-012-P-G1":
+        return _render_wo012p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-012-P":
+        return _render_wo012p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
