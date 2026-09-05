@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -176,9 +177,11 @@ MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "DECISIONS",
 )
 CHECKPOINT_PATH = "docs/project-brain/13-CHECKPOINT.md"
+CANONICAL_MANIFEST_PATH = "docs/project-brain/CANONICAL-SHA256SUMS.txt"
+CANONICAL_MANIFEST_CHECKPOINT_NAME = "13-CHECKPOINT.md"
 CANONICAL_PATHS = (
     CHECKPOINT_PATH,
-    "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+    CANONICAL_MANIFEST_PATH,
 )
 WO008_G1_BASE_SHA = "fcbf0849a54e0283ed523e09ce18ea31a8bd7849"
 WO009_BASE_SHA = "7e95a026ff050c4bd953c27fb61ff79acff15d1f"
@@ -186,6 +189,51 @@ WO010_G1_BASE_SHA = "552d809f6e0a6e1f940084c35f3109dc4ec931a1"
 WO010_BASE_SHA = "68bb6679da32355b9e5c4bbb241bec0d1e685e26"
 WO011_BASE_SHA = "209a485227103872903a560872133aae5f203717"
 WO012_BASE_SHA = "19ecc6b505e884029a42d121309339977d46e626"
+WO012P_G1_BASE_SHA = "743253ef079596370a7ff1102faf03b3a603b585"
+WO012P_PROMOTION_BASE_REF = "refs/remotes/origin/main"
+WO012P_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO012P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
+    {
+        "WO-007-P",
+        "WO-007-P-C1",
+        "WO-008-P",
+        "WO-009-P",
+        "WO-010-P",
+        "WO-011-P",
+        "WO-012-P",
+        "WO-012-P-G1",
+    }
+)
+PROMOTION_WORK_ORDER_IDENTIFIER = re.compile(r"^WO-[0-9]+-P(?:-[A-Z0-9]+)*$")
+EXPECTED_WO012P_STATUS = "CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+EXPECTED_WO012P_PREVIOUS_STATUS = (
+    "ADAPTIVE TOKEN BUDGET FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+)
+EXPECTED_WO012P_IN_PROGRESS = (
+    "Preparing the smallest necessary deterministic Delta Context Foundation over the "
+    "approved Context Manager, Progressive Disclosure, Adaptive Token Budget and "
+    "Context Fingerprints pipeline."
+)
+EXPECTED_WO012P_NEXT_STEP_PREFIX = (
+    "Prepare the smallest necessary deterministic Delta Context Foundation over the "
+    "approved Context Manager, Progressive Disclosure, Adaptive Token Budget and "
+    "Context Fingerprints pipeline."
+)
+EXPECTED_WO012P_BLOCKERS = (
+    "No known blocker after Context Fingerprints Foundation approval and post-merge validation."
+)
+ACCEPTED_WO012P_BLOCKERS = {
+    EXPECTED_WO012P_BLOCKERS,
+    "None known after Context Fingerprints Foundation approval and post-merge validation.",
+}
+WO012P_PROMOTION_REGISTRY = {"WO-012-P": WO012P_PROMOTION_BASE_REF}
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -275,6 +323,17 @@ def parse_work_order_marker(body: str) -> str:
     return work_order
 
 
+def require_supported_work_order(work_order: str) -> None:
+    if (
+        PROMOTION_WORK_ORDER_IDENTIFIER.fullmatch(work_order)
+        and work_order not in CHECKPOINT_PROMOTION_WORK_ORDERS
+    ):
+        raise ValueError(
+            "unsupported checkpoint-promotion work order; explicit governance "
+            "registration is required: " + work_order
+        )
+
+
 def derive_work_order(repository: str, pr_number: int) -> str:
     pr = _gh_json(repository, f"pulls/{pr_number}")
     if not isinstance(pr, dict):
@@ -282,7 +341,9 @@ def derive_work_order(repository: str, pr_number: int) -> str:
     body = pr.get("body")
     if not isinstance(body, str):
         body = ""
-    return parse_work_order_marker(body)
+    work_order = parse_work_order_marker(body)
+    require_supported_work_order(work_order)
+    return work_order
 
 
 def canonical_change_evidence(paths: list[str], work_order: str = "") -> dict[str, object]:
@@ -303,6 +364,205 @@ def canonical_change_evidence(paths: list[str], work_order: str = "") -> dict[st
 def canonical_change_statement(evidence: dict[str, object]) -> str:
     payload = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
     return f"Canonical change evidence: {payload}"
+
+
+def git_blob_bytes(revision: str, path: str) -> bytes:
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{path}"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"unable to read {path} from exact base {revision}")
+    return result.stdout
+
+
+def checkpoint_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        match = re.match(r"^##\s+(.+?)\s*$", line)
+        if match:
+            current = match.group(1).strip().upper()
+            sections[current] = []
+        elif current is not None:
+            sections[current].append(line)
+    return {name: "\n".join(lines).strip() for name, lines in sections.items()}
+
+
+def checkpoint_bullets(sections: Mapping[str, str], name: str) -> list[str]:
+    return [
+        line.strip()[2:].strip()
+        for line in sections.get(name, "").splitlines()
+        if line.strip().startswith("- ")
+    ]
+
+
+def normalized_checkpoint_value(sections: Mapping[str, str], name: str) -> str:
+    return " ".join(sections.get(name, "").split())
+
+
+def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
+    base = checkpoint_sections(base_text)
+    candidate = checkpoint_sections(candidate_text)
+    if set(base) != set(candidate):
+        raise ValueError("WO-012-P checkpoint sections changed unexpectedly")
+    if normalized_checkpoint_value(base, "STATUS") != EXPECTED_WO012P_PREVIOUS_STATUS:
+        raise ValueError("WO-012-P promotion base has an unexpected checkpoint status")
+    if normalized_checkpoint_value(candidate, "STATUS") != EXPECTED_WO012P_STATUS:
+        raise ValueError("WO-012-P candidate has an unexpected checkpoint status")
+
+    base_completed = checkpoint_bullets(base, "COMPLETED")
+    candidate_completed = checkpoint_bullets(candidate, "COMPLETED")
+    completed_cursor = 0
+    added_completed: list[str] = []
+    for item in candidate_completed:
+        if completed_cursor < len(base_completed) and item == base_completed[completed_cursor]:
+            completed_cursor += 1
+        else:
+            added_completed.append(item)
+    if completed_cursor != len(base_completed):
+        raise ValueError("WO-012-P cannot rewrite historical COMPLETED checkpoint truth")
+    appended_completed = " ".join(added_completed).casefold()
+    for phrase in (
+        "delta context foundation implemented",
+        "delta context implemented",
+        "provider/prompt cache implemented",
+        "memory lifecycle implemented",
+    ):
+        if phrase in appended_completed:
+            raise ValueError("WO-012-P candidate falsely marks out-of-scope work completed")
+
+    base_pending = checkpoint_bullets(base, "PENDING")
+    candidate_pending = checkpoint_bullets(candidate, "PENDING")
+    if base_pending.count("context fingerprints.") != 1:
+        raise ValueError(
+            "WO-012-P promotion base must contain exactly one context fingerprints item"
+        )
+    expected_pending = list(base_pending)
+    expected_pending.remove("context fingerprints.")
+    if candidate_pending != expected_pending:
+        raise ValueError(
+            "WO-012-P must remove only context fingerprints. from PENDING and "
+            "preserve all other items"
+        )
+
+    if normalized_checkpoint_value(candidate, "IN PROGRESS") != f"- {EXPECTED_WO012P_IN_PROGRESS}":
+        raise ValueError("WO-012-P candidate has an unexpected IN PROGRESS intent")
+    if normalized_checkpoint_value(candidate, "BLOCKERS") not in ACCEPTED_WO012P_BLOCKERS:
+        raise ValueError("WO-012-P candidate has an unexpected BLOCKERS intent")
+    next_step = normalized_checkpoint_value(candidate, "NEXT STEP")
+    if not next_step.startswith(EXPECTED_WO012P_NEXT_STEP_PREFIX):
+        raise ValueError("WO-012-P NEXT STEP must target Delta Context Foundation")
+    if "do not prescribe code unnecessarily." not in next_step.casefold():
+        raise ValueError("WO-012-P NEXT STEP must preserve the no-code-prescription intent")
+    if any(
+        phrase in next_step.casefold()
+        for phrase in (
+            "delta context foundation implemented",
+            "provider/prompt cache implemented",
+            "memory lifecycle implemented",
+        )
+    ):
+        raise ValueError("WO-012-P NEXT STEP falsely marks later work completed")
+
+    for name in set(base) - {
+        "STATUS",
+        "COMPLETED",
+        "IN PROGRESS",
+        "PENDING",
+        "BLOCKERS",
+        "NEXT STEP",
+    }:
+        if base[name] != candidate[name]:
+            raise ValueError(f"WO-012-P changed unrelated checkpoint section: {name}")
+
+
+def parse_canonical_manifest(text: str, source: str) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for line_number, raw_line in enumerate(text.splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2 or re.fullmatch(r"[0-9a-f]{64}", parts[0]) is None:
+            raise ValueError(f"malformed canonical manifest line {line_number} in {source}")
+        path = parts[1]
+        if path in seen:
+            raise ValueError(f"duplicate canonical manifest path in {source}: {path}")
+        seen.add(path)
+        entries.append((path, parts[0]))
+    if not entries:
+        raise ValueError(f"canonical manifest is empty: {source}")
+    return entries
+
+
+def require_wo012p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    base_entries = parse_canonical_manifest(base_manifest_text, "base")
+    candidate_entries = parse_canonical_manifest(candidate_manifest_text, "candidate")
+    if [path for path, _ in candidate_entries] != [path for path, _ in base_entries]:
+        raise ValueError("WO-012-P canonical manifest path set or order changed")
+    base_by_path = dict(base_entries)
+    base_lines = base_manifest_text.splitlines(keepends=True)
+    candidate_lines = candidate_manifest_text.splitlines(keepends=True)
+    if len(base_lines) != len(candidate_lines):
+        raise ValueError("WO-012-P canonical manifest line structure changed")
+    checkpoint_line_indexes = [
+        index
+        for index, line in enumerate(base_lines)
+        if len(line.strip().split(maxsplit=1)) == 2
+        and line.strip().split(maxsplit=1)[1] == CANONICAL_MANIFEST_CHECKPOINT_NAME
+    ]
+    if len(checkpoint_line_indexes) != 1:
+        raise ValueError("WO-012-P base manifest must contain one checkpoint hash line")
+    candidate_checkpoint_indexes = [
+        index
+        for index, line in enumerate(candidate_lines)
+        if len(line.strip().split(maxsplit=1)) == 2
+        and line.strip().split(maxsplit=1)[1] == CANONICAL_MANIFEST_CHECKPOINT_NAME
+    ]
+    if candidate_checkpoint_indexes != checkpoint_line_indexes:
+        raise ValueError("WO-012-P canonical manifest checkpoint line moved or disappeared")
+    for path, digest in candidate_entries:
+        if path == CANONICAL_MANIFEST_CHECKPOINT_NAME:
+            expected = hashlib.sha256(candidate_checkpoint_bytes).hexdigest()
+            if digest != expected:
+                raise ValueError("WO-012-P checkpoint hash does not match candidate bytes")
+        elif digest != base_by_path[path]:
+            raise ValueError(f"WO-012-P changed an unauthorized canonical hash: {path}")
+    checkpoint_index = checkpoint_line_indexes[0]
+    base_checkpoint_line = base_lines[checkpoint_index]
+    base_checkpoint_parts = base_checkpoint_line.strip().split(maxsplit=1)
+    prefix_length = base_checkpoint_line.index(base_checkpoint_parts[0])
+    expected_checkpoint_line = (
+        base_checkpoint_line[:prefix_length]
+        + dict(candidate_entries)[CANONICAL_MANIFEST_CHECKPOINT_NAME]
+        + base_checkpoint_line[prefix_length + len(base_checkpoint_parts[0]) :]
+    )
+    for index, (base_line, candidate_line) in enumerate(
+        zip(base_lines, candidate_lines, strict=True)
+    ):
+        if index == checkpoint_index:
+            if candidate_line != expected_checkpoint_line:
+                raise ValueError("WO-012-P changed checkpoint manifest line formatting")
+        elif candidate_line != base_line:
+            raise ValueError("WO-012-P changed an unrelated canonical manifest line")
+
+
+def registered_promotion_base_sha(work_order: str) -> str:
+    base_ref = WO012P_PROMOTION_REGISTRY.get(work_order)
+    if base_ref is None:
+        raise ValueError(f"no registered promotion base for {work_order}")
+    base_sha = git_value("rev-parse", base_ref, fallback="")
+    if not HEX_SHA.fullmatch(base_sha):
+        raise ValueError(f"registered promotion base ref is unavailable: {base_ref}")
+    return base_sha
 
 
 def require_wo008_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
@@ -385,6 +645,57 @@ def require_wo012_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
         raise ValueError(
             "WO-012 implementation evidence cannot change canonical Project Brain or migrations"
         )
+
+
+def require_wo012p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-012-P-G1":
+        return
+    if base_sha != WO012P_G1_BASE_SHA:
+        raise ValueError(
+            f"WO-012-P-G1 requires exact base {WO012P_G1_BASE_SHA}, observed {base_sha}"
+        )
+    unauthorized = sorted(set(paths) - WO012P_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            "WO-012-P-G1 changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
+
+
+def require_wo012p_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    registered_base_sha: str | None = None,
+) -> None:
+    if work_order != "WO-012-P":
+        return
+    if base_branch != "main":
+        raise ValueError(
+            f"WO-012-P requires the protected main base branch, observed {base_branch}"
+        )
+    expected_base = registered_base_sha or registered_promotion_base_sha(work_order)
+    if base_sha != expected_base:
+        raise ValueError(
+            f"WO-012-P requires registered exact base {expected_base}, observed {base_sha}"
+        )
+    if sorted(set(paths)) != sorted(WO012P_PROMOTION_ALLOWED_PATHS) or len(paths) != 2:
+        raise ValueError("WO-012-P requires exactly the checkpoint and canonical manifest files")
+    base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
+    base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
+    candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
+    candidate_manifest = (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
+    require_wo012p_checkpoint_semantics(
+        base_checkpoint,
+        candidate_checkpoint_bytes.decode("utf-8"),
+    )
+    require_wo012p_manifest_contract(
+        base_manifest,
+        candidate_manifest,
+        candidate_checkpoint_bytes,
+    )
 
 
 def repository_name() -> str:
@@ -1142,7 +1453,7 @@ def require_wo012_context_manager_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order != "WO-012":
+    if work_order not in {"WO-012", "WO-012-P"}:
         return
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
     missing = [
@@ -1152,19 +1463,19 @@ def require_wo012_context_manager_evidence(
     ]
     if missing:
         raise ValueError(
-            "WO-012 Review Evidence missing mandatory context-fingerprint evidence: "
+            "WO-012/WO-012-P Review Evidence missing mandatory context-fingerprint evidence: "
             + ", ".join(sorted(missing))
         )
     if context_manager.get("context_fingerprint_benchmark_status") != "PASS":
-        raise ValueError("WO-012 requires a passing context-fingerprint benchmark")
+        raise ValueError("WO-012/WO-012-P requires a passing context-fingerprint benchmark")
     if context_manager.get("context_fingerprint_benchmark_false_hits") != 0:
-        raise ValueError("WO-012 requires zero context-fingerprint false hits")
+        raise ValueError("WO-012/WO-012-P requires zero context-fingerprint false hits")
     if context_manager.get("context_fingerprint_benchmark_critical_context_misses") != 0:
-        raise ValueError("WO-012 requires zero critical context misses")
+        raise ValueError("WO-012/WO-012-P requires zero critical context misses")
     if context_manager.get("context_fingerprint_llm_calls") != 0:
-        raise ValueError("WO-012 requires zero context-fingerprint LLM calls")
+        raise ValueError("WO-012/WO-012-P requires zero context-fingerprint LLM calls")
     if context_manager.get("context_fingerprint_provider_calls") != 0:
-        raise ValueError("WO-012 requires zero context-fingerprint provider calls")
+        raise ValueError("WO-012/WO-012-P requires zero context-fingerprint provider calls")
     for field in (
         "delta_context_implemented",
         "provider_prompt_cache_implemented",
@@ -1172,12 +1483,14 @@ def require_wo012_context_manager_evidence(
         "context_fingerprint_migration_changed",
     ):
         if context_manager.get(field) is not False:
-            raise ValueError(f"WO-012 requires {field}=false")
+            raise ValueError(f"WO-012/WO-012-P requires {field}=false")
     if context_manager.get("status") != "PASS":
-        raise ValueError("WO-012 Review Evidence requires passing Context Manager evidence")
+        raise ValueError(
+            "WO-012/WO-012-P Review Evidence requires passing Context Manager evidence"
+        )
     if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
         raise ValueError(
-            "WO-012 Review Evidence requires migration head 0005_semantic_retrieval, "
+            "WO-012/WO-012-P Review Evidence requires migration head 0005_semantic_retrieval, "
             f"observed {migration_head_value}"
         )
 
@@ -1644,6 +1957,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         work_order = args.work_order or "LOCAL-VALIDATION"
         if work_order != "LOCAL-VALIDATION" and WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None:
             raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
+    require_supported_work_order(work_order)
     validation = read_text(VALIDATION / "summary.txt")
     lint = read_text(VALIDATION / "lint-typecheck-build-results.txt")
     tests_text = read_text(VALIDATION / "test-results.txt")
@@ -1653,6 +1967,8 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     if head_sha != actual_head:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
+    require_wo012p_g1_scope(work_order, base_sha, paths)
+    require_wo012p_scope(work_order, base_sha, paths, base_branch=args.base_branch)
     require_wo008_g1_scope(work_order, base_sha, paths)
     require_wo009_scope(work_order, base_sha, paths)
     require_wo010_g1_scope(work_order, base_sha, paths)
@@ -1800,9 +2116,23 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     if set(manifest) != required or manifest["schema_version"] != 1:
         raise ValueError("manifest does not match the required top-level schema")
     work_order = cast(str, manifest["work_order"])
+    require_supported_work_order(work_order)
+    base = cast(dict[str, Any], manifest["base"])
+    changed_files = cast(dict[str, Any], manifest["changed_files"])
+    require_wo012p_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+    )
+    require_wo012p_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+    )
     if work_order == "WO-008-G1":
-        base = cast(dict[str, Any], manifest["base"])
-        changed_files = cast(dict[str, Any], manifest["changed_files"])
         require_wo008_g1_scope(
             work_order,
             cast(str, base["sha"]),
@@ -1822,16 +2152,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if not isinstance(governance_pr.get("auto_merge"), Mapping):
             raise ValueError("WO-008-G1 evidence requires structured auto-merge evidence")
     if work_order == "WO-009":
-        base = cast(dict[str, Any], manifest["base"])
-        changed_files = cast(dict[str, Any], manifest["changed_files"])
         require_wo009_scope(
             work_order,
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
     if work_order == "WO-010-G1":
-        base = cast(dict[str, Any], manifest["base"])
-        changed_files = cast(dict[str, Any], manifest["changed_files"])
         require_wo010_g1_scope(
             work_order,
             cast(str, base["sha"]),
@@ -1851,24 +2177,18 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if review_state.get("sol_review_state") != "AWAITING_SOL":
             raise ValueError("WO-010-G1 evidence cannot invent a Sol approval state")
     if work_order == "WO-010":
-        base = cast(dict[str, Any], manifest["base"])
-        changed_files = cast(dict[str, Any], manifest["changed_files"])
         require_wo010_scope(
             work_order,
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
     if work_order == "WO-011":
-        base = cast(dict[str, Any], manifest["base"])
-        changed_files = cast(dict[str, Any], manifest["changed_files"])
         require_wo011_scope(
             work_order,
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
     if work_order == "WO-012":
-        base = cast(dict[str, Any], manifest["base"])
-        changed_files = cast(dict[str, Any], manifest["changed_files"])
         require_wo012_scope(
             work_order,
             cast(str, base["sha"]),
