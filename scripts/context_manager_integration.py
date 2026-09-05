@@ -347,6 +347,10 @@ def run_post_build_race(
         ),
         encoding="utf-8",
     )
+    # The API container runs as the non-root ``hive`` user on Linux CI.  The
+    # host-created fixture file would otherwise be 0644 and the post-build
+    # hook could not publish its paused/release state through the bind mount.
+    control_path.chmod(0o666)
     result: dict[str, tuple[int, dict[str, Any] | list[Any]]] = {}
 
     def request_worker() -> None:
