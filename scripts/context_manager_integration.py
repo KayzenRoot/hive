@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from project_registry_integration import request as http_request
 
 sys.path.insert(0, str(ROOT / "backend"))
 from app import context_manager as context_manager_module  # noqa: E402
+from app import delta_context as delta_context_module  # noqa: E402
 from app.adaptive_token_budget import (  # noqa: E402
     TOKEN_BUDGET_SERIALIZATION_VERSION,
     TOKEN_ESTIMATOR_VERSION,
@@ -44,6 +46,14 @@ from app.context_fingerprints import (  # noqa: E402
     MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES,
     context_input_fingerprint,
     context_output_fingerprint,
+)
+from app.delta_context import (  # noqa: E402
+    ContextDeliveryProvenance,
+    apply_patch,
+    build_context_delivery,
+    build_patch,
+    semantic_context_value,
+    serialized_delivery_bytes,
 )
 from app.registry import ProjectResponse  # noqa: E402
 from app.semantic_retrieval import (  # noqa: E402
@@ -316,6 +326,183 @@ def delta_context_request(
     return status, response
 
 
+def serialized_response_bytes(payload: dict[str, Any] | list[Any]) -> int:
+    """Match the compact UTF-8 JSON envelope used by the API response."""
+
+    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def run_post_build_race(
+    base_url: str,
+    project_id: str,
+    task_id: str,
+    control_path: Path,
+    payload: dict[str, Any],
+    mutate_after_pause: Any,
+) -> tuple[int, dict[str, Any] | list[Any]]:
+    control_path.write_text(
+        json.dumps(
+            {"status": "armed", "project_id": project_id, "task_id": task_id},
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    result: dict[str, tuple[int, dict[str, Any] | list[Any]]] = {}
+
+    def request_worker() -> None:
+        result["response"] = delta_context_request(
+            base_url,
+            project_id,
+            task_id,
+            payload,
+            timeout=90,
+        )
+
+    worker = threading.Thread(target=request_worker, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 45.0
+    while time.monotonic() < deadline:
+        try:
+            state = json.loads(control_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            state = {}
+        if isinstance(state, dict) and state.get("status") == "paused":
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("post-build Delta race hook did not pause after target build")
+
+    mutate_after_pause()
+    control_path.write_text(
+        json.dumps(
+            {"status": "release", "project_id": project_id, "task_id": task_id},
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    worker.join(timeout=90)
+    if worker.is_alive() or "response" not in result:
+        raise AssertionError("post-build Delta race request did not complete")
+    return result["response"]
+
+
+def delta_delivery_bound_probe() -> dict[str, Any]:
+    """Prove the final response bound with a valid baseline/target pair."""
+
+    project_id = UUID("00000000-0000-0000-0000-000000000101")
+    task_id = UUID("00000000-0000-0000-0000-000000000102")
+    index_id = UUID("00000000-0000-0000-0000-000000000103")
+    corpus_id = UUID("00000000-0000-0000-0000-000000000104")
+    head = "b" * 40
+    baseline = {"large": "x" * 5_000, "version": 1}
+    target = {"large": "x" * 5_000, "version": 2}
+    baseline_fp = context_output_fingerprint(baseline)
+    target_fp = context_output_fingerprint(target)
+    provenance = ContextDeliveryProvenance(
+        repository_head_sha=head,
+        registered_head_sha=head,
+        index_run_id=index_id,
+        corpus_run_id=corpus_id,
+        target_output_fingerprint=target_fp,
+    )
+    normal = build_context_delivery(
+        project_id=project_id,
+        task_id=task_id,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance,
+    )
+    if normal.mode != "DELTA":
+        raise AssertionError(f"final-bound probe did not produce DELTA: {normal}")
+    final_bytes = len(serialized_delivery_bytes(normal))
+    original_bound = delta_context_module.MAX_DELTA_DELIVERY_BYTES
+    try:
+        delta_context_module.MAX_DELTA_DELIVERY_BYTES = final_bytes
+        at_boundary = build_context_delivery(
+            project_id=project_id,
+            task_id=task_id,
+            baseline_output_fingerprint=baseline_fp,
+            baseline_payload=baseline,
+            target_payload=target,
+            target_full_context=target,
+            target_output_fingerprint=target_fp,
+            current_provenance=provenance,
+        )
+        delta_context_module.MAX_DELTA_DELIVERY_BYTES = final_bytes - 1
+        over_bound = build_context_delivery(
+            project_id=project_id,
+            task_id=task_id,
+            baseline_output_fingerprint=baseline_fp,
+            baseline_payload=baseline,
+            target_payload=target,
+            target_full_context=target,
+            target_output_fingerprint=target_fp,
+            current_provenance=provenance,
+        )
+    finally:
+        delta_context_module.MAX_DELTA_DELIVERY_BYTES = original_bound
+    return {
+        "metric": "utf8_bytes(model_dump_json())",
+        "limit_bytes": original_bound,
+        "final_bytes": final_bytes,
+        "at_boundary_accepted": at_boundary.mode == "DELTA",
+        "over_bound_full": (
+            over_bound.mode == "FULL"
+            and over_bound.full_fallback_reason == "delta_delivery_bound_exceeded"
+        ),
+        "no_truncation": over_bound.patch is None,
+        "patch_serialized_characters": normal.patch_serialized_characters,
+        "patch_bound_respected": normal.patch_serialized_characters
+        < delta_context_module.MAX_DELTA_PATCH_CHARS,
+        "deterministic": at_boundary.model_dump() == normal.model_dump(),
+    }
+
+
+def delta_not_smaller_probe() -> dict[str, Any]:
+    """Use valid compatible semantic values for the exact not-smaller proof."""
+
+    project_id = UUID("00000000-0000-0000-0000-000000000201")
+    task_id = UUID("00000000-0000-0000-0000-000000000202")
+    index_id = UUID("00000000-0000-0000-0000-000000000203")
+    corpus_id = UUID("00000000-0000-0000-0000-000000000204")
+    head = "c" * 40
+    baseline = {"value": 1}
+    target = {"value": 2}
+    baseline_fp = context_output_fingerprint(baseline)
+    target_fp = context_output_fingerprint(target)
+    provenance = ContextDeliveryProvenance(
+        repository_head_sha=head,
+        registered_head_sha=head,
+        index_run_id=index_id,
+        corpus_run_id=corpus_id,
+        target_output_fingerprint=target_fp,
+    )
+    operations = build_patch(semantic_context_value(baseline), semantic_context_value(target))
+    reconstructed = apply_patch(semantic_context_value(baseline), operations)
+    delivery = build_context_delivery(
+        project_id=project_id,
+        task_id=task_id,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance,
+    )
+    return {
+        "delivery": delivery,
+        "baseline_resolved": baseline_fp == context_output_fingerprint(baseline),
+        "patch_executed": bool(operations),
+        "reconstruction_verified": reconstructed == semantic_context_value(target),
+        "target_fingerprint_verified": context_output_fingerprint(reconstructed) == target_fp,
+        "delta_estimated_tokens": delivery.delta_estimated_tokens,
+        "full_estimated_tokens": delivery.full_estimated_tokens,
+    }
+
+
 def fixture_stats(port: int, label: str) -> dict[str, Any]:
     status, payload = request(f"http://127.0.0.1:{port}", "GET", "/stats")
     if status != 200 or not isinstance(payload, dict):
@@ -515,6 +702,7 @@ def main() -> int:
     rerank_port = free_port()
     projects_root = temporary_root / "projects"
     data_root = temporary_root / "data"
+    race_control_path = data_root / "delta-context-race-control.json"
     projects_root.mkdir()
     data_root.mkdir()
     environment = os.environ.copy()
@@ -524,6 +712,7 @@ def main() -> int:
             "HIVE_DASHBOARD_PORT": str(dashboard_port),
             "HIVE_PROJECTS_ROOT": projects_root.as_posix(),
             "HIVE_DATA_ROOT": data_root.as_posix(),
+            "HIVE_DELTA_CONTEXT_RACE_CONTROL": "/var/lib/hive/delta-context-race-control.json",
             "POSTGRES_DB": "hive",
             "POSTGRES_USER": "hive",
             "POSTGRES_PASSWORD": "hive",
@@ -1794,15 +1983,23 @@ def main() -> int:
         )
         if not delta_a_identical:
             raise AssertionError(f"identical Delta contract failed: {delta_a}")
-        delta_a_target_fp = str(delta_a.get("target_output_fingerprint"))
-        delta_a_exact_reconstruction = (
-            delta_a.get("reconstruction_verified") is True
-            and delta_a.get("target_output_fingerprint_verified") is True
-            and delta_a_target_fp == delta_baseline_fp
+        status, delta_a_repeat = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
         )
+        if status != 200 or not isinstance(delta_a_repeat, dict):
+            raise AssertionError(
+                f"Delta deterministic repeat fixture failed: {status} {delta_a_repeat}"
+            )
 
         # Redis and API restart must retain the non-canonical pointer/cache
-        # and still rebuild the current target through the normal path.
+        # before any subsequent source mutation.
         compose(project_name, ["restart", "api"], env=environment)
         wait_for_health(base_url)
         status, delta_g = delta_context_request(
@@ -1824,6 +2021,94 @@ def main() -> int:
         if not delta_g_api_restart_reuse:
             raise AssertionError(f"API restart did not retain Delta baseline: {status} {delta_g}")
 
+        # K: true post-build races. The integration-only control file pauses
+        # after build_context() has produced a target. The host then commits a
+        # source mutation before releasing the request. Exercise both a valid
+        # DELTA candidate and an early FULL candidate; neither may be emitted.
+        status, delta_k_delta = run_post_build_race(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            race_control_path,
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+            lambda: (
+                (target / "src" / "post_build_delta_race.py").write_text(
+                    "RACE_DELTA = 'mutated after target build'\n",
+                    encoding="utf-8",
+                ),
+                commit(target, "controlled post-build Delta race", environment),
+            ),
+        )
+        delta_k_delta_fail_closed = (
+            status == 409
+            and isinstance(delta_k_delta, dict)
+            and "project_head_stale" in str(delta_k_delta.get("detail", delta_k_delta))
+        )
+        if not delta_k_delta_fail_closed:
+            raise AssertionError(
+                f"post-build DELTA race was not fail-closed: {status} {delta_k_delta}"
+            )
+        for path, label in (
+            (f"/api/v1/projects/{project_ids['Target']}/inspect", "post-build DELTA race inspect"),
+            (f"/api/v1/projects/{project_ids['Target']}/index", "post-build DELTA race index"),
+            (
+                f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+                "post-build DELTA race corpus",
+            ),
+            (
+                f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+                "post-build DELTA race semantic",
+            ),
+        ):
+            assert_equal(request(base_url, "POST", path)[0], 200, label)
+
+        status, delta_k_full = run_post_build_race(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            race_control_path,
+            {"top_k": 10, "disclosure_level": "L4"},
+            lambda: (
+                (target / "src" / "post_build_full_race.py").write_text(
+                    "RACE_FULL = 'mutated after target build'\n",
+                    encoding="utf-8",
+                ),
+                commit(target, "controlled post-build FULL race", environment),
+            ),
+        )
+        delta_k_full_fail_closed = (
+            status == 409
+            and isinstance(delta_k_full, dict)
+            and "project_head_stale" in str(delta_k_full.get("detail", delta_k_full))
+        )
+        if not delta_k_full_fail_closed:
+            raise AssertionError(
+                f"post-build FULL race was not fail-closed: {status} {delta_k_full}"
+            )
+        for path, label in (
+            (f"/api/v1/projects/{project_ids['Target']}/inspect", "post-build FULL race inspect"),
+            (f"/api/v1/projects/{project_ids['Target']}/index", "post-build FULL race index"),
+            (
+                f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+                "post-build FULL race corpus",
+            ),
+            (
+                f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+                "post-build FULL race semantic",
+            ),
+        ):
+            assert_equal(request(base_url, "POST", path)[0], 200, label)
+
+        delta_a_target_fp = str(delta_a.get("target_output_fingerprint"))
+        delta_a_exact_reconstruction = (
+            delta_a.get("reconstruction_verified") is True
+            and delta_a.get("target_output_fingerprint_verified") is True
+            and delta_a_target_fp == delta_baseline_fp
+        )
         compose(project_name, ["stop", "redis"], env=environment)
         status, delta_f = delta_context_request(
             base_url,
@@ -2017,24 +2302,35 @@ def main() -> int:
             {
                 "top_k": 1,
                 "disclosure_level": "L4",
-                "baseline_output_fingerprint": "0" * 64,
+                "baseline_output_fingerprint": delta_baseline_fp,
             },
         )
-        delta_d_full_fallback = (
+        delta_d_endpoint_valid = (
             status == 200
             and isinstance(delta_d, dict)
-            and delta_d.get("mode") == "FULL"
-            and delta_d.get("full_fallback_reason")
-            in {
-                "delta_not_smaller",
-                "delta_patch_bound_exceeded",
-                "delta_delivery_bound_exceeded",
-                "baseline_not_found",
-            }
-            and isinstance(delta_d.get("full_context"), dict)
+            and (
+                (delta_d.get("mode") == "DELTA" and delta_d.get("full_context") is None)
+                or (delta_d.get("mode") == "FULL" and isinstance(delta_d.get("full_context"), dict))
+            )
+            and delta_d.get("target_output_fingerprint")
+            == delta_d.get("current_provenance", {}).get("target_output_fingerprint")
+        )
+        if not delta_d_endpoint_valid:
+            raise AssertionError(f"large-change Delta target was invalid: {status} {delta_d}")
+        delta_d_probe = delta_not_smaller_probe()
+        delta_d_delivery = delta_d_probe["delivery"]
+        delta_d_full_fallback = (
+            delta_d_probe["baseline_resolved"]
+            and delta_d_probe["patch_executed"]
+            and delta_d_probe["reconstruction_verified"]
+            and delta_d_probe["target_fingerprint_verified"]
+            and delta_d_delivery.mode == "FULL"
+            and delta_d_delivery.full_fallback_reason == "delta_not_smaller"
+            and delta_d_probe["delta_estimated_tokens"] >= delta_d_probe["full_estimated_tokens"]
+            and delta_d_delivery.full_context == {"value": 2}
         )
         if not delta_d_full_fallback:
-            raise AssertionError(f"large-change Delta did not fail closed: {status} {delta_d}")
+            raise AssertionError(f"valid-baseline not-smaller probe failed: {delta_d_probe}")
 
         # H/I: a fingerprint from another project/task never resolves through
         # the project/task-scoped pointer key and cannot leak foreign content.
@@ -2119,7 +2415,7 @@ def main() -> int:
             raise AssertionError(f"HEAD race error was not explicit: {race}")
         head_race_fail_closed = status == 409
 
-        delta_k_source_race_fail_closed = False
+        initial_delta_source_race_fail_closed = False
         status, delta_k = delta_context_request(
             base_url,
             project_ids["Target"],
@@ -2130,11 +2426,13 @@ def main() -> int:
                 "baseline_output_fingerprint": delta_baseline_fp,
             },
         )
-        delta_k_source_race_fail_closed = (
+        initial_delta_source_race_fail_closed = (
             status == 409
             and isinstance(delta_k, dict)
             and "project_head_stale" in str(delta_k.get("detail", delta_k))
         )
+        if not initial_delta_source_race_fail_closed:
+            raise AssertionError(f"initial Delta race was not fail-closed: {status} {delta_k}")
         delta_context_false_reconstructions = int(
             not all(
                 (
@@ -2145,14 +2443,28 @@ def main() -> int:
             )
         )
         delta_context_critical_context_misses = int(not delta_c_dependency_preserved)
-        delta_context_full_fallback_when_not_smaller = delta_d_full_fallback
+        delta_context_full_fallback_when_not_smaller = (
+            delta_d_full_fallback and delta_d_delivery.full_fallback_reason == "delta_not_smaller"
+        )
+        delta_context_not_smaller_valid_baseline = (
+            delta_context_full_fallback_when_not_smaller
+            and delta_d_probe["baseline_resolved"]
+            and delta_d_probe["delta_estimated_tokens"] >= delta_d_probe["full_estimated_tokens"]
+        )
+        delta_context_not_smaller_reason_verified = (
+            delta_context_not_smaller_valid_baseline
+            and delta_d_delivery.full_fallback_reason == "delta_not_smaller"
+        )
+        final_delivery_bound = delta_delivery_bound_probe()
+        delta_context_postbuild_source_race_fail_closed = (
+            delta_k_delta_fail_closed and delta_k_full_fail_closed
+        )
         delta_context_full_fallback_correct = (
             delta_d_full_fallback
-            and isinstance(delta_d, dict)
-            and delta_d.get("target_output_fingerprint")
-            == delta_d.get("current_provenance", {}).get("target_output_fingerprint")
+            and delta_d_delivery.target_output_fingerprint
+            == delta_d_delivery.current_provenance.target_output_fingerprint
         )
-        delta_context_deterministic_two_run = delta_a == delta_g
+        delta_context_deterministic_two_run = delta_a == delta_a_repeat
         delta_context_benchmark_status = (
             "PASS"
             if all(
@@ -2168,17 +2480,45 @@ def main() -> int:
                     delta_h_cross_project_isolated,
                     delta_i_cross_task_isolated,
                     delta_j_corrupt_full_fallback,
-                    delta_k_source_race_fail_closed,
+                    delta_context_postbuild_source_race_fail_closed,
                     delta_context_false_reconstructions == 0,
                     delta_context_critical_context_misses == 0,
                     delta_context_full_fallback_correct,
+                    delta_context_not_smaller_valid_baseline,
+                    delta_context_not_smaller_reason_verified,
+                    final_delivery_bound.get("at_boundary_accepted") is True,
+                    final_delivery_bound.get("over_bound_full") is True,
+                    final_delivery_bound.get("no_truncation") is True,
+                    final_delivery_bound.get("deterministic") is True,
                     delta_context_deterministic_two_run,
                 )
             )
             else "FAIL"
         )
         if delta_context_benchmark_status != "PASS":
-            raise AssertionError("Delta Context benchmark did not pass")
+            raise AssertionError(
+                "Delta Context benchmark did not pass: "
+                + json.dumps(
+                    {
+                        "A": delta_a_identical and delta_a_exact_reconstruction,
+                        "B": delta_b_small_change_strict_reduction,
+                        "C": delta_c_dependency_preserved,
+                        "D": delta_d_full_fallback,
+                        "E": delta_e_full_fallback,
+                        "F": delta_f_redis_loss_full_fallback,
+                        "G": delta_g_api_restart_reuse,
+                        "H": delta_h_cross_project_isolated,
+                        "I": delta_i_cross_task_isolated,
+                        "J": delta_j_corrupt_full_fallback,
+                        "K": delta_context_postbuild_source_race_fail_closed,
+                        "not_smaller_valid_baseline": delta_context_not_smaller_valid_baseline,
+                        "not_smaller_reason": delta_context_not_smaller_reason_verified,
+                        "final_bound": final_delivery_bound,
+                        "deterministic": delta_context_deterministic_two_run,
+                    },
+                    sort_keys=True,
+                )
+            )
 
         context_fingerprint_source_change_invalidates = source_change_invalidates
         context_fingerprint_task_change_invalidates = task_change_invalidates
@@ -2473,7 +2813,18 @@ def main() -> int:
             "delta_context_corrupt_baseline_safe_full_fallback": delta_j_corrupt_full_fallback,
             "delta_context_redis_loss_full_fallback": delta_f_redis_loss_full_fallback,
             "delta_context_api_restart_reuse": delta_g_api_restart_reuse,
-            "delta_context_source_race_fail_closed": delta_k_source_race_fail_closed,
+            "delta_context_source_race_fail_closed": (
+                delta_context_postbuild_source_race_fail_closed
+            ),
+            "delta_context_final_stability_all_delivery_paths": (
+                delta_context_postbuild_source_race_fail_closed
+                and delta_e_full_fallback
+                and delta_context_not_smaller_reason_verified
+                and delta_a.get("mode") == "DELTA"
+            ),
+            "delta_context_postbuild_source_race_fail_closed": (
+                delta_context_postbuild_source_race_fail_closed
+            ),
             "delta_context_reconstruction_verified": (
                 delta_a.get("reconstruction_verified") is True
                 and delta_c.get("reconstruction_verified") is True
@@ -2489,10 +2840,52 @@ def main() -> int:
             "delta_context_changed_context_strict_reduction": (
                 delta_b_small_change_strict_reduction
             ),
+            "delta_context_small_change_delta_estimated_tokens": int(
+                delta_b.get("delta_estimated_tokens", 0)
+            ),
+            "delta_context_small_change_full_estimated_tokens": int(
+                delta_b.get("full_estimated_tokens", 0)
+            ),
+            "delta_context_small_change_fresh_context_tokens_avoided": int(
+                delta_b.get("estimated_fresh_context_tokens_avoided", 0)
+            ),
+            "delta_context_small_change_patch_operation_count": int(
+                delta_b.get("patch_operation_count", 0)
+            ),
+            "delta_context_small_change_patch_serialized_characters": int(
+                delta_b.get("patch_serialized_characters", 0)
+            ),
+            "delta_context_small_change_final_delivery_bytes": serialized_response_bytes(delta_b),
             "delta_context_full_fallback_when_not_smaller": (
                 delta_context_full_fallback_when_not_smaller
             ),
+            "delta_context_not_smaller_valid_baseline": (delta_context_not_smaller_valid_baseline),
+            "delta_context_not_smaller_reason_verified": (
+                delta_context_not_smaller_reason_verified
+            ),
+            "delta_context_not_smaller_delta_estimated_tokens": delta_d_probe[
+                "delta_estimated_tokens"
+            ],
+            "delta_context_not_smaller_full_estimated_tokens": delta_d_probe[
+                "full_estimated_tokens"
+            ],
             "delta_context_full_fallback_correct": delta_context_full_fallback_correct,
+            "delta_context_final_delivery_bound_verified": all(
+                (
+                    final_delivery_bound.get("at_boundary_accepted") is True,
+                    final_delivery_bound.get("over_bound_full") is True,
+                    final_delivery_bound.get("no_truncation") is True,
+                    final_delivery_bound.get("deterministic") is True,
+                )
+            ),
+            "delta_context_final_delivery_bound_metric": final_delivery_bound.get("metric"),
+            "delta_context_final_delivery_bound_bytes": final_delivery_bound.get("final_bytes"),
+            "delta_context_final_delivery_bound_limit_bytes": final_delivery_bound.get(
+                "limit_bytes"
+            ),
+            "delta_context_final_delivery_bound_patch_serialized_characters": (
+                final_delivery_bound.get("patch_serialized_characters")
+            ),
             "delta_context_deterministic_two_run": delta_context_deterministic_two_run,
             "delta_context_benchmark_status": delta_context_benchmark_status,
             "delta_context_migration_changed": False,

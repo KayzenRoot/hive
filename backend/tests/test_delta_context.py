@@ -9,7 +9,11 @@ from pydantic import ValidationError
 from app import delta_context
 from app.adaptive_token_budget import estimate_tokens
 from app.config import Settings
-from app.context_fingerprints import ContextFingerprintCacheEnvelope, context_output_fingerprint
+from app.context_fingerprints import (
+    ContextFingerprintCacheEnvelope,
+    canonical_json,
+    context_output_fingerprint,
+)
 from app.delta_context import (
     CONTEXT_DELIVERY_SCHEMA_VERSION,
     DELTA_CONTEXT_POLICY_VERSION,
@@ -24,6 +28,7 @@ from app.delta_context import (
     register_delta_baseline,
     resolve_delta_baseline,
     semantic_context_value,
+    serialized_delivery_bytes,
     serialized_patch,
 )
 
@@ -172,6 +177,83 @@ def test_delivery_falls_back_to_full_when_delta_is_not_smaller() -> None:
     assert delivery.full_fallback_reason == "delta_not_smaller"
     assert delivery.full_context == target
     assert delivery.patch is None
+
+
+def test_final_delivery_bound_uses_exact_serialized_context_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = payload({"large": "x" * 5_000, "version": 1})
+    target = payload({"large": "x" * 5_000, "version": 2})
+    baseline_fp = context_output_fingerprint(baseline)
+    target_fp = context_output_fingerprint(target)
+    operations = build_patch(semantic_context_value(baseline), semantic_context_value(target))
+    patch_text = serialized_patch(operations)
+    metadata = delta_context._delta_delivery_metadata(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+        patch_text=patch_text,
+    )
+    metadata_bytes = len(canonical_json(metadata).encode("utf-8"))
+    candidate = build_context_delivery(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+    )
+    assert candidate.mode == "DELTA"
+    final_bytes = len(serialized_delivery_bytes(candidate))
+    assert metadata_bytes < final_bytes
+    assert len(patch_text) < delta_context.MAX_DELTA_PATCH_CHARS
+
+    monkeypatch.setattr(delta_context, "MAX_DELTA_DELIVERY_BYTES", final_bytes - 1)
+    overflow = build_context_delivery(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+    )
+    assert overflow.mode == "FULL"
+    assert overflow.full_fallback_reason == "delta_delivery_bound_exceeded"
+    assert overflow.patch is None
+    assert overflow.patch_serialized_characters == len(patch_text)
+
+    monkeypatch.setattr(delta_context, "MAX_DELTA_DELIVERY_BYTES", final_bytes)
+    at_boundary_first = build_context_delivery(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+    )
+    at_boundary_second = build_context_delivery(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+    )
+    assert at_boundary_first.mode == "DELTA"
+    assert at_boundary_first.model_dump() == at_boundary_second.model_dump()
+    assert serialized_delivery_bytes(at_boundary_first) == serialized_delivery_bytes(
+        at_boundary_second
+    )
 
 
 def test_delivery_full_fallback_contract_supports_no_baseline() -> None:

@@ -881,6 +881,178 @@ def test_source_race_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
         context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
 
 
+@pytest.mark.parametrize(
+    "delivery_path",
+    [
+        "baseline_not_requested",
+        "baseline_not_found",
+        "baseline_invalid",
+        "delta_not_smaller",
+        "delta_patch_bound_exceeded",
+        "delta",
+    ],
+)
+def test_delta_final_stability_guard_covers_every_delivery_path(
+    monkeypatch: pytest.MonkeyPatch,
+    delivery_path: str,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+    target = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    assert target.context_fingerprint is not None
+    delivery = ContextDelivery(
+        mode="DELTA" if delivery_path == "delta" else "FULL",
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint="d" * 64 if delivery_path == "delta" else None,
+        target_output_fingerprint=target.context_fingerprint.output_fingerprint,
+        reconstruction_verified=delivery_path == "delta",
+        target_output_fingerprint_verified=True,
+        full_fallback_reason=None if delivery_path == "delta" else delivery_path,
+        current_provenance=ContextDeliveryProvenance(
+            repository_head_sha=REPOSITORY_HEAD,
+            registered_head_sha=REPOSITORY_HEAD,
+            index_run_id=INDEX_RUN_ID,
+            corpus_run_id=CORPUS_RUN_ID,
+            target_output_fingerprint=target.context_fingerprint.output_fingerprint,
+        ),
+        patch=[] if delivery_path == "delta" else None,
+        full_context=None if delivery_path == "delta" else target.model_dump(mode="json"),
+        delta_estimated_tokens=1 if delivery_path == "delta" else 0,
+        full_estimated_tokens=10,
+        estimated_fresh_context_tokens_avoided=9 if delivery_path == "delta" else 0,
+        patch_operation_count=0,
+        patch_serialized_characters=0,
+    )
+    monkeypatch.setattr(context_manager, "build_context", lambda *_args, **_kwargs: target)
+    monkeypatch.setattr(
+        context_manager,
+        "build_context_delivery",
+        lambda **_kwargs: delivery,
+    )
+    if delivery_path == "baseline_not_found":
+        monkeypatch.setattr(
+            context_manager,
+            "resolve_delta_baseline",
+            lambda *_args, **_kwargs: None,
+        )
+    elif delivery_path in {
+        "baseline_invalid",
+        "delta_not_smaller",
+        "delta_patch_bound_exceeded",
+        "delta",
+    }:
+        monkeypatch.setattr(
+            context_manager,
+            "resolve_delta_baseline",
+            lambda *_args, **_kwargs: (object(), object()),
+        )
+        monkeypatch.setattr(
+            context_manager,
+            "_validate_delta_baseline",
+            lambda **_kwargs: None if delivery_path == "baseline_invalid" else (target, {}),
+        )
+    monkeypatch.setattr(
+        context_manager,
+        "_assert_delta_target_stable",
+        lambda *_args: (_ for _ in ()).throw(
+            context_manager.ContextStaleError("delta_target_source_changed")
+        ),
+    )
+
+    request_baseline = None if delivery_path == "baseline_not_requested" else "d" * 64
+    with pytest.raises(context_manager.ContextStaleError, match="delta_target_source_changed"):
+        context_manager.build_delta_context(
+            Settings(),
+            PROJECT_ID,
+            TASK_ID,
+            baseline_output_fingerprint=request_baseline,
+        )
+
+
+@pytest.mark.parametrize(
+    "delivery_path",
+    [
+        "baseline_not_requested",
+        "baseline_not_found",
+        "baseline_invalid",
+        "delta_not_smaller",
+        "delta_patch_bound_exceeded",
+        "delta",
+    ],
+)
+def test_delta_final_stability_guard_preserves_delivery_when_stable(
+    monkeypatch: pytest.MonkeyPatch,
+    delivery_path: str,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+    target = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    assert target.context_fingerprint is not None
+    delivery = ContextDelivery(
+        mode="DELTA" if delivery_path == "delta" else "FULL",
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint="d" * 64 if delivery_path == "delta" else None,
+        target_output_fingerprint=target.context_fingerprint.output_fingerprint,
+        reconstruction_verified=delivery_path == "delta",
+        target_output_fingerprint_verified=True,
+        full_fallback_reason=None if delivery_path == "delta" else delivery_path,
+        current_provenance=ContextDeliveryProvenance(
+            repository_head_sha=REPOSITORY_HEAD,
+            registered_head_sha=REPOSITORY_HEAD,
+            index_run_id=INDEX_RUN_ID,
+            corpus_run_id=CORPUS_RUN_ID,
+            target_output_fingerprint=target.context_fingerprint.output_fingerprint,
+        ),
+        patch=[] if delivery_path == "delta" else None,
+        full_context=None if delivery_path == "delta" else target.model_dump(mode="json"),
+        delta_estimated_tokens=1 if delivery_path == "delta" else 0,
+        full_estimated_tokens=10,
+        estimated_fresh_context_tokens_avoided=9 if delivery_path == "delta" else 0,
+        patch_operation_count=0,
+        patch_serialized_characters=0,
+    )
+    monkeypatch.setattr(context_manager, "build_context", lambda *_args, **_kwargs: target)
+    monkeypatch.setattr(context_manager, "build_context_delivery", lambda **_kwargs: delivery)
+    if delivery_path == "baseline_not_found":
+        monkeypatch.setattr(
+            context_manager,
+            "resolve_delta_baseline",
+            lambda *_args, **_kwargs: None,
+        )
+    elif delivery_path in {
+        "baseline_invalid",
+        "delta_not_smaller",
+        "delta_patch_bound_exceeded",
+        "delta",
+    }:
+        monkeypatch.setattr(
+            context_manager,
+            "resolve_delta_baseline",
+            lambda *_args, **_kwargs: (object(), object()),
+        )
+        monkeypatch.setattr(
+            context_manager,
+            "_validate_delta_baseline",
+            lambda **_kwargs: None if delivery_path == "baseline_invalid" else (target, {}),
+        )
+    calls: list[object] = []
+    monkeypatch.setattr(
+        context_manager,
+        "_assert_delta_target_stable",
+        lambda *_args: calls.append(target),
+    )
+
+    request_baseline = None if delivery_path == "baseline_not_requested" else "d" * 64
+    result = context_manager.build_delta_context(
+        Settings(),
+        PROJECT_ID,
+        TASK_ID,
+        baseline_output_fingerprint=request_baseline,
+    )
+    assert result is delivery
+    assert calls == [target]
+
+
 def test_context_api_accepts_project_and_task_ids_without_query_assembly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

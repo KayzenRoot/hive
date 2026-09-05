@@ -38,7 +38,10 @@ MAX_DELTA_PATCH_CHARS = 24_000
 MAX_DELTA_PATH_CHARS = 512
 MAX_DELTA_PATH_DEPTH = 16
 MAX_DELTA_BASELINE_VALUE_BYTES = 8_192
-MAX_DELTA_DELIVERY_CHARS = 24_000
+# The final DELTA response is bounded by the UTF-8 byte length of the exact
+# ``ContextDelivery.model_dump_json()`` envelope.  Patch serialization keeps
+# its existing character bound because it is a separate JSON Patch artifact.
+MAX_DELTA_DELIVERY_BYTES = 24_000
 HEX64 = r"^[0-9a-f]{64}$"
 HEX40 = r"^[0-9a-f]{40}$"
 
@@ -410,6 +413,36 @@ def delivery_size_tokens(delivery_metadata: Mapping[str, object]) -> int:
     return estimate_tokens(canonical_json(dict(delivery_metadata)))
 
 
+def serialized_delivery_bytes(delivery: ContextDelivery) -> bytes:
+    """Serialize the exact response envelope used for the delivery bound."""
+
+    return delivery.model_dump_json().encode("utf-8")
+
+
+def _delta_delivery_metadata(
+    *,
+    project_id: UUID,
+    task_id: UUID,
+    baseline_output_fingerprint: str,
+    target_output_fingerprint: str,
+    current_provenance: ContextDeliveryProvenance,
+    patch_text: str,
+) -> dict[str, object]:
+    return {
+        "schema_version": CONTEXT_DELIVERY_SCHEMA_VERSION,
+        "policy_version": DELTA_CONTEXT_POLICY_VERSION,
+        "serialization_version": DELTA_SERIALIZATION_VERSION,
+        "mode": "DELTA",
+        "project_id": str(project_id),
+        "task_id": str(task_id),
+        "baseline_output_fingerprint": baseline_output_fingerprint,
+        "target_output_fingerprint": target_output_fingerprint,
+        "target_semantic_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+        "patch": json.loads(patch_text),
+        "current_provenance": current_provenance.model_dump(mode="json"),
+    }
+
+
 def build_context_delivery(
     *,
     project_id: UUID,
@@ -443,19 +476,14 @@ def build_context_delivery(
         reconstructed = apply_patch(baseline_semantic, operations)
         reconstruction_verified = reconstructed == target_semantic
         target_fp_verified = context_output_fingerprint(reconstructed) == target_output_fingerprint
-        metadata = {
-            "schema_version": CONTEXT_DELIVERY_SCHEMA_VERSION,
-            "policy_version": DELTA_CONTEXT_POLICY_VERSION,
-            "serialization_version": DELTA_SERIALIZATION_VERSION,
-            "mode": "DELTA",
-            "project_id": str(project_id),
-            "task_id": str(task_id),
-            "baseline_output_fingerprint": baseline_output_fingerprint,
-            "target_output_fingerprint": target_output_fingerprint,
-            "target_semantic_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
-            "patch": json.loads(patch_text),
-            "current_provenance": current_provenance.model_dump(mode="json"),
-        }
+        metadata = _delta_delivery_metadata(
+            project_id=project_id,
+            task_id=task_id,
+            baseline_output_fingerprint=cast(str, baseline_output_fingerprint),
+            target_output_fingerprint=target_output_fingerprint,
+            current_provenance=current_provenance,
+            patch_text=patch_text,
+        )
         delta_estimate = delivery_size_tokens(metadata)
         if not reconstruction_verified or not target_fp_verified:
             reason = "reconstruction_failed"
@@ -463,10 +491,8 @@ def build_context_delivery(
             reason = "delta_not_smaller"
         elif len(patch_text) > MAX_DELTA_PATCH_CHARS:
             reason = "delta_patch_bound_exceeded"
-        elif len(canonical_json(metadata)) > MAX_DELTA_DELIVERY_CHARS:
-            reason = "delta_delivery_bound_exceeded"
         else:
-            return ContextDelivery(
+            candidate = ContextDelivery(
                 mode="DELTA",
                 project_id=project_id,
                 task_id=task_id,
@@ -482,6 +508,9 @@ def build_context_delivery(
                 patch_operation_count=len(operations),
                 patch_serialized_characters=len(patch_text),
             )
+            if len(serialized_delivery_bytes(candidate)) <= MAX_DELTA_DELIVERY_BYTES:
+                return candidate
+            reason = "delta_delivery_bound_exceeded"
     except DeltaContextError as exc:
         reason = exc.args[0] if exc.args else "delta_invalid"
         delta_estimate = 0

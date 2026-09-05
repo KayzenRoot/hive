@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import time
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
 
@@ -2046,6 +2049,70 @@ def _assert_delta_target_stable(
         raise ContextStaleError("delta_target_source_changed")
 
 
+def _delta_post_build_race_hook(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    target: ContextCapsule,
+) -> None:
+    """Pause a delta request only for the controlled integration race fixture.
+
+    The hook is inert unless the integration harness explicitly supplies a
+    control-file path. It never rebuilds the target and therefore preserves the
+    fail-closed post-build stability check.
+    """
+
+    del settings, target
+    control_name = os.environ.get("HIVE_DELTA_CONTEXT_RACE_CONTROL", "").strip()
+    if not control_name:
+        return
+    control = Path(control_name)
+    try:
+        state = json.loads(control.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(state, dict):
+        return
+    if (
+        state.get("status") != "armed"
+        or state.get("project_id") != str(project_id)
+        or state.get("task_id") != str(task_id)
+    ):
+        return
+    control.write_text(
+        json.dumps(
+            {
+                "status": "paused",
+                "project_id": str(project_id),
+                "task_id": str(task_id),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        try:
+            release = json.loads(control.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            release = {}
+        if isinstance(release, dict) and release.get("status") == "release":
+            control.write_text(
+                json.dumps(
+                    {
+                        "status": "consumed",
+                        "project_id": str(project_id),
+                        "task_id": str(task_id),
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return
+        time.sleep(0.02)
+    raise ContextManagerError("delta_post_build_race_control_timeout")
+
+
 def build_delta_context(
     settings: Settings,
     project_id: UUID,
@@ -2066,12 +2133,13 @@ def build_delta_context(
     )
     if target.context_fingerprint is None:
         raise ContextManagerError("context_output_fingerprint_missing")
+    _delta_post_build_race_hook(settings, project_id, task_id, target)
     target_payload = _context_payload_data(target)
     target_output_fingerprint = target.context_fingerprint.output_fingerprint
     provenance = _delta_current_provenance(target)
     full_context = target.model_dump(mode="json")
     if baseline_output_fingerprint is None:
-        return build_context_delivery(
+        delivery = build_context_delivery(
             project_id=project_id,
             task_id=task_id,
             baseline_output_fingerprint=None,
@@ -2082,54 +2150,57 @@ def build_delta_context(
             current_provenance=provenance,
             force_full_reason="baseline_not_requested",
         )
-    resolved = resolve_delta_baseline(
-        settings,
-        project_id=project_id,
-        task_id=task_id,
-        output_fingerprint=baseline_output_fingerprint,
-    )
-    if resolved is None:
-        return build_context_delivery(
+    else:
+        resolved = resolve_delta_baseline(
+            settings,
             project_id=project_id,
             task_id=task_id,
-            baseline_output_fingerprint=baseline_output_fingerprint,
-            baseline_payload=target_payload,
-            target_payload=target_payload,
-            target_full_context=full_context,
-            target_output_fingerprint=target_output_fingerprint,
-            current_provenance=provenance,
-            force_full_reason="baseline_not_found",
+            output_fingerprint=baseline_output_fingerprint,
         )
-    pointer, envelope = resolved
-    baseline = _validate_delta_baseline(
-        project_id=project_id,
-        task_id=task_id,
-        pointer=pointer,
-        envelope=envelope,
-    )
-    if baseline is None:
-        return build_context_delivery(
-            project_id=project_id,
-            task_id=task_id,
-            baseline_output_fingerprint=baseline_output_fingerprint,
-            baseline_payload=target_payload,
-            target_payload=target_payload,
-            target_full_context=full_context,
-            target_output_fingerprint=target_output_fingerprint,
-            current_provenance=provenance,
-            force_full_reason="baseline_invalid",
-        )
-    _baseline_capsule, baseline_payload = baseline
-    delivery = build_context_delivery(
-        project_id=project_id,
-        task_id=task_id,
-        baseline_output_fingerprint=baseline_output_fingerprint,
-        baseline_payload=baseline_payload,
-        target_payload=target_payload,
-        target_full_context=full_context,
-        target_output_fingerprint=target_output_fingerprint,
-        current_provenance=provenance,
-    )
+        if resolved is None:
+            delivery = build_context_delivery(
+                project_id=project_id,
+                task_id=task_id,
+                baseline_output_fingerprint=baseline_output_fingerprint,
+                baseline_payload=target_payload,
+                target_payload=target_payload,
+                target_full_context=full_context,
+                target_output_fingerprint=target_output_fingerprint,
+                current_provenance=provenance,
+                force_full_reason="baseline_not_found",
+            )
+        else:
+            pointer, envelope = resolved
+            baseline = _validate_delta_baseline(
+                project_id=project_id,
+                task_id=task_id,
+                pointer=pointer,
+                envelope=envelope,
+            )
+            if baseline is None:
+                delivery = build_context_delivery(
+                    project_id=project_id,
+                    task_id=task_id,
+                    baseline_output_fingerprint=baseline_output_fingerprint,
+                    baseline_payload=target_payload,
+                    target_payload=target_payload,
+                    target_full_context=full_context,
+                    target_output_fingerprint=target_output_fingerprint,
+                    current_provenance=provenance,
+                    force_full_reason="baseline_invalid",
+                )
+            else:
+                _baseline_capsule, baseline_payload = baseline
+                delivery = build_context_delivery(
+                    project_id=project_id,
+                    task_id=task_id,
+                    baseline_output_fingerprint=baseline_output_fingerprint,
+                    baseline_payload=baseline_payload,
+                    target_payload=target_payload,
+                    target_full_context=full_context,
+                    target_output_fingerprint=target_output_fingerprint,
+                    current_provenance=provenance,
+                )
     _assert_delta_target_stable(settings, project_id, task_id, target)
     return delivery
 

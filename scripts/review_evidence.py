@@ -191,6 +191,11 @@ WO013_DELTA_REQUIRED_FIELDS = (
     "delta_context_redis_loss_full_fallback",
     "delta_context_api_restart_reuse",
     "delta_context_source_race_fail_closed",
+    "delta_context_final_stability_all_delivery_paths",
+    "delta_context_postbuild_source_race_fail_closed",
+    "delta_context_not_smaller_valid_baseline",
+    "delta_context_not_smaller_reason_verified",
+    "delta_context_final_delivery_bound_verified",
     "delta_context_reconstruction_verified",
     "delta_context_target_output_fingerprint_verified",
     "delta_context_new_dependency_preserved",
@@ -240,6 +245,7 @@ WO012P_G1_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "scripts/review_evidence.py",
         "scripts/review_pr_body.py",
+        "docker-compose.yml",
     }
 )
 WO012P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
@@ -2743,12 +2749,31 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     delta_misses = context_manager_evidence.get("delta_context_critical_context_misses", "UNKNOWN")
     delta_llm = context_manager_evidence.get("delta_context_llm_calls", "UNKNOWN")
     delta_provider = context_manager_evidence.get("delta_context_provider_calls", "UNKNOWN")
+    delta_stability = context_manager_evidence.get(
+        "delta_context_final_stability_all_delivery_paths", False
+    )
+    delta_postbuild_race = context_manager_evidence.get(
+        "delta_context_postbuild_source_race_fail_closed", False
+    )
+    delta_not_smaller_baseline = context_manager_evidence.get(
+        "delta_context_not_smaller_valid_baseline", False
+    )
+    delta_not_smaller_reason = context_manager_evidence.get(
+        "delta_context_not_smaller_reason_verified", False
+    )
+    delta_final_bound = context_manager_evidence.get(
+        "delta_context_final_delivery_bound_verified", False
+    )
     delta_text = (
         f"`{delta_status}`; implemented `{delta_implemented}`, "
         f"identical/change/dependency `{delta_identical}/{delta_changed}/{delta_dependency}`, "
         f"reconstruction/fingerprint `{delta_reconstruction}/{delta_fingerprint}`, "
         f"false reconstructions/critical misses `{delta_false}/{delta_misses}`, "
-        f"LLM/provider calls `{delta_llm}/{delta_provider}`"
+        f"LLM/provider calls `{delta_llm}/{delta_provider}`, "
+        f"final stability/post-build race `{delta_stability}/{delta_postbuild_race}`, "
+        f"valid not-smaller baseline/reason `"
+        f"{delta_not_smaller_baseline}/{delta_not_smaller_reason}`, "
+        f"final delivery bound `{delta_final_bound}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
