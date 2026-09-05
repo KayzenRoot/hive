@@ -37,6 +37,7 @@ from scripts.review_evidence import (
     require_wo010_progressive_disclosure_evidence,
     require_wo010_scope,
     require_wo011_context_manager_evidence,
+    require_wo012_context_manager_evidence,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -1122,6 +1123,28 @@ def test_wo010_pr_body_describes_progressive_disclosure_handoff() -> None:
     assert "## 27. Proposta de checkpoint para WO-010-P" in body
 
 
+def test_wo012_pr_body_describes_fingerprint_handoff() -> None:
+    body = render_body(
+        work_order="WO-012",
+        pr_number=40,
+        branch="feature/wo012-context-fingerprints-foundation",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-012-b",
+        ruleset_before="unchanged",
+        ruleset_after="unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-012 -->")
+    assert "context_fingerprint" in body
+    assert "SHA-256" in body
+    assert "FLUSHDB" in body
+    assert "Auto-merge permanece desarmado" in body
+    assert "Sol Review State: AWAITING_SOL" in body
+
+
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
     manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
@@ -1426,6 +1449,84 @@ def test_wo011_adaptive_token_budget_review_evidence_fails_closed(
         review_evidence.require_wo011_scope(
             "WO-011",
             review_evidence.WO011_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+
+
+def test_wo012_context_fingerprint_review_evidence_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    payload = {
+        "status": "PASS",
+        **{field: True for field in CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [
+            "CHECKPOINT",
+            "SCOPE",
+            "DEFINITION_OF_DONE",
+            "ARCHITECTURE",
+            "DECISIONS",
+        ],
+        "llm_calls": 0,
+        **{field: True for field in review_evidence.WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS},
+        **{field: 0 for field in review_evidence.WO012_CONTEXT_FINGERPRINT_INTEGER_FIELDS},
+        "context_fingerprint_benchmark_status": "PASS",
+        "context_fingerprint_migration_changed": False,
+        "delta_context_implemented": False,
+        "provider_prompt_cache_implemented": False,
+        "memory_lifecycle_implemented": False,
+    }
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+
+    evidence = context_manager_evidence()
+    require_wo012_context_manager_evidence(
+        "WO-012",
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+    assert evidence["context_fingerprint_benchmark_status"] == "PASS"
+
+    missing = dict(payload)
+    missing["context_fingerprint_valid_hit_avoids_rebuild"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(missing),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="context-fingerprint evidence"):
+        require_wo012_context_manager_evidence(
+            "WO-012",
+            {"context_manager": context_manager_evidence()},
+            "0005_semantic_retrieval",
+        )
+
+    disconnected = dict(payload)
+    disconnected["context_fingerprint_input_material_inputs_bound"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(disconnected),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="context-fingerprint evidence"):
+        require_wo012_context_manager_evidence(
+            "WO-012",
+            {"context_manager": context_manager_evidence()},
+            "0005_semantic_retrieval",
+        )
+
+    review_evidence.require_wo012_scope(
+        "WO-012",
+        review_evidence.WO012_BASE_SHA,
+        ["backend/app/context_fingerprints.py"],
+    )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        review_evidence.require_wo012_scope(
+            "WO-012",
+            review_evidence.WO012_BASE_SHA,
             ["docs/project-brain/13-CHECKPOINT.md"],
         )
 

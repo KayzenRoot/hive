@@ -719,6 +719,163 @@ WO-010 READY FOR SOL GITHUB AUDIT
 """
 
 
+def _render_wo012_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo executivo
+
+Esta correção C1 torna truthful o contrato de fingerprints do Context Capsule
+e a elegibilidade do cache HOT. Identidade semântica agora separa fontes
+materiais de UUIDs operacionais de index/corpus/semantic; falhas transitórias
+de provider não são cacheadas; hits válidos atualizam a proveniência operacional
+atual sem alterar a identidade material. Não há migration, mudança canônica ou
+alteração de comportamento fora do contrato de cache/fingerprint.
+
+## 2. Base, branch e head
+
+- PR: #{pr_number}, aberta Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato: `{head_sha}`.
+
+## 3. Contrato de fingerprints
+
+O input fingerprint v2 usa SHA-256 sobre JSON canônico ordenado e vincula
+projeto/HEAD/inventário, fontes materiais de corpus e tarefa, request, query
+derivada, perfis semantic/rerank e a identidade agregada das políticas de
+context build, retrieval, task sections e seleção de governança. UUIDs
+operacionais de execução não são identidade material. O output fingerprint v2
+exclui a própria evidência e os run IDs operacionais, preservando identidade
+semântica entre rebuilds equivalentes.
+
+## 4. Evidência da cápsula
+
+O campo `context_fingerprint` expõe policy, algoritmo, versões de serialização,
+hashes, classes de identidade e zero chamadas LLM/provider. A evidência é
+validada com schema estrito e o output é recalculado antes do retorno. Em cache
+hit, project/index/corpus/result provenance é renovada para os run IDs atuais;
+essa atualização não muda o output fingerprint porque esses IDs são
+operacionais.
+
+## 5. Cache HOT
+
+O cache usa chave Redis versionada e project-scoped, envelope bounded,
+schema-validado e TTL positivo fixo de 300 segundos. Redis é apenas HOT
+noncanonical; miss, timeout, corrupção, mismatch ou indisponibilidade
+reconstroem a partir da verdade canônica e nunca promovem cache a source of
+truth. Só respostas com resultados e estado completo podem ser escritas ou
+reutilizadas. Estados `RERANK_FALLBACK_PROVIDER_ERROR`,
+`RERANK_FALLBACK_INVALID_RESPONSE`, `RERANK_FALLBACK_NO_CANDIDATES` e
+`LEXICAL_FALLBACK_PROVIDER_ERROR` são explicitamente não cacheáveis.
+
+## 6. Ordem segura
+
+Lookup ocorre depois de confirmar projeto, Git/source, checkpoint, tarefa,
+corpus, semantic/rerank e input fingerprint, e antes de retrieval/rerank e
+montagem custosos. Hit válido revalida envelope, capsule, hashes, budget final,
+estado cacheável e estabilidade da fonte imediatamente antes do retorno; então
+renova a proveniência operacional corrente.
+
+## 7. Invalidação e isolamento
+
+O contrato invalida mudanças de source/HEAD/corpus, texto/id/proveniência da
+tarefa, request/top_k/disclosure, perfil semantic/rerank e políticas. O teste
+real cobre same-text tasks, cross-project poisoning, cache corrompido, race de
+HEAD e rebuild equivalente com UUIDs novos. Mudanças reais de perfil ou da
+identidade agregada de policy invalidam; rotação somente de segredo permanece
+estável. Falha transitória não é reutilizada: após provider recovery, o mesmo
+request executa novamente e retorna o caminho normal.
+
+## 8. Restart e perda de cache
+
+Restart persistente de Redis reutiliza o capsule; restart da API reutiliza o
+cache retido. `stop` de Redis e `FLUSHDB` forçam rebuild determinístico com
+provider work observável. Rebuilds equivalentes preservam fingerprints
+materiais e atualizam provenance operacional.
+
+## 9. Independência e segurança
+
+Fingerprints não fazem LLM/network/provider calls e não persistem segredos.
+Identidades usam metadados estáveis, sem URL/chave de provider; o envelope
+Redis rejeita campos extras e permanece bounded.
+
+## 10. Compatibilidade
+
+O campo é aditivo e o produto mantém Context Capsule, Progressive Disclosure,
+Adaptive Token Budget, fallback e governança existentes. Nenhuma API pública,
+endpoint, job, feature flag ou migration foi removida ou alterada.
+
+## 11. Testes unitários
+
+Foram adicionados testes para canonical JSON/Unicode, ordem determinística,
+invalidação material, exclusão de autorreferência e run IDs operacionais,
+schema strict, cache bounded, estados transitórios não cacheáveis, recovery
+retry, policy aggregate binding e hit válido sem rebuild. A suíte de backend,
+lint, typecheck e build permanece verde.
+
+## 12. Integração Docker
+
+O harness real PostgreSQL/pgvector, Redis, API e fixtures de embedding/rerank
+comprovou first build `1/1` provider calls, repeat `0/0`, capsule/fingerprints
+idênticos, rebuild equivalente com run IDs distintos e fontes materiais
+estáveis, provenance atual, mudanças de profile/policy, segredo estável,
+falhas de reranker/semantic não cacheadas com recovery retry, todas as
+invalidações, isolamento, corrupção, Redis loss/flush e API restart reuse.
+
+## 13. Gates observados
+
+`validate.py`, a integração de Context Manager, ruff, mypy, secret scan, mapas,
+audit, compose config e benchmark Adaptive Token Budget devem passar no HEAD
+exato. Avisos conhecidos de npm permanecem registrados e não são ocultados;
+as contagens finais ficam no Evidence Bundle gerado para este HEAD.
+
+## 14. Evidence Bundle
+
+O manifesto, resumo, integração, validação, diff e logs bounded estão no
+artefato `{artifact_name}` e no comentário sticky marcado por
+`<!-- hive-review-evidence:{work_order} -->`.
+
+## 15. Migrações e fora de escopo
+
+Migration head permanece `0005_semantic_retrieval`; nenhuma migration foi
+criada. Delta Context, provider prompt cache, memory lifecycle, telemetry
+ampla, refatoração arquitetural e cleanup posterior permanecem fora de escopo.
+
+## 16. Governança GitHub
+
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. Ruleset permanece inalterado, com checks reais, threads
+resolvidas, squash-only e zero bypass.
+
+## 17. Estado para revisão independente
+
+A PR permanece aberta, Ready e não mesclada. Auto-merge permanece desarmado;
+nenhuma aprovação, promoção de checkpoint ou canonical truth é presumida.
+
+## 18. Próximos incrementos
+
+Não iniciar cleanup automaticamente. Após auditoria independente, eventuais
+limpezas devem seguir Work Orders pequenos, com characterization tests quando
+necessário e comprovação `VERIFIED_DEAD` antes de remoção.
+
+Sol Review State: AWAITING_SOL
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -802,6 +959,19 @@ def render_body(
             merge_after=merge_after,
             auto_merge_owner_login=auto_merge_owner_login,
             auto_merge_owner_type=auto_merge_owner_type,
+        )
+    if work_order == "WO-012":
+        return _render_wo012_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
         )
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
 

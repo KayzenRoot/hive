@@ -6,16 +6,21 @@ import hashlib
 import json
 import re
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, cast
 from uuid import UUID
 
 import psycopg
+import redis
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .adaptive_token_budget import (
+    ADAPTIVE_TOKEN_BUDGET_POLICY_VERSION,
+    TOKEN_BUDGET_SERIALIZATION_VERSION,
+    TOKEN_ESTIMATOR_VERSION,
     AdaptiveTokenBudget,
     AdaptiveTokenBudgetError,
     BudgetItem,
@@ -26,7 +31,28 @@ from .adaptive_token_budget import (
     verify_context_payload_estimate,
 )
 from .config import Settings
+from .context_fingerprints import (
+    CONTEXT_CACHE_SCHEMA_VERSION,
+    CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS,
+    CONTEXT_FINGERPRINT_POLICY_VERSION,
+    CONTEXT_INPUT_SERIALIZATION_VERSION,
+    CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+    MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES,
+    ContextFingerprintCacheEnvelope,
+    ContextFingerprintEvidence,
+    context_input_fingerprint,
+    context_output_fingerprint,
+)
 from .progressive_disclosure import (
+    DISCLOSURE_LEVEL_ORDER,
+    DISCLOSURE_LEVEL_SEMANTICS,
+    L1_MAX_MODULES,
+    L2_MAX_DEPENDENCIES,
+    L2_MAX_SYMBOLS,
+    L3_MAX_EXCERPT_CHARS,
+    L3_MAX_EXCERPTS,
+    L4_MAX_COMPLETE_FILES,
+    L5_MAX_INVENTORY_ENTRIES,
     CompleteFileExcerpt,
     DependencyEdge,
     DisclosureConsistencyError,
@@ -57,11 +83,13 @@ from .repository_indexer import (
     latest_index_run,
 )
 from .reranking import (
+    RERANK_SERIALIZATION_VERSION,
     RerankCandidate,
     RerankerProfile,
     RerankError,
     RerankRequest,
     RerankResponse,
+    RerankState,
     rerank_search,
 )
 from .retrieval import (
@@ -71,7 +99,12 @@ from .retrieval import (
     RetrievalSyncError,
     corpus_status,
 )
-from .semantic_retrieval import SemanticError, SemanticState
+from .semantic_retrieval import (
+    SemanticError,
+    SemanticState,
+    SemanticStatusResponse,
+    semantic_status,
+)
 from .task_intake import (
     ExtractionNotReadyError,
     TaskNotFoundError,
@@ -93,6 +126,22 @@ MAX_RETRIEVAL_CANDIDATE_POOL = 10
 MAX_RETRIEVAL_RESULTS = 5
 MAX_TOTAL_RETRIEVAL_CHARS = 6_000
 MAX_CAPSULE_CHARS = 24_000
+CONTEXT_RETRIEVAL_POLICY_VERSION = "context-retrieval-v1"
+CONTEXT_BUILD_POLICY_VERSION = "context-build-v1"
+CONTEXT_TASK_SECTION_POLICY_VERSION = "context-task-sections-v1"
+CONTEXT_GOVERNANCE_SELECTION_POLICY_VERSION = "context-governance-selection-v1"
+CONTEXT_BOUNDS_POLICY_VERSION = "context-bounds-v1"
+CONTEXT_QUERY_POLICY_VERSION = "context-query-v1"
+CONTEXT_FINGERPRINT_CACHE_KEY_VERSION = "cf-v2"
+CONTEXT_FINGERPRINT_MATERIAL_CLASSES: tuple[str, ...] = (
+    "project-source",
+    "task-provenance",
+    "request-contract",
+    "retrieval-state",
+    "semantic-profile",
+    "reranker-profile",
+    "context-pipeline-policy",
+)
 GOVERNANCE_PATHS: tuple[tuple[str, str], ...] = (
     ("CHECKPOINT", "docs/project-brain/13-CHECKPOINT.md"),
     ("SCOPE", "docs/project-brain/03-SCOPE.md"),
@@ -279,6 +328,7 @@ class ContextCapsule(BaseModel):
     progressive_disclosure: ProgressiveDisclosure
     adaptive_token_budget: AdaptiveTokenBudget
     bounds: ContextBounds
+    context_fingerprint: ContextFingerprintEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -314,6 +364,9 @@ class _SourceState:
     snapshot: _RepositorySnapshot
     index_run_id: UUID
     corpus_run_id: UUID
+    repository_source_fingerprint: str = ""
+    task_source_fingerprint: str = ""
+    corpus_source_fingerprint: str = ""
 
 
 def _tokens(value: str) -> set[str]:
@@ -693,7 +746,15 @@ def _resolve_source_state(
         or corpus.latest_run.repository_index_run_id != index_run.run_id
     ):
         raise ContextStaleError("retrieval_corpus_not_current")
-    return _SourceState(project, snapshot, index_run.run_id, corpus.latest_run.run_id)
+    return _SourceState(
+        project,
+        snapshot,
+        index_run.run_id,
+        corpus.latest_run.run_id,
+        corpus.latest_run.repository_source_fingerprint or "",
+        corpus.latest_run.task_source_fingerprint or "",
+        corpus.latest_run.source_fingerprint or "",
+    )
 
 
 def _bounded_retrieval_results(
@@ -756,6 +817,364 @@ def _json_default(value: object) -> object:
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
     raise TypeError(f"value of type {type(value).__name__} is not JSON serializable")
+
+
+def _context_cache_key(project_id: UUID, input_fingerprint: str) -> str:
+    return f"hive:context:{CONTEXT_FINGERPRINT_CACHE_KEY_VERSION}:{project_id}:{input_fingerprint}"
+
+
+def _semantic_cache_identity(
+    status: SemanticStatusResponse,
+) -> dict[str, object]:
+    latest_run = status.latest_run
+    profile = status.profile
+    return {
+        "enabled": status.enabled,
+        "configured": status.configured,
+        "state": status.state.value,
+        "profile_identity": profile.identity_fingerprint if profile else None,
+        "latest_run_status": latest_run.status.value if latest_run else None,
+        "latest_run_source_fingerprint": latest_run.source_fingerprint if latest_run else None,
+    }
+
+
+def _rerank_cache_identity(settings: Settings) -> dict[str, object]:
+    from .reranking import _profile_from_settings
+
+    identity: dict[str, object] = {
+        "enabled": settings.rerank_enabled,
+        "configured": False,
+        "serialization_version": RERANK_SERIALIZATION_VERSION,
+        "candidate_pool": min(settings.rerank_candidate_pool, MAX_CONTEXT_TOP_K),
+        "max_document_chars": settings.rerank_max_document_chars,
+        "max_query_chars": settings.rerank_max_query_chars,
+        "profile_identity": None,
+        "configuration_error": None,
+    }
+    if not settings.rerank_enabled:
+        return identity
+    try:
+        profile = _profile_from_settings(settings)
+    except RerankError as exc:
+        identity["configuration_error"] = exc.code
+        return identity
+    identity["configured"] = True
+    identity["profile_identity"] = profile.identity_fingerprint
+    return identity
+
+
+def _progressive_disclosure_policy_identity() -> dict[str, object]:
+    return {
+        "level_order": [level.value for level in DISCLOSURE_LEVEL_ORDER],
+        "level_semantics": {
+            level.value: meaning for level, meaning in DISCLOSURE_LEVEL_SEMANTICS.items()
+        },
+        "max_modules": L1_MAX_MODULES,
+        "max_symbols": L2_MAX_SYMBOLS,
+        "max_dependencies": L2_MAX_DEPENDENCIES,
+        "max_excerpts": L3_MAX_EXCERPTS,
+        "max_excerpt_characters": L3_MAX_EXCERPT_CHARS,
+        "max_complete_files": L4_MAX_COMPLETE_FILES,
+        "max_inventory_entries": L5_MAX_INVENTORY_ENTRIES,
+    }
+
+
+def _context_build_policy_identity() -> dict[str, object]:
+    """Bind every owned context-construction policy that changes semantics."""
+
+    return {
+        "version": CONTEXT_BUILD_POLICY_VERSION,
+        "retrieval_policy_version": CONTEXT_RETRIEVAL_POLICY_VERSION,
+        "task_section_policy": {
+            "version": CONTEXT_TASK_SECTION_POLICY_VERSION,
+            "max_items": MAX_TASK_SECTION_ITEMS,
+            "max_item_characters": MAX_TASK_SECTION_ITEM_CHARS,
+        },
+        "governance_selection_policy": {
+            "version": CONTEXT_GOVERNANCE_SELECTION_POLICY_VERSION,
+            "paths": list(GOVERNANCE_PATHS),
+            "mandatory_kinds": list(MANDATORY_GOVERNANCE_KINDS),
+            "max_excerpt_characters": MAX_GOVERNANCE_EXCERPT_CHARS,
+            "max_excerpts": MAX_GOVERNANCE_EXCERPTS,
+            "max_total_characters": MAX_TOTAL_GOVERNANCE_CHARS,
+        },
+        "query_policy_version": CONTEXT_QUERY_POLICY_VERSION,
+        "query_max_characters": MAX_QUERY_CHARS,
+        "retrieval_candidate_pool": MAX_RETRIEVAL_CANDIDATE_POOL,
+        "retrieval_max_results": MAX_RETRIEVAL_RESULTS,
+        "retrieval_max_total_characters": MAX_TOTAL_RETRIEVAL_CHARS,
+        "bounds_policy_version": CONTEXT_BOUNDS_POLICY_VERSION,
+        "max_task_excerpt_characters": MAX_TASK_EXCERPT_CHARS,
+        "max_capsule_characters": MAX_CAPSULE_CHARS,
+        "progressive_disclosure": _progressive_disclosure_policy_identity(),
+    }
+
+
+def _context_input_payload(
+    *,
+    state: _SourceState,
+    task: TaskResponse,
+    extracted_text_sha256: str,
+    extraction_method: str,
+    extraction_version: str,
+    query: str,
+    normalized_query: str,
+    constraints: Sequence[str],
+    acceptance_criteria: Sequence[str],
+    top_k: int,
+    disclosure_level: str | None,
+    semantic_identity: dict[str, object],
+    rerank_identity: dict[str, object],
+) -> dict[str, object]:
+    """Return only stable material inputs for one context-build request."""
+
+    return {
+        "project_source": {
+            "project_id": str(state.project.project_id),
+            "relative_path": state.project.relative_path,
+            "repository_head_sha": state.snapshot.repository_head_sha,
+            "registered_head_sha": state.project.git_head_sha,
+            "git_inventory_fingerprint": state.snapshot.git_inventory_fingerprint,
+            "repository_source_fingerprint": state.repository_source_fingerprint,
+            "task_source_fingerprint": state.task_source_fingerprint,
+            "corpus_source_fingerprint": state.corpus_source_fingerprint,
+            "currentness": {
+                "project_state": state.project.state.value,
+                "repository_accessible": state.project.repository_accessible,
+                "working_tree_clean": state.project.working_tree_clean,
+                "index_status": "COMPLETED",
+                "corpus_status": "CURRENT",
+            },
+        },
+        "task": {
+            "task_id": str(task.task_id),
+            "project_id": str(task.project_id),
+            "title": task.title,
+            "source_type": task.source_type,
+            "original_filename": task.original_filename,
+            "original_blob_sha256": task.original_blob_sha256,
+            "extracted_text_sha256": extracted_text_sha256,
+            "extraction_method": extraction_method,
+            "extraction_version": extraction_version,
+        },
+        "request": {
+            "top_k": top_k,
+            "disclosure_level": disclosure_level,
+            "disclosure_level_explicit": disclosure_level is not None,
+        },
+        "derived_request": {
+            "query": query,
+            "normalized_query": normalized_query,
+            "constraints": list(constraints),
+            "acceptance_criteria": list(acceptance_criteria),
+        },
+        "retrieval": {
+            "query_policy_version": CONTEXT_QUERY_POLICY_VERSION,
+            "max_query_characters": MAX_QUERY_CHARS,
+            "candidate_pool": MAX_RETRIEVAL_CANDIDATE_POOL,
+            "max_results": MAX_RETRIEVAL_RESULTS,
+            "max_total_result_characters": MAX_TOTAL_RETRIEVAL_CHARS,
+            "rerank": rerank_identity,
+            "semantic": semantic_identity,
+        },
+        "pipeline": {
+            "context_capsule_version": CONTEXT_CAPSULE_VERSION,
+            "context_build_policy": _context_build_policy_identity(),
+            "fingerprint_policy_version": CONTEXT_FINGERPRINT_POLICY_VERSION,
+            "input_serialization_version": CONTEXT_INPUT_SERIALIZATION_VERSION,
+            "output_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+            "adaptive_policy_version": ADAPTIVE_TOKEN_BUDGET_POLICY_VERSION,
+            "adaptive_serialization_version": TOKEN_BUDGET_SERIALIZATION_VERSION,
+            "adaptive_estimator_version": TOKEN_ESTIMATOR_VERSION,
+            "adaptive_base_budget_tokens": 4_096,
+            "adaptive_hard_min_budget_tokens": 2_048,
+            "adaptive_hard_max_budget_tokens": 6_144,
+            "progressive_disclosure": _progressive_disclosure_policy_identity(),
+            "bounds_policy_version": CONTEXT_BOUNDS_POLICY_VERSION,
+            "max_task_excerpt_characters": MAX_TASK_EXCERPT_CHARS,
+            "max_governance_excerpt_characters": MAX_GOVERNANCE_EXCERPT_CHARS,
+            "max_governance_excerpts": MAX_GOVERNANCE_EXCERPTS,
+            "max_governance_characters": MAX_TOTAL_GOVERNANCE_CHARS,
+            "max_capsule_characters": MAX_CAPSULE_CHARS,
+        },
+    }
+
+
+def _context_cache_client(settings: Settings) -> redis.Redis:
+    return redis.Redis.from_url(
+        settings.redis_url,
+        decode_responses=False,
+        socket_connect_timeout=0.2,
+        socket_timeout=0.2,
+    )
+
+
+def _read_context_cache(
+    settings: Settings,
+    key: str,
+) -> ContextFingerprintCacheEnvelope | None:
+    client = _context_cache_client(settings)
+    try:
+        raw = cast(bytes | None, client.getrange(key, 0, MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES))
+    except (redis.RedisError, OSError):
+        return None
+    finally:
+        with suppress(redis.RedisError, OSError):
+            client.close()  # type: ignore[no-untyped-call]
+    if not raw or len(raw) > MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES:
+        return None
+    try:
+        return ContextFingerprintCacheEnvelope.model_validate_json(raw)
+    except (ValidationError, ValueError, TypeError):
+        return None
+
+
+def _write_context_cache(
+    settings: Settings,
+    key: str,
+    envelope: ContextFingerprintCacheEnvelope,
+) -> bool:
+    encoded = envelope.model_dump_json().encode("utf-8")
+    if len(encoded) > MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES:
+        return False
+    client = _context_cache_client(settings)
+    try:
+        return bool(
+            client.set(
+                key,
+                encoded,
+                ex=CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS,
+            )
+        )
+    except (redis.RedisError, OSError):
+        return False
+    finally:
+        with suppress(redis.RedisError, OSError):
+            client.close()  # type: ignore[no-untyped-call]
+
+
+def _context_cache_state_eligible(
+    *,
+    rerank_state: str,
+    hybrid_state: str,
+    fallback_reason: str | None,
+    result_count: int,
+) -> bool:
+    """Allow reuse only for complete, non-transient retrieval outcomes."""
+
+    if rerank_state in {
+        RerankState.RERANK_FALLBACK_PROVIDER_ERROR.value,
+        RerankState.RERANK_FALLBACK_INVALID_RESPONSE.value,
+        RerankState.RERANK_FALLBACK_NO_CANDIDATES.value,
+    }:
+        return False
+    if hybrid_state == "LEXICAL_FALLBACK_PROVIDER_ERROR":
+        return False
+    if fallback_reason == "LEXICAL_FALLBACK_PROVIDER_ERROR":
+        return False
+    return result_count > 0
+
+
+def _context_cache_write_eligible(response: RerankResponse) -> bool:
+    return _context_cache_state_eligible(
+        rerank_state=response.rerank_state.value,
+        hybrid_state=response.hybrid_state,
+        fallback_reason=response.fallback_reason,
+        result_count=len(response.results),
+    )
+
+
+def _refresh_operational_provenance(
+    capsule: ContextCapsule,
+    state: _SourceState,
+) -> ContextCapsule:
+    refreshed_results = [
+        result.model_copy(update={"corpus_run_id": state.corpus_run_id})
+        for result in capsule.retrieval.results
+    ]
+    return capsule.model_copy(
+        update={
+            "project": capsule.project.model_copy(
+                update={
+                    "index_run_id": state.index_run_id,
+                    "corpus_run_id": state.corpus_run_id,
+                }
+            ),
+            "retrieval": capsule.retrieval.model_copy(update={"results": refreshed_results}),
+        }
+    )
+
+
+def _cached_context_if_valid(
+    settings: Settings,
+    *,
+    key: str,
+    project_id: UUID,
+    task_id: UUID,
+    input_fingerprint: str,
+    state: _SourceState,
+) -> ContextCapsule | None:
+    envelope = _read_context_cache(settings, key)
+    if envelope is None:
+        return None
+    if (
+        envelope.project_id != project_id
+        or envelope.task_id != task_id
+        or envelope.context_input_fingerprint != input_fingerprint
+    ):
+        return None
+    try:
+        capsule = ContextCapsule.model_validate_json(envelope.serialized_capsule)
+    except (ValidationError, ValueError, TypeError):
+        return None
+    evidence = capsule.context_fingerprint
+    if evidence is None:
+        return None
+    if (
+        capsule.version != CONTEXT_CAPSULE_VERSION
+        or capsule.project.project_id != project_id
+        or capsule.project.repository_head_sha.lower() != state.snapshot.repository_head_sha.lower()
+        or capsule.project.registered_head_sha.lower()
+        != cast(str, state.project.git_head_sha).lower()
+        or capsule.task.task_id != task_id
+        or capsule.task.project_id != project_id
+        or evidence.input_fingerprint != input_fingerprint
+        or envelope.context_output_fingerprint != evidence.output_fingerprint
+        or context_output_fingerprint(_context_payload_data(capsule)) != evidence.output_fingerprint
+    ):
+        return None
+    try:
+        measured = _verify_final_context_payload(
+            capsule,
+            effective_budget_tokens=capsule.adaptive_token_budget.effective_budget_tokens,
+        )
+    except ContextBoundsError:
+        return None
+    if (
+        capsule.adaptive_token_budget.final_context_token_estimate != measured
+        or capsule.adaptive_token_budget.estimated_tokens_after != measured
+        or capsule.adaptive_token_budget.final_context_token_estimate_verified is not True
+        or capsule.adaptive_token_budget.final_context_estimate_within_effective_budget is not True
+    ):
+        return None
+    if not _context_cache_state_eligible(
+        rerank_state=capsule.retrieval.rerank_state,
+        hybrid_state=capsule.retrieval.hybrid_state,
+        fallback_reason=capsule.retrieval.fallback_reason,
+        result_count=len(capsule.retrieval.results),
+    ):
+        return None
+    capsule = _refresh_operational_provenance(capsule, state)
+    if context_output_fingerprint(_context_payload_data(capsule)) != evidence.output_fingerprint:
+        return None
+    _assert_state_stable(
+        settings,
+        project_id,
+        task_id,
+        state,
+        capsule.task.extracted_text_sha256,
+    )
+    return capsule
 
 
 def _context_payload_data(capsule: ContextCapsule) -> dict[str, object]:
@@ -1064,6 +1483,27 @@ def _settings() -> Settings:
     return get_settings()
 
 
+def _semantic_identity_for_cache(
+    settings: Settings,
+    project_id: UUID,
+) -> tuple[dict[str, object], bool]:
+    """Resolve semantic state without contacting an embedding provider."""
+
+    try:
+        return _semantic_cache_identity(semantic_status(settings, project_id)), True
+    except (SemanticError, RetrievalProjectNotFoundError, psycopg.Error, RuntimeError):
+        # A cache lookup is unsafe when semantic state cannot be proven. The
+        # canonical build may still provide a useful error or lexical fallback.
+        return {
+            "enabled": settings.embedding_enabled,
+            "configured": False,
+            "state": "UNKNOWN",
+            "profile_identity": None,
+            "latest_run_status": None,
+            "latest_run_source_fingerprint": None,
+        }, False
+
+
 def build_context(
     settings: Settings,
     project_id: UUID,
@@ -1103,6 +1543,36 @@ def build_context(
         constraints,
         acceptance_criteria,
     )
+    semantic_identity, cache_safe = _semantic_identity_for_cache(settings, project_id)
+    rerank_identity = _rerank_cache_identity(settings)
+    input_payload = _context_input_payload(
+        state=state,
+        task=task,
+        extracted_text_sha256=extracted_text_sha256,
+        extraction_method=extracted.extraction_method,
+        extraction_version=extracted.extraction_version,
+        query=query,
+        normalized_query=normalized_query,
+        constraints=constraints,
+        acceptance_criteria=acceptance_criteria,
+        top_k=top_k,
+        disclosure_level=disclosure_level,
+        semantic_identity=semantic_identity,
+        rerank_identity=rerank_identity,
+    )
+    input_fingerprint = context_input_fingerprint(input_payload)
+    cache_key = _context_cache_key(project_id, input_fingerprint)
+    if cache_safe:
+        cached = _cached_context_if_valid(
+            settings,
+            key=cache_key,
+            project_id=project_id,
+            task_id=task_id,
+            input_fingerprint=input_fingerprint,
+            state=state,
+        )
+        if cached is not None:
+            return cached
     governance = _resolve_governance(
         state.snapshot,
         _tokens(normalized_query),
@@ -1362,6 +1832,43 @@ def build_context(
         }
     )
     capsule = capsule.model_copy(update={"adaptive_token_budget": adaptive_token_budget})
+    output_fingerprint = context_output_fingerprint(_context_payload_data(capsule))
+    capsule = capsule.model_copy(
+        update={
+            "context_fingerprint": ContextFingerprintEvidence(
+                policy_version=CONTEXT_FINGERPRINT_POLICY_VERSION,
+                algorithm="SHA-256",
+                input_serialization_version=CONTEXT_INPUT_SERIALIZATION_VERSION,
+                output_serialization_version=CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+                input_fingerprint=input_fingerprint,
+                output_fingerprint=output_fingerprint,
+                material_identity_classes=list(CONTEXT_FINGERPRINT_MATERIAL_CLASSES),
+            )
+        }
+    )
+    final_context_token_estimate = _verify_final_context_payload(
+        capsule,
+        effective_budget_tokens=adaptive_token_budget.effective_budget_tokens,
+    )
+    adaptive_token_budget = adaptive_token_budget.model_copy(
+        update={
+            "estimated_tokens_after": final_context_token_estimate,
+            "estimated_tokens_avoided": max(
+                0,
+                baseline_context_token_estimate - final_context_token_estimate,
+            ),
+            "final_context_token_estimate": final_context_token_estimate,
+            "final_context_token_estimate_verified": True,
+            "final_context_estimate_within_effective_budget": True,
+        }
+    )
+    capsule = capsule.model_copy(update={"adaptive_token_budget": adaptive_token_budget})
+    if (
+        capsule.context_fingerprint is None
+        or context_output_fingerprint(_context_payload_data(capsule))
+        != capsule.context_fingerprint.output_fingerprint
+    ):
+        raise ContextManagerError("context_output_fingerprint_unstable")
     final_length = 0
     for _ in range(4):
         serialized_length = len(capsule.model_dump_json())
@@ -1386,6 +1893,30 @@ def build_context(
     if capsule.bounds.serialized_capsule_characters != final_length:
         raise ContextBoundsError("capsule_serialization_length_unstable")
     _assert_mandatory_governance_coverage(capsule.governance)
+    _assert_state_stable(
+        settings,
+        project_id,
+        task_id,
+        state,
+        extracted_text_sha256,
+    )
+    if (
+        cache_safe
+        and capsule.context_fingerprint is not None
+        and _context_cache_write_eligible(rerank_response)
+    ):
+        _write_context_cache(
+            settings,
+            cache_key,
+            ContextFingerprintCacheEnvelope(
+                schema_version=CONTEXT_CACHE_SCHEMA_VERSION,
+                project_id=project_id,
+                task_id=task_id,
+                context_input_fingerprint=input_fingerprint,
+                context_output_fingerprint=capsule.context_fingerprint.output_fingerprint,
+                serialized_capsule=capsule.model_dump_json(),
+            ),
+        )
     return capsule
 
 
