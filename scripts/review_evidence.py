@@ -249,10 +249,12 @@ WO013_ALLOWED_PATHS = frozenset(
         "backend/app/delta_context.py",
         "backend/tests/test_context_manager.py",
         "backend/tests/test_delta_context.py",
+        "backend/tests/test_review_evidence.py",
         "docs/atlas/code-atlas.md",
         "docs/atlas/test-map.md",
         "schemas/review-evidence-v1.schema.json",
         "scripts/context_manager_integration.py",
+        "scripts/project_registry_integration.py",
         "scripts/review_evidence.py",
         "scripts/review_pr_body.py",
     }
