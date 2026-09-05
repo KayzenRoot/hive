@@ -527,23 +527,54 @@ def test_wo012p_checkpoint_semantics_accept_exact_transition() -> None:
 
 def test_wo012p_checkpoint_semantics_rejects_missing_or_unrelated_completion_evidence() -> None:
     base, candidate_without_evidence = wo012p_checkpoint_fixture(include_evidence=False)
-    with pytest.raises(ValueError, match="append deterministic completion evidence"):
+    with pytest.raises(ValueError, match="exactly 5 authorized"):
         require_wo012p_checkpoint_semantics(base, candidate_without_evidence)
 
     _, candidate = wo012p_checkpoint_fixture()
     missing_pr = candidate.replace("PR #40", "PR #41", 1)
-    with pytest.raises(ValueError, match="missing deterministic completion evidence"):
+    with pytest.raises(ValueError, match="completion evidence class 4"):
         require_wo012p_checkpoint_semantics(base, missing_pr)
     completed = review_evidence.checkpoint_bullets(
         review_evidence.checkpoint_sections(candidate), "COMPLETED"
     )
-    unrelated = replace_checkpoint_section(
-        candidate,
-        "COMPLETED",
-        "\n".join(f"- {item}" for item in completed + ["MCP complete"]),
+    for unrelated_item in (
+        "MCP server is now available.",
+        "Telemetry is operational.",
+        "Backup/recovery validated.",
+        "Unrelated subsystem state recorded.",
+        "Documentation note.",
+    ):
+        unrelated = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(f"- {item}" for item in completed + [unrelated_item]),
+        )
+        with pytest.raises(ValueError, match="exactly 5 authorized"):
+            require_wo012p_checkpoint_semantics(base, unrelated)
+
+
+def test_wo012p_checkpoint_semantics_rejects_suffix_structure_changes() -> None:
+    base, candidate = wo012p_checkpoint_fixture()
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
     )
-    with pytest.raises(ValueError, match="unrelated work completed"):
-        require_wo012p_checkpoint_semantics(base, unrelated)
+    historical = completed[:-5]
+    evidence = completed[-5:]
+
+    for suffix in (
+        evidence[:4],
+        evidence + [evidence[0]],
+        [evidence[0], evidence[0], evidence[2], evidence[3], evidence[4]],
+        evidence + [evidence[3]],
+        [evidence[0], evidence[1], evidence[2], "Historical item inserted", *evidence[3:]],
+    ):
+        malformed = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(f"- {item}" for item in historical + suffix),
+        )
+        with pytest.raises(ValueError, match="exactly 5|completion evidence class"):
+            require_wo012p_checkpoint_semantics(base, malformed)
 
 
 def test_wo012p_checkpoint_semantics_requires_exact_history_prefix_and_order() -> None:

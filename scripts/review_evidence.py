@@ -437,69 +437,50 @@ def normalized_checkpoint_value(sections: Mapping[str, str], name: str) -> str:
     return " ".join(sections.get(name, "").split())
 
 
-WO012P_COMPLETION_EVIDENCE_PATTERNS = (
-    r"context fingerprints foundation approval",
-    r"context-fingerprint-v2",
-    r"context-input-v2",
-    r"context-output-v2",
-    r"context-fingerprint-cache-v2",
-    r"sha\s*-\s*256",
-    r"redis.{0,80}(?:ttl|time\s+to\s+live).{0,20}300",
-    r"redis.{0,80}non.?canonical",
-    r"transient reranker.{0,80}not cached",
-    r"transient semantic provider failure.{0,80}not cached",
-    r"provider recovery.{0,40}retried",
-    r"equivalent rebuild.{0,40}stable",
-    r"false(?: cache)? hits\s*0",
-    r"critical(?: context)? misses\s*0",
-    r"exact repeat work avoidance",
-    r"fingerprint llm calls\s*0",
-    r"fingerprint provider calls\s*0",
-    r"0005_semantic_retrieval",
-    r"pr\s*#\s*40",
-    r"2a128dfcdeb97a45f174cf2dfa529826354f95ad",
-    r"5119310904",
-    r"743253ef079596370a7ff1102faf03b3a603b585",
-    r"33937782195",
-    r"backend\s*275",
-    r"dashboard\s*7",
-    r"delta context.{0,40}not implemented",
-    r"provider/prompt cache.{0,40}not implemented",
-    r"memory lifecycle.{0,40}not implemented",
-)
-WO012P_UNRELATED_COMPLETION_TARGETS = (
-    "mcp",
-    "memory",
-    "delta context",
-    "provider/prompt cache",
-    "full telemetry",
-    "full control center",
-    "backup/recovery",
-    "full deployment",
+WO012P_COMPLETION_SUFFIX_CLASSES = (
+    (
+        r"context fingerprints foundation approval",
+        r"context-fingerprint-v2",
+        r"context-input-v2",
+        r"context-output-v2",
+        r"context-fingerprint-cache-v2",
+    ),
+    (
+        r"sha\s*-\s*256",
+        r"redis.{0,80}(?:ttl|time\s+to\s+live).{0,20}300",
+        r"redis.{0,80}non.?canonical",
+        r"transient reranker.{0,80}not cached",
+        r"transient semantic provider failure.{0,80}not cached",
+        r"provider recovery.{0,40}retried",
+        r"equivalent rebuild.{0,40}stable",
+    ),
+    (
+        r"false(?: cache)? hits\s*0",
+        r"critical(?: context)? misses\s*0",
+        r"exact[- ]repeat work avoidance",
+        r"fingerprint llm calls\s*0",
+        r"fingerprint provider calls\s*0",
+    ),
+    (
+        r"0005_semantic_retrieval",
+        r"pr\s*#\s*40",
+        r"2a128dfcdeb97a45f174cf2dfa529826354f95ad",
+        r"5119310904",
+        r"743253ef079596370a7ff1102faf03b3a603b585",
+        r"33937782195",
+        r"backend\s*275",
+        r"dashboard\s*7",
+    ),
+    (
+        r"delta context.{0,40}not implemented",
+        r"provider/prompt cache.{0,40}not implemented",
+        r"memory lifecycle.{0,40}not implemented",
+    ),
 )
 
 
 def normalized_checkpoint_evidence(text: str) -> str:
     return " ".join(text.casefold().split())
-
-
-def has_unrelated_completion_claim(text: str) -> bool:
-    normalized = normalized_checkpoint_evidence(text)
-    positive_claim = r"\b(?:complete|completed|implemented|approved|promoted|done|finished)\b"
-    for target in WO012P_UNRELATED_COMPLETION_TARGETS:
-        start = 0
-        while True:
-            position = normalized.find(target, start)
-            if position < 0:
-                break
-            context = normalized[max(0, position - 48) : position + len(target) + 64]
-            if re.search(positive_claim, context) and not re.search(
-                r"\bnot\s+(?:yet\s+)?(?:complete|completed|implemented)\b|\bout of scope\b",
-                context,
-            ):
-                return True
-            start = position + len(target)
-    return False
 
 
 def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
@@ -517,22 +498,22 @@ def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
     if candidate_completed[: len(base_completed)] != base_completed:
         raise ValueError("WO-012-P cannot rewrite historical COMPLETED checkpoint truth")
     appended_completed = candidate_completed[len(base_completed) :]
-    if not appended_completed:
-        raise ValueError("WO-012-P candidate must append deterministic completion evidence")
-    for item in appended_completed:
-        if has_unrelated_completion_claim(item):
-            raise ValueError("WO-012-P candidate falsely marks unrelated work completed")
-    appended_evidence = normalized_checkpoint_evidence(" ".join(appended_completed))
-    missing_evidence = [
-        pattern
-        for pattern in WO012P_COMPLETION_EVIDENCE_PATTERNS
-        if re.search(pattern, appended_evidence) is None
-    ]
-    if missing_evidence:
+    if len(appended_completed) != len(WO012P_COMPLETION_SUFFIX_CLASSES):
         raise ValueError(
-            "WO-012-P candidate is missing deterministic completion evidence: "
-            + ", ".join(missing_evidence)
+            "WO-012-P candidate must append exactly 5 authorized completion evidence bullets"
         )
+    for index, (bullet, evidence_class) in enumerate(
+        zip(appended_completed, WO012P_COMPLETION_SUFFIX_CLASSES, strict=True), 1
+    ):
+        normalized_bullet = normalized_checkpoint_evidence(bullet)
+        missing_evidence = [
+            pattern for pattern in evidence_class if re.search(pattern, normalized_bullet) is None
+        ]
+        if missing_evidence:
+            raise ValueError(
+                f"WO-012-P completion evidence class {index} is invalid; missing: "
+                + ", ".join(missing_evidence)
+            )
 
     base_pending = checkpoint_bullets(base, "PENDING")
     candidate_pending = checkpoint_bullets(candidate, "PENDING")
