@@ -9,11 +9,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CONTEXT_FINGERPRINT_POLICY_VERSION: Literal["context-fingerprint-v1"] = "context-fingerprint-v1"
-CONTEXT_INPUT_SERIALIZATION_VERSION: Literal["context-input-v1"] = "context-input-v1"
-CONTEXT_OUTPUT_SERIALIZATION_VERSION: Literal["context-output-v1"] = "context-output-v1"
-CONTEXT_CACHE_SCHEMA_VERSION: Literal["context-fingerprint-cache-v1"] = (
-    "context-fingerprint-cache-v1"
+CONTEXT_FINGERPRINT_POLICY_VERSION: Literal["context-fingerprint-v2"] = "context-fingerprint-v2"
+CONTEXT_INPUT_SERIALIZATION_VERSION: Literal["context-input-v2"] = "context-input-v2"
+CONTEXT_OUTPUT_SERIALIZATION_VERSION: Literal["context-output-v2"] = "context-output-v2"
+CONTEXT_CACHE_SCHEMA_VERSION: Literal["context-fingerprint-cache-v2"] = (
+    "context-fingerprint-cache-v2"
 )
 CONTEXT_FINGERPRINT_ALGORITHM: Literal["SHA-256"] = "SHA-256"
 CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS = 300
@@ -26,10 +26,10 @@ class ContextFingerprintEvidence(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    policy_version: Literal["context-fingerprint-v1"] = CONTEXT_FINGERPRINT_POLICY_VERSION
+    policy_version: Literal["context-fingerprint-v2"] = CONTEXT_FINGERPRINT_POLICY_VERSION
     algorithm: Literal["SHA-256"] = CONTEXT_FINGERPRINT_ALGORITHM
-    input_serialization_version: Literal["context-input-v1"] = CONTEXT_INPUT_SERIALIZATION_VERSION
-    output_serialization_version: Literal["context-output-v1"] = (
+    input_serialization_version: Literal["context-input-v2"] = CONTEXT_INPUT_SERIALIZATION_VERSION
+    output_serialization_version: Literal["context-output-v2"] = (
         CONTEXT_OUTPUT_SERIALIZATION_VERSION
     )
     input_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -45,7 +45,7 @@ class ContextFingerprintCacheEnvelope(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["context-fingerprint-cache-v1"] = CONTEXT_CACHE_SCHEMA_VERSION
+    schema_version: Literal["context-fingerprint-cache-v2"] = CONTEXT_CACHE_SCHEMA_VERSION
     project_id: UUID
     task_id: UUID
     context_input_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -85,12 +85,36 @@ def context_input_fingerprint(value: object) -> str:
 
 
 def context_output_serialization(value: object) -> str:
-    """Serialize semantic context while excluding only explicit self-reference."""
+    """Serialize semantic context without operational run provenance.
+
+    Index, corpus and per-result corpus run IDs are truthful operational
+    provenance, but equivalent rebuilds must not change semantic output
+    identity. Cache hits refresh those IDs from the current canonical state.
+    """
 
     if not isinstance(value, dict):
         raise TypeError("context output must be a mapping")
     semantic = dict(value)
     semantic.pop("context_fingerprint", None)
+    project = semantic.get("project")
+    if isinstance(project, dict):
+        project = dict(project)
+        project.pop("index_run_id", None)
+        project.pop("corpus_run_id", None)
+        semantic["project"] = project
+    retrieval = semantic.get("retrieval")
+    if isinstance(retrieval, dict):
+        retrieval = dict(retrieval)
+        results = retrieval.get("results")
+        if isinstance(results, list):
+            normalized_results = []
+            for result in results:
+                if isinstance(result, dict):
+                    result = dict(result)
+                    result.pop("corpus_run_id", None)
+                normalized_results.append(result)
+            retrieval["results"] = normalized_results
+        semantic["retrieval"] = retrieval
     return canonical_json(
         {
             "serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,

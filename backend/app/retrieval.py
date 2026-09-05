@@ -739,7 +739,11 @@ def _load_source_bundle(settings: Settings, project_id: UUID) -> _SourceBundle:
         repository_file_hashes,
     ) = _load_repository_sources(settings, project_id)
     task_sources, task_fingerprint = _load_task_sources(settings, project_id)
-    source_fingerprint = _fingerprint([repository_fingerprint, task_fingerprint, str(index_run_id)])
+    # The corpus source fingerprint is material content identity. The
+    # repository index run UUID remains operational provenance and must not
+    # invalidate equivalent context merely because the unchanged source was
+    # indexed again.
+    source_fingerprint = _fingerprint([repository_fingerprint, task_fingerprint])
     return _SourceBundle(
         project_id,
         repository_path,

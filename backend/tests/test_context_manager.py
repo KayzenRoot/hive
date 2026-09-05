@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import psycopg
@@ -1000,6 +1001,63 @@ def test_valid_context_fingerprint_cache_hit_avoids_rebuild(
     assert calls == 1
 
 
+@pytest.mark.parametrize(
+    ("rerank_state", "hybrid_state", "fallback_reason"),
+    [
+        (RerankState.RERANK_FALLBACK_PROVIDER_ERROR, "HYBRID", "provider_unavailable"),
+        (RerankState.RERANK_FALLBACK_INVALID_RESPONSE, "HYBRID", "provider_malformed_response"),
+        (RerankState.RERANKED, "LEXICAL_FALLBACK_PROVIDER_ERROR", "provider_unavailable"),
+    ],
+)
+def test_transient_provider_fallback_is_not_cacheable(
+    monkeypatch: pytest.MonkeyPatch,
+    rerank_state: RerankState,
+    hybrid_state: str,
+    fallback_reason: str,
+) -> None:
+    writes = 0
+    patch_build_dependencies(
+        monkeypatch,
+        response=rerank_response(
+            [candidate(0)],
+            rerank_state=rerank_state,
+            hybrid_state=hybrid_state,
+            semantic_state=(
+                SemanticState.UNAVAILABLE
+                if hybrid_state == "LEXICAL_FALLBACK_PROVIDER_ERROR"
+                else SemanticState.CURRENT
+            ),
+            fallback_reason=fallback_reason,
+        ),
+    )
+    monkeypatch.setattr(
+        context_manager,
+        "_semantic_identity_for_cache",
+        lambda *_args: ({"state": "CURRENT", "profile_identity": "profile"}, True),
+    )
+
+    def record_write(*_args: object, **_kwargs: object) -> bool:
+        nonlocal writes
+        writes += 1
+        return True
+
+    monkeypatch.setattr(context_manager, "_write_context_cache", record_write)
+
+    capsule = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+
+    assert capsule.context_fingerprint is not None
+    assert writes == 0
+
+
+def test_deterministic_disabled_rerank_is_cacheable() -> None:
+    assert context_manager._context_cache_state_eligible(
+        rerank_state=RerankState.RERANK_FALLBACK_DISABLED.value,
+        hybrid_state="HYBRID",
+        fallback_reason="rerank_disabled",
+        result_count=1,
+    )
+
+
 def test_material_context_input_identity_changes_for_task_request_profile_and_policy() -> None:
     state = source_state()
     task = task_response()
@@ -1030,3 +1088,37 @@ def test_material_context_input_identity_changes_for_task_request_profile_and_po
     assert fingerprint(base) != fingerprint(
         {**base, "pipeline": {"fingerprint_policy_version": "context-fingerprint-v2"}}
     )
+
+
+def test_equivalent_operational_runs_do_not_change_material_input_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = source_state()
+    task = task_response()
+    kwargs: dict[str, Any] = {
+        "state": state,
+        "task": task,
+        "extracted_text_sha256": "a" * 64,
+        "extraction_method": "hive-text-normalizer",
+        "extraction_version": "1",
+        "query": "Build context capsule",
+        "normalized_query": "build context capsule",
+        "constraints": ["- bounded"],
+        "acceptance_criteria": ["- tested"],
+        "top_k": 5,
+        "disclosure_level": None,
+        "semantic_identity": {"state": "CURRENT", "profile_identity": "embedding-a"},
+        "rerank_identity": {"enabled": False, "profile_identity": None},
+    }
+    first = context_manager._context_input_payload(**kwargs)
+    operational_state = replace(
+        state,
+        index_run_id=UUID("00000000-0000-0000-0000-000000000014"),
+        corpus_run_id=UUID("00000000-0000-0000-0000-000000000015"),
+    )
+    second = context_manager._context_input_payload(**{**kwargs, "state": operational_state})
+
+    assert context_input_fingerprint(first) == context_input_fingerprint(second)
+    monkeypatch.setattr(context_manager, "CONTEXT_BUILD_POLICY_VERSION", "context-build-test")
+    changed_policy = context_manager._context_input_payload(**kwargs)
+    assert context_input_fingerprint(first) != context_input_fingerprint(changed_policy)

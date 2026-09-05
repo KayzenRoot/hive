@@ -19,6 +19,7 @@ LAST_DOCUMENT_COUNT = 0
 LAST_MODEL = ""
 LAST_QUERY = ""
 LAST_AUTHORIZATION_PRESENT = False
+FAIL_NEXT_PROVIDER_ERROR = False
 
 
 class FixtureServer(ThreadingHTTPServer):
@@ -85,7 +86,17 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         global LAST_AUTHORIZATION_PRESENT, LAST_DOCUMENT_COUNT, LAST_MODEL, LAST_QUERY
-        global REQUEST_COUNT, RERANK_COUNT
+        global FAIL_NEXT_PROVIDER_ERROR, REQUEST_COUNT, RERANK_COUNT
+        if self.path == "/control":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                self._json(400, {"error": "invalid_request"})
+                return
+            FAIL_NEXT_PROVIDER_ERROR = payload.get("fail_next_provider_error") is True
+            self._json(200, {"fail_next_provider_error": FAIL_NEXT_PROVIDER_ERROR})
+            return
         if self.path != "/rerank":
             self._json(404, {"error": "not_found"})
             return
@@ -123,7 +134,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
         LAST_MODEL = model
         LAST_QUERY = query[:256]
         LAST_AUTHORIZATION_PRESENT = bool(self.headers.get("Authorization"))
-        if "__fixture_rerank_provider_error__" in query:
+        if FAIL_NEXT_PROVIDER_ERROR or "__fixture_rerank_provider_error__" in query:
+            FAIL_NEXT_PROVIDER_ERROR = False
             self._json(503, {"error": "fixture_provider_error"})
             return
         if "__fixture_rerank_timeout__" in query:

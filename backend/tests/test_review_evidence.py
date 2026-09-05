@@ -1505,6 +1505,19 @@ def test_wo012_context_fingerprint_review_evidence_fails_closed(
             "0005_semantic_retrieval",
         )
 
+    disconnected = dict(payload)
+    disconnected["context_fingerprint_input_material_inputs_bound"] = False
+    (integration_logs / "context-manager.json").write_text(
+        json.dumps(disconnected),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="context-fingerprint evidence"):
+        require_wo012_context_manager_evidence(
+            "WO-012",
+            {"context_manager": context_manager_evidence()},
+            "0005_semantic_retrieval",
+        )
+
     review_evidence.require_wo012_scope(
         "WO-012",
         review_evidence.WO012_BASE_SHA,

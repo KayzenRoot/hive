@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -45,17 +46,32 @@ def test_material_input_change_changes_fingerprint_without_raw_secret() -> None:
     assert "WO012_PROVIDER_SECRET" not in serialized
 
 
-def test_output_fingerprint_excludes_only_its_explicit_self_reference() -> None:
-    semantic = {
-        "project": {"project_id": "project-a"},
+def test_output_fingerprint_excludes_self_reference_and_operational_run_ids() -> None:
+    semantic: dict[str, Any] = {
+        "project": {
+            "project_id": "project-a",
+            "index_run_id": "index-a",
+            "corpus_run_id": "corpus-a",
+        },
         "task": {"task_id": "task-a", "excerpt": "Unicode 🙂 and code"},
+        "retrieval": {"results": [{"reference_id": "reference-a", "corpus_run_id": "corpus-a"}]},
         "context_fingerprint": {"output_fingerprint": "old"},
     }
 
     without_evidence = dict(semantic)
     without_evidence.pop("context_fingerprint")
     assert context_output_fingerprint(semantic) == context_output_fingerprint(without_evidence)
-    assert '"serialization_version":"context-output-v1"' in context_output_serialization(semantic)
+    changed_operational = {
+        **without_evidence,
+        "project": {
+            **without_evidence["project"],
+            "index_run_id": "index-b",
+            "corpus_run_id": "corpus-b",
+        },
+        "retrieval": {"results": [{"reference_id": "reference-a", "corpus_run_id": "corpus-b"}]},
+    }
+    assert context_output_fingerprint(semantic) == context_output_fingerprint(changed_operational)
+    assert '"serialization_version":"context-output-v2"' in context_output_serialization(semantic)
 
 
 def test_fingerprint_evidence_is_versioned_provider_independent_and_strict() -> None:
@@ -84,7 +100,7 @@ def test_cache_envelope_is_bounded_versioned_and_rejects_extra_fields() -> None:
         serialized_capsule="{}",
     )
 
-    assert envelope.schema_version == "context-fingerprint-cache-v1"
+    assert envelope.schema_version == "context-fingerprint-cache-v2"
     assert CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS > 0
     assert len(envelope.model_dump_json().encode("utf-8")) < (
         MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES

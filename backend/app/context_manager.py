@@ -89,6 +89,7 @@ from .reranking import (
     RerankError,
     RerankRequest,
     RerankResponse,
+    RerankState,
     rerank_search,
 )
 from .retrieval import (
@@ -126,9 +127,12 @@ MAX_RETRIEVAL_RESULTS = 5
 MAX_TOTAL_RETRIEVAL_CHARS = 6_000
 MAX_CAPSULE_CHARS = 24_000
 CONTEXT_RETRIEVAL_POLICY_VERSION = "context-retrieval-v1"
+CONTEXT_BUILD_POLICY_VERSION = "context-build-v1"
+CONTEXT_TASK_SECTION_POLICY_VERSION = "context-task-sections-v1"
+CONTEXT_GOVERNANCE_SELECTION_POLICY_VERSION = "context-governance-selection-v1"
 CONTEXT_BOUNDS_POLICY_VERSION = "context-bounds-v1"
 CONTEXT_QUERY_POLICY_VERSION = "context-query-v1"
-CONTEXT_FINGERPRINT_CACHE_KEY_VERSION = "cf-v1"
+CONTEXT_FINGERPRINT_CACHE_KEY_VERSION = "cf-v2"
 CONTEXT_FINGERPRINT_MATERIAL_CLASSES: tuple[str, ...] = (
     "project-source",
     "task-provenance",
@@ -829,12 +833,8 @@ def _semantic_cache_identity(
         "configured": status.configured,
         "state": status.state.value,
         "profile_identity": profile.identity_fingerprint if profile else None,
-        "current_corpus_run_id": (
-            str(status.current_corpus_run_id) if status.current_corpus_run_id else None
-        ),
         "latest_run_status": latest_run.status.value if latest_run else None,
         "latest_run_source_fingerprint": latest_run.source_fingerprint if latest_run else None,
-        "last_error": status.last_error,
     }
 
 
@@ -879,6 +879,37 @@ def _progressive_disclosure_policy_identity() -> dict[str, object]:
     }
 
 
+def _context_build_policy_identity() -> dict[str, object]:
+    """Bind every owned context-construction policy that changes semantics."""
+
+    return {
+        "version": CONTEXT_BUILD_POLICY_VERSION,
+        "retrieval_policy_version": CONTEXT_RETRIEVAL_POLICY_VERSION,
+        "task_section_policy": {
+            "version": CONTEXT_TASK_SECTION_POLICY_VERSION,
+            "max_items": MAX_TASK_SECTION_ITEMS,
+            "max_item_characters": MAX_TASK_SECTION_ITEM_CHARS,
+        },
+        "governance_selection_policy": {
+            "version": CONTEXT_GOVERNANCE_SELECTION_POLICY_VERSION,
+            "paths": list(GOVERNANCE_PATHS),
+            "mandatory_kinds": list(MANDATORY_GOVERNANCE_KINDS),
+            "max_excerpt_characters": MAX_GOVERNANCE_EXCERPT_CHARS,
+            "max_excerpts": MAX_GOVERNANCE_EXCERPTS,
+            "max_total_characters": MAX_TOTAL_GOVERNANCE_CHARS,
+        },
+        "query_policy_version": CONTEXT_QUERY_POLICY_VERSION,
+        "query_max_characters": MAX_QUERY_CHARS,
+        "retrieval_candidate_pool": MAX_RETRIEVAL_CANDIDATE_POOL,
+        "retrieval_max_results": MAX_RETRIEVAL_RESULTS,
+        "retrieval_max_total_characters": MAX_TOTAL_RETRIEVAL_CHARS,
+        "bounds_policy_version": CONTEXT_BOUNDS_POLICY_VERSION,
+        "max_task_excerpt_characters": MAX_TASK_EXCERPT_CHARS,
+        "max_capsule_characters": MAX_CAPSULE_CHARS,
+        "progressive_disclosure": _progressive_disclosure_policy_identity(),
+    }
+
+
 def _context_input_payload(
     *,
     state: _SourceState,
@@ -904,11 +935,9 @@ def _context_input_payload(
             "repository_head_sha": state.snapshot.repository_head_sha,
             "registered_head_sha": state.project.git_head_sha,
             "git_inventory_fingerprint": state.snapshot.git_inventory_fingerprint,
-            "repository_index_run_id": str(state.index_run_id),
             "repository_source_fingerprint": state.repository_source_fingerprint,
             "task_source_fingerprint": state.task_source_fingerprint,
             "corpus_source_fingerprint": state.corpus_source_fingerprint,
-            "corpus_run_id": str(state.corpus_run_id),
             "currentness": {
                 "project_state": state.project.state.value,
                 "repository_accessible": state.project.repository_accessible,
@@ -950,6 +979,7 @@ def _context_input_payload(
         },
         "pipeline": {
             "context_capsule_version": CONTEXT_CAPSULE_VERSION,
+            "context_build_policy": _context_build_policy_identity(),
             "fingerprint_policy_version": CONTEXT_FINGERPRINT_POLICY_VERSION,
             "input_serialization_version": CONTEXT_INPUT_SERIALIZATION_VERSION,
             "output_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
@@ -1023,6 +1053,58 @@ def _write_context_cache(
             client.close()  # type: ignore[no-untyped-call]
 
 
+def _context_cache_state_eligible(
+    *,
+    rerank_state: str,
+    hybrid_state: str,
+    fallback_reason: str | None,
+    result_count: int,
+) -> bool:
+    """Allow reuse only for complete, non-transient retrieval outcomes."""
+
+    if rerank_state in {
+        RerankState.RERANK_FALLBACK_PROVIDER_ERROR.value,
+        RerankState.RERANK_FALLBACK_INVALID_RESPONSE.value,
+        RerankState.RERANK_FALLBACK_NO_CANDIDATES.value,
+    }:
+        return False
+    if hybrid_state == "LEXICAL_FALLBACK_PROVIDER_ERROR":
+        return False
+    if fallback_reason == "LEXICAL_FALLBACK_PROVIDER_ERROR":
+        return False
+    return result_count > 0
+
+
+def _context_cache_write_eligible(response: RerankResponse) -> bool:
+    return _context_cache_state_eligible(
+        rerank_state=response.rerank_state.value,
+        hybrid_state=response.hybrid_state,
+        fallback_reason=response.fallback_reason,
+        result_count=len(response.results),
+    )
+
+
+def _refresh_operational_provenance(
+    capsule: ContextCapsule,
+    state: _SourceState,
+) -> ContextCapsule:
+    refreshed_results = [
+        result.model_copy(update={"corpus_run_id": state.corpus_run_id})
+        for result in capsule.retrieval.results
+    ]
+    return capsule.model_copy(
+        update={
+            "project": capsule.project.model_copy(
+                update={
+                    "index_run_id": state.index_run_id,
+                    "corpus_run_id": state.corpus_run_id,
+                }
+            ),
+            "retrieval": capsule.retrieval.model_copy(update={"results": refreshed_results}),
+        }
+    )
+
+
 def _cached_context_if_valid(
     settings: Settings,
     *,
@@ -1051,6 +1133,9 @@ def _cached_context_if_valid(
     if (
         capsule.version != CONTEXT_CAPSULE_VERSION
         or capsule.project.project_id != project_id
+        or capsule.project.repository_head_sha.lower() != state.snapshot.repository_head_sha.lower()
+        or capsule.project.registered_head_sha.lower()
+        != cast(str, state.project.git_head_sha).lower()
         or capsule.task.task_id != task_id
         or capsule.task.project_id != project_id
         or evidence.input_fingerprint != input_fingerprint
@@ -1071,6 +1156,16 @@ def _cached_context_if_valid(
         or capsule.adaptive_token_budget.final_context_token_estimate_verified is not True
         or capsule.adaptive_token_budget.final_context_estimate_within_effective_budget is not True
     ):
+        return None
+    if not _context_cache_state_eligible(
+        rerank_state=capsule.retrieval.rerank_state,
+        hybrid_state=capsule.retrieval.hybrid_state,
+        fallback_reason=capsule.retrieval.fallback_reason,
+        result_count=len(capsule.retrieval.results),
+    ):
+        return None
+    capsule = _refresh_operational_provenance(capsule, state)
+    if context_output_fingerprint(_context_payload_data(capsule)) != evidence.output_fingerprint:
         return None
     _assert_state_stable(
         settings,
@@ -1396,7 +1491,7 @@ def _semantic_identity_for_cache(
 
     try:
         return _semantic_cache_identity(semantic_status(settings, project_id)), True
-    except (SemanticError, RetrievalProjectNotFoundError, psycopg.Error, RuntimeError) as exc:
+    except (SemanticError, RetrievalProjectNotFoundError, psycopg.Error, RuntimeError):
         # A cache lookup is unsafe when semantic state cannot be proven. The
         # canonical build may still provide a useful error or lexical fallback.
         return {
@@ -1404,10 +1499,8 @@ def _semantic_identity_for_cache(
             "configured": False,
             "state": "UNKNOWN",
             "profile_identity": None,
-            "current_corpus_run_id": None,
             "latest_run_status": None,
             "latest_run_source_fingerprint": None,
-            "last_error": f"semantic_state_unavailable:{type(exc).__name__}",
         }, False
 
 
@@ -1807,7 +1900,11 @@ def build_context(
         state,
         extracted_text_sha256,
     )
-    if cache_safe and capsule.context_fingerprint is not None:
+    if (
+        cache_safe
+        and capsule.context_fingerprint is not None
+        and _context_cache_write_eligible(rerank_response)
+    ):
         _write_context_cache(
             settings,
             cache_key,

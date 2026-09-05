@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -11,6 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from project_registry_integration import (
     ROOT,
@@ -23,6 +25,7 @@ from project_registry_integration import (
 from project_registry_integration import request as http_request
 
 sys.path.insert(0, str(ROOT / "backend"))
+from app import context_manager as context_manager_module  # noqa: E402
 from app.adaptive_token_budget import (  # noqa: E402
     TOKEN_BUDGET_SERIALIZATION_VERSION,
     TOKEN_ESTIMATOR_VERSION,
@@ -31,6 +34,7 @@ from app.adaptive_token_budget import (  # noqa: E402
     run_focused_benchmark,
     verify_context_payload_estimate,
 )
+from app.config import Settings  # noqa: E402
 from app.context_fingerprints import (  # noqa: E402
     CONTEXT_FINGERPRINT_ALGORITHM,
     CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS,
@@ -39,7 +43,16 @@ from app.context_fingerprints import (  # noqa: E402
     CONTEXT_OUTPUT_SERIALIZATION_VERSION,
     MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES,
     context_input_fingerprint,
+    context_output_fingerprint,
 )
+from app.registry import ProjectResponse  # noqa: E402
+from app.semantic_retrieval import (  # noqa: E402
+    SemanticStatusResponse,
+)
+from app.semantic_retrieval import (
+    _profile_from_settings as embedding_profile_from_settings,
+)
+from app.task_intake import TaskResponse, TaskTextResponse  # noqa: E402
 
 SCHEMA_REVISION = "0005_semantic_retrieval"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "context-manager.json"
@@ -291,19 +304,162 @@ def fixture_stats(port: int, label: str) -> dict[str, Any]:
 
 
 def cache_key(project_id: str, input_fingerprint: str) -> str:
-    return f"hive:context:cf-v1:{project_id}:{input_fingerprint}"
+    return f"hive:context:cf-v2:{project_id}:{input_fingerprint}"
 
 
-def context_fingerprint_identity_change_contract() -> tuple[bool, bool]:
-    base = {
-        "semantic_profile": "fixture-profile-v1",
-        "pipeline_policy": "context-pipeline-v1",
+def fixture_control(port: int, payload: dict[str, Any], label: str) -> dict[str, Any]:
+    status, response = request(f"http://127.0.0.1:{port}", "POST", "/control", payload)
+    if status != 200 or not isinstance(response, dict):
+        raise AssertionError(f"{label} fixture control failed: {status} {response}")
+    return response
+
+
+def recreate_api(project_name: str, environment: dict[str, str], base_url: str) -> None:
+    compose(project_name, ["up", "-d", "--force-recreate", "api"], env=environment)
+    wait_for_health(base_url)
+
+
+def material_state(base_url: str, project_id: str, label: str) -> dict[str, Any]:
+    responses: dict[str, dict[str, Any]] = {}
+    for name, path in (
+        ("project", f"/api/v1/projects/{project_id}"),
+        ("index", f"/api/v1/projects/{project_id}/index/status"),
+        ("corpus", f"/api/v1/projects/{project_id}/retrieval/corpus"),
+        ("semantic", f"/api/v1/projects/{project_id}/retrieval/semantic"),
+    ):
+        status, response = request(base_url, "GET", path)
+        if status != 200 or not isinstance(response, dict):
+            raise AssertionError(f"{label} {name} status failed: {status} {response}")
+        responses[name] = response
+    corpus = responses["corpus"].get("latest_run") or {}
+    semantic = responses["semantic"]
+    latest_semantic = semantic.get("latest_run") or {}
+    return {
+        "index_run_id": responses["index"].get("run_id"),
+        "corpus_run_id": corpus.get("run_id"),
+        "semantic_run_id": latest_semantic.get("run_id"),
+        "repository_head_sha": responses["index"].get("repository_head_sha"),
+        "repository_source_fingerprint": corpus.get("repository_source_fingerprint"),
+        "task_source_fingerprint": corpus.get("task_source_fingerprint"),
+        "corpus_source_fingerprint": corpus.get("source_fingerprint"),
+        "semantic_source_fingerprint": latest_semantic.get("source_fingerprint"),
+        "embedding_profile_identity": (semantic.get("profile") or {}).get("identity_fingerprint"),
     }
-    profile_changed = dict(base, semantic_profile="fixture-profile-v2")
-    policy_changed = dict(base, pipeline_policy="context-pipeline-v2")
+
+
+def production_input_fingerprint(
+    base_url: str,
+    project_id: str,
+    task_id: str,
+    target: Path,
+    projects_root: Path,
+    environment: dict[str, str],
+    *,
+    embedding_revision: str | None = None,
+    rerank_revision: str | None = None,
+    rerank_secret: str | None = None,
+    policy_version: str | None = None,
+) -> str:
+    """Build a fingerprint through the production Context Manager payload path."""
+
+    responses: dict[str, dict[str, Any]] = {}
+    for name, path in (
+        ("project", f"/api/v1/projects/{project_id}"),
+        ("index", f"/api/v1/projects/{project_id}/index/status"),
+        ("corpus", f"/api/v1/projects/{project_id}/retrieval/corpus"),
+        ("semantic", f"/api/v1/projects/{project_id}/retrieval/semantic"),
+        ("task", f"/api/v1/projects/{project_id}/tasks/{task_id}"),
+        ("text", f"/api/v1/projects/{project_id}/tasks/{task_id}/text"),
+    ):
+        status, response = request(base_url, "GET", path)
+        if status != 200 or not isinstance(response, dict):
+            raise AssertionError(f"production fingerprint {name} failed: {status} {response}")
+        responses[name] = response
+    project = ProjectResponse.model_validate(responses["project"])
+    task = TaskResponse.model_validate(responses["task"])
+    extracted = TaskTextResponse.model_validate(responses["text"])
+    settings_for_inventory = Settings(projects_root=projects_root)
+    snapshot = context_manager_module._collect_inventory(settings_for_inventory, target)
+    corpus_run = responses["corpus"].get("latest_run") or {}
+    state = context_manager_module._SourceState(
+        project=project,
+        snapshot=snapshot,
+        index_run_id=UUID(str(responses["index"]["run_id"])),
+        corpus_run_id=UUID(str(corpus_run["run_id"])),
+        repository_source_fingerprint=str(corpus_run["repository_source_fingerprint"]),
+        task_source_fingerprint=str(corpus_run["task_source_fingerprint"]),
+        corpus_source_fingerprint=str(corpus_run["source_fingerprint"]),
+    )
+    constraints, _ = context_manager_module._task_section_items(
+        extracted.text, frozenset({"constraints"})
+    )
+    acceptance_criteria, _ = context_manager_module._task_section_items(
+        extracted.text, frozenset({"acceptance criteria"})
+    )
+    query, normalized_query = context_manager_module._derive_query(
+        task, extracted.text, constraints, acceptance_criteria
+    )
+    semantic_payload = SemanticStatusResponse.model_validate(responses["semantic"])
+    embedding_settings = Settings(
+        embedding_enabled=True,
+        embedding_base_url=environment["HIVE_EMBEDDING_BASE_URL"],
+        embedding_model=environment["HIVE_EMBEDDING_MODEL"],
+        embedding_model_revision=embedding_revision
+        if embedding_revision is not None
+        else environment["HIVE_EMBEDDING_MODEL_REVISION"],
+        embedding_dimensions=int(environment["HIVE_EMBEDDING_DIMENSIONS"]),
+        rerank_enabled=True,
+        rerank_base_url=environment["HIVE_RERANK_BASE_URL"],
+        rerank_model=environment["HIVE_RERANK_MODEL"],
+        rerank_model_revision=rerank_revision
+        if rerank_revision is not None
+        else environment["HIVE_RERANK_MODEL_REVISION"],
+        rerank_api_key=rerank_secret,
+    )
+    if embedding_revision is not None:
+        semantic_payload = semantic_payload.model_copy(
+            update={"profile": embedding_profile_from_settings(embedding_settings)}
+        )
+    semantic_identity = context_manager_module._semantic_cache_identity(semantic_payload)
+    rerank_identity = context_manager_module._rerank_cache_identity(embedding_settings)
+    original_policy = context_manager_module.CONTEXT_BUILD_POLICY_VERSION
+    if policy_version is not None:
+        context_manager_module.CONTEXT_BUILD_POLICY_VERSION = policy_version
+    try:
+        payload = context_manager_module._context_input_payload(
+            state=state,
+            task=task,
+            extracted_text_sha256=hashlib.sha256(extracted.text.encode("utf-8")).hexdigest(),
+            extraction_method=extracted.extraction_method,
+            extraction_version=extracted.extraction_version,
+            query=query,
+            normalized_query=normalized_query,
+            constraints=constraints,
+            acceptance_criteria=acceptance_criteria,
+            top_k=10,
+            disclosure_level=None,
+            semantic_identity=semantic_identity,
+            rerank_identity=rerank_identity,
+        )
+    finally:
+        context_manager_module.CONTEXT_BUILD_POLICY_VERSION = original_policy
+    return context_input_fingerprint(payload)
+
+
+def production_policy_binding_contract() -> bool:
+    original = context_manager_module.CONTEXT_BUILD_POLICY_VERSION
+    first = context_manager_module._context_build_policy_identity()
+    context_manager_module.CONTEXT_BUILD_POLICY_VERSION = original + "-test-change"
+    try:
+        changed = context_manager_module._context_build_policy_identity()
+    finally:
+        context_manager_module.CONTEXT_BUILD_POLICY_VERSION = original
     return (
-        context_input_fingerprint(base) != context_input_fingerprint(profile_changed),
-        context_input_fingerprint(base) != context_input_fingerprint(policy_changed),
+        first["version"] != changed["version"]
+        and first["retrieval_policy_version"]
+        == context_manager_module.CONTEXT_RETRIEVAL_POLICY_VERSION
+        and bool(first["task_section_policy"])
+        and bool(first["governance_selection_policy"])
     )
 
 
@@ -640,9 +796,11 @@ def main() -> int:
             raise AssertionError(f"context fingerprint evidence missing: {first}")
         if (
             fingerprint_evidence.get("algorithm") != "SHA-256"
-            or fingerprint_evidence.get("policy_version") != "context-fingerprint-v1"
-            or fingerprint_evidence.get("input_serialization_version") != "context-input-v1"
-            or fingerprint_evidence.get("output_serialization_version") != "context-output-v1"
+            or fingerprint_evidence.get("policy_version") != CONTEXT_FINGERPRINT_POLICY_VERSION
+            or fingerprint_evidence.get("input_serialization_version")
+            != CONTEXT_INPUT_SERIALIZATION_VERSION
+            or fingerprint_evidence.get("output_serialization_version")
+            != CONTEXT_OUTPUT_SERIALIZATION_VERSION
             or fingerprint_evidence.get("provider_independent") is not True
             or fingerprint_evidence.get("llm_calls") != 0
             or fingerprint_evidence.get("provider_calls") != 0
@@ -677,6 +835,202 @@ def main() -> int:
                 f"rerank={rerank_calls_first}/{rerank_calls_repeat}"
             )
         original_fingerprint = str(fingerprint_evidence["input_fingerprint"])
+
+        # The optional pressure task was added after the first exact-repeat
+        # assertion.  Establish a fresh, stable reference after incorporating
+        # that task before testing equivalent index/corpus/semantic rebuilds.
+        status, pressure_corpus = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+        )
+        assert_equal(status, 200, "pressure baseline corpus sync")
+        if not isinstance(pressure_corpus, dict) or pressure_corpus.get("status") != "COMPLETED":
+            raise AssertionError(f"pressure baseline corpus sync failed: {pressure_corpus}")
+        status, pressure_semantic = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "pressure baseline semantic sync")
+        if (
+            not isinstance(pressure_semantic, dict)
+            or pressure_semantic.get("status") != "COMPLETED"
+        ):
+            raise AssertionError(f"pressure baseline semantic sync failed: {pressure_semantic}")
+        equivalent_reference = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        equivalent_before_state = material_state(
+            base_url, project_ids["Target"], "equivalent rebuild before"
+        )
+        equivalent_embedding_before = fixture_stats(embedding_port, "embedding")
+        equivalent_rerank_before = fixture_stats(rerank_port, "rerank")
+
+        status, equivalent_index = request(
+            base_url, "POST", f"/api/v1/projects/{project_ids['Target']}/index"
+        )
+        assert_equal(status, 200, "equivalent repository re-index")
+        if not isinstance(equivalent_index, dict) or equivalent_index.get("status") != "COMPLETED":
+            raise AssertionError(f"equivalent repository re-index failed: {equivalent_index}")
+        status, equivalent_corpus = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+        )
+        assert_equal(status, 200, "equivalent corpus re-sync")
+        if (
+            not isinstance(equivalent_corpus, dict)
+            or equivalent_corpus.get("status") != "COMPLETED"
+        ):
+            raise AssertionError(f"equivalent corpus re-sync failed: {equivalent_corpus}")
+        status, equivalent_semantic = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "equivalent semantic re-sync")
+        if (
+            not isinstance(equivalent_semantic, dict)
+            or equivalent_semantic.get("status") != "COMPLETED"
+        ):
+            raise AssertionError(f"equivalent semantic re-sync failed: {equivalent_semantic}")
+        equivalent_after_state = material_state(
+            base_url, project_ids["Target"], "equivalent rebuild after"
+        )
+        equivalent = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        equivalent_embedding_after = fixture_stats(embedding_port, "embedding")
+        equivalent_rerank_after = fixture_stats(rerank_port, "rerank")
+        equivalent_run_ids_changed = all(
+            equivalent_before_state[key] != equivalent_after_state[key]
+            for key in ("index_run_id", "corpus_run_id", "semantic_run_id")
+        )
+        equivalent_material_source_stable = all(
+            equivalent_before_state[key] == equivalent_after_state[key]
+            for key in (
+                "repository_head_sha",
+                "repository_source_fingerprint",
+                "task_source_fingerprint",
+                "corpus_source_fingerprint",
+                "semantic_source_fingerprint",
+                "embedding_profile_identity",
+            )
+        )
+        equivalent_provenance_current = (
+            equivalent["project"]["index_run_id"] == equivalent_after_state["index_run_id"]
+            and equivalent["project"]["corpus_run_id"] == equivalent_after_state["corpus_run_id"]
+            and all(
+                item["corpus_run_id"] == equivalent_after_state["corpus_run_id"]
+                for item in equivalent["retrieval"]["results"]
+            )
+        )
+        equivalent_provider_work_avoided = equivalent_embedding_after.get(
+            "request_count", 0
+        ) == equivalent_embedding_before.get("request_count", 0) and equivalent_rerank_after.get(
+            "request_count", 0
+        ) == equivalent_rerank_before.get("request_count", 0)
+        context_fingerprint_equivalent_rebuild_stable = all(
+            (
+                equivalent_run_ids_changed,
+                equivalent_material_source_stable,
+                equivalent_provenance_current,
+                equivalent_provider_work_avoided,
+                equivalent["context_fingerprint"]["input_fingerprint"]
+                == equivalent_reference["context_fingerprint"]["input_fingerprint"],
+                equivalent["context_fingerprint"]["output_fingerprint"]
+                == equivalent_reference["context_fingerprint"]["output_fingerprint"],
+                context_output_fingerprint(equivalent)
+                == context_output_fingerprint(equivalent_reference),
+            )
+        )
+        if not context_fingerprint_equivalent_rebuild_stable:
+            raise AssertionError(
+                "equivalent rebuild changed material context identity or provenance: "
+                f"before={equivalent_before_state}, after={equivalent_after_state}, "
+                f"capsule_equal={equivalent == equivalent_reference}"
+            )
+
+        production_base_fingerprint = production_input_fingerprint(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            target,
+            projects_root,
+            environment,
+        )
+        embedding_profile_fingerprint = production_input_fingerprint(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            target,
+            projects_root,
+            environment,
+            embedding_revision="context-fixture-2",
+        )
+        rerank_profile_fingerprint = production_input_fingerprint(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            target,
+            projects_root,
+            environment,
+            rerank_revision="context-fixture-2",
+        )
+        secret_rotation_fingerprint = production_input_fingerprint(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            target,
+            projects_root,
+            environment,
+            rerank_secret="WO012_SECRET_SENTINEL",
+        )
+        policy_fingerprint = production_input_fingerprint(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            target,
+            projects_root,
+            environment,
+            policy_version="context-build-c1-test-change",
+        )
+        context_fingerprint_profile_change_invalidates = (
+            production_base_fingerprint != embedding_profile_fingerprint
+            and production_base_fingerprint != rerank_profile_fingerprint
+            and cache_key(project_ids["Target"], production_base_fingerprint)
+            != cache_key(project_ids["Target"], embedding_profile_fingerprint)
+            and cache_key(project_ids["Target"], production_base_fingerprint)
+            != cache_key(project_ids["Target"], rerank_profile_fingerprint)
+        )
+        context_fingerprint_policy_change_invalidates = (
+            production_policy_binding_contract()
+            and production_base_fingerprint != policy_fingerprint
+            and cache_key(project_ids["Target"], production_base_fingerprint)
+            != cache_key(project_ids["Target"], policy_fingerprint)
+        )
+        context_fingerprint_secrets_rotation_stable = (
+            production_base_fingerprint == secret_rotation_fingerprint
+        )
+        context_fingerprint_input_material_inputs_bound = all(
+            (
+                production_base_fingerprint
+                == equivalent_reference["context_fingerprint"]["input_fingerprint"],
+                context_fingerprint_profile_change_invalidates,
+                context_fingerprint_policy_change_invalidates,
+                context_fingerprint_secrets_rotation_stable,
+                equivalent_material_source_stable,
+            )
+        )
+        context_fingerprint_material_inputs_bound = context_fingerprint_input_material_inputs_bound
+        if not context_fingerprint_input_material_inputs_bound:
+            raise AssertionError(
+                "production input identity contract was not proven: "
+                "base="
+                f"{production_base_fingerprint}, "
+                "capsule="
+                f"{equivalent_reference['context_fingerprint']['input_fingerprint']}, "
+                f"profile={context_fingerprint_profile_change_invalidates}, "
+                f"policy={context_fingerprint_policy_change_invalidates}, "
+                f"secret_stable={context_fingerprint_secrets_rotation_stable}"
+            )
 
         duplicate_status, duplicate_task = request(
             base_url,
@@ -1187,6 +1541,84 @@ def main() -> int:
         )
         assert fallback["retrieval"]["fallback_reason"]
 
+        redis_cli(project_name, ["FLUSHDB"], environment)
+        rerank_recovery_before = fixture_stats(rerank_port, "rerank")
+        fixture_control(
+            rerank_port,
+            {"fail_next_provider_error": True},
+            "rerank transient-failure",
+        )
+        rerank_failure = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        assert_equal(
+            rerank_failure["retrieval"]["rerank_state"],
+            "RERANK_FALLBACK_PROVIDER_ERROR",
+            "transient rerank failure state",
+        )
+        rerank_failure_key = cache_key(
+            project_ids["Target"], rerank_failure["context_fingerprint"]["input_fingerprint"]
+        )
+        rerank_failure_not_cached = (
+            redis_cli(project_name, ["EXISTS", rerank_failure_key], environment) == "0"
+        )
+        rerank_recovered = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        rerank_recovery_after = fixture_stats(rerank_port, "rerank")
+        rerank_provider_recovery_retried = (
+            rerank_recovered["retrieval"]["rerank_state"] == "RERANKED"
+            and rerank_recovered["retrieval"]["hybrid_state"] != "LEXICAL_FALLBACK_PROVIDER_ERROR"
+            and rerank_recovery_after.get("request_count", 0)
+            > rerank_recovery_before.get("request_count", 0) + 1
+            and rerank_recovered["context_fingerprint"]["input_fingerprint"]
+            == rerank_failure["context_fingerprint"]["input_fingerprint"]
+        )
+        if not (rerank_failure_not_cached and rerank_provider_recovery_retried):
+            raise AssertionError(
+                "reranker transient failure was cached or recovery was not retried: "
+                f"not_cached={rerank_failure_not_cached}, recovered={rerank_recovered}, "
+                f"stats={rerank_recovery_before}->{rerank_recovery_after}"
+            )
+
+        redis_cli(project_name, ["FLUSHDB"], environment)
+        semantic_recovery_before = fixture_stats(embedding_port, "embedding")
+        fixture_control(
+            embedding_port,
+            {"fail_next_provider_error": True},
+            "semantic transient-failure",
+        )
+        semantic_failure = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        assert_equal(
+            semantic_failure["retrieval"]["hybrid_state"],
+            "LEXICAL_FALLBACK_PROVIDER_ERROR",
+            "transient semantic failure state",
+        )
+        semantic_failure_key = cache_key(
+            project_ids["Target"], semantic_failure["context_fingerprint"]["input_fingerprint"]
+        )
+        semantic_failure_not_cached = (
+            redis_cli(project_name, ["EXISTS", semantic_failure_key], environment) == "0"
+        )
+        semantic_recovered = context_request(base_url, project_ids["Target"], task_ids["Target"])
+        semantic_recovery_after = fixture_stats(embedding_port, "embedding")
+        semantic_provider_recovery_retried = (
+            semantic_recovered["retrieval"]["semantic_state"] == "CURRENT"
+            and semantic_recovered["retrieval"]["hybrid_state"] != "LEXICAL_FALLBACK_PROVIDER_ERROR"
+            and semantic_recovery_after.get("request_count", 0)
+            > semantic_recovery_before.get("request_count", 0) + 1
+            and semantic_recovered["context_fingerprint"]["input_fingerprint"]
+            == semantic_failure["context_fingerprint"]["input_fingerprint"]
+        )
+        if not (semantic_failure_not_cached and semantic_provider_recovery_retried):
+            raise AssertionError(
+                "semantic transient failure was cached or recovery was not retried: "
+                f"not_cached={semantic_failure_not_cached}, recovered={semantic_recovered}, "
+                f"stats={semantic_recovery_before}->{semantic_recovery_after}"
+            )
+        context_fingerprint_transient_provider_failure_not_cached = (
+            rerank_failure_not_cached and semantic_failure_not_cached
+        )
+        context_fingerprint_provider_recovery_retried = (
+            rerank_provider_recovery_retried and semantic_provider_recovery_retried
+        )
+
         status, cross_project = request(
             base_url,
             "POST",
@@ -1306,28 +1738,23 @@ def main() -> int:
             raise AssertionError(f"HEAD race error was not explicit: {race}")
         head_race_fail_closed = status == 409
 
-        (
-            context_fingerprint_profile_change_invalidates,
-            context_fingerprint_policy_change_invalidates,
-        ) = context_fingerprint_identity_change_contract()
         context_fingerprint_source_change_invalidates = source_change_invalidates
         context_fingerprint_task_change_invalidates = task_change_invalidates
         context_fingerprint_request_change_invalidates = request_change_invalidates
         context_fingerprint_cross_task_isolation = same_text_different_task_invalidates
         context_fingerprint_deterministic_two_run = first == second
-        context_fingerprint_secrets_excluded = not any(
-            marker in json.dumps(first, sort_keys=True)
-            for marker in ("api_key", "password", "WO012_SECRET_SENTINEL")
+        context_fingerprint_secrets_excluded = (
+            context_fingerprint_secrets_rotation_stable
+            and not any(
+                marker in json.dumps(first, sort_keys=True)
+                for marker in ("api_key", "password", "WO012_SECRET_SENTINEL")
+            )
         )
         context_fingerprint_output_verified = bool(
             fingerprint_evidence.get("output_fingerprint")
             == second.get("context_fingerprint", {}).get("output_fingerprint")
             and fingerprint_evidence.get("output_fingerprint")
         )
-        context_fingerprint_material_inputs_bound = bool(
-            fingerprint_evidence.get("material_identity_classes")
-        )
-
         checkpoint_first = (
             first["governance"][0]["kind"] == "CHECKPOINT"
             and first["governance"][0]["path"] == "docs/project-brain/13-CHECKPOINT.md"
@@ -1363,6 +1790,9 @@ def main() -> int:
                     context_fingerprint_request_change_invalidates,
                     context_fingerprint_profile_change_invalidates,
                     context_fingerprint_policy_change_invalidates,
+                    context_fingerprint_equivalent_rebuild_stable,
+                    context_fingerprint_transient_provider_failure_not_cached,
+                    context_fingerprint_provider_recovery_retried,
                     context_fingerprint_cross_project_isolation,
                     context_fingerprint_cross_task_isolation,
                     context_fingerprint_corrupt_cache_safe_rebuild,
@@ -1491,6 +1921,65 @@ def main() -> int:
             "context_fingerprint_policy_change_invalidates": (
                 context_fingerprint_policy_change_invalidates
             ),
+            "context_fingerprint_equivalent_rebuild_stable": (
+                context_fingerprint_equivalent_rebuild_stable
+            ),
+            "context_fingerprint_transient_provider_failure_not_cached": (
+                context_fingerprint_transient_provider_failure_not_cached
+            ),
+            "context_fingerprint_provider_recovery_retried": (
+                context_fingerprint_provider_recovery_retried
+            ),
+            "context_fingerprint_rerank_failure_not_cached": rerank_failure_not_cached,
+            "context_fingerprint_rerank_recovery_retried": rerank_provider_recovery_retried,
+            "context_fingerprint_semantic_failure_not_cached": semantic_failure_not_cached,
+            "context_fingerprint_semantic_recovery_retried": semantic_provider_recovery_retried,
+            "context_fingerprint_secrets_rotation_stable": (
+                context_fingerprint_secrets_rotation_stable
+            ),
+            "context_fingerprint_run_ids_changed": equivalent_run_ids_changed,
+            "context_fingerprint_material_sources_stable": equivalent_material_source_stable,
+            "context_fingerprint_provenance_current": equivalent_provenance_current,
+            "context_fingerprint_equivalent_before": {
+                "run_ids": {
+                    "index": equivalent_before_state["index_run_id"],
+                    "corpus": equivalent_before_state["corpus_run_id"],
+                    "semantic": equivalent_before_state["semantic_run_id"],
+                },
+                "source_fingerprints": {
+                    key: equivalent_before_state[key]
+                    for key in (
+                        "repository_source_fingerprint",
+                        "task_source_fingerprint",
+                        "corpus_source_fingerprint",
+                        "semantic_source_fingerprint",
+                    )
+                },
+                "input_fingerprint": equivalent_reference["context_fingerprint"][
+                    "input_fingerprint"
+                ],
+                "output_fingerprint": equivalent_reference["context_fingerprint"][
+                    "output_fingerprint"
+                ],
+            },
+            "context_fingerprint_equivalent_after": {
+                "run_ids": {
+                    "index": equivalent_after_state["index_run_id"],
+                    "corpus": equivalent_after_state["corpus_run_id"],
+                    "semantic": equivalent_after_state["semantic_run_id"],
+                },
+                "source_fingerprints": {
+                    key: equivalent_after_state[key]
+                    for key in (
+                        "repository_source_fingerprint",
+                        "task_source_fingerprint",
+                        "corpus_source_fingerprint",
+                        "semantic_source_fingerprint",
+                    )
+                },
+                "input_fingerprint": equivalent["context_fingerprint"]["input_fingerprint"],
+                "output_fingerprint": equivalent["context_fingerprint"]["output_fingerprint"],
+            },
             "context_fingerprint_cross_project_isolation": (
                 context_fingerprint_cross_project_isolation
             ),

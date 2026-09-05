@@ -139,6 +139,9 @@ WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS = (
     "context_fingerprint_request_change_invalidates",
     "context_fingerprint_profile_change_invalidates",
     "context_fingerprint_policy_change_invalidates",
+    "context_fingerprint_equivalent_rebuild_stable",
+    "context_fingerprint_transient_provider_failure_not_cached",
+    "context_fingerprint_provider_recovery_retried",
     "context_fingerprint_cross_project_isolation",
     "context_fingerprint_cross_task_isolation",
     "context_fingerprint_corrupt_cache_safe_rebuild",
@@ -2146,6 +2149,15 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     fp_corrupt = context_manager_evidence.get(
         "context_fingerprint_corrupt_cache_safe_rebuild", False
     )
+    fp_equivalent = context_manager_evidence.get(
+        "context_fingerprint_equivalent_rebuild_stable", False
+    )
+    fp_transient = context_manager_evidence.get(
+        "context_fingerprint_transient_provider_failure_not_cached", False
+    )
+    fp_recovery = context_manager_evidence.get(
+        "context_fingerprint_provider_recovery_retried", False
+    )
     fp_redis = context_manager_evidence.get("context_fingerprint_redis_loss_rebuild", False)
     fp_llm = context_manager_evidence.get("context_fingerprint_llm_calls", "UNKNOWN")
     fp_provider = context_manager_evidence.get("context_fingerprint_provider_calls", "UNKNOWN")
@@ -2153,7 +2165,9 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"`{fp_status}`; valid hit `{fp_valid_hit}`, work avoided `{fp_work_avoided}`, "
         f"source/task/request invalidation `{fp_source}/{fp_task}/{fp_request}`, "
         f"cross-project `{fp_project}`, corrupt-cache rebuild `{fp_corrupt}`, "
-        f"Redis loss `{fp_redis}`, LLM/provider calls `{fp_llm}/{fp_provider}`"
+        f"Redis loss `{fp_redis}`, equivalent rebuild `{fp_equivalent}`, "
+        f"transient-not-cached/recovery-retried `{fp_transient}/{fp_recovery}`, "
+        f"LLM/provider calls `{fp_llm}/{fp_provider}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"

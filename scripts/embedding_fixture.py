@@ -35,6 +35,7 @@ CONCEPTS = (
 
 REQUEST_COUNT = 0
 EMBEDDING_COUNT = 0
+FAIL_NEXT_PROVIDER_ERROR = False
 
 
 def vector_for(text: str, dimensions: int) -> list[float]:
@@ -80,7 +81,17 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not_found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        global EMBEDDING_COUNT, REQUEST_COUNT
+        global EMBEDDING_COUNT, FAIL_NEXT_PROVIDER_ERROR, REQUEST_COUNT
+        if self.path == "/control":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                self._json(400, {"error": "invalid_request"})
+                return
+            FAIL_NEXT_PROVIDER_ERROR = payload.get("fail_next_provider_error") is True
+            self._json(200, {"fail_next_provider_error": FAIL_NEXT_PROVIDER_ERROR})
+            return
         if self.path != "/embeddings":
             self._json(404, {"error": "not_found"})
             return
@@ -99,7 +110,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
         REQUEST_COUNT += 1
         EMBEDDING_COUNT += len(inputs)
-        if "error" in str(model) or any("__fixture_provider_error__" in item for item in inputs):
+        if (
+            FAIL_NEXT_PROVIDER_ERROR
+            or "error" in str(model)
+            or any("__fixture_provider_error__" in item for item in inputs)
+        ):
+            FAIL_NEXT_PROVIDER_ERROR = False
             self._json(503, {"error": "fixture_provider_error"})
             return
         if "malformed" in str(model):
