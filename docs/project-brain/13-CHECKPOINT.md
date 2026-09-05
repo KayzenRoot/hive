@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-ADAPTIVE TOKEN BUDGET FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -175,6 +175,11 @@ See `03-SCOPE.md`.
 - Post-merge CI run `33802185661` passed on exact `8d9421d9cdfb3779ba56e19083086c31e2a644bf`.
 - GitHub review now follows HIVE-ADR-019: single operational account `KayzenRoot`, stage-gated Sol audit of the exact HEAD, direct exact-head SQUASH when clean, and native auto-merge only for legitimate required checks still pending. Native GitHub Approve is no longer the quality gate.
 - Historical two-account independent approvals remain recorded and unchanged: PR #27, PR #29 and PR #32 were independently approved by `kayzenweb3`. That independent-account requirement is superseded for subsequent PRs.
+- Context Fingerprints Foundation approval is recorded with policy context-fingerprint-v2, input context-input-v2, output context-output-v2 and cache context-fingerprint-cache-v2.
+- The implementation uses SHA-256; Redis TTL 300 seconds remains non-canonical; transient reranker failure is not cached; transient semantic provider failure is not cached; provider recovery is retried; equivalent rebuild is stable.
+- The context-fingerprint benchmark records false cache hits 0, critical context misses 0, exact repeat work avoidance, fingerprint LLM calls 0 and fingerprint provider calls 0.
+- Evidence references migration 0005_semantic_retrieval, PR #40, audited HEAD 2a128dfcdeb97a45f174cf2dfa529826354f95ad, Sol review 5119310904, merge 743253ef079596370a7ff1102faf03b3a603b585, post-merge CI 33937782195, backend 275/dashboard 7.
+- Delta Context not implemented; provider/prompt cache not implemented; memory lifecycle not implemented.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -182,7 +187,7 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary deterministic Context Fingerprints Foundation over the approved Context Manager, Progressive Disclosure and Adaptive Token Budget pipeline.
+- Preparing the smallest necessary deterministic Delta Context Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget and Context Fingerprints pipeline.
 
 ## PENDING
 - memory.
@@ -197,20 +202,39 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - backup/recovery validation.
 - final documentation.
 - final V0.1 review.
-- context fingerprints.
 - delta context.
 - provider/prompt cache adapter layer.
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Adaptive Token Budget Foundation approval and post-merge validation.
+None known after Context Fingerprints Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary deterministic Context Fingerprints Foundation over the approved Context Manager, Progressive Disclosure and Adaptive Token Budget pipeline. Bind stable provider-independent fingerprints to exact source identity/version and material dependency inputs, recognize equivalent unchanged derived context without unnecessary rebuilding, preserve canonical Git/PostgreSQL truth, project scope and provenance, and fail closed on stale or mismatched source identity. Benchmark deterministic reuse/avoidance without correctness loss. Do not implement Delta Context, provider/prompt cache, memory lifecycle, MCP product surface, autonomous executor dispatch or full telemetry expansion.
+Prepare the smallest necessary deterministic Delta Context Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget and Context Fingerprints pipeline.
+
+Continue with the following bounded intent:
+- use approved Context Input/Output Fingerprints as identity anchors;
+- compare only against an explicitly valid prior compatible context baseline;
+- produce deterministic bounded delta representation only when provenance/equivalence can be proven;
+- preserve mandatory governance, Constraints, Acceptance Criteria and selected Progressive Disclosure semantics;
+- delta is derived and non-canonical;
+- fail closed to full context when prior baseline is missing, stale, incompatible, cross-project, cross-task or policy-mismatched;
+- preserve project/task/source provenance;
+- measure exact fresh context material avoided without claiming provider prompt-cache savings;
+- prove deterministic reconstruction equivalence;
+- zero LLM calls for delta calculation;
+- no provider/prompt cache yet;
+- no memory lifecycle yet;
+- no MCP product surface;
+- no autonomous executor dispatch;
+- no full telemetry expansion.
+
+Do not prescribe code unnecessarily.
+Do not implement any of the above in this PR.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
