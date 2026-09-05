@@ -437,45 +437,23 @@ def normalized_checkpoint_value(sections: Mapping[str, str], name: str) -> str:
     return " ".join(sections.get(name, "").split())
 
 
-WO012P_COMPLETION_SUFFIX_CLASSES = (
-    (
-        r"context fingerprints foundation approval",
-        r"context-fingerprint-v2",
-        r"context-input-v2",
-        r"context-output-v2",
-        r"context-fingerprint-cache-v2",
-    ),
-    (
-        r"sha\s*-\s*256",
-        r"redis.{0,80}(?:ttl|time\s+to\s+live).{0,20}300",
-        r"redis.{0,80}non.?canonical",
-        r"transient reranker.{0,80}not cached",
-        r"transient semantic provider failure.{0,80}not cached",
-        r"provider recovery.{0,40}retried",
-        r"equivalent rebuild.{0,40}stable",
-    ),
-    (
-        r"false(?: cache)? hits\s*0",
-        r"critical(?: context)? misses\s*0",
-        r"exact[- ]repeat work avoidance",
-        r"fingerprint llm calls\s*0",
-        r"fingerprint provider calls\s*0",
-    ),
-    (
-        r"0005_semantic_retrieval",
-        r"pr\s*#\s*40",
-        r"2a128dfcdeb97a45f174cf2dfa529826354f95ad",
-        r"5119310904",
-        r"743253ef079596370a7ff1102faf03b3a603b585",
-        r"33937782195",
-        r"backend\s*275",
-        r"dashboard\s*7",
-    ),
-    (
-        r"delta context.{0,40}not implemented",
-        r"provider/prompt cache.{0,40}not implemented",
-        r"memory lifecycle.{0,40}not implemented",
-    ),
+WO012P_CANONICAL_COMPLETION_BULLETS = (
+    "context fingerprints foundation approval is recorded with policy "
+    "context-fingerprint-v2, input context-input-v2, output context-output-v2 "
+    "and cache context-fingerprint-cache-v2.",
+    "the implementation uses sha-256; redis ttl 300 seconds remains "
+    "non-canonical; transient reranker failure is not cached; transient "
+    "semantic provider failure is not cached; provider recovery is retried; "
+    "equivalent rebuild is stable.",
+    "the context-fingerprint benchmark records false cache hits 0, critical "
+    "context misses 0, exact repeat work avoidance, fingerprint llm calls 0 "
+    "and fingerprint provider calls 0.",
+    "evidence references migration 0005_semantic_retrieval, pr #40, audited "
+    "head 2a128dfcdeb97a45f174cf2dfa529826354f95ad, sol review 5119310904, "
+    "merge 743253ef079596370a7ff1102faf03b3a603b585, post-merge ci "
+    "33937782195, backend 275/dashboard 7.",
+    "delta context not implemented; provider/prompt cache not implemented; "
+    "memory lifecycle not implemented.",
 )
 
 
@@ -498,21 +476,17 @@ def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
     if candidate_completed[: len(base_completed)] != base_completed:
         raise ValueError("WO-012-P cannot rewrite historical COMPLETED checkpoint truth")
     appended_completed = candidate_completed[len(base_completed) :]
-    if len(appended_completed) != len(WO012P_COMPLETION_SUFFIX_CLASSES):
+    if len(appended_completed) != len(WO012P_CANONICAL_COMPLETION_BULLETS):
         raise ValueError(
             "WO-012-P candidate must append exactly 5 authorized completion evidence bullets"
         )
-    for index, (bullet, evidence_class) in enumerate(
-        zip(appended_completed, WO012P_COMPLETION_SUFFIX_CLASSES, strict=True), 1
+    for index, (bullet, expected_bullet) in enumerate(
+        zip(appended_completed, WO012P_CANONICAL_COMPLETION_BULLETS, strict=True), 1
     ):
         normalized_bullet = normalized_checkpoint_evidence(bullet)
-        missing_evidence = [
-            pattern for pattern in evidence_class if re.search(pattern, normalized_bullet) is None
-        ]
-        if missing_evidence:
+        if normalized_bullet != expected_bullet:
             raise ValueError(
-                f"WO-012-P completion evidence class {index} is invalid; missing: "
-                + ", ".join(missing_evidence)
+                f"WO-012-P completion evidence class {index} is outside its closed grammar"
             )
 
     base_pending = checkpoint_bullets(base, "PENDING")

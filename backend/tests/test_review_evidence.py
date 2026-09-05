@@ -523,6 +523,63 @@ def test_authorized_base_marker_requires_one_lowercase_exact_sha() -> None:
 def test_wo012p_checkpoint_semantics_accept_exact_transition() -> None:
     base, candidate = wo012p_checkpoint_fixture()
     require_wo012p_checkpoint_semantics(base, candidate)
+    normalized_whitespace = candidate.replace(
+        "Context Fingerprints Foundation approval",
+        "Context   Fingerprints   Foundation approval",
+        1,
+    )
+    require_wo012p_checkpoint_semantics(base, normalized_whitespace)
+
+
+def test_wo012p_checkpoint_semantics_rejects_unrelated_content_inside_each_class() -> None:
+    base, candidate = wo012p_checkpoint_fixture()
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    historical = completed[:-5]
+    evidence = completed[-5:]
+    extra_clauses = (
+        "MCP server is now available.",
+        "Telemetry is operational.",
+        "Backup/recovery validated.",
+        "Unrelated subsystem state recorded.",
+        "Documentation note.",
+    )
+
+    for index, extra_clause in enumerate(extra_clauses):
+        malformed_evidence = evidence[:]
+        malformed_evidence[index] = f"{malformed_evidence[index]} {extra_clause}"
+        malformed = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(f"- {item}" for item in historical + malformed_evidence),
+        )
+        with pytest.raises(ValueError, match="closed grammar"):
+            require_wo012p_checkpoint_semantics(base, malformed)
+
+    unrelated_prefix = evidence[:]
+    unrelated_prefix[0] = f"MCP server is now available. {unrelated_prefix[0]}"
+    prefixed = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in historical + unrelated_prefix),
+    )
+    with pytest.raises(ValueError, match="closed grammar"):
+        require_wo012p_checkpoint_semantics(base, prefixed)
+
+    unrelated_parenthetical = evidence[:]
+    unrelated_parenthetical[1] = unrelated_parenthetical[1].replace(
+        "Redis TTL 300 seconds",
+        "Redis TTL 300 seconds (telemetry is operational)",
+        1,
+    )
+    parenthetical = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in historical + unrelated_parenthetical),
+    )
+    with pytest.raises(ValueError, match="closed grammar"):
+        require_wo012p_checkpoint_semantics(base, parenthetical)
 
 
 def test_wo012p_checkpoint_semantics_rejects_missing_or_unrelated_completion_evidence() -> None:
