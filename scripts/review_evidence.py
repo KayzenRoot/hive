@@ -245,7 +245,6 @@ WO012P_G1_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "scripts/review_evidence.py",
         "scripts/review_pr_body.py",
-        "docker-compose.yml",
     }
 )
 WO012P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
@@ -256,6 +255,7 @@ WO013_ALLOWED_PATHS = frozenset(
         "backend/tests/test_context_manager.py",
         "backend/tests/test_delta_context.py",
         "backend/tests/test_review_evidence.py",
+        "docker-compose.yml",
         "docs/atlas/code-atlas.md",
         "docs/atlas/test-map.md",
         "schemas/review-evidence-v1.schema.json",
