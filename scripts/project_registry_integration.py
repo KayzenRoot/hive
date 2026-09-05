@@ -56,7 +56,12 @@ def git(repo: Path, arguments: list[str], *, env: dict[str, str]) -> str:
 
 
 def request(
-    base_url: str, method: str, path: str, payload: dict[str, Any] | None = None
+    base_url: str,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    timeout: float = 30,
 ) -> tuple[int, dict[str, Any] | list[Any]]:
     def decode_body(raw: bytes) -> dict[str, Any] | list[Any]:
         if not raw:
@@ -77,7 +82,7 @@ def request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(request_object, timeout=30) as response:
+        with urllib.request.urlopen(request_object, timeout=timeout) as response:
             return response.status, decode_body(response.read())
     except urllib.error.HTTPError as exc:
         return exc.code, decode_body(exc.read())

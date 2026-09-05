@@ -172,6 +172,46 @@ WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS = (
     "provider_prompt_cache_implemented",
     "memory_lifecycle_implemented",
 )
+WO013_DELTA_REQUIRED_FIELDS = (
+    "delta_context_implemented",
+    "delta_context_policy_versioned",
+    "delta_context_serialization_versioned",
+    "delta_context_delivery_schema_versioned",
+    "delta_context_uses_context_output_v2",
+    "delta_context_provider_independent",
+    "delta_context_baseline_output_fingerprint_required_for_delta",
+    "delta_context_baseline_redis_noncanonical",
+    "delta_context_baseline_ttl_bounded",
+    "delta_context_baseline_project_scoped",
+    "delta_context_baseline_task_scoped",
+    "delta_context_baseline_fingerprint_verified",
+    "delta_context_cross_project_isolation",
+    "delta_context_cross_task_isolation",
+    "delta_context_corrupt_baseline_safe_full_fallback",
+    "delta_context_redis_loss_full_fallback",
+    "delta_context_api_restart_reuse",
+    "delta_context_source_race_fail_closed",
+    "delta_context_reconstruction_verified",
+    "delta_context_target_output_fingerprint_verified",
+    "delta_context_new_dependency_preserved",
+    "delta_context_identical_context_supported",
+    "delta_context_changed_context_strict_reduction",
+    "delta_context_full_fallback_when_not_smaller",
+    "delta_context_full_fallback_correct",
+    "delta_context_deterministic_two_run",
+)
+WO013_DELTA_INTEGER_FIELDS = (
+    "delta_context_llm_calls",
+    "delta_context_provider_calls",
+    "delta_context_false_reconstructions",
+    "delta_context_critical_context_misses",
+)
+WO013_DELTA_NEGATIVE_FIELDS = (
+    "delta_context_migration_changed",
+    "provider_prompt_cache_implemented",
+    "memory_lifecycle_implemented",
+    "autonomous_executor_dispatch_implemented",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -192,6 +232,7 @@ WO010_G1_BASE_SHA = "552d809f6e0a6e1f940084c35f3109dc4ec931a1"
 WO010_BASE_SHA = "68bb6679da32355b9e5c4bbb241bec0d1e685e26"
 WO011_BASE_SHA = "209a485227103872903a560872133aae5f203717"
 WO012_BASE_SHA = "19ecc6b505e884029a42d121309339977d46e626"
+WO013_BASE_SHA = "8aabcf1d7e908b7f74333d2b3bb937af0f39c4c8"
 WO012P_G1_BASE_SHA = "743253ef079596370a7ff1102faf03b3a603b585"
 WO012P_PROMOTION_BASE_REF = "refs/remotes/origin/main"
 WO012P_G1_ALLOWED_PATHS = frozenset(
@@ -202,6 +243,20 @@ WO012P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO012P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO013_ALLOWED_PATHS = frozenset(
+    {
+        "backend/app/context_manager.py",
+        "backend/app/delta_context.py",
+        "backend/tests/test_context_manager.py",
+        "backend/tests/test_delta_context.py",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/context_manager_integration.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
 HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     {
         "WO-007-P",
@@ -702,6 +757,29 @@ def require_wo012_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
         )
 
 
+def require_wo013_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-013":
+        return
+    if base_sha != WO013_BASE_SHA:
+        raise ValueError(f"WO-013 requires exact base {WO013_BASE_SHA}, observed {base_sha}")
+    if any(
+        path == "docs/project-brain"
+        or path.startswith("docs/project-brain/")
+        or path == "migrations"
+        or path.startswith("migrations/")
+        for path in paths
+    ):
+        raise ValueError(
+            "WO-013 implementation evidence cannot change canonical Project Brain or migrations"
+        )
+    unauthorized = sorted(set(paths) - WO013_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            "WO-013 changed files outside the approved Delta Context scope: "
+            + ", ".join(unauthorized)
+        )
+
+
 def require_wo012p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
     if work_order != "WO-012-P-G1":
         return
@@ -1194,6 +1272,25 @@ def context_manager_evidence() -> dict[str, object]:
         evidence["context_fingerprint_benchmark_status"] = (
             benchmark_status if benchmark_status in {"PASS", "FAIL", "UNKNOWN"} else "UNKNOWN"
         )
+    delta_present = any(
+        field in data
+        for field in (
+            *WO013_DELTA_REQUIRED_FIELDS,
+            *WO013_DELTA_INTEGER_FIELDS,
+            *WO013_DELTA_NEGATIVE_FIELDS,
+            "delta_context_benchmark_status",
+        )
+    )
+    if delta_present:
+        evidence.update({field: data.get(field) is True for field in WO013_DELTA_REQUIRED_FIELDS})
+        for field in WO013_DELTA_INTEGER_FIELDS:
+            value = data.get(field)
+            evidence[field] = value if isinstance(value, int) and not isinstance(value, bool) else 0
+        evidence.update({field: data.get(field) is True for field in WO013_DELTA_NEGATIVE_FIELDS})
+        delta_status = data.get("delta_context_benchmark_status")
+        evidence["delta_context_benchmark_status"] = (
+            delta_status if delta_status in {"PASS", "FAIL", "UNKNOWN"} else "UNKNOWN"
+        )
     return evidence
 
 
@@ -1555,6 +1652,48 @@ def require_wo012_context_manager_evidence(
     if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
         raise ValueError(
             "WO-012/WO-012-P Review Evidence requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
+
+
+def require_wo013_context_manager_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != "WO-013":
+        return
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    missing = [
+        field for field in WO013_DELTA_REQUIRED_FIELDS if context_manager.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-013 Review Evidence missing mandatory Delta Context evidence: "
+            + ", ".join(sorted(missing))
+        )
+    for field in WO013_DELTA_INTEGER_FIELDS:
+        value = context_manager.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"WO-013 requires bounded integer evidence for {field}")
+    if context_manager.get("delta_context_llm_calls") != 0:
+        raise ValueError("WO-013 requires zero Delta Context LLM calls")
+    if context_manager.get("delta_context_provider_calls") != 0:
+        raise ValueError("WO-013 requires zero Delta Context provider calls")
+    for field in WO013_DELTA_NEGATIVE_FIELDS:
+        if context_manager.get(field) is not False:
+            raise ValueError(f"WO-013 requires {field}=false")
+    if context_manager.get("delta_context_false_reconstructions") != 0:
+        raise ValueError("WO-013 requires zero false Delta reconstructions")
+    if context_manager.get("delta_context_critical_context_misses") != 0:
+        raise ValueError("WO-013 requires zero Delta critical context misses")
+    if context_manager.get("delta_context_benchmark_status") != "PASS":
+        raise ValueError("WO-013 requires a passing Delta Context benchmark")
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-013 Review Evidence requires passing Context Manager evidence")
+    if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            "WO-013 Review Evidence requires migration head 0005_semantic_retrieval, "
             f"observed {migration_head_value}"
         )
 
@@ -2051,6 +2190,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo010_scope(work_order, base_sha, paths)
     require_wo011_scope(work_order, base_sha, paths)
     require_wo012_scope(work_order, base_sha, paths)
+    require_wo013_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -2069,6 +2209,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     require_wo012_context_manager_evidence(
+        work_order,
+        integration,
+        migration_head(),
+    )
+    require_wo013_context_manager_evidence(
         work_order,
         integration,
         migration_head(),
@@ -2271,6 +2416,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
+    if work_order == "WO-013":
+        require_wo013_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -2326,6 +2477,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo012_context_manager_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo013_context_manager_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -2566,6 +2722,32 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"transient-not-cached/recovery-retried `{fp_transient}/{fp_recovery}`, "
         f"LLM/provider calls `{fp_llm}/{fp_provider}`"
     )
+    delta_status = context_manager_evidence.get("delta_context_benchmark_status", "UNKNOWN")
+    delta_implemented = context_manager_evidence.get("delta_context_implemented", False)
+    delta_identical = context_manager_evidence.get(
+        "delta_context_identical_context_supported", False
+    )
+    delta_changed = context_manager_evidence.get(
+        "delta_context_changed_context_strict_reduction", False
+    )
+    delta_dependency = context_manager_evidence.get("delta_context_new_dependency_preserved", False)
+    delta_reconstruction = context_manager_evidence.get(
+        "delta_context_reconstruction_verified", False
+    )
+    delta_fingerprint = context_manager_evidence.get(
+        "delta_context_target_output_fingerprint_verified", False
+    )
+    delta_false = context_manager_evidence.get("delta_context_false_reconstructions", "UNKNOWN")
+    delta_misses = context_manager_evidence.get("delta_context_critical_context_misses", "UNKNOWN")
+    delta_llm = context_manager_evidence.get("delta_context_llm_calls", "UNKNOWN")
+    delta_provider = context_manager_evidence.get("delta_context_provider_calls", "UNKNOWN")
+    delta_text = (
+        f"`{delta_status}`; implemented `{delta_implemented}`, "
+        f"identical/change/dependency `{delta_identical}/{delta_changed}/{delta_dependency}`, "
+        f"reconstruction/fingerprint `{delta_reconstruction}/{delta_fingerprint}`, "
+        f"false reconstructions/critical misses `{delta_false}/{delta_misses}`, "
+        f"LLM/provider calls `{delta_llm}/{delta_provider}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -2614,6 +2796,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Auto-merge owner: {auto_merge_owner_text}; user-owned: `{auto_merge_user_owned}`
 - Context Manager evidence: {context_manager_text}
 - Context Fingerprint evidence: {fingerprint_text}
+- Delta Context evidence: {delta_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`

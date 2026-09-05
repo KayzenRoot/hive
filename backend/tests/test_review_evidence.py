@@ -23,6 +23,8 @@ from scripts.review_evidence import (
     WO012P_G1_ALLOWED_PATHS,
     WO012P_G1_BASE_SHA,
     WO012P_PROMOTION_ALLOWED_PATHS,
+    WO013_ALLOWED_PATHS,
+    WO013_BASE_SHA,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -50,6 +52,8 @@ from scripts.review_evidence import (
     require_wo012p_g1_scope,
     require_wo012p_manifest_contract,
     require_wo012p_scope,
+    require_wo013_context_manager_evidence,
+    require_wo013_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -1598,6 +1602,28 @@ def test_wo012_pr_body_describes_fingerprint_handoff() -> None:
     assert "Sol Review State: AWAITING_SOL" in body
 
 
+def test_wo013_pr_body_describes_delta_context_handoff() -> None:
+    body = render_body(
+        work_order="WO-013",
+        pr_number=43,
+        branch="feature/wo013-delta-context-foundation",
+        base_sha=WO013_BASE_SHA,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-013-b",
+        ruleset_before="unchanged",
+        ruleset_after="unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-013 -->")
+    assert "delta-context-v1" in body
+    assert "context-output-v2" in body
+    assert "context/delta" in body
+    assert "WO-013 READY FOR SOL AUDIT" in body
+    assert "Sol Review State: AWAITING_SOL" in body
+
+
 def test_wo012p_g1_pr_body_is_explicit_and_noncanonical() -> None:
     body = render_body(
         work_order="WO-012-P-G1",
@@ -2053,6 +2079,46 @@ def test_sticky_summary_has_required_review_fields() -> None:
         "Sol Review State: AWAITING_SOL",
     ):
         assert field in summary
+
+
+def test_wo013_scope_and_delta_evidence_fail_closed() -> None:
+    require_wo013_scope("WO-013", WO013_BASE_SHA, sorted(WO013_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo013_scope("WO-013", "a" * 40, sorted(WO013_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="canonical Project Brain or migrations"):
+        require_wo013_scope("WO-013", WO013_BASE_SHA, ["docs/project-brain/13-CHECKPOINT.md"])
+    with pytest.raises(ValueError, match="outside"):
+        require_wo013_scope("WO-013", WO013_BASE_SHA, ["backend/app/unrelated.py"])
+
+    evidence = {
+        "status": "PASS",
+        **{field: True for field in review_evidence.CONTEXT_MANAGER_REQUIRED_FIELDS},
+        "mandatory_governance_kind_sequence": [
+            "CHECKPOINT",
+            "SCOPE",
+            "DEFINITION_OF_DONE",
+            "ARCHITECTURE",
+            "DECISIONS",
+        ],
+        "llm_calls": 0,
+        **{field: True for field in review_evidence.WO013_DELTA_REQUIRED_FIELDS},
+        **{field: 0 for field in review_evidence.WO013_DELTA_INTEGER_FIELDS},
+        **{field: False for field in review_evidence.WO013_DELTA_NEGATIVE_FIELDS},
+        "delta_context_benchmark_status": "PASS",
+    }
+    require_wo013_context_manager_evidence(
+        "WO-013",
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+    missing = dict(evidence)
+    missing["delta_context_new_dependency_preserved"] = False
+    with pytest.raises(ValueError, match="Delta Context evidence"):
+        require_wo013_context_manager_evidence(
+            "WO-013",
+            {"context_manager": missing},
+            "0005_semantic_retrieval",
+        )
 
 
 @pytest.mark.parametrize("work_order", ["WO-008", "WO-008-G1"])

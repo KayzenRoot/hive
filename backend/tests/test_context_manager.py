@@ -19,6 +19,7 @@ from app.context_fingerprints import (
     context_input_fingerprint,
     context_output_fingerprint,
 )
+from app.delta_context import ContextDelivery, ContextDeliveryProvenance
 from app.registry import ProjectResponse, ProjectState
 from app.repository_indexer import _FileStamp, _RepositorySnapshot, _TrackedFile
 from app.reranking import RerankCandidate, RerankRequest, RerankResponse, RerankState
@@ -896,6 +897,46 @@ def test_context_api_accepts_project_and_task_ids_without_query_assembly(
     assert response.json()["version"] == "context-capsule-v1"
     assert response.json()["project"]["project_id"] == str(PROJECT_ID)
     assert response.json()["retrieval"]["results"]
+
+
+def test_delta_context_api_is_additive_and_exposes_full_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_fp = "d" * 64
+    delivery = ContextDelivery(
+        mode="FULL",
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        target_output_fingerprint=target_fp,
+        reconstruction_verified=False,
+        target_output_fingerprint_verified=True,
+        full_fallback_reason="baseline_not_requested",
+        current_provenance=ContextDeliveryProvenance(
+            repository_head_sha=REPOSITORY_HEAD,
+            registered_head_sha=REPOSITORY_HEAD,
+            index_run_id=INDEX_RUN_ID,
+            corpus_run_id=CORPUS_RUN_ID,
+            target_output_fingerprint=target_fp,
+        ),
+        full_context={"version": "context-capsule-v1"},
+        delta_estimated_tokens=0,
+        full_estimated_tokens=10,
+        estimated_fresh_context_tokens_avoided=0,
+        patch_operation_count=0,
+        patch_serialized_characters=0,
+    )
+    monkeypatch.setattr(context_manager, "build_delta_context", lambda *_args, **_kwargs: delivery)
+
+    response = TestClient(main.app).post(
+        f"/api/v1/projects/{PROJECT_ID}/tasks/{TASK_ID}/context/delta",
+        json={"top_k": 3},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schema_version"] == "context-delivery-v1"
+    assert response.json()["mode"] == "FULL"
+    assert response.json()["full_fallback_reason"] == "baseline_not_requested"
+    assert response.json()["full_context"]["version"] == "context-capsule-v1"
 
 
 def test_context_api_rejects_unbounded_presentation_limit() -> None:

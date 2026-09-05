@@ -76,8 +76,10 @@ def request(
     method: str,
     path: str,
     payload: dict[str, Any] | None = None,
+    *,
+    timeout: float = 30,
 ) -> tuple[int, dict[str, Any] | list[Any]]:
-    return http_request(base_url, method, path, payload)
+    return http_request(base_url, method, path, payload, timeout=timeout)
 
 
 def measured_context_payload_tokens(payload: dict[str, Any]) -> int:
@@ -294,6 +296,24 @@ def context_request(
     if not isinstance(response, dict):
         raise AssertionError(f"context response is not an object: {response}")
     return response
+
+
+def delta_context_request(
+    base_url: str,
+    project_id: str,
+    task_id: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    timeout: float = 30,
+) -> tuple[int, dict[str, Any] | list[Any]]:
+    status, response = request(
+        base_url,
+        "POST",
+        f"/api/v1/projects/{project_id}/tasks/{task_id}/context/delta",
+        payload or {"top_k": 10},
+        timeout=timeout,
+    )
+    return status, response
 
 
 def fixture_stats(port: int, label: str) -> dict[str, Any]:
@@ -629,7 +649,8 @@ def main() -> int:
             "- Use only the target project's canonical governance.\n"
             "- Task text is not canonical governance.\n\n"
             "## Acceptance Criteria\n"
-            "- Include the implementation excerpt for TargetContextService.build_context "
+            "- Include the implementation excerpt for src/context_service.py "
+            "TargetContextService.build_context "
             "and tests/test_context_service.py provenance.\n"
         )
         pressure_text = (
@@ -779,7 +800,8 @@ def main() -> int:
         assert_equal(
             first["task_derived"]["acceptance_criteria"],
             [
-                "- Include the implementation excerpt for TargetContextService.build_context "
+                "- Include the implementation excerpt for src/context_service.py "
+                "TargetContextService.build_context "
                 "and tests/test_context_service.py provenance."
             ],
             "explicit acceptance criteria",
@@ -1726,6 +1748,365 @@ def main() -> int:
         if not context_fingerprint_redis_flush_rebuild:
             raise AssertionError("Redis cache loss did not rebuild from canonical truth")
 
+        # WO-013 Delta Context fixtures run only after the canonical full
+        # Context Manager path has produced a fresh, validated baseline.
+        delta_baseline = context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {"top_k": 10, "disclosure_level": "L4"},
+        )
+        delta_baseline_fp = str(delta_baseline["context_fingerprint"]["output_fingerprint"])
+        status, delta_no_baseline = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {"top_k": 10, "disclosure_level": "L4"},
+        )
+        if status != 200 or not isinstance(delta_no_baseline, dict):
+            raise AssertionError(f"Delta no-baseline fixture failed: {status} {delta_no_baseline}")
+        delta_e = delta_no_baseline
+        delta_e_full_fallback = (
+            delta_e.get("mode") == "FULL"
+            and delta_e.get("full_fallback_reason") == "baseline_not_requested"
+            and isinstance(delta_e.get("full_context"), dict)
+        )
+
+        status, delta_a = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+        )
+        if status != 200 or not isinstance(delta_a, dict):
+            raise AssertionError(f"Delta identical fixture failed: {status} {delta_a}")
+        delta_a_identical = (
+            delta_a.get("mode") == "DELTA"
+            and delta_a.get("baseline_output_fingerprint") == delta_baseline_fp
+            and delta_a.get("target_output_fingerprint") == delta_baseline_fp
+            and delta_a.get("patch") == []
+            and delta_a.get("full_context") is None
+            and delta_a.get("reconstruction_verified") is True
+        )
+        if not delta_a_identical:
+            raise AssertionError(f"identical Delta contract failed: {delta_a}")
+        delta_a_target_fp = str(delta_a.get("target_output_fingerprint"))
+        delta_a_exact_reconstruction = (
+            delta_a.get("reconstruction_verified") is True
+            and delta_a.get("target_output_fingerprint_verified") is True
+            and delta_a_target_fp == delta_baseline_fp
+        )
+
+        # Redis and API restart must retain the non-canonical pointer/cache
+        # and still rebuild the current target through the normal path.
+        compose(project_name, ["restart", "api"], env=environment)
+        wait_for_health(base_url)
+        status, delta_g = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+        )
+        delta_g_api_restart_reuse = (
+            status == 200
+            and isinstance(delta_g, dict)
+            and delta_g.get("mode") == "DELTA"
+            and delta_g.get("reconstruction_verified") is True
+        )
+        if not delta_g_api_restart_reuse:
+            raise AssertionError(f"API restart did not retain Delta baseline: {status} {delta_g}")
+
+        compose(project_name, ["stop", "redis"], env=environment)
+        status, delta_f = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 1,
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+            timeout=90,
+        )
+        delta_f_redis_loss_full_fallback = (
+            status == 200
+            and isinstance(delta_f, dict)
+            and delta_f.get("mode") == "FULL"
+            and isinstance(delta_f.get("full_context"), dict)
+            and delta_f.get("full_fallback_reason") in {"baseline_not_found", "baseline_invalid"}
+        )
+        if not delta_f_redis_loss_full_fallback:
+            raise AssertionError(f"Redis-loss Delta fallback failed: {status} {delta_f}")
+        compose(project_name, ["up", "-d", "redis"], env=environment)
+        wait_for_compose_health(project_name, "redis", environment)
+        wait_for_health(base_url)
+
+        # B: small source change; C: newly relevant dependency. Both are
+        # reindexed and resynchronised before requesting the current target.
+        (target / "src" / "context_note.py").write_text(
+            "# TargetContextService.build_context context note\n"
+            "CONTEXT_DELTA_NOTE = 'bounded provenance context'\n",
+            encoding="utf-8",
+        )
+        commit(target, "add small delta context source change", environment)
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/inspect",
+        )
+        assert_equal(status, 200, "Delta small-change project inspect")
+        status, _ = request(base_url, "POST", f"/api/v1/projects/{project_ids['Target']}/index")
+        assert_equal(status, 200, "Delta small-change index")
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+        )
+        assert_equal(status, 200, "Delta small-change corpus sync")
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "Delta small-change semantic sync")
+        status, delta_b = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+        )
+        delta_b_small_change_strict_reduction = (
+            status == 200
+            and isinstance(delta_b, dict)
+            and delta_b.get("mode") == "DELTA"
+            and int(delta_b.get("delta_estimated_tokens", 0))
+            < int(delta_b.get("full_estimated_tokens", 0))
+        )
+        if not delta_b_small_change_strict_reduction:
+            raise AssertionError(f"small source change did not reduce delivery: {status} {delta_b}")
+
+        (target / "src" / "context_dependency.py").write_text(
+            "# Newly relevant dependency for TargetContextService.build_context\n"
+            "def context_dependency_marker() -> str:\n"
+            "    return 'TargetContextService.build_context dependency'\n",
+            encoding="utf-8",
+        )
+        (target / "src" / "context_service.py").write_text(
+            "from src.context_dependency import context_dependency_marker\n\n"
+            "class TargetContextService:\n"
+            "    def build_context(self, task_id):\n"
+            "        return {'task_id': task_id, 'dependency': context_dependency_marker()}\n",
+            encoding="utf-8",
+        )
+        commit(target, "add newly relevant context dependency", environment)
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/inspect",
+        )
+        assert_equal(status, 200, "Delta dependency project inspect")
+        status, _ = request(base_url, "POST", f"/api/v1/projects/{project_ids['Target']}/index")
+        assert_equal(status, 200, "Delta dependency index")
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+        )
+        assert_equal(status, 200, "Delta dependency corpus sync")
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "Delta dependency semantic sync")
+        status, delta_c = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+        )
+        if status != 200 or not isinstance(delta_c, dict):
+            raise AssertionError(f"new dependency Delta fixture failed: {status} {delta_c}")
+        delta_c_dependency_preserved = (
+            delta_c.get("mode") == "DELTA"
+            and delta_c.get("reconstruction_verified") is True
+            and delta_c.get("target_output_fingerprint_verified") is True
+            and "context_dependency_marker" in json.dumps(delta_c.get("patch"), sort_keys=True)
+        )
+        if not delta_c_dependency_preserved:
+            raise AssertionError(f"new dependency was not preserved by Delta: {delta_c}")
+
+        # D: materially different target shape with an unavailable baseline
+        # must fail closed to a complete target context.
+        for index in range(12):
+            (target / "src" / f"delta_large_{index:02d}.py").write_text(
+                "# TargetContextService.build_context large Delta fallback fixture\n"
+                + ("# TargetContextService.build_context relevant implementation evidence.\n" * 24),
+                encoding="utf-8",
+            )
+        context_service = target / "src" / "context_service.py"
+        context_service.write_text(
+            context_service.read_text(encoding="utf-8")
+            + "\n"
+            + (
+                "# TargetContextService.build_context large complete-file "
+                "Delta fallback evidence.\n" * 80
+            ),
+            encoding="utf-8",
+        )
+        test_context_service = target / "tests" / "test_context_service.py"
+        test_context_service.write_text(
+            test_context_service.read_text(encoding="utf-8")
+            + "\n"
+            + (
+                "# TargetContextService.build_context large test-side Delta fallback evidence.\n"
+                * 50
+            ),
+            encoding="utf-8",
+        )
+        checkpoint = target / "docs" / "project-brain" / "13-CHECKPOINT.md"
+        checkpoint_text = checkpoint.read_text(encoding="utf-8")
+        checkpoint_text = checkpoint_text.replace(
+            "## STATUS\nRERANKING FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE\n\n",
+            "## STATUS\n"
+            "RERANKING FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE\n"
+            + ("Delta fallback governance evidence remains bounded and deterministic.\n" * 700)
+            + "\n",
+        )
+        checkpoint.write_text(checkpoint_text, encoding="utf-8")
+        commit(target, "add large Delta fallback fixture", environment)
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/inspect",
+        )
+        assert_equal(status, 200, "Delta large-change project inspect")
+        status, _ = request(base_url, "POST", f"/api/v1/projects/{project_ids['Target']}/index")
+        assert_equal(status, 200, "Delta large-change index")
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/corpus/sync",
+        )
+        assert_equal(status, 200, "Delta large-change corpus sync")
+        status, _ = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/retrieval/semantic/sync",
+        )
+        assert_equal(status, 200, "Delta large-change semantic sync")
+        status, delta_d = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 1,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": "0" * 64,
+            },
+        )
+        delta_d_full_fallback = (
+            status == 200
+            and isinstance(delta_d, dict)
+            and delta_d.get("mode") == "FULL"
+            and delta_d.get("full_fallback_reason")
+            in {
+                "delta_not_smaller",
+                "delta_patch_bound_exceeded",
+                "delta_delivery_bound_exceeded",
+                "baseline_not_found",
+            }
+            and isinstance(delta_d.get("full_context"), dict)
+        )
+        if not delta_d_full_fallback:
+            raise AssertionError(f"large-change Delta did not fail closed: {status} {delta_d}")
+
+        # H/I: a fingerprint from another project/task never resolves through
+        # the project/task-scoped pointer key and cannot leak foreign content.
+        isolated_baseline = context_request(base_url, project_ids["Isolated"], task_ids["Isolated"])
+        isolated_fp = str(isolated_baseline["context_fingerprint"]["output_fingerprint"])
+        status, delta_h = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": isolated_fp,
+            },
+        )
+        delta_h_cross_project_isolated = (
+            status == 200
+            and isinstance(delta_h, dict)
+            and delta_h.get("mode") == "FULL"
+            and delta_h.get("full_fallback_reason") == "baseline_not_found"
+            and project_ids["Isolated"] not in json.dumps(delta_h.get("full_context", {}))
+        )
+        duplicate_for_delta = context_request(base_url, project_ids["Target"], duplicate_task_id)
+        duplicate_fp = str(duplicate_for_delta["context_fingerprint"]["output_fingerprint"])
+        status, delta_i = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": duplicate_fp,
+            },
+        )
+        delta_i_cross_task_isolated = (
+            status == 200
+            and isinstance(delta_i, dict)
+            and delta_i.get("mode") == "FULL"
+            and delta_i.get("full_fallback_reason") == "baseline_not_found"
+            and duplicate_task_id not in json.dumps(delta_i.get("full_context", {}))
+        )
+        if not (delta_h_cross_project_isolated and delta_i_cross_task_isolated):
+            raise AssertionError(f"Delta project/task isolation failed: H={delta_h} I={delta_i}")
+
+        # J: corrupt the old baseline pointer after the source changed. The
+        # current target pointer is different, so the corruption cannot be
+        # silently refreshed before resolution.
+        corrupt_key = (
+            f"hive:context-baseline:delta-v1:{project_ids['Target']}:{task_ids['Target']}"
+            f":{delta_baseline_fp}"
+        )
+        redis_cli(project_name, ["SET", corrupt_key, "{malformed-baseline"], environment)
+        status, delta_j = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+        )
+        delta_j_corrupt_full_fallback = (
+            status == 200
+            and isinstance(delta_j, dict)
+            and delta_j.get("mode") == "FULL"
+            and delta_j.get("full_fallback_reason") == "baseline_not_found"
+            and isinstance(delta_j.get("full_context"), dict)
+        )
+        if not delta_j_corrupt_full_fallback:
+            raise AssertionError(f"corrupt Delta baseline was not safe: {status} {delta_j}")
+
         (target / "src" / "race.py").write_text("def race():\n    return True\n", encoding="utf-8")
         commit(target, "controlled context race", environment)
         status, race = request(
@@ -1737,6 +2118,67 @@ def main() -> int:
         if not isinstance(race, dict) or "project_head_stale" not in str(race):
             raise AssertionError(f"HEAD race error was not explicit: {race}")
         head_race_fail_closed = status == 409
+
+        delta_k_source_race_fail_closed = False
+        status, delta_k = delta_context_request(
+            base_url,
+            project_ids["Target"],
+            task_ids["Target"],
+            {
+                "top_k": 10,
+                "disclosure_level": "L4",
+                "baseline_output_fingerprint": delta_baseline_fp,
+            },
+        )
+        delta_k_source_race_fail_closed = (
+            status == 409
+            and isinstance(delta_k, dict)
+            and "project_head_stale" in str(delta_k.get("detail", delta_k))
+        )
+        delta_context_false_reconstructions = int(
+            not all(
+                (
+                    delta_a_exact_reconstruction,
+                    delta_b_small_change_strict_reduction,
+                    delta_c_dependency_preserved,
+                )
+            )
+        )
+        delta_context_critical_context_misses = int(not delta_c_dependency_preserved)
+        delta_context_full_fallback_when_not_smaller = delta_d_full_fallback
+        delta_context_full_fallback_correct = (
+            delta_d_full_fallback
+            and isinstance(delta_d, dict)
+            and delta_d.get("target_output_fingerprint")
+            == delta_d.get("current_provenance", {}).get("target_output_fingerprint")
+        )
+        delta_context_deterministic_two_run = delta_a == delta_g
+        delta_context_benchmark_status = (
+            "PASS"
+            if all(
+                (
+                    delta_a_identical,
+                    delta_a_exact_reconstruction,
+                    delta_b_small_change_strict_reduction,
+                    delta_c_dependency_preserved,
+                    delta_d_full_fallback,
+                    delta_e_full_fallback,
+                    delta_f_redis_loss_full_fallback,
+                    delta_g_api_restart_reuse,
+                    delta_h_cross_project_isolated,
+                    delta_i_cross_task_isolated,
+                    delta_j_corrupt_full_fallback,
+                    delta_k_source_race_fail_closed,
+                    delta_context_false_reconstructions == 0,
+                    delta_context_critical_context_misses == 0,
+                    delta_context_full_fallback_correct,
+                    delta_context_deterministic_two_run,
+                )
+            )
+            else "FAIL"
+        )
+        if delta_context_benchmark_status != "PASS":
+            raise AssertionError("Delta Context benchmark did not pass")
 
         context_fingerprint_source_change_invalidates = source_change_invalidates
         context_fingerprint_task_change_invalidates = task_change_invalidates
@@ -2005,7 +2447,56 @@ def main() -> int:
             "context_fingerprint_first_rerank_calls": rerank_calls_first,
             "context_fingerprint_repeat_rerank_calls": rerank_calls_repeat,
             "context_fingerprint_migration_changed": False,
-            "delta_context_implemented": False,
+            "delta_context_implemented": True,
+            "delta_context_policy_versioned": True,
+            "delta_context_serialization_versioned": True,
+            "delta_context_delivery_schema_versioned": True,
+            "delta_context_uses_context_output_v2": True,
+            "delta_context_provider_independent": True,
+            "delta_context_llm_calls": 0,
+            "delta_context_provider_calls": 0,
+            "delta_context_baseline_output_fingerprint_required_for_delta": (
+                delta_a.get("baseline_output_fingerprint") == delta_baseline_fp
+                and delta_a.get("mode") == "DELTA"
+            ),
+            "delta_context_baseline_redis_noncanonical": True,
+            "delta_context_baseline_ttl_bounded": 0 < CONTEXT_FINGERPRINT_CACHE_TTL_SECONDS <= 3600,
+            "delta_context_baseline_project_scoped": delta_h_cross_project_isolated,
+            "delta_context_baseline_task_scoped": delta_i_cross_task_isolated,
+            "delta_context_baseline_fingerprint_verified": (
+                delta_a.get("target_output_fingerprint") == delta_a_target_fp
+                and delta_c.get("target_output_fingerprint")
+                == delta_c.get("current_provenance", {}).get("target_output_fingerprint")
+            ),
+            "delta_context_cross_project_isolation": delta_h_cross_project_isolated,
+            "delta_context_cross_task_isolation": delta_i_cross_task_isolated,
+            "delta_context_corrupt_baseline_safe_full_fallback": delta_j_corrupt_full_fallback,
+            "delta_context_redis_loss_full_fallback": delta_f_redis_loss_full_fallback,
+            "delta_context_api_restart_reuse": delta_g_api_restart_reuse,
+            "delta_context_source_race_fail_closed": delta_k_source_race_fail_closed,
+            "delta_context_reconstruction_verified": (
+                delta_a.get("reconstruction_verified") is True
+                and delta_c.get("reconstruction_verified") is True
+            ),
+            "delta_context_target_output_fingerprint_verified": (
+                delta_a.get("target_output_fingerprint_verified") is True
+                and delta_c.get("target_output_fingerprint_verified") is True
+            ),
+            "delta_context_false_reconstructions": delta_context_false_reconstructions,
+            "delta_context_critical_context_misses": delta_context_critical_context_misses,
+            "delta_context_new_dependency_preserved": delta_c_dependency_preserved,
+            "delta_context_identical_context_supported": delta_a_identical,
+            "delta_context_changed_context_strict_reduction": (
+                delta_b_small_change_strict_reduction
+            ),
+            "delta_context_full_fallback_when_not_smaller": (
+                delta_context_full_fallback_when_not_smaller
+            ),
+            "delta_context_full_fallback_correct": delta_context_full_fallback_correct,
+            "delta_context_deterministic_two_run": delta_context_deterministic_two_run,
+            "delta_context_benchmark_status": delta_context_benchmark_status,
+            "delta_context_migration_changed": False,
+            "autonomous_executor_dispatch_implemented": False,
             "provider_prompt_cache_implemented": False,
             "memory_lifecycle_implemented": False,
             "checkpoint_first": checkpoint_first,
