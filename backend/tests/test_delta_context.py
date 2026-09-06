@@ -13,10 +13,13 @@ from app.context_fingerprints import (
     ContextFingerprintCacheEnvelope,
     canonical_json,
     context_output_fingerprint,
+    context_output_serialization,
 )
 from app.delta_context import (
     CONTEXT_DELIVERY_SCHEMA_VERSION,
     DELTA_CONTEXT_POLICY_VERSION,
+    DELTA_DELIVERY_ESTIMATE_EXCLUDED_FIELDS,
+    DELTA_DELIVERY_ESTIMATE_VERSION,
     DELTA_SERIALIZATION_VERSION,
     ContextDeliveryProvenance,
     DeltaContextError,
@@ -25,9 +28,11 @@ from app.delta_context import (
     baseline_pointer_key,
     build_context_delivery,
     build_patch,
+    estimate_delta_delivery_tokens,
     register_delta_baseline,
     resolve_delta_baseline,
     semantic_context_value,
+    serialize_delta_delivery_for_estimate,
     serialized_delivery_bytes,
     serialized_patch,
 )
@@ -144,6 +149,7 @@ def test_delivery_uses_context_output_v2_and_strictly_reduces_large_target() -> 
 
     assert delivery.schema_version == CONTEXT_DELIVERY_SCHEMA_VERSION
     assert delivery.policy_version == DELTA_CONTEXT_POLICY_VERSION
+    assert delivery.delta_delivery_estimate_version == DELTA_DELIVERY_ESTIMATE_VERSION
     assert delivery.mode == "DELTA"
     assert delivery.full_context is None
     assert delivery.reconstruction_verified is True
@@ -155,6 +161,10 @@ def test_delivery_uses_context_output_v2_and_strictly_reduces_large_target() -> 
     assert reconstructed == semantic_context_value(target)
     assert context_output_fingerprint(reconstructed) == target_fp
     assert delivery.estimated_fresh_context_tokens_avoided > 0
+    assert delivery.delta_estimated_tokens == estimate_delta_delivery_tokens(delivery)
+    assert delivery.estimated_fresh_context_tokens_avoided == (
+        delivery.full_estimated_tokens - delivery.delta_estimated_tokens
+    )
 
 
 def test_delivery_falls_back_to_full_when_delta_is_not_smaller() -> None:
@@ -177,6 +187,82 @@ def test_delivery_falls_back_to_full_when_delta_is_not_smaller() -> None:
     assert delivery.full_fallback_reason == "delta_not_smaller"
     assert delivery.full_context == target
     assert delivery.patch is None
+    assert delivery.estimated_fresh_context_tokens_avoided == 0
+
+
+def test_final_delivery_estimate_excludes_only_documented_self_references() -> None:
+    baseline = payload({"large": "x" * 5_000, "version": 1})
+    target = payload({"large": "x" * 5_000, "version": 2})
+    target_fp = context_output_fingerprint(target)
+    delivery = build_context_delivery(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=context_output_fingerprint(baseline),
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+    )
+
+    outbound = set(delivery.model_dump(mode="json"))
+    contracted = set(json.loads(serialize_delta_delivery_for_estimate(delivery)))
+    assert outbound - contracted == DELTA_DELIVERY_ESTIMATE_EXCLUDED_FIELDS
+    assert estimate_delta_delivery_tokens(delivery) == delivery.delta_estimated_tokens
+
+
+def test_final_delivery_estimate_rejects_old_metadata_false_positive() -> None:
+    baseline = {"common": "c" * 890, "changed": "a" * 100}
+    target = {"common": "c" * 890, "changed": "b" * 100}
+    baseline_fp = context_output_fingerprint(baseline)
+    target_fp = context_output_fingerprint(target)
+    operations = build_patch(semantic_context_value(baseline), semantic_context_value(target))
+    patch_text = serialized_patch(operations)
+    metadata = delta_context._delta_delivery_metadata(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+        patch_text=patch_text,
+    )
+    old_metadata_estimate = delta_context.delivery_size_tokens(metadata)
+    full_estimate = estimate_tokens(context_output_serialization(target))
+    provisional = delta_context.ContextDelivery(
+        mode="DELTA",
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        target_output_fingerprint=target_fp,
+        reconstruction_verified=True,
+        target_output_fingerprint_verified=True,
+        current_provenance=provenance(target_fp),
+        patch=operations,
+        delta_estimated_tokens=0,
+        full_estimated_tokens=full_estimate,
+        estimated_fresh_context_tokens_avoided=0,
+        patch_operation_count=len(operations),
+        patch_serialized_characters=len(patch_text),
+    )
+    final_estimate = estimate_delta_delivery_tokens(provisional)
+
+    assert old_metadata_estimate < full_estimate
+    assert final_estimate >= full_estimate
+    delivery = build_context_delivery(
+        project_id=PROJECT_ID,
+        task_id=TASK_ID,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance(target_fp),
+    )
+    assert delivery.mode == "FULL"
+    assert delivery.full_fallback_reason == "delta_not_smaller"
+    assert delivery.delta_estimated_tokens == final_estimate
+    assert delivery.full_estimated_tokens == full_estimate
+    assert delivery.estimated_fresh_context_tokens_avoided == 0
 
 
 def test_final_delivery_bound_uses_exact_serialized_context_delivery(

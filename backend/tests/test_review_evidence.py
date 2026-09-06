@@ -2105,6 +2105,17 @@ def test_wo013_scope_and_delta_evidence_fail_closed() -> None:
         **{field: 0 for field in review_evidence.WO013_DELTA_INTEGER_FIELDS},
         **{field: False for field in review_evidence.WO013_DELTA_NEGATIVE_FIELDS},
         "delta_context_benchmark_status": "PASS",
+        "delta_context_delivery_estimate_version": "delta-delivery-estimate-v1",
+        "delta_context_small_change_delta_estimated_tokens": 10,
+        "delta_context_small_change_final_delta_estimated_tokens": 10,
+        "delta_context_small_change_full_estimated_tokens": 20,
+        "delta_context_small_change_fresh_context_tokens_avoided": 10,
+        "delta_context_full_savings_zero": True,
+        "delta_context_threshold_old_metadata_estimated_tokens": 1,
+        "delta_context_threshold_final_delta_estimated_tokens": 3,
+        "delta_context_threshold_full_estimated_tokens": 2,
+        "delta_context_threshold_old_gate_would_emit_delta": True,
+        "delta_context_threshold_final_gate_rejected_delta": True,
     }
     require_wo013_context_manager_evidence(
         "WO-013",

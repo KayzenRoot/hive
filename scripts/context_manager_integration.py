@@ -48,12 +48,16 @@ from app.context_fingerprints import (  # noqa: E402
     context_output_fingerprint,
 )
 from app.delta_context import (  # noqa: E402
+    DELTA_DELIVERY_ESTIMATE_VERSION,
     ContextDeliveryProvenance,
     apply_patch,
     build_context_delivery,
     build_patch,
+    estimate_delta_delivery_tokens,
     semantic_context_value,
+    serialize_delta_delivery_for_estimate,
     serialized_delivery_bytes,
+    serialized_patch,
 )
 from app.registry import ProjectResponse  # noqa: E402
 from app.semantic_retrieval import (  # noqa: E402
@@ -326,12 +330,6 @@ def delta_context_request(
     return status, response
 
 
-def serialized_response_bytes(payload: dict[str, Any] | list[Any]) -> int:
-    """Match the compact UTF-8 JSON envelope used by the API response."""
-
-    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-
-
 def run_post_build_race(
     base_url: str,
     project_id: str,
@@ -504,6 +502,96 @@ def delta_not_smaller_probe() -> dict[str, Any]:
         "target_fingerprint_verified": context_output_fingerprint(reconstructed) == target_fp,
         "delta_estimated_tokens": delivery.delta_estimated_tokens,
         "full_estimated_tokens": delivery.full_estimated_tokens,
+    }
+
+
+def delta_token_truthfulness_threshold_probe() -> dict[str, Any]:
+    """Prove the old metadata gate would accept a false positive.
+
+    The fixture uses a valid baseline and real patch/reconstruction. Its
+    intermediate metadata is just below the FULL estimate, while the final
+    contracted delivery is above it, so only the corrected gate can reject it.
+    """
+
+    project_id = UUID("00000000-0000-0000-0000-000000000301")
+    task_id = UUID("00000000-0000-0000-0000-000000000302")
+    index_id = UUID("00000000-0000-0000-0000-000000000303")
+    corpus_id = UUID("00000000-0000-0000-0000-000000000304")
+    head = "d" * 40
+    baseline = {"common": "c" * 890, "changed": "a" * 100}
+    target = {"common": "c" * 890, "changed": "b" * 100}
+    baseline_fp = context_output_fingerprint(baseline)
+    target_fp = context_output_fingerprint(target)
+    provenance = ContextDeliveryProvenance(
+        repository_head_sha=head,
+        registered_head_sha=head,
+        index_run_id=index_id,
+        corpus_run_id=corpus_id,
+        target_output_fingerprint=target_fp,
+    )
+    operations = build_patch(semantic_context_value(baseline), semantic_context_value(target))
+    patch_text = serialized_patch(operations)
+    reconstructed = apply_patch(semantic_context_value(baseline), operations)
+    metadata = delta_context_module._delta_delivery_metadata(
+        project_id=project_id,
+        task_id=task_id,
+        baseline_output_fingerprint=baseline_fp,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance,
+        patch_text=patch_text,
+    )
+    old_metadata_estimate = delta_context_module.delivery_size_tokens(metadata)
+    full_estimate = delta_context_module.estimate_tokens(
+        delta_context_module.context_output_serialization(target)
+    )
+    provisional = delta_context_module.ContextDelivery(
+        mode="DELTA",
+        project_id=project_id,
+        task_id=task_id,
+        baseline_output_fingerprint=baseline_fp,
+        target_output_fingerprint=target_fp,
+        reconstruction_verified=True,
+        target_output_fingerprint_verified=True,
+        current_provenance=provenance,
+        patch=operations,
+        delta_estimated_tokens=0,
+        full_estimated_tokens=full_estimate,
+        estimated_fresh_context_tokens_avoided=0,
+        patch_operation_count=len(operations),
+        patch_serialized_characters=len(patch_text),
+    )
+    final_delta_estimate = estimate_delta_delivery_tokens(provisional)
+    delivery = build_context_delivery(
+        project_id=project_id,
+        task_id=task_id,
+        baseline_output_fingerprint=baseline_fp,
+        baseline_payload=baseline,
+        target_payload=target,
+        target_full_context=target,
+        target_output_fingerprint=target_fp,
+        current_provenance=provenance,
+    )
+    return {
+        "delivery": delivery,
+        "baseline_resolved": baseline_fp == context_output_fingerprint(baseline),
+        "patch_executed": bool(operations),
+        "reconstruction_verified": reconstructed == semantic_context_value(target),
+        "target_fingerprint_verified": context_output_fingerprint(reconstructed) == target_fp,
+        "old_metadata_estimate": old_metadata_estimate,
+        "final_delta_estimate": final_delta_estimate,
+        "full_estimate": full_estimate,
+        "old_gate_would_emit_delta": old_metadata_estimate < full_estimate,
+        "final_gate_rejects_delta": final_delta_estimate >= full_estimate,
+        "final_estimate_matches_delivery": (
+            delivery.delta_estimated_tokens == final_delta_estimate
+        ),
+        "final_contract_serialized_bytes": len(
+            serialize_delta_delivery_for_estimate(provisional).encode("utf-8")
+        ),
+        "estimate_version": DELTA_DELIVERY_ESTIMATE_VERSION,
+        "self_reference_exclusions": sorted(
+            delta_context_module.DELTA_DELIVERY_ESTIMATE_EXCLUDED_FIELDS
+        ),
     }
 
 
@@ -2184,6 +2272,21 @@ def main() -> int:
         )
         if not delta_b_small_change_strict_reduction:
             raise AssertionError(f"small source change did not reduce delivery: {status} {delta_b}")
+        delta_b_delivery = delta_context_module.ContextDelivery.model_validate(delta_b)
+        delta_b_final_estimate = estimate_delta_delivery_tokens(delta_b_delivery)
+        delta_b_final_estimate_verified = (
+            delta_b_delivery.delta_estimated_tokens == delta_b_final_estimate
+        )
+        delta_b_savings_truthful = (
+            delta_b_delivery.estimated_fresh_context_tokens_avoided
+            == delta_b_delivery.full_estimated_tokens - delta_b_delivery.delta_estimated_tokens
+            and delta_b_delivery.estimated_fresh_context_tokens_avoided > 0
+        )
+        if not (delta_b_final_estimate_verified and delta_b_savings_truthful):
+            raise AssertionError(
+                "small-change Delta token evidence is not truthful: "
+                f"{delta_b_delivery.model_dump()}"
+            )
 
         (target / "src" / "context_dependency.py").write_text(
             "# Newly relevant dependency for TargetContextService.build_context\n"
@@ -2323,6 +2426,7 @@ def main() -> int:
             raise AssertionError(f"large-change Delta target was invalid: {status} {delta_d}")
         delta_d_probe = delta_not_smaller_probe()
         delta_d_delivery = delta_d_probe["delivery"]
+        delta_token_threshold_probe = delta_token_truthfulness_threshold_probe()
         delta_d_full_fallback = (
             delta_d_probe["baseline_resolved"]
             and delta_d_probe["patch_executed"]
@@ -2335,6 +2439,22 @@ def main() -> int:
         )
         if not delta_d_full_fallback:
             raise AssertionError(f"valid-baseline not-smaller probe failed: {delta_d_probe}")
+        delta_token_threshold_regression = (
+            delta_token_threshold_probe["baseline_resolved"]
+            and delta_token_threshold_probe["patch_executed"]
+            and delta_token_threshold_probe["reconstruction_verified"]
+            and delta_token_threshold_probe["target_fingerprint_verified"]
+            and delta_token_threshold_probe["old_gate_would_emit_delta"]
+            and delta_token_threshold_probe["final_gate_rejects_delta"]
+            and delta_token_threshold_probe["final_estimate_matches_delivery"]
+            and delta_token_threshold_probe["delivery"].mode == "FULL"
+            and delta_token_threshold_probe["delivery"].full_fallback_reason == "delta_not_smaller"
+            and delta_token_threshold_probe["delivery"].estimated_fresh_context_tokens_avoided == 0
+        )
+        if not delta_token_threshold_regression:
+            raise AssertionError(
+                f"final delivery token threshold regression failed: {delta_token_threshold_probe}"
+            )
 
         # H/I: a fingerprint from another project/task never resolves through
         # the project/task-scoped pointer key and cannot leak foreign content.
@@ -2459,6 +2579,40 @@ def main() -> int:
             delta_context_not_smaller_valid_baseline
             and delta_d_delivery.full_fallback_reason == "delta_not_smaller"
         )
+        delta_context_delivery_estimate_versioned = (
+            delta_b_delivery.delta_delivery_estimate_version == DELTA_DELIVERY_ESTIMATE_VERSION
+            and delta_token_threshold_probe["estimate_version"] == DELTA_DELIVERY_ESTIMATE_VERSION
+        )
+        delta_context_final_delivery_token_estimate_verified = (
+            delta_b_final_estimate_verified
+            and delta_token_threshold_probe["final_estimate_matches_delivery"]
+        )
+        delta_context_strict_smaller_uses_final_delivery_estimate = (
+            delta_b_final_estimate_verified
+            and delta_token_threshold_probe["old_gate_would_emit_delta"]
+            and delta_token_threshold_probe["final_gate_rejects_delta"]
+            and delta_token_threshold_probe["delivery"].full_fallback_reason == "delta_not_smaller"
+        )
+        delta_context_intermediate_metadata_false_positive_regression = (
+            delta_token_threshold_regression
+        )
+        delta_context_fresh_token_avoidance_truthful = (
+            delta_b_savings_truthful
+            and delta_d_delivery.estimated_fresh_context_tokens_avoided == 0
+            and delta_e.get("estimated_fresh_context_tokens_avoided") == 0
+            and delta_f.get("estimated_fresh_context_tokens_avoided") == 0
+            and delta_token_threshold_probe["delivery"].estimated_fresh_context_tokens_avoided == 0
+        )
+        delta_context_full_savings_zero = all(
+            delivery.get("estimated_fresh_context_tokens_avoided") == 0
+            for delivery in (
+                delta_d_delivery.model_dump(mode="json"),
+                delta_e,
+                delta_f,
+                delta_j,
+                delta_token_threshold_probe["delivery"].model_dump(mode="json"),
+            )
+        )
         final_delivery_bound = delta_delivery_bound_probe()
         delta_context_postbuild_source_race_fail_closed = (
             delta_k_delta_fail_closed and delta_k_full_fail_closed
@@ -2490,6 +2644,12 @@ def main() -> int:
                     delta_context_full_fallback_correct,
                     delta_context_not_smaller_valid_baseline,
                     delta_context_not_smaller_reason_verified,
+                    delta_context_delivery_estimate_versioned,
+                    delta_context_final_delivery_token_estimate_verified,
+                    delta_context_strict_smaller_uses_final_delivery_estimate,
+                    delta_context_intermediate_metadata_false_positive_regression,
+                    delta_context_fresh_token_avoidance_truthful,
+                    delta_context_full_savings_zero,
                     final_delivery_bound.get("at_boundary_accepted") is True,
                     final_delivery_bound.get("over_bound_full") is True,
                     final_delivery_bound.get("no_truncation") is True,
@@ -2517,6 +2677,19 @@ def main() -> int:
                         "K": delta_context_postbuild_source_race_fail_closed,
                         "not_smaller_valid_baseline": delta_context_not_smaller_valid_baseline,
                         "not_smaller_reason": delta_context_not_smaller_reason_verified,
+                        "delivery_estimate_versioned": delta_context_delivery_estimate_versioned,
+                        "final_estimate_verified": (
+                            delta_context_final_delivery_token_estimate_verified
+                        ),
+                        "strict_smaller_uses_final": (
+                            delta_context_strict_smaller_uses_final_delivery_estimate
+                        ),
+                        "metadata_false_positive": (
+                            delta_context_intermediate_metadata_false_positive_regression
+                        ),
+                        "savings_truthful": delta_context_fresh_token_avoidance_truthful,
+                        "full_savings_zero": delta_context_full_savings_zero,
+                        "token_threshold": delta_token_threshold_probe,
                         "final_bound": final_delivery_bound,
                         "deterministic": delta_context_deterministic_two_run,
                     },
@@ -2847,6 +3020,9 @@ def main() -> int:
             "delta_context_small_change_delta_estimated_tokens": int(
                 delta_b.get("delta_estimated_tokens", 0)
             ),
+            "delta_context_small_change_final_delta_estimated_tokens": int(
+                delta_b.get("delta_estimated_tokens", 0)
+            ),
             "delta_context_small_change_full_estimated_tokens": int(
                 delta_b.get("full_estimated_tokens", 0)
             ),
@@ -2859,7 +3035,47 @@ def main() -> int:
             "delta_context_small_change_patch_serialized_characters": int(
                 delta_b.get("patch_serialized_characters", 0)
             ),
-            "delta_context_small_change_final_delivery_bytes": serialized_response_bytes(delta_b),
+            "delta_context_small_change_final_delivery_bytes": len(
+                serialized_delivery_bytes(delta_b_delivery)
+            ),
+            "delta_context_delivery_estimate_versioned": (
+                delta_context_delivery_estimate_versioned
+            ),
+            "delta_context_delivery_estimate_version": DELTA_DELIVERY_ESTIMATE_VERSION,
+            "delta_context_delivery_estimate_self_reference_exclusions": sorted(
+                delta_context_module.DELTA_DELIVERY_ESTIMATE_EXCLUDED_FIELDS
+            ),
+            "delta_context_final_delivery_token_estimate_verified": (
+                delta_context_final_delivery_token_estimate_verified
+            ),
+            "delta_context_strict_smaller_uses_final_delivery_estimate": (
+                delta_context_strict_smaller_uses_final_delivery_estimate
+            ),
+            "delta_context_intermediate_metadata_false_positive_regression": (
+                delta_context_intermediate_metadata_false_positive_regression
+            ),
+            "delta_context_fresh_token_avoidance_truthful": (
+                delta_context_fresh_token_avoidance_truthful
+            ),
+            "delta_context_full_savings_zero": delta_context_full_savings_zero,
+            "delta_context_threshold_old_metadata_estimated_tokens": delta_token_threshold_probe[
+                "old_metadata_estimate"
+            ],
+            "delta_context_threshold_final_delta_estimated_tokens": delta_token_threshold_probe[
+                "final_delta_estimate"
+            ],
+            "delta_context_threshold_full_estimated_tokens": delta_token_threshold_probe[
+                "full_estimate"
+            ],
+            "delta_context_threshold_old_gate_would_emit_delta": delta_token_threshold_probe[
+                "old_gate_would_emit_delta"
+            ],
+            "delta_context_threshold_final_gate_rejected_delta": delta_token_threshold_probe[
+                "final_gate_rejects_delta"
+            ],
+            "delta_context_threshold_contract_serialized_bytes": delta_token_threshold_probe[
+                "final_contract_serialized_bytes"
+            ],
             "delta_context_full_fallback_when_not_smaller": (
                 delta_context_full_fallback_when_not_smaller
             ),

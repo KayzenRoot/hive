@@ -204,13 +204,36 @@ WO013_DELTA_REQUIRED_FIELDS = (
     "delta_context_full_fallback_when_not_smaller",
     "delta_context_full_fallback_correct",
     "delta_context_deterministic_two_run",
+    "delta_context_delivery_estimate_versioned",
+    "delta_context_final_delivery_token_estimate_verified",
+    "delta_context_strict_smaller_uses_final_delivery_estimate",
+    "delta_context_intermediate_metadata_false_positive_regression",
+    "delta_context_fresh_token_avoidance_truthful",
+    "delta_context_full_savings_zero",
+    "delta_context_threshold_old_gate_would_emit_delta",
+    "delta_context_threshold_final_gate_rejected_delta",
 )
 WO013_DELTA_INTEGER_FIELDS = (
     "delta_context_llm_calls",
     "delta_context_provider_calls",
     "delta_context_false_reconstructions",
     "delta_context_critical_context_misses",
+    "delta_context_not_smaller_delta_estimated_tokens",
+    "delta_context_not_smaller_full_estimated_tokens",
+    "delta_context_small_change_delta_estimated_tokens",
+    "delta_context_small_change_final_delta_estimated_tokens",
+    "delta_context_small_change_full_estimated_tokens",
+    "delta_context_small_change_fresh_context_tokens_avoided",
+    "delta_context_small_change_patch_operation_count",
+    "delta_context_small_change_patch_serialized_characters",
+    "delta_context_small_change_final_delivery_bytes",
+    "delta_context_threshold_old_metadata_estimated_tokens",
+    "delta_context_threshold_final_delta_estimated_tokens",
+    "delta_context_threshold_full_estimated_tokens",
+    "delta_context_threshold_contract_serialized_bytes",
 )
+WO013_DELTA_STRING_FIELDS = ("delta_context_delivery_estimate_version",)
+WO013_DELTA_LIST_FIELDS = ("delta_context_delivery_estimate_self_reference_exclusions",)
 WO013_DELTA_NEGATIVE_FIELDS = (
     "delta_context_migration_changed",
     "provider_prompt_cache_implemented",
@@ -1294,6 +1317,12 @@ def context_manager_evidence() -> dict[str, object]:
         for field in WO013_DELTA_INTEGER_FIELDS:
             value = data.get(field)
             evidence[field] = value if isinstance(value, int) and not isinstance(value, bool) else 0
+        for field in WO013_DELTA_STRING_FIELDS:
+            value = data.get(field)
+            evidence[field] = value if isinstance(value, str) else ""
+        for field in WO013_DELTA_LIST_FIELDS:
+            value = data.get(field)
+            evidence[field] = value if isinstance(value, list) else []
         evidence.update({field: data.get(field) is True for field in WO013_DELTA_NEGATIVE_FIELDS})
         delta_status = data.get("delta_context_benchmark_status")
         evidence["delta_context_benchmark_status"] = (
@@ -1695,6 +1724,44 @@ def require_wo013_context_manager_evidence(
         raise ValueError("WO-013 requires zero false Delta reconstructions")
     if context_manager.get("delta_context_critical_context_misses") != 0:
         raise ValueError("WO-013 requires zero Delta critical context misses")
+    if (
+        context_manager.get("delta_context_delivery_estimate_version")
+        != "delta-delivery-estimate-v1"
+    ):
+        raise ValueError("WO-013 requires the versioned final Delta delivery estimate contract")
+    small_delta = context_manager.get("delta_context_small_change_final_delta_estimated_tokens")
+    small_legacy_delta = context_manager.get("delta_context_small_change_delta_estimated_tokens")
+    small_full = context_manager.get("delta_context_small_change_full_estimated_tokens")
+    small_avoided = context_manager.get("delta_context_small_change_fresh_context_tokens_avoided")
+    if not (
+        isinstance(small_delta, int)
+        and not isinstance(small_delta, bool)
+        and small_legacy_delta == small_delta
+        and isinstance(small_full, int)
+        and not isinstance(small_full, bool)
+        and isinstance(small_avoided, int)
+        and not isinstance(small_avoided, bool)
+        and small_avoided > 0
+        and small_avoided == small_full - small_delta
+    ):
+        raise ValueError("WO-013 requires exact positive fresh-token avoidance for DELTA")
+    if context_manager.get("delta_context_full_savings_zero") is not True:
+        raise ValueError("WO-013 requires zero fresh-token avoidance for every FULL delivery")
+    threshold_old = context_manager.get("delta_context_threshold_old_metadata_estimated_tokens")
+    threshold_final = context_manager.get("delta_context_threshold_final_delta_estimated_tokens")
+    threshold_full = context_manager.get("delta_context_threshold_full_estimated_tokens")
+    if not (
+        isinstance(threshold_old, int)
+        and not isinstance(threshold_old, bool)
+        and isinstance(threshold_final, int)
+        and not isinstance(threshold_final, bool)
+        and isinstance(threshold_full, int)
+        and not isinstance(threshold_full, bool)
+        and threshold_old < threshold_full <= threshold_final
+        and context_manager.get("delta_context_threshold_old_gate_would_emit_delta") is True
+        and context_manager.get("delta_context_threshold_final_gate_rejected_delta") is True
+    ):
+        raise ValueError("WO-013 requires the intermediate-metadata false-positive regression")
     if context_manager.get("delta_context_benchmark_status") != "PASS":
         raise ValueError("WO-013 requires a passing Delta Context benchmark")
     if context_manager.get("status") != "PASS":
@@ -2764,6 +2831,21 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     delta_final_bound = context_manager_evidence.get(
         "delta_context_final_delivery_bound_verified", False
     )
+    delta_estimate_versioned = context_manager_evidence.get(
+        "delta_context_delivery_estimate_versioned", False
+    )
+    delta_final_estimate = context_manager_evidence.get(
+        "delta_context_final_delivery_token_estimate_verified", False
+    )
+    delta_strict_smaller_final = context_manager_evidence.get(
+        "delta_context_strict_smaller_uses_final_delivery_estimate", False
+    )
+    delta_false_positive = context_manager_evidence.get(
+        "delta_context_intermediate_metadata_false_positive_regression", False
+    )
+    delta_savings_truthful = context_manager_evidence.get(
+        "delta_context_fresh_token_avoidance_truthful", False
+    )
     delta_text = (
         f"`{delta_status}`; implemented `{delta_implemented}`, "
         f"identical/change/dependency `{delta_identical}/{delta_changed}/{delta_dependency}`, "
@@ -2773,7 +2855,11 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"final stability/post-build race `{delta_stability}/{delta_postbuild_race}`, "
         f"valid not-smaller baseline/reason `"
         f"{delta_not_smaller_baseline}/{delta_not_smaller_reason}`, "
-        f"final delivery bound `{delta_final_bound}`"
+        f"final delivery bound `{delta_final_bound}`, "
+        f"estimate contract/final estimate/strict gate `"
+        f"{delta_estimate_versioned}/{delta_final_estimate}/{delta_strict_smaller_final}`, "
+        f"metadata false-positive/savings truthful `"
+        f"{delta_false_positive}/{delta_savings_truthful}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
