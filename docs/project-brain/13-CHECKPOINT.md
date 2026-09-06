@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+PROVIDER / PROMPT CACHE ADAPTER FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -185,6 +185,11 @@ See `03-SCOPE.md`.
 - exact reconstruction and target fingerprint verification are verified; false delta reconstructions 0, critical context misses 0, post-build full/delta races fail closed, newly relevant dependency preserved, delta llm calls 0 and delta provider calls 0.
 - the final delivery token estimate contract is versioned; strict-smaller uses the final delivery estimate, the old metadata false-positive regression is verified, small-change final delta estimate 1926, small-change full estimate 4152, fresh-context tokens avoided 2226, final delivery bytes 7777, patch operations 3, patch chars 6632, final byte bound 24000, not-smaller verified and threshold 266 / 319 / 268 evidence.
 - migration 0005_semantic_retrieval, pr #43, audited head 4d9bf458cea7c7bf91ac84012dd5f991be194263, sol review 5123605890, merge d952be125da97afacf1099244cf2755f8243d288, post-merge ci 34002558669, backend 325, dashboard 7; provider/prompt cache not implemented, memory lifecycle not implemented and autonomous executor dispatch not implemented.
+- provider/prompt cache adapter foundation approval is recorded with provider-prompt-envelope-v1, provider-canonical-input-v1, stable-prompt-prefix-v1, provider-cache-capabilities-v1, provider-cache-adapter-v1, provider-usage-receipt-v1 and provider-cache-accounting-v1.
+- independent semantic composition is verified with mutation evidence 5/5/0; provider material identity invalidation is verified; credential rotation is nonmaterial with credential leaks 0; cross-project leaks are 0; requested/no-receipt remains unknown, explicit zero is false, repeated prefix alone is not a hit, positive provider receipt is a hit, false hit claims are 0 and invalid accounting acceptances are 0 across matrix size 8.
+- full and delta provider-prompt compatibility are measured; delta false reconstructions and critical context misses remain 0/0; foundation provider and llm calls remain 0/0; no live provider prompt-cache network integration, memory lifecycle, autonomous executor dispatch or full cache telemetry was implemented; migration remains 0005_semantic_retrieval.
+- provider/prompt cache implementation evidence references pr #46, audited head dfb6bcb21e6646bc2c056c014ba211245bd64e77, sol review 5125220660 and squash merge 5c8356228b0ce186cde6e64393a167063aa2a9e9; initial post-merge ci 34031448696 failed only the squash-unsafe review-evidence lineage regression and therefore did not close the work order.
+- wo-014-c2 repaired the squash-unsafe lineage validator on pr #47, audited head ba2a87ee71c4039dc692f96fd20c9aa05d22401a, sol review 5125500085, squash merge 13888d63572db0e90fb4536369867d995a9e1c90 and post-merge ci 34037204379; validate and integration health passed on the exact main sha, backend 358 and dashboard 7 passed, canonical verifier and secret scan passed.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -192,7 +197,7 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary provider-independent Provider/Prompt Cache Adapter Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints and Delta Context pipeline.
+- Preparing the smallest necessary Memory Lifecycle and Provenance Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints, Delta Context and Provider/Prompt Cache foundations.
 
 ## PENDING
 - memory.
@@ -207,33 +212,31 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - backup/recovery validation.
 - final documentation.
 - final V0.1 review.
-- provider/prompt cache adapter layer.
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Delta Context Foundation approval and post-merge validation.
+None known after Provider/Prompt Cache Adapter Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary provider-independent Provider/Prompt Cache Adapter Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints and Delta Context pipeline.
+Prepare the smallest necessary Memory Lifecycle and Provenance Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints, Delta Context and Provider/Prompt Cache foundations.
 
 Continue with the following bounded intent:
-- provider independence;
-- stable prompt-prefix/provider-cache adapters only where supported;
-- deterministic HIVE context identity remains canonical;
-- provider cache never becomes canonical truth;
-- cached-provider accounting is measured and reconciled, not guessed;
-- no Memory lifecycle;
-- no MCP product surface;
-- no autonomous executor dispatch;
-- no full telemetry expansion beyond what is strictly necessary for objective evidence;
-- no user-managed cache mode required.
-
-Do not prescribe code unnecessarily.
-Do not implement Provider/Prompt Cache in this PR.
+- durable structured memory belongs in PostgreSQL;
+- Redis remains HOT/noncanonical only;
+- every promoted memory record carries provenance;
+- staged executor/model output is not canonical until validated;
+- derived summaries/embeddings never replace canonical source;
+- project isolation remains mandatory;
+- deterministic mechanisms before LLM calls;
+- no MCP product surface yet;
+- no autonomous executor dispatch expansion yet;
+- no full telemetry expansion beyond objective evidence;
+- no silent canonical memory mutation;
+Do not implement Memory in the promotion PR.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
