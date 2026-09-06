@@ -34,6 +34,11 @@ from scripts.review_evidence import (
     WO014_C2_ALLOWED_PATHS,
     WO014_C2_BASE_SHA,
     WO014_C2_WORK_ORDER,
+    WO014P_G1_ALLOWED_PATHS,
+    WO014P_G1_BASE_SHA,
+    WO014P_G1_WORK_ORDER,
+    WO014P_PROMOTION_ALLOWED_PATHS,
+    WO014P_WORK_ORDER,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -69,10 +74,14 @@ from scripts.review_evidence import (
     require_wo014_c2_scope,
     require_wo014_provider_prompt_cache_evidence,
     require_wo014_scope,
+    require_wo014p_checkpoint_semantics,
+    require_wo014p_g1_scope,
+    require_wo014p_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
     verify_wo014_c2_governance_contract,
+    verify_wo014p_g1_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -523,6 +532,49 @@ def wo013p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
     return base, candidate
 
 
+def wo014p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
+    base = review_evidence.git_blob_bytes(
+        WO014P_G1_BASE_SHA,
+        review_evidence.CHECKPOINT_PATH,
+    ).decode("utf-8")
+    candidate = replace_checkpoint_section(
+        base,
+        "STATUS",
+        review_evidence.EXPECTED_WO014P_STATUS,
+    )
+    candidate = candidate.replace("- provider/prompt cache adapter layer.\n", "")
+    candidate = replace_checkpoint_section(
+        candidate,
+        "IN PROGRESS",
+        f"- {review_evidence.EXPECTED_WO014P_IN_PROGRESS}",
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "BLOCKERS",
+        review_evidence.EXPECTED_WO014P_BLOCKERS,
+    )
+    next_step = review_evidence.EXPECTED_WO014P_IN_PROGRESS.replace("Preparing", "Prepare", 1)
+    next_step += "\n\nContinue with the following bounded intent:\n"
+    next_step += "\n".join(
+        f"- {intent};" for intent in review_evidence.WO014P_NEXT_STEP_REQUIRED_INTENTS
+    )
+    next_step += "\n\nDo not implement Memory in the promotion PR."
+    candidate = replace_checkpoint_section(candidate, "NEXT STEP", next_step)
+    if include_evidence:
+        completed = review_evidence.checkpoint_bullets(
+            review_evidence.checkpoint_sections(base), "COMPLETED"
+        )
+        candidate = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(
+                f"- {item}"
+                for item in completed + list(review_evidence.WO014P_CANONICAL_COMPLETION_BULLETS)
+            ),
+        )
+    return base, candidate
+
+
 def test_wo012p_g1_scope_is_explicit_and_fail_closed() -> None:
     require_wo012p_g1_scope(
         "WO-012-P-G1",
@@ -586,18 +638,28 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
         "WO-013-P-G1",
     ):
         require_supported_work_order(historical)
+    require_supported_work_order(WO014P_G1_WORK_ORDER)
+    require_supported_work_order(WO014P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-014-P")
+        require_supported_work_order("WO-015-P")
 
 
 def test_current_checkpoint_promotion_authorization_separates_history() -> None:
-    require_current_work_order_authorization("WO-013-P-G1")
-    require_current_work_order_authorization("WO-013-P")
-    for historical in ("WO-010-P", "WO-011-P", "WO-012-P", "WO-012-P-G1", "WO-007-P-C1"):
+    require_current_work_order_authorization(WO014P_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO014P_WORK_ORDER)
+    for historical in (
+        "WO-010-P",
+        "WO-011-P",
+        "WO-012-P",
+        "WO-012-P-G1",
+        "WO-013-P",
+        "WO-013-P-G1",
+        "WO-007-P-C1",
+    ):
         with pytest.raises(ValueError, match="historical checkpoint-promotion"):
             require_current_work_order_authorization(historical)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_current_work_order_authorization("WO-014-P")
+        require_current_work_order_authorization("WO-015-P")
 
 
 def test_authorized_base_marker_requires_one_lowercase_exact_sha() -> None:
@@ -1033,6 +1095,173 @@ def test_wo013p_scope_accepts_registered_base_and_exact_files(
         registered_base_sha="c" * 40,
         authorized_base_sha="c" * 40,
     )
+
+
+def test_wo014p_g1_scope_is_exact_and_fail_closed() -> None:
+    require_wo014p_g1_scope(
+        WO014P_G1_WORK_ORDER,
+        WO014P_G1_BASE_SHA,
+        sorted(WO014P_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo014p_g1_scope(
+            WO014P_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(WO014P_G1_ALLOWED_PATHS),
+        )
+    for unauthorized in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "migrations/0006_bad.py",
+        "backend/app/main.py",
+        ".github/workflows/ci.yml",
+    ):
+        with pytest.raises(ValueError, match="outside"):
+            require_wo014p_g1_scope(
+                WO014P_G1_WORK_ORDER,
+                WO014P_G1_BASE_SHA,
+                ["scripts/review_evidence.py", unauthorized],
+            )
+
+
+def test_wo014p_checkpoint_semantics_accept_exact_transition() -> None:
+    base, candidate = wo014p_checkpoint_fixture()
+    require_wo014p_checkpoint_semantics(base, candidate)
+
+
+def test_wo014p_checkpoint_semantics_rejects_unrelated_or_incomplete_claims() -> None:
+    base, candidate = wo014p_checkpoint_fixture()
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    history = completed[:-5]
+    evidence = completed[-5:]
+    malformed = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(
+            f"- {item}" for item in history + [evidence[0] + " MCP is complete.", *evidence[1:]]
+        ),
+    )
+    with pytest.raises(ValueError, match="closed grammar"):
+        require_wo014p_checkpoint_semantics(base, malformed)
+    missing = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in history + evidence[:4]),
+    )
+    with pytest.raises(ValueError, match="exactly 5"):
+        require_wo014p_checkpoint_semantics(base, missing)
+    pending_changed = candidate.replace("- memory.\n", "", 1)
+    with pytest.raises(ValueError, match="remove only"):
+        require_wo014p_checkpoint_semantics(base, pending_changed)
+
+
+def test_wo014p_scope_binds_marker_base_current_main_and_g1_support(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_checkpoint, candidate_checkpoint = wo014p_checkpoint_fixture()
+    base_manifest = review_evidence.git_blob_bytes(
+        WO014P_G1_BASE_SHA,
+        review_evidence.CANONICAL_MANIFEST_PATH,
+    ).decode("utf-8")
+    candidate_bytes = candidate_checkpoint.encode("utf-8")
+    candidate_manifest = "".join(
+        line.replace(
+            line.strip().split(maxsplit=1)[0],
+            hashlib.sha256(candidate_bytes).hexdigest(),
+            1,
+        )
+        if (
+            len(line.strip().split(maxsplit=1)) == 2
+            and line.strip().split(maxsplit=1)[1]
+            == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
+        )
+        else line
+        for line in base_manifest.splitlines(keepends=True)
+    )
+    checkpoint_path = tmp_path / review_evidence.CHECKPOINT_PATH
+    manifest_path = tmp_path / review_evidence.CANONICAL_MANIFEST_PATH
+    checkpoint_path.parent.mkdir(parents=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_bytes(candidate_bytes)
+    manifest_path.write_text(candidate_manifest, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(review_evidence, "ROOT", tmp_path)
+
+    def fake_git_blob_bytes(revision: str, path: str) -> bytes:
+        assert revision == "c" * 40
+        if path == "scripts/review_evidence.py":
+            return b"WO014P_G1_WORK_ORDER"
+        if path == review_evidence.CHECKPOINT_PATH:
+            return base_checkpoint.encode("utf-8")
+        return base_manifest.encode("utf-8")
+
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", fake_git_blob_bytes)
+    require_wo014p_scope(
+        WO014P_WORK_ORDER,
+        "c" * 40,
+        sorted(WO014P_PROMOTION_ALLOWED_PATHS),
+        registered_base_sha="c" * 40,
+        authorized_base_sha="c" * 40,
+    )
+    with pytest.raises(ValueError, match="authorized-base"):
+        require_wo014p_scope(
+            WO014P_WORK_ORDER,
+            "c" * 40,
+            sorted(WO014P_PROMOTION_ALLOWED_PATHS),
+            registered_base_sha="c" * 40,
+            authorized_base_sha="d" * 40,
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        require_wo014p_scope(
+            WO014P_WORK_ORDER,
+            "c" * 40,
+            sorted(WO014P_PROMOTION_ALLOWED_PATHS),
+            base_branch="release",
+            registered_base_sha="c" * 40,
+            authorized_base_sha="c" * 40,
+        )
+
+
+def test_wo014p_g1_governance_contract_is_self_validating() -> None:
+    evidence = verify_wo014p_g1_governance_contract(
+        WO014P_G1_WORK_ORDER,
+        WO014P_G1_BASE_SHA,
+        sorted(WO014P_G1_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {
+            "ruleset_unchanged": True,
+            "pull_request": {"auto_merge_armed": False},
+        },
+        {"context_manager": {"memory_lifecycle_implemented": False}},
+        "0005_semantic_retrieval",
+    )
+    assert evidence is not None
+    assert "active_promotions=WO-014-P-G1,WO-014-P" in evidence
+    assert "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED" in evidence
+    assert "unknown_WO-015-P_WO-999-P=REJECTED" in evidence
+    assert "auto_merge=UNARMED" in evidence
+
+    with pytest.raises(ValueError, match="ruleset"):
+        verify_wo014p_g1_governance_contract(
+            WO014P_G1_WORK_ORDER,
+            WO014P_G1_BASE_SHA,
+            sorted(WO014P_G1_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {
+                "ruleset_unchanged": False,
+                "pull_request": {"auto_merge_armed": False},
+            },
+            {"context_manager": {"memory_lifecycle_implemented": False}},
+            "0005_semantic_retrieval",
+        )
 
 
 def protect_main_ruleset(
@@ -1923,6 +2152,58 @@ def test_wo013p_pr_body_is_exact_two_file_promotion_specific() -> None:
     assert "awaiting_sol" in folded
 
 
+def test_wo014p_g1_pr_body_is_governance_only_and_noncanonical() -> None:
+    body = render_body(
+        work_order=WO014P_G1_WORK_ORDER,
+        pr_number=48,
+        branch="governance/wo014p-review-evidence-support",
+        base_sha=WO014P_G1_BASE_SHA,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-014-P-G1-b",
+        ruleset_before="21934284 unchanged",
+        ruleset_after="21934284 unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+    folded = body.casefold()
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-014-P-G1 -->")
+    assert body.count("HIVE-WORK-ORDER") == 1
+    assert not any(line.startswith("<!-- HIVE-AUTHORIZED-BASE:") for line in body.splitlines())
+    assert "project brain" in folded
+    assert "checkpoint" in folded
+    assert "memory" in folded
+    assert "auto-merge permanece unarmed" in folded
+    assert "sol review state: awaiting_sol" in folded
+    assert "wo-014-p-g1 ready for sol audit" in folded
+
+
+def test_wo014p_pr_body_emits_runtime_two_marker_promotion_contract() -> None:
+    base = "c" * 40
+    body = render_body(
+        work_order=WO014P_WORK_ORDER,
+        pr_number=49,
+        branch="checkpoint/wo014-provider-prompt-cache-close",
+        base_sha=base,
+        head_sha="d" * 40,
+        artifact_name="hive-review-evidence-WO-014-P-d",
+        ruleset_before="21934284 unchanged",
+        ruleset_after="21934284 unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+    folded = body.casefold()
+    assert body.startswith(f"<!-- HIVE-WORK-ORDER: {WO014P_WORK_ORDER} -->")
+    assert body.splitlines()[1] == f"<!-- HIVE-AUTHORIZED-BASE: {base} -->"
+    assert body.count("HIVE-WORK-ORDER") == 1
+    assert sum(line.startswith("<!-- HIVE-AUTHORIZED-BASE:") for line in body.splitlines()) == 1
+    assert "runtime" in folded
+    assert "marker == pr base == current origin/main" in folded
+    assert "docs/project-brain/13-checkpoint.md" in folded
+    assert "canonical-sha256sums.txt" in folded
+    assert "exatamente cinco bullets" in folded
+    assert "awaiting_sol" in folded
+
+
 def test_consolidated_artifact_contains_the_required_audit_inputs(tmp_path: Path) -> None:
     manifest = evidence_fixture()
     manifest["large_audit_field"] = "x" * review_evidence.MAX_EVIDENCE_CHARS
@@ -2468,6 +2749,16 @@ def test_wo014_c1_evidence_requires_computed_provider_cache_fixtures() -> None:
     )
     require_wo014_provider_prompt_cache_evidence(
         WO014_C2_WORK_ORDER,
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+    require_wo014_provider_prompt_cache_evidence(
+        WO014P_G1_WORK_ORDER,
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+    require_wo014_provider_prompt_cache_evidence(
+        WO014P_WORK_ORDER,
         {"context_manager": evidence},
         "0005_semantic_retrieval",
     )

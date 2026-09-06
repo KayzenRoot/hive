@@ -916,6 +916,133 @@ Sol Review State: AWAITING_SOL
 """
 
 
+def _render_wo014p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo
+
+Esta PR adiciona somente o suporte fail-closed de Review Evidence e do renderer
+necessário para a futura promoção `WO-014-P`. É governança/tooling: não altera
+Project Brain, produto, migration, checkpoint canônico ou Memory.
+
+## 2. Identidade e escopo
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- Base G1 autorizada: `13888d63572db0e90fb4536369867d995a9e1c90`.
+- Arquivos permitidos: `scripts/review_evidence.py`,
+  `backend/tests/test_review_evidence.py` e `scripts/review_pr_body.py`.
+- Arquivos do Project Brain alterados: nenhum.
+
+## 3. Governança registrada
+
+`WO-014-P-G1` é o work order atual de suporte e se valida contra sua base
+exata. `WO-013-P-G1` e `WO-013-P` permanecem legíveis para artefatos
+históricos, mas não autorizam PRs atuais. Os únicos IDs de promoção ativos são
+`WO-014-P-G1` e `WO-014-P`; IDs desconhecidos, inclusive `WO-015-P`, falham
+fechado.
+
+O futuro `WO-014-P` exigirá exatamente um marcador de work order e um marcador
+`HIVE-AUTHORIZED-BASE` lowercase, igual à base da PR e ao `origin/main` atual,
+além de exatamente `13-CHECKPOINT.md` e `CANONICAL-SHA256SUMS.txt`. A semântica
+do checkpoint, o manifesto de uma única linha de hash e a evidência objetiva de
+Provider/Prompt Cache são contratos fechados; nenhuma conclusão é inferida por
+LLM.
+
+## 4. Gates e estado
+
+Ruleset antes: {ruleset_before}; depois: {ruleset_after}. Merge antes:
+{merge_before}; depois: {merge_after}. Migration permanece
+`0005_semantic_retrieval`; auto-merge permanece UNARMED; não houve promoção de
+checkpoint, implementação de Memory, merge ou release.
+
+Evidence Bundle: `{artifact_name}`.
+
+Sol Review State: AWAITING_SOL
+
+WO-014-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo014p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Promoção de checkpoint somente
+
+Esta PR futura promove somente o checkpoint Provider/Prompt Cache Adapter já
+aprovado, merged e validado no pós-merge. Exige exatamente os dois arquivos
+canônicos `docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`; não implementa Memory, produto
+novo, migration ou alteração de configuração.
+
+## 2. Identidade e base autorizada
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata em runtime: `{base_sha}`.
+- Head exato: `{head_sha}`.
+- O marcador `HIVE-AUTHORIZED-BASE` é único, lowercase e emitido a partir da
+  base fornecida pelo handoff; não há SHA futura hard-coded no renderer.
+- A validação exige `marker == PR base == current origin/main` e base branch
+  `main`, com suporte G1 já presente na base.
+
+## 3. Transição canônica fechada
+
+O STATUS muda exatamente de `DELTA CONTEXT FOUNDATION APPROVED / V0.1
+IMPLEMENTATION ACTIVE` para `PROVIDER / PROMPT CACHE ADAPTER FOUNDATION
+APPROVED / V0.1 IMPLEMENTATION ACTIVE`. O prefixo COMPLETED histórico é
+preservado e recebe exatamente cinco bullets Provider/Prompt Cache. Somente
+`provider/prompt cache adapter layer.` é removido de PENDING; Memory permanece
+pendente e o próximo passo é Memory Lifecycle and Provenance Foundation.
+
+## 4. Gates
+
+Review Evidence exige a evidência objetiva atual de Provider/Prompt Cache,
+manifesto com somente a hash do checkpoint alterada, migration
+`0005_semantic_retrieval`, canonical verifier e secret scan PASS, Ruleset
+inalterado, checks Validate/Integration health/Review Evidence PASS, threads
+resolvidas, squash-only e auto-merge UNARMED.
+
+Ruleset antes: {ruleset_before}; depois: {ruleset_after}. Merge antes:
+{merge_before}; depois: {merge_after}. Nenhum merge é presumido neste body.
+
+Evidence Bundle: `{artifact_name}`.
+
+Sol Review State: AWAITING_SOL
+"""
+
+
 def _render_wo013p_body(
     *,
     work_order: str,
@@ -1471,6 +1598,19 @@ def render_body(
             merge_before=merge_before,
             merge_after=merge_after,
         )
+    if work_order == "WO-014-P-G1":
+        return _render_wo014p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
     if work_order == "WO-012-P":
         return _render_wo012p_body(
             work_order=work_order,
@@ -1486,6 +1626,19 @@ def render_body(
         )
     if work_order == "WO-013-P":
         return _render_wo013p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-014-P":
+        return _render_wo014p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
