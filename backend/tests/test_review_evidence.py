@@ -66,7 +66,6 @@ from scripts.review_evidence import (
     require_wo013p_checkpoint_semantics,
     require_wo013p_g1_scope,
     require_wo013p_scope,
-    require_wo014_c1_candidate_lineage,
     require_wo014_c2_scope,
     require_wo014_provider_prompt_cache_evidence,
     require_wo014_scope,
@@ -2396,15 +2395,11 @@ def test_wo014_scope_requires_exact_base_and_allows_only_foundation_files() -> N
 
 
 def test_wo014_c1_candidate_lineage_is_explicit_and_squash_safe() -> None:
-    require_wo014_c1_candidate_lineage(
-        review_evidence.WO014_REJECTED_HEAD,
-        WO014_C1_CORRECTED_HEAD,
-    )
-    with pytest.raises(ValueError, match="candidate lineage"):
-        require_wo014_c1_candidate_lineage(
-            review_evidence.WO014_REJECTED_HEAD,
-            WO014_C2_BASE_SHA,
-        )
+    assert review_evidence.WO014_REJECTED_HEAD == ("184821d3cb5743d06c856f29895ceaa58c76ee0d")
+    assert WO014_C1_CORRECTED_HEAD == "dfb6bcb21e6646bc2c056c014ba211245bd64e77"
+    evidence = verify_wo014_c2_governance_contract()
+    assert "explicit_c1_lineage=PASS" in evidence
+    assert "replacement_skipping_c1=REJECTED" in evidence
 
 
 def test_wo014_c2_scope_is_explicit_and_fail_closed() -> None:
