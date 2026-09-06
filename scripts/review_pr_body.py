@@ -1286,10 +1286,14 @@ substituem usage reportado pelo provider.
 
 ## 4. Evidência
 
-O benchmark A-K cobre reuso do prefixo, invalidação por governança e identidade
-material de provider/model, rotação de credencial não material, no-op, isolamento
-cross-project, composição FULL/DELTA, uso reportado, zero explícito, unknown e
-receipts inconsistentes. A integração Docker também chama o endpoint FULL e DELTA.
+O benchmark A-K usa canonical input independente `provider-canonical-input-v1`,
+cinco mutações negativas (omissão, duplicação, reorder, mutação estável e mutação
+dinâmica), fixture de invalidação real de capability/provider, rotação de duas
+credenciais externas à identidade material, no-op, isolamento cross-project,
+requested/eligible sem receipt, zero explícito, prefixo repetido sem receipt,
+hit positivo, matriz de accounting inválido e composição FULL/DELTA medida. A
+integração Docker chama os endpoints FULL e DELTA reais e verifica a fingerprint
+de saída corrente/target.
 Não há LLM calls, provider calls, rede de provider, migration ou cache local de
 conteúdo de prompt.
 
@@ -1311,7 +1315,7 @@ não aprova, promove checkpoint ou faz merge.
 ## 7. Evidence Bundle e estado
 
 O consolidado é `{artifact_name}` e o comentário sticky usa
-`<!-- hive-review-evidence:{{work_order}} -->`. A PR permanece aberta, Ready e
+`<!-- hive-review-evidence:{work_order} -->`. A PR permanece aberta, Ready e
 não mesclada. Sol Review State: AWAITING_SOL.
 
 WO-014 READY FOR SOL AUDIT
