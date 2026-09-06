@@ -3378,6 +3378,9 @@ def main() -> int:
             "provider_cache_invalid_accounting_matrix_size": provider_prompt_benchmark[
                 "invalid_accounting_matrix_size"
             ],
+            "provider_cache_invalid_accounting_acceptances": provider_prompt_benchmark[
+                "invalid_accounting_acceptances"
+            ],
             "provider_cache_delta_false_reconstructions": delta_context_false_reconstructions,
             "provider_cache_delta_critical_context_misses": delta_context_critical_context_misses,
             "live_provider_prompt_cache_network_integration": False,

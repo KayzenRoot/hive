@@ -2400,6 +2400,7 @@ def test_wo014_c1_evidence_requires_computed_provider_cache_fixtures() -> None:
         "provider_cache_semantic_composition_mismatch_detection_count": 5,
         "provider_cache_accepted_semantic_composition_mismatches": 0,
         "provider_cache_invalid_accounting_matrix_size": 8,
+        "provider_cache_invalid_accounting_acceptances": 0,
         "provider_cache_provider_usage_sources": ["UNKNOWN"],
         "provider_cache_independent_canonical_input_version": "provider-canonical-input-v1",
         "provider_cache_benchmark_status": "PASS",
@@ -2416,6 +2417,15 @@ def test_wo014_c1_evidence_requires_computed_provider_cache_fixtures() -> None:
         require_wo014_provider_prompt_cache_evidence(
             "WO-014",
             {"context_manager": mutated},
+            "0005_semantic_retrieval",
+        )
+
+    invalid_accounting = dict(evidence)
+    invalid_accounting["provider_cache_invalid_accounting_acceptances"] = 1
+    with pytest.raises(ValueError, match="zero accepted invalid accounting"):
+        require_wo014_provider_prompt_cache_evidence(
+            "WO-014",
+            {"context_manager": invalid_accounting},
             "0005_semantic_retrieval",
         )
 

@@ -288,6 +288,7 @@ WO014_PROVIDER_CACHE_INTEGER_FIELDS = (
     "provider_cache_endpoint_cross_project_leaks",
     "provider_cache_false_hit_claims",
     "provider_cache_invalid_accounting_matrix_size",
+    "provider_cache_invalid_accounting_acceptances",
     "provider_cache_delta_false_reconstructions",
     "provider_cache_delta_critical_context_misses",
     "provider_cache_foundation_llm_calls",
@@ -2133,6 +2134,8 @@ def require_wo014_provider_prompt_cache_evidence(
         raise ValueError("WO-014 requires zero Delta critical context misses")
     if context_manager.get("provider_cache_invalid_accounting_matrix_size", 0) < 8:
         raise ValueError("WO-014 requires the complete invalid accounting matrix")
+    if context_manager.get("provider_cache_invalid_accounting_acceptances") != 0:
+        raise ValueError("WO-014 requires zero accepted invalid accounting receipts")
     if context_manager.get("provider_cache_credential_leaks") != 0:
         raise ValueError("WO-014 requires zero computed credential leaks")
     if context_manager.get("provider_cache_cross_project_leaks") != 0:
