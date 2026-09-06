@@ -25,6 +25,9 @@ from scripts.review_evidence import (
     WO012P_PROMOTION_ALLOWED_PATHS,
     WO013_ALLOWED_PATHS,
     WO013_BASE_SHA,
+    WO013P_G1_ALLOWED_PATHS,
+    WO013P_G1_BASE_SHA,
+    WO013P_PROMOTION_ALLOWED_PATHS,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -54,6 +57,9 @@ from scripts.review_evidence import (
     require_wo012p_scope,
     require_wo013_context_manager_evidence,
     require_wo013_scope,
+    require_wo013p_checkpoint_semantics,
+    require_wo013p_g1_scope,
+    require_wo013p_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -457,6 +463,56 @@ def wo012p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
     return base, candidate
 
 
+def wo013p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
+    base = review_evidence.git_blob_bytes(
+        WO013P_G1_BASE_SHA,
+        review_evidence.CHECKPOINT_PATH,
+    ).decode("utf-8")
+    candidate = replace_checkpoint_section(
+        base,
+        "STATUS",
+        review_evidence.EXPECTED_WO013P_STATUS,
+    )
+    candidate = candidate.replace("- delta context.\n", "")
+    candidate = replace_checkpoint_section(
+        candidate,
+        "IN PROGRESS",
+        f"- {review_evidence.EXPECTED_WO013P_IN_PROGRESS}",
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "BLOCKERS",
+        review_evidence.EXPECTED_WO013P_BLOCKERS,
+    )
+    next_step = review_evidence.EXPECTED_WO013P_NEXT_STEP_PREFIX + (
+        "\n\nContinue with bounded intent:\n"
+        "- provider independence;\n"
+        "- stable prompt-prefix/provider-cache adapters only where supported;\n"
+        "- deterministic HIVE context identity remains canonical;\n"
+        "- provider cache never becomes canonical truth;\n"
+        "- cached-provider accounting is measured and reconciled, not guessed;\n"
+        "- no Memory lifecycle;\n"
+        "- no MCP product surface;\n"
+        "- no autonomous executor dispatch;\n"
+        "- no full telemetry expansion beyond what is strictly necessary for objective evidence;\n"
+        "- no user-managed cache mode required."
+    )
+    candidate = replace_checkpoint_section(candidate, "NEXT STEP", next_step)
+    if include_evidence:
+        completed = review_evidence.checkpoint_bullets(
+            review_evidence.checkpoint_sections(base), "COMPLETED"
+        )
+        candidate = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(
+                f"- {item}"
+                for item in completed + list(review_evidence.WO013P_CANONICAL_COMPLETION_BULLETS)
+            ),
+        )
+    return base, candidate
+
+
 def test_wo012p_g1_scope_is_explicit_and_fail_closed() -> None:
     require_wo012p_g1_scope(
         "WO-012-P-G1",
@@ -482,6 +538,30 @@ def test_wo012p_g1_scope_is_explicit_and_fail_closed() -> None:
             )
 
 
+def test_wo013p_g1_scope_is_explicit_and_fail_closed() -> None:
+    require_wo013p_g1_scope(
+        "WO-013-P-G1",
+        WO013P_G1_BASE_SHA,
+        sorted(WO013P_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo013p_g1_scope("WO-013-P-G1", "a" * 40, sorted(WO013P_G1_ALLOWED_PATHS))
+    for unauthorized in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        "migrations/0006_bad.py",
+        "backend/app/main.py",
+        "dashboard/src/App.tsx",
+        ".github/workflows/ci.yml",
+    ):
+        with pytest.raises(ValueError, match="outside"):
+            require_wo013p_g1_scope(
+                "WO-013-P-G1",
+                WO013P_G1_BASE_SHA,
+                ["scripts/review_evidence.py", unauthorized],
+            )
+
+
 def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -> None:
     for historical in (
         "WO-007-P",
@@ -492,20 +572,22 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
         "WO-011-P",
         "WO-012-P",
         "WO-012-P-G1",
+        "WO-013-P",
+        "WO-013-P-G1",
     ):
         require_supported_work_order(historical)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-013-P")
+        require_supported_work_order("WO-014-P")
 
 
 def test_current_checkpoint_promotion_authorization_separates_history() -> None:
-    require_current_work_order_authorization("WO-012-P-G1")
-    require_current_work_order_authorization("WO-012-P")
-    for historical in ("WO-010-P", "WO-011-P", "WO-007-P-C1"):
+    require_current_work_order_authorization("WO-013-P-G1")
+    require_current_work_order_authorization("WO-013-P")
+    for historical in ("WO-010-P", "WO-011-P", "WO-012-P", "WO-012-P-G1", "WO-007-P-C1"):
         with pytest.raises(ValueError, match="historical checkpoint-promotion"):
             require_current_work_order_authorization(historical)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_current_work_order_authorization("WO-013-P")
+        require_current_work_order_authorization("WO-014-P")
 
 
 def test_authorized_base_marker_requires_one_lowercase_exact_sha() -> None:
@@ -533,6 +615,47 @@ def test_wo012p_checkpoint_semantics_accept_exact_transition() -> None:
         1,
     )
     require_wo012p_checkpoint_semantics(base, normalized_whitespace)
+
+
+def test_wo013p_checkpoint_semantics_accept_exact_transition() -> None:
+    base, candidate = wo013p_checkpoint_fixture()
+    require_wo013p_checkpoint_semantics(base, candidate)
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    assert completed[-5:] == list(review_evidence.WO013P_CANONICAL_COMPLETION_BULLETS)
+
+
+def test_wo013p_checkpoint_semantics_rejects_closed_grammar_changes() -> None:
+    base, candidate = wo013p_checkpoint_fixture()
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    historical = completed[:-5]
+    evidence = completed[-5:]
+    malformed = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(
+            f"- {item}" for item in historical + [evidence[0] + " extra claim", *evidence[1:]]
+        ),
+    )
+    with pytest.raises(ValueError, match="closed grammar"):
+        require_wo013p_checkpoint_semantics(base, malformed)
+    missing = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in historical + evidence[:4]),
+    )
+    with pytest.raises(ValueError, match="exactly 5"):
+        require_wo013p_checkpoint_semantics(base, missing)
+    sixth = replace_checkpoint_section(
+        candidate,
+        "COMPLETED",
+        "\n".join(f"- {item}" for item in completed + [evidence[0]]),
+    )
+    with pytest.raises(ValueError, match="exactly 5"):
+        require_wo013p_checkpoint_semantics(base, sixth)
 
 
 def test_wo012p_checkpoint_semantics_rejects_unrelated_content_inside_each_class() -> None:
@@ -831,6 +954,75 @@ def test_wo012p_scope_requires_authorized_base_to_match_pr_base() -> None:
                 registered_base_sha="c" * 40,
                 authorized_base_sha=marker,
             )
+
+
+def test_wo013p_scope_requires_exact_two_files_and_authorized_base() -> None:
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo013p_scope(
+            "WO-013-P",
+            "a" * 40,
+            sorted(WO013P_PROMOTION_ALLOWED_PATHS),
+            registered_base_sha="b" * 40,
+            authorized_base_sha="a" * 40,
+        )
+    with pytest.raises(ValueError, match="exactly"):
+        require_wo013p_scope(
+            "WO-013-P",
+            "b" * 40,
+            [review_evidence.CHECKPOINT_PATH],
+            registered_base_sha="b" * 40,
+            authorized_base_sha="b" * 40,
+        )
+    with pytest.raises(ValueError, match="authorized-base"):
+        require_wo013p_scope(
+            "WO-013-P",
+            "b" * 40,
+            sorted(WO013P_PROMOTION_ALLOWED_PATHS),
+            registered_base_sha="b" * 40,
+            authorized_base_sha=None,
+        )
+
+
+def test_wo013p_scope_accepts_registered_base_and_exact_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_checkpoint, candidate_checkpoint = wo013p_checkpoint_fixture()
+    base_manifest = review_evidence.git_blob_bytes(
+        WO013P_G1_BASE_SHA,
+        review_evidence.CANONICAL_MANIFEST_PATH,
+    ).decode("utf-8")
+    candidate_bytes = candidate_checkpoint.encode("utf-8")
+    manifest_lines = []
+    for line in base_manifest.splitlines(keepends=True):
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) == 2 and parts[1] == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME:
+            line = line.replace(parts[0], hashlib.sha256(candidate_bytes).hexdigest(), 1)
+        manifest_lines.append(line)
+    candidate_manifest = "".join(manifest_lines)
+    checkpoint_path = tmp_path / review_evidence.CHECKPOINT_PATH
+    manifest_path = tmp_path / review_evidence.CANONICAL_MANIFEST_PATH
+    checkpoint_path.parent.mkdir(parents=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_bytes(candidate_bytes)
+    manifest_path.write_text(candidate_manifest, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(review_evidence, "ROOT", tmp_path)
+
+    def fake_git_blob_bytes(revision: str, path: str) -> bytes:
+        assert revision == "c" * 40
+        return (
+            base_checkpoint.encode("utf-8")
+            if path == review_evidence.CHECKPOINT_PATH
+            else base_manifest.encode("utf-8")
+        )
+
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", fake_git_blob_bytes)
+    require_wo013p_scope(
+        "WO-013-P",
+        "c" * 40,
+        sorted(WO013P_PROMOTION_ALLOWED_PATHS),
+        registered_base_sha="c" * 40,
+        authorized_base_sha="c" * 40,
+    )
 
 
 def protect_main_ruleset(
@@ -1662,12 +1854,62 @@ def test_wo012p_pr_body_is_promotion_specific() -> None:
     assert body.startswith("<!-- HIVE-WORK-ORDER: WO-012-P -->")
     assert body.splitlines()[1] == f"<!-- HIVE-AUTHORIZED-BASE: {'a' * 40} -->"
     assert body.count("HIVE-WORK-ORDER") == 1
-    assert body.count("HIVE-AUTHORIZED-BASE") == 1
+    assert body.splitlines().count(f"<!-- HIVE-AUTHORIZED-BASE: {'a' * 40} -->") == 1
     assert "docs/project-brain/13-checkpoint.md" in folded
     assert "canonical-sha256sums.txt" in folded
     assert "delta context" in folded
     assert "não implementa delta context" in folded
     assert "auto-merge fica" in folded
+    assert "awaiting_sol" in folded
+
+
+def test_wo013p_g1_pr_body_is_governance_only_and_noncanonical() -> None:
+    body = render_body(
+        work_order="WO-013-P-G1",
+        pr_number=44,
+        branch="governance/wo013p-review-evidence-support",
+        base_sha=WO013P_G1_BASE_SHA,
+        head_sha="b" * 40,
+        artifact_name="hive-review-evidence-WO-013-P-G1-b",
+        ruleset_before="21934284 unchanged",
+        ruleset_after="21934284 unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+    folded = body.casefold()
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-013-P-G1 -->")
+    assert body.count("HIVE-WORK-ORDER") == 1
+    assert "project brain" in folded
+    assert "nenhum checkpoint foi promovido" in folded
+    assert "provider/prompt cache" in folded
+    assert "auto-merge: unarmed" in folded
+    assert "sol review state: awaiting_sol" in folded
+
+
+def test_wo013p_pr_body_is_exact_two_file_promotion_specific() -> None:
+    base = "d" * 40
+    body = render_body(
+        work_order="WO-013-P",
+        pr_number=45,
+        branch="checkpoint/wo013-delta-context-close",
+        base_sha=base,
+        head_sha="e" * 40,
+        artifact_name="hive-review-evidence-WO-013-P-e",
+        ruleset_before="21934284 unchanged",
+        ruleset_after="21934284 unchanged",
+        merge_before="unarmed",
+        merge_after="unarmed",
+    )
+    folded = body.casefold()
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-013-P -->")
+    assert body.splitlines()[1] == f"<!-- HIVE-AUTHORIZED-BASE: {base} -->"
+    assert body.count("HIVE-WORK-ORDER") == 1
+    assert body.splitlines().count(f"<!-- HIVE-AUTHORIZED-BASE: {base} -->") == 1
+    assert "docs/project-brain/13-checkpoint.md" in folded
+    assert "canonical-sha256sums.txt" in folded
+    assert "delta context foundation approved" in folded
+    assert "exactly five bullets" in folded
+    assert "auto-merge permanece unarmed" in folded
     assert "awaiting_sol" in folded
 
 
