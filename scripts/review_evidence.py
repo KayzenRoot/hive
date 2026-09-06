@@ -342,6 +342,9 @@ WO014_REJECTED_HEAD = "184821d3cb5743d06c856f29895ceaa58c76ee0d"
 WO014_C1_CORRECTED_HEAD = "dfb6bcb21e6646bc2c056c014ba211245bd64e77"
 WO014_C2_BASE_SHA = "5c8356228b0ce186cde6e64393a167063aa2a9e9"
 WO014_C2_WORK_ORDER = "WO-014-C2"
+WO014P_G1_BASE_SHA = "13888d63572db0e90fb4536369867d995a9e1c90"
+WO014P_G1_WORK_ORDER = "WO-014-P-G1"
+WO014P_WORK_ORDER = "WO-014-P"
 WO012P_G1_BASE_SHA = "743253ef079596370a7ff1102faf03b3a603b585"
 WO012P_PROMOTION_BASE_REF = "refs/remotes/origin/main"
 WO012P_G1_ALLOWED_PATHS = frozenset(
@@ -361,6 +364,14 @@ WO013P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO013P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO014P_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO014P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
 WO013_ALLOWED_PATHS = frozenset(
     {
         "backend/app/context_manager.py",
@@ -408,9 +419,11 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         "WO-011-P",
         "WO-012-P-G1",
         "WO-012-P",
+        "WO-013-P-G1",
+        "WO-013-P",
     }
 )
-ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({"WO-013-P-G1", "WO-013-P"})
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO014P_G1_WORK_ORDER, WO014P_WORK_ORDER})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -438,6 +451,7 @@ ACCEPTED_WO012P_BLOCKERS = {
 }
 WO012P_PROMOTION_REGISTRY = {"WO-012-P": WO012P_PROMOTION_BASE_REF}
 WO013P_PROMOTION_REGISTRY = {"WO-013-P": WO012P_PROMOTION_BASE_REF}
+WO014P_PROMOTION_REGISTRY = {WO014P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
 EXPECTED_WO013P_STATUS = "DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
 EXPECTED_WO013P_PREVIOUS_STATUS = (
     "CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
@@ -490,6 +504,58 @@ WO013P_CANONICAL_COMPLETION_BULLETS = (
     "d952be125da97afacf1099244cf2755f8243d288, post-merge ci 34002558669, backend "
     "325, dashboard 7; provider/prompt cache not implemented, memory lifecycle not "
     "implemented and autonomous executor dispatch not implemented.",
+)
+EXPECTED_WO014P_STATUS = (
+    "PROVIDER / PROMPT CACHE ADAPTER FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+)
+EXPECTED_WO014P_PREVIOUS_STATUS = "DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+EXPECTED_WO014P_IN_PROGRESS = (
+    "Preparing the smallest necessary Memory Lifecycle and Provenance Foundation over the "
+    "approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context "
+    "Fingerprints, Delta Context and Provider/Prompt Cache foundations."
+)
+EXPECTED_WO014P_BLOCKERS = (
+    "None known after Provider/Prompt Cache Adapter Foundation approval and post-merge validation."
+)
+WO014P_NEXT_STEP_REQUIRED_INTENTS = (
+    "durable structured memory belongs in PostgreSQL",
+    "Redis remains HOT/noncanonical only",
+    "every promoted memory record carries provenance",
+    "staged executor/model output is not canonical until validated",
+    "derived summaries/embeddings never replace canonical source",
+    "project isolation remains mandatory",
+    "deterministic mechanisms before LLM calls",
+    "no MCP product surface yet",
+    "no autonomous executor dispatch expansion yet",
+    "no full telemetry expansion beyond objective evidence",
+    "no silent canonical memory mutation",
+)
+WO014P_CANONICAL_COMPLETION_BULLETS = (
+    "provider/prompt cache adapter foundation approval is recorded with "
+    "provider-prompt-envelope-v1, provider-canonical-input-v1, stable-prompt-prefix-v1, "
+    "provider-cache-capabilities-v1, provider-cache-adapter-v1, provider-usage-receipt-v1 "
+    "and provider-cache-accounting-v1.",
+    "independent semantic composition is verified with mutation evidence 5/5/0; provider "
+    "material identity invalidation is verified; credential rotation is nonmaterial with "
+    "credential leaks 0; cross-project leaks are 0; requested/no-receipt remains unknown, "
+    "explicit zero is false, repeated prefix alone is not a hit, positive provider receipt "
+    "is a hit, false hit claims are 0 and invalid accounting acceptances are 0 across matrix "
+    "size 8.",
+    "full and delta provider-prompt compatibility are measured; delta false reconstructions "
+    "and critical context misses remain 0/0; foundation provider and llm calls remain 0/0; "
+    "no live provider prompt-cache network integration, memory lifecycle, autonomous executor "
+    "dispatch or full cache telemetry was implemented; migration remains "
+    "0005_semantic_retrieval.",
+    "provider/prompt cache implementation evidence references pr #46, audited head "
+    "dfb6bcb21e6646bc2c056c014ba211245bd64e77, sol review 5125220660 and squash merge "
+    "5c8356228b0ce186cde6e64393a167063aa2a9e9; initial post-merge ci 34031448696 failed "
+    "only the squash-unsafe review-evidence lineage regression and therefore did not close "
+    "the work order.",
+    "wo-014-c2 repaired the squash-unsafe lineage validator on pr #47, audited head "
+    "ba2a87ee71c4039dc692f96fd20c9aa05d22401a, sol review 5125500085, squash merge "
+    "13888d63572db0e90fb4536369867d995a9e1c90 and post-merge ci 34037204379; validate and "
+    "integration health passed on the exact main sha, backend 358 and dashboard 7 passed, "
+    "canonical verifier and secret scan passed.",
 )
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
@@ -875,6 +941,78 @@ def require_wo013p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
             raise ValueError(f"WO-013-P changed unrelated checkpoint section: {name}")
 
 
+def require_wo014p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
+    base = checkpoint_sections(base_text)
+    candidate = checkpoint_sections(candidate_text)
+    if set(base) != set(candidate):
+        raise ValueError("WO-014-P checkpoint sections changed unexpectedly")
+    if normalized_checkpoint_value(base, "STATUS") != EXPECTED_WO014P_PREVIOUS_STATUS:
+        raise ValueError("WO-014-P promotion base has an unexpected checkpoint status")
+    if normalized_checkpoint_value(candidate, "STATUS") != EXPECTED_WO014P_STATUS:
+        raise ValueError("WO-014-P candidate has an unexpected checkpoint status")
+
+    base_completed = checkpoint_bullets(base, "COMPLETED")
+    candidate_completed = checkpoint_bullets(candidate, "COMPLETED")
+    if candidate_completed[: len(base_completed)] != base_completed:
+        raise ValueError("WO-014-P cannot rewrite historical COMPLETED checkpoint truth")
+    appended_completed = candidate_completed[len(base_completed) :]
+    if len(appended_completed) != len(WO014P_CANONICAL_COMPLETION_BULLETS):
+        raise ValueError(
+            "WO-014-P candidate must append exactly 5 authorized completion evidence bullets"
+        )
+    for index, (bullet, expected_bullet) in enumerate(
+        zip(appended_completed, WO014P_CANONICAL_COMPLETION_BULLETS, strict=True), 1
+    ):
+        if normalized_checkpoint_evidence(bullet) != expected_bullet:
+            raise ValueError(
+                f"WO-014-P completion evidence class {index} is outside its closed grammar"
+            )
+
+    base_pending = checkpoint_bullets(base, "PENDING")
+    candidate_pending = checkpoint_bullets(candidate, "PENDING")
+    if base_pending.count("provider/prompt cache adapter layer.") != 1:
+        raise ValueError(
+            "WO-014-P promotion base must contain exactly one provider/prompt cache adapter item"
+        )
+    expected_pending = list(base_pending)
+    expected_pending.remove("provider/prompt cache adapter layer.")
+    if candidate_pending != expected_pending:
+        raise ValueError(
+            "WO-014-P must remove only provider/prompt cache adapter layer. from PENDING "
+            "and preserve all other items"
+        )
+
+    if normalized_checkpoint_value(candidate, "IN PROGRESS") != (
+        f"- {EXPECTED_WO014P_IN_PROGRESS}"
+    ):
+        raise ValueError("WO-014-P candidate has an unexpected IN PROGRESS intent")
+    if normalized_checkpoint_value(candidate, "BLOCKERS") != EXPECTED_WO014P_BLOCKERS:
+        raise ValueError("WO-014-P candidate has an unexpected BLOCKERS intent")
+
+    next_step = normalized_checkpoint_value(candidate, "NEXT STEP")
+    expected_next_step = " ".join(
+        [
+            EXPECTED_WO014P_IN_PROGRESS.replace("Preparing", "Prepare", 1),
+            "Continue with the following bounded intent:",
+            *(f"- {intent};" for intent in WO014P_NEXT_STEP_REQUIRED_INTENTS),
+            "Do not implement Memory in the promotion PR.",
+        ]
+    )
+    if next_step != expected_next_step:
+        raise ValueError("WO-014-P NEXT STEP must preserve the closed Memory intent grammar")
+
+    for name in set(base) - {
+        "STATUS",
+        "COMPLETED",
+        "IN PROGRESS",
+        "PENDING",
+        "BLOCKERS",
+        "NEXT STEP",
+    }:
+        if base[name] != candidate[name]:
+            raise ValueError(f"WO-014-P changed unrelated checkpoint section: {name}")
+
+
 def parse_canonical_manifest(text: str, source: str) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -978,8 +1116,23 @@ def require_wo013p_manifest_contract(
     )
 
 
+def require_wo014p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    require_checkpoint_manifest_contract(
+        base_manifest_text,
+        candidate_manifest_text,
+        candidate_checkpoint_bytes,
+        WO014P_WORK_ORDER,
+    )
+
+
 def registered_promotion_base_sha(work_order: str) -> str:
-    base_ref = (WO012P_PROMOTION_REGISTRY | WO013P_PROMOTION_REGISTRY).get(work_order)
+    base_ref = (
+        WO012P_PROMOTION_REGISTRY | WO013P_PROMOTION_REGISTRY | WO014P_PROMOTION_REGISTRY
+    ).get(work_order)
     if base_ref is None:
         raise ValueError(f"no registered promotion base for {work_order}")
     base_sha = git_value("rev-parse", base_ref, fallback="")
@@ -1261,6 +1414,21 @@ def require_wo013p_g1_scope(work_order: str, base_sha: str, paths: list[str]) ->
         )
 
 
+def require_wo014p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != WO014P_G1_WORK_ORDER:
+        return
+    if base_sha != WO014P_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO014P_G1_WORK_ORDER} requires exact base {WO014P_G1_BASE_SHA}, observed {base_sha}"
+        )
+    unauthorized = sorted(set(paths) - WO014P_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO014P_G1_WORK_ORDER} changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
+
+
 def require_wo012p_scope(
     work_order: str,
     base_sha: str,
@@ -1343,6 +1511,62 @@ def require_wo013p_scope(
         candidate_checkpoint_bytes.decode("utf-8"),
     )
     require_wo013p_manifest_contract(
+        base_manifest,
+        candidate_manifest,
+        candidate_checkpoint_bytes,
+    )
+
+
+def require_wo014p_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    registered_base_sha: str | None = None,
+    authorized_base_sha: str | None = None,
+    enforce_authorized_base: bool = True,
+) -> None:
+    if work_order != WO014P_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(
+            f"{WO014P_WORK_ORDER} requires the protected main base branch, observed {base_branch}"
+        )
+    expected_base = registered_base_sha or registered_promotion_base_sha(work_order)
+    if base_sha != expected_base:
+        raise ValueError(
+            f"{WO014P_WORK_ORDER} requires current protected main base {expected_base}, "
+            f"observed {base_sha}"
+        )
+    if sorted(set(paths)) != sorted(WO014P_PROMOTION_ALLOWED_PATHS) or len(paths) != 2:
+        raise ValueError(
+            f"{WO014P_WORK_ORDER} requires exactly the checkpoint and canonical manifest files"
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO014P_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError(f"{WO014P_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO014P_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+
+    base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode("utf-8")
+    if "WO014P_G1_WORK_ORDER" not in base_review_evidence:
+        raise ValueError(
+            f"{WO014P_WORK_ORDER} requires merged {WO014P_G1_WORK_ORDER} support in its base"
+        )
+    base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
+    base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
+    candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
+    candidate_manifest = (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
+    require_wo014p_checkpoint_semantics(
+        base_checkpoint,
+        candidate_checkpoint_bytes.decode("utf-8"),
+    )
+    require_wo014p_manifest_contract(
         base_manifest,
         candidate_manifest,
         candidate_checkpoint_bytes,
@@ -2214,7 +2438,12 @@ def require_wo014_provider_prompt_cache_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order not in {"WO-014", WO014_C2_WORK_ORDER}:
+    if work_order not in {
+        "WO-014",
+        WO014_C2_WORK_ORDER,
+        WO014P_G1_WORK_ORDER,
+        WO014P_WORK_ORDER,
+    }:
         return
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
     missing = [
@@ -2295,6 +2524,72 @@ def require_wo014_provider_prompt_cache_evidence(
         )
     if context_manager.get("status") != "PASS":
         raise ValueError("WO-014 requires passing Context Manager evidence")
+
+
+def verify_wo014p_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO014P_G1_WORK_ORDER:
+        return None
+    require_wo014p_g1_scope(work_order, base_sha, paths)
+    if {
+        WO014P_G1_WORK_ORDER,
+        WO014P_WORK_ORDER,
+    } != ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(
+            "WO-014-P-G1 requires exactly WO-014-P-G1 and WO-014-P as active promotions"
+        )
+    for stale in ("WO-011-P", "WO-012-P", "WO-013-P"):
+        try:
+            require_current_work_order_authorization(stale)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
+    for rejected in ("WO-015-P", "WO-999-P"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    require_current_work_order_authorization(WO014P_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO014P_WORK_ORDER)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError("WO-014-P-G1 requires no Project Brain or checkpoint changes")
+    if migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            "WO-014-P-G1 requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError("WO-014-P-G1 requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError("WO-014-P-G1 requires auto-merge to remain unarmed")
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    if context_manager.get("memory_lifecycle_implemented") is not False:
+        raise ValueError("WO-014-P-G1 requires Memory lifecycle to remain unimplemented")
+    return (
+        "work_order=WO-014-P-G1; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; migration_changed=False; "
+        "active_promotions=WO-014-P-G1,WO-014-P; "
+        "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED; "
+        "unknown_WO-015-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
+        "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
+        "renderer_markers=PASS; ruleset_unchanged=PASS; auto_merge=UNARMED; "
+        "product_change=False; memory_implementation=False; checkpoint_promotion=False"
+    )
 
 
 def require_wo013_context_manager_evidence(
@@ -2853,10 +3148,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
     authorized_base_sha = (
-        parse_authorized_base_marker(pr_body) if work_order in {"WO-012-P", "WO-013-P"} else None
+        parse_authorized_base_marker(pr_body)
+        if work_order in {"WO-012-P", "WO-013-P", WO014P_WORK_ORDER}
+        else None
     )
     require_wo012p_g1_scope(work_order, base_sha, paths)
     require_wo013p_g1_scope(work_order, base_sha, paths)
+    require_wo014p_g1_scope(work_order, base_sha, paths)
     require_wo012p_scope(
         work_order,
         base_sha,
@@ -2865,6 +3163,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
     )
     require_wo013p_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_wo014p_scope(
         work_order,
         base_sha,
         paths,
@@ -2935,6 +3240,15 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     pr_auto_merge = pull_request_auto_merge_evidence(pr_governance)
+    g1_governance_evidence = verify_wo014p_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
     require_hive_final_handoff(work_order, args.pr_number, base_sha, head_sha, governance)
     checks = {
         "validation": "PASS"
@@ -3013,6 +3327,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             [f"WO-014-C2 governance evidence: {c2_governance_evidence}"]
             if c2_governance_evidence
             else []
+        )
+        + (
+            [f"WO-014-P-G1 governance evidence: {g1_governance_evidence}"]
+            if g1_governance_evidence
+            else []
         ),
     }
 
@@ -3047,7 +3366,21 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
     )
+    require_wo014p_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+    )
     require_wo012p_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_authorized_base=False,
+    )
+    require_wo014p_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -3167,6 +3500,21 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         for entry in negative_scope
     ):
         raise ValueError("review evidence cannot deny an observed canonical checkpoint change")
+    g1_evidence = verify_wo014p_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO014P_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-014-P-G1 governance evidence: {g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-014-P-G1 evidence must record the explicit promotion governance contract"
+            )
     if work_order == WO014_C2_WORK_ORDER:
         c2_evidence = verify_wo014_c2_governance_contract()
         expected_c2_entry = f"WO-014-C2 governance evidence: {c2_evidence}"
@@ -3264,6 +3612,14 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             entry.split(": ", 1)[1]
             for entry in cast(list[object], manifest["negative_scope"])
             if isinstance(entry, str) and entry.startswith("WO-014-C2 governance evidence: ")
+        ),
+        "NOT_RECORDED",
+    )
+    g1_governance_text = next(
+        (
+            entry.split(": ", 1)[1]
+            for entry in cast(list[object], manifest["negative_scope"])
+            if isinstance(entry, str) and entry.startswith("WO-014-P-G1 governance evidence: ")
         ),
         "NOT_RECORDED",
     )
@@ -3660,6 +4016,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Delta Context evidence: {delta_text}
 - Provider/Prompt Cache evidence: {provider_cache_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
+- WO-014-P-G1 governance evidence: {g1_governance_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
