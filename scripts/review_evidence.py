@@ -1517,7 +1517,7 @@ def context_manager_evidence() -> dict[str, object]:
         **{field: False for field in WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS},
         **{field: False for field in WO014_PROVIDER_CACHE_REQUIRED_FIELDS},
         **{field: 0 for field in WO014_PROVIDER_CACHE_INTEGER_FIELDS},
-        **{field: "" for field in WO014_PROVIDER_CACHE_STRING_FIELDS},
+        **{field: "UNKNOWN" for field in WO014_PROVIDER_CACHE_STRING_FIELDS},
         **{field: [] for field in WO014_PROVIDER_CACHE_LIST_FIELDS},
         **{field: False for field in WO014_PROVIDER_CACHE_NEGATIVE_FIELDS},
         "context_fingerprint_benchmark_status": "UNKNOWN",
@@ -1695,7 +1695,7 @@ def context_manager_evidence() -> dict[str, object]:
             evidence[field] = value if isinstance(value, int) and not isinstance(value, bool) else 0
         for field in WO014_PROVIDER_CACHE_STRING_FIELDS:
             value = data.get(field)
-            evidence[field] = value if isinstance(value, str) else ""
+            evidence[field] = value if isinstance(value, str) and value else "UNKNOWN"
         for field in WO014_PROVIDER_CACHE_LIST_FIELDS:
             value = data.get(field)
             evidence[field] = value if isinstance(value, list) else []
