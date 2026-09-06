@@ -78,6 +78,12 @@ from .progressive_disclosure import (
     disclosure_payload_characters,
     parse_disclosure_level,
 )
+from .provider_prompt_cache import (
+    NoOpProviderPromptCacheAdapter,
+    ProviderPromptCacheError,
+    ProviderPromptCacheResult,
+    prepare_provider_prompt_cache,
+)
 from .registry import (
     ProjectPathError,
     ProjectResponse,
@@ -230,6 +236,12 @@ class ContextRequest(BaseModel):
 
 class DeltaContextRequest(ContextRequest):
     baseline_output_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class ProviderPromptRequest(DeltaContextRequest):
+    delivery_mode: Literal["FULL", "DELTA"] = "FULL"
+    request_cache: bool = False
+    stable_instruction: str = Field(default="", max_length=16_000)
 
 
 class ContextProject(BaseModel):
@@ -1962,6 +1974,104 @@ def context_output_payload(capsule: ContextCapsule) -> dict[str, object]:
     return _context_payload_data(capsule)
 
 
+def _provider_prompt_stable_material(capsule: ContextCapsule) -> dict[str, object]:
+    """Return only stable, credential-free identity material for the prefix."""
+
+    governance_identity = [
+        {
+            "kind": excerpt.kind,
+            "path": excerpt.path,
+            "source_content_sha256": excerpt.source_content_sha256,
+            "git_blob_sha": excerpt.git_blob_sha,
+            "git_head_sha": excerpt.git_head_sha,
+            "section_heading": excerpt.section_heading,
+        }
+        for excerpt in capsule.governance
+    ]
+    return {
+        "project_identity": {
+            "project_id": str(capsule.project.project_id),
+            "project_name": capsule.project.name,
+        },
+        "canonical_governance_identity": governance_identity,
+        "stable_policy_identity": {
+            "context_capsule_version": CONTEXT_CAPSULE_VERSION,
+            "context_build_policy_version": CONTEXT_BUILD_POLICY_VERSION,
+            "context_fingerprint_policy_version": CONTEXT_FINGERPRINT_POLICY_VERSION,
+            "context_output_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+            "adaptive_token_budget_policy_version": ADAPTIVE_TOKEN_BUDGET_POLICY_VERSION,
+            "adaptive_token_budget_serialization_version": TOKEN_BUDGET_SERIALIZATION_VERSION,
+            "adaptive_token_estimator_version": TOKEN_ESTIMATOR_VERSION,
+        },
+        "context_anchors": {
+            "repository_head_sha": capsule.project.repository_head_sha,
+            "registered_head_sha": capsule.project.registered_head_sha,
+            "context_fingerprint_policy_version": CONTEXT_FINGERPRINT_POLICY_VERSION,
+            "context_output_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+        },
+    }
+
+
+def _build_provider_prompt_result(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    request: ProviderPromptRequest,
+) -> ProviderPromptCacheResult:
+    adapter = NoOpProviderPromptCacheAdapter()
+    if request.delivery_mode == "DELTA":
+        delivery = build_delta_context(
+            settings,
+            project_id,
+            task_id,
+            top_k=request.top_k,
+            disclosure_level=request.disclosure_level,
+            baseline_output_fingerprint=request.baseline_output_fingerprint,
+        )
+        stable_material: dict[str, object] = {
+            "project_identity": {"project_id": str(project_id)},
+            "stable_policy_identity": {
+                "context_output_serialization_version": CONTEXT_OUTPUT_SERIALIZATION_VERSION,
+                "delta_delivery_policy_version": delivery.policy_version,
+                "delta_delivery_serialization_version": delivery.serialization_version,
+            },
+            "context_anchors": {
+                "repository_head_sha": delivery.current_provenance.repository_head_sha,
+                "registered_head_sha": delivery.current_provenance.registered_head_sha,
+                "context_output_serialization_version": (
+                    delivery.target_semantic_serialization_version
+                ),
+            },
+        }
+        context_output_fp = delivery.target_output_fingerprint
+        dynamic_material: dict[str, object] = {
+            "delta_delivery": delivery.model_dump(mode="json"),
+        }
+    else:
+        capsule = build_context(
+            settings,
+            project_id,
+            task_id,
+            top_k=request.top_k,
+            disclosure_level=request.disclosure_level,
+        )
+        if capsule.context_fingerprint is None:
+            raise ContextManagerError("context_output_fingerprint_missing")
+        stable_material = _provider_prompt_stable_material(capsule)
+        context_output_fp = capsule.context_fingerprint.output_fingerprint
+        dynamic_material = {"context": context_output_payload(capsule)}
+    return prepare_provider_prompt_cache(
+        project_id=project_id,
+        delivery_mode=request.delivery_mode,
+        stable_material=stable_material,
+        dynamic_material=dynamic_material,
+        context_output_fingerprint=context_output_fp,
+        adapter=adapter,
+        request_cache=request.request_cache,
+        stable_instruction=request.stable_instruction,
+    )
+
+
 def _delta_current_provenance(capsule: ContextCapsule) -> ContextDeliveryProvenance:
     if capsule.context_fingerprint is None:
         raise ContextManagerError("context_output_fingerprint_missing")
@@ -2276,6 +2386,36 @@ def build_delta_context_endpoint(
     except ContextInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ContextManagerError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail="context manager database unavailable") from exc
+
+
+@router.post(
+    "/api/v1/projects/{project_id}/tasks/{task_id}/context/provider-prompt",
+    response_model=ProviderPromptCacheResult,
+)
+def build_provider_prompt_endpoint(
+    project_id: UUID,
+    task_id: UUID,
+    request: ProviderPromptRequest | None = None,
+) -> ProviderPromptCacheResult:
+    effective_request = request or ProviderPromptRequest()
+    try:
+        return _build_provider_prompt_result(_settings(), project_id, task_id, effective_request)
+    except DisclosureInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DisclosureConsistencyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ContextProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+    except ExtractionNotReadyError as exc:
+        raise HTTPException(status_code=409, detail="task extraction is not ready") from exc
+    except ContextInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ContextManagerError, ProviderPromptCacheError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except psycopg.Error as exc:
         raise HTTPException(status_code=503, detail="context manager database unavailable") from exc

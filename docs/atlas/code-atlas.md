@@ -15,6 +15,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/health.py: Python source or test module.
 - backend/app/main.py: Python source or test module.
 - backend/app/progressive_disclosure.py: Python source or test module.
+- backend/app/provider_prompt_cache.py: Python source or test module.
 - backend/app/registry.py: Python source or test module.
 - backend/app/repository_indexer.py: Python source or test module.
 - backend/app/reranking.py: Python source or test module.
@@ -33,6 +34,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_progressive_disclosure.py: Python source or test module.
 - backend/tests/test_projects_api.py: Python source or test module.
+- backend/tests/test_provider_prompt_cache.py: Python source or test module.
 - backend/tests/test_registry.py: Python source or test module.
 - backend/tests/test_repository_indexer.py: Python source or test module.
 - backend/tests/test_reranking.py: Python source or test module.
