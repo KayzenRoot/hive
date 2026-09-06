@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -180,6 +180,11 @@ See `03-SCOPE.md`.
 - The context-fingerprint benchmark records false cache hits 0, critical context misses 0, exact repeat work avoidance, fingerprint LLM calls 0 and fingerprint provider calls 0.
 - Evidence references migration 0005_semantic_retrieval, PR #40, audited HEAD 2a128dfcdeb97a45f174cf2dfa529826354f95ad, Sol review 5119310904, merge 743253ef079596370a7ff1102faf03b3a603b585, post-merge CI 33937782195, backend 275/dashboard 7.
 - Delta Context not implemented; provider/prompt cache not implemented; memory lifecycle not implemented.
+- delta context foundation approval is recorded with policy delta-context-v1, patch delta-json-patch-v1, delivery context-delivery-v1, final delivery estimate delta-delivery-estimate-v1 and semantic seam context-output-v2.
+- the redis baseline is non-canonical, project-scoped and task-scoped with ttl 300 seconds; old-head baseline compatibility, corrupt-baseline safe full, redis-loss safe full, api restart reuse, cross-project isolation and cross-task isolation are verified.
+- exact reconstruction and target fingerprint verification are verified; false delta reconstructions 0, critical context misses 0, post-build full/delta races fail closed, newly relevant dependency preserved, delta llm calls 0 and delta provider calls 0.
+- the final delivery token estimate contract is versioned; strict-smaller uses the final delivery estimate, the old metadata false-positive regression is verified, small-change final delta estimate 1926, small-change full estimate 4152, fresh-context tokens avoided 2226, final delivery bytes 7777, patch operations 3, patch chars 6632, final byte bound 24000, not-smaller verified and threshold 266 / 319 / 268 evidence.
+- migration 0005_semantic_retrieval, pr #43, audited head 4d9bf458cea7c7bf91ac84012dd5f991be194263, sol review 5123605890, merge d952be125da97afacf1099244cf2755f8243d288, post-merge ci 34002558669, backend 325, dashboard 7; provider/prompt cache not implemented, memory lifecycle not implemented and autonomous executor dispatch not implemented.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -187,7 +192,7 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary deterministic Delta Context Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget and Context Fingerprints pipeline.
+- Preparing the smallest necessary provider-independent Provider/Prompt Cache Adapter Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints and Delta Context pipeline.
 
 ## PENDING
 - memory.
@@ -202,39 +207,33 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - backup/recovery validation.
 - final documentation.
 - final V0.1 review.
-- delta context.
 - provider/prompt cache adapter layer.
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Context Fingerprints Foundation approval and post-merge validation.
+None known after Delta Context Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary deterministic Delta Context Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget and Context Fingerprints pipeline.
+Prepare the smallest necessary provider-independent Provider/Prompt Cache Adapter Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints and Delta Context pipeline.
 
 Continue with the following bounded intent:
-- use approved Context Input/Output Fingerprints as identity anchors;
-- compare only against an explicitly valid prior compatible context baseline;
-- produce deterministic bounded delta representation only when provenance/equivalence can be proven;
-- preserve mandatory governance, Constraints, Acceptance Criteria and selected Progressive Disclosure semantics;
-- delta is derived and non-canonical;
-- fail closed to full context when prior baseline is missing, stale, incompatible, cross-project, cross-task or policy-mismatched;
-- preserve project/task/source provenance;
-- measure exact fresh context material avoided without claiming provider prompt-cache savings;
-- prove deterministic reconstruction equivalence;
-- zero LLM calls for delta calculation;
-- no provider/prompt cache yet;
-- no memory lifecycle yet;
+- provider independence;
+- stable prompt-prefix/provider-cache adapters only where supported;
+- deterministic HIVE context identity remains canonical;
+- provider cache never becomes canonical truth;
+- cached-provider accounting is measured and reconciled, not guessed;
+- no Memory lifecycle;
 - no MCP product surface;
 - no autonomous executor dispatch;
-- no full telemetry expansion.
+- no full telemetry expansion beyond what is strictly necessary for objective evidence;
+- no user-managed cache mode required.
 
 Do not prescribe code unnecessarily.
-Do not implement any of the above in this PR.
+Do not implement Provider/Prompt Cache in this PR.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
