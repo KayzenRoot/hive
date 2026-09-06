@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import time
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
 
@@ -16,6 +19,8 @@ import psycopg
 import redis
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 from .adaptive_token_budget import (
     ADAPTIVE_TOKEN_BUDGET_POLICY_VERSION,
@@ -42,6 +47,13 @@ from .context_fingerprints import (
     ContextFingerprintEvidence,
     context_input_fingerprint,
     context_output_fingerprint,
+)
+from .delta_context import (
+    ContextDelivery,
+    ContextDeliveryProvenance,
+    build_context_delivery,
+    register_delta_baseline,
+    resolve_delta_baseline,
 )
 from .progressive_disclosure import (
     DISCLOSURE_LEVEL_ORDER,
@@ -214,6 +226,10 @@ class RepositoryEvidenceTrust(StrEnum):
 class ContextRequest(BaseModel):
     top_k: int = Field(default=DEFAULT_CONTEXT_TOP_K, ge=1, le=MAX_CONTEXT_TOP_K)
     disclosure_level: str | None = None
+
+
+class DeltaContextRequest(ContextRequest):
+    baseline_output_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class ContextProject(BaseModel):
@@ -1006,6 +1022,8 @@ def _context_cache_client(settings: Settings) -> redis.Redis:
         decode_responses=False,
         socket_connect_timeout=0.2,
         socket_timeout=0.2,
+        retry_on_timeout=False,
+        retry=Retry(NoBackoff(), retries=0),
     )
 
 
@@ -1572,6 +1590,15 @@ def build_context(
             state=state,
         )
         if cached is not None:
+            if cached.context_fingerprint is not None:
+                register_delta_baseline(
+                    settings,
+                    project_id=project_id,
+                    task_id=task_id,
+                    input_fingerprint=input_fingerprint,
+                    output_fingerprint=cached.context_fingerprint.output_fingerprint,
+                    repository_head_sha=cached.project.repository_head_sha,
+                )
             return cached
     governance = _resolve_governance(
         state.snapshot,
@@ -1905,7 +1932,7 @@ def build_context(
         and capsule.context_fingerprint is not None
         and _context_cache_write_eligible(rerank_response)
     ):
-        _write_context_cache(
+        cache_written = _write_context_cache(
             settings,
             cache_key,
             ContextFingerprintCacheEnvelope(
@@ -1917,7 +1944,265 @@ def build_context(
                 serialized_capsule=capsule.model_dump_json(),
             ),
         )
+        if cache_written:
+            register_delta_baseline(
+                settings,
+                project_id=project_id,
+                task_id=task_id,
+                input_fingerprint=input_fingerprint,
+                output_fingerprint=capsule.context_fingerprint.output_fingerprint,
+                repository_head_sha=capsule.project.repository_head_sha,
+            )
     return capsule
+
+
+def context_output_payload(capsule: ContextCapsule) -> dict[str, object]:
+    """Public semantic seam shared by Context Fingerprints and Delta Context."""
+
+    return _context_payload_data(capsule)
+
+
+def _delta_current_provenance(capsule: ContextCapsule) -> ContextDeliveryProvenance:
+    if capsule.context_fingerprint is None:
+        raise ContextManagerError("context_output_fingerprint_missing")
+    return ContextDeliveryProvenance(
+        repository_head_sha=capsule.project.repository_head_sha.lower(),
+        registered_head_sha=capsule.project.registered_head_sha.lower(),
+        index_run_id=capsule.project.index_run_id,
+        corpus_run_id=capsule.project.corpus_run_id,
+        target_output_fingerprint=capsule.context_fingerprint.output_fingerprint,
+    )
+
+
+def _validate_delta_baseline(
+    *,
+    project_id: UUID,
+    task_id: UUID,
+    pointer: object,
+    envelope: ContextFingerprintCacheEnvelope,
+) -> tuple[ContextCapsule, dict[str, object]] | None:
+    """Validate a prior HIVE capsule without requiring its old HEAD to be current."""
+
+    if not hasattr(pointer, "context_input_fingerprint"):
+        return None
+    try:
+        capsule = ContextCapsule.model_validate_json(envelope.serialized_capsule)
+    except (ValidationError, ValueError, TypeError):
+        return None
+    evidence = capsule.context_fingerprint
+    if evidence is None:
+        return None
+    if (
+        capsule.version != CONTEXT_CAPSULE_VERSION
+        or capsule.project.project_id != project_id
+        or capsule.task.task_id != task_id
+        or capsule.task.project_id != project_id
+        or envelope.project_id != project_id
+        or envelope.task_id != task_id
+        or evidence.policy_version != CONTEXT_FINGERPRINT_POLICY_VERSION
+        or evidence.output_serialization_version != CONTEXT_OUTPUT_SERIALIZATION_VERSION
+        or evidence.input_fingerprint != envelope.context_input_fingerprint
+        or evidence.output_fingerprint != envelope.context_output_fingerprint
+        or evidence.input_fingerprint != getattr(pointer, "context_input_fingerprint", None)
+        or evidence.output_fingerprint != getattr(pointer, "context_output_fingerprint", None)
+        or context_output_fingerprint(_context_payload_data(capsule)) != evidence.output_fingerprint
+    ):
+        return None
+    try:
+        _verify_final_context_payload(
+            capsule,
+            effective_budget_tokens=capsule.adaptive_token_budget.effective_budget_tokens,
+        )
+    except ContextBoundsError:
+        return None
+    if not _context_cache_state_eligible(
+        rerank_state=capsule.retrieval.rerank_state,
+        hybrid_state=capsule.retrieval.hybrid_state,
+        fallback_reason=capsule.retrieval.fallback_reason,
+        result_count=len(capsule.retrieval.results),
+    ):
+        return None
+    return capsule, _context_payload_data(capsule)
+
+
+def _assert_delta_target_stable(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    capsule: ContextCapsule,
+) -> None:
+    """Recheck source/index/corpus/task immediately before emitting delivery."""
+
+    state = _resolve_source_state(settings, project_id)
+    _assert_state_stable(
+        settings,
+        project_id,
+        task_id,
+        state,
+        capsule.task.extracted_text_sha256,
+    )
+    if (
+        capsule.project.repository_head_sha.lower() != state.snapshot.repository_head_sha.lower()
+        or capsule.project.registered_head_sha.lower()
+        != cast(str, state.project.git_head_sha).lower()
+    ):
+        raise ContextStaleError("delta_target_source_changed")
+
+
+def _delta_post_build_race_hook(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    target: ContextCapsule,
+) -> None:
+    """Pause a delta request only for the controlled integration race fixture.
+
+    The hook is inert unless the integration harness explicitly supplies a
+    control-file path. It never rebuilds the target and therefore preserves the
+    fail-closed post-build stability check.
+    """
+
+    del settings, target
+    control_name = os.environ.get("HIVE_DELTA_CONTEXT_RACE_CONTROL", "").strip()
+    if not control_name:
+        return
+    control = Path(control_name)
+    try:
+        state = json.loads(control.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(state, dict):
+        return
+    if (
+        state.get("status") != "armed"
+        or state.get("project_id") != str(project_id)
+        or state.get("task_id") != str(task_id)
+    ):
+        return
+    control.write_text(
+        json.dumps(
+            {
+                "status": "paused",
+                "project_id": str(project_id),
+                "task_id": str(task_id),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        try:
+            release = json.loads(control.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            release = {}
+        if isinstance(release, dict) and release.get("status") == "release":
+            control.write_text(
+                json.dumps(
+                    {
+                        "status": "consumed",
+                        "project_id": str(project_id),
+                        "task_id": str(task_id),
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return
+        time.sleep(0.02)
+    raise ContextManagerError("delta_post_build_race_control_timeout")
+
+
+def build_delta_context(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    *,
+    top_k: int = DEFAULT_CONTEXT_TOP_K,
+    disclosure_level: str | None = None,
+    baseline_output_fingerprint: str | None = None,
+) -> ContextDelivery:
+    """Build the current full target first, then choose verified DELTA or FULL."""
+
+    target = build_context(
+        settings,
+        project_id,
+        task_id,
+        top_k=top_k,
+        disclosure_level=disclosure_level,
+    )
+    if target.context_fingerprint is None:
+        raise ContextManagerError("context_output_fingerprint_missing")
+    _delta_post_build_race_hook(settings, project_id, task_id, target)
+    target_payload = _context_payload_data(target)
+    target_output_fingerprint = target.context_fingerprint.output_fingerprint
+    provenance = _delta_current_provenance(target)
+    full_context = target.model_dump(mode="json")
+    if baseline_output_fingerprint is None:
+        delivery = build_context_delivery(
+            project_id=project_id,
+            task_id=task_id,
+            baseline_output_fingerprint=None,
+            baseline_payload=target_payload,
+            target_payload=target_payload,
+            target_full_context=full_context,
+            target_output_fingerprint=target_output_fingerprint,
+            current_provenance=provenance,
+            force_full_reason="baseline_not_requested",
+        )
+    else:
+        resolved = resolve_delta_baseline(
+            settings,
+            project_id=project_id,
+            task_id=task_id,
+            output_fingerprint=baseline_output_fingerprint,
+        )
+        if resolved is None:
+            delivery = build_context_delivery(
+                project_id=project_id,
+                task_id=task_id,
+                baseline_output_fingerprint=baseline_output_fingerprint,
+                baseline_payload=target_payload,
+                target_payload=target_payload,
+                target_full_context=full_context,
+                target_output_fingerprint=target_output_fingerprint,
+                current_provenance=provenance,
+                force_full_reason="baseline_not_found",
+            )
+        else:
+            pointer, envelope = resolved
+            baseline = _validate_delta_baseline(
+                project_id=project_id,
+                task_id=task_id,
+                pointer=pointer,
+                envelope=envelope,
+            )
+            if baseline is None:
+                delivery = build_context_delivery(
+                    project_id=project_id,
+                    task_id=task_id,
+                    baseline_output_fingerprint=baseline_output_fingerprint,
+                    baseline_payload=target_payload,
+                    target_payload=target_payload,
+                    target_full_context=full_context,
+                    target_output_fingerprint=target_output_fingerprint,
+                    current_provenance=provenance,
+                    force_full_reason="baseline_invalid",
+                )
+            else:
+                _baseline_capsule, baseline_payload = baseline
+                delivery = build_context_delivery(
+                    project_id=project_id,
+                    task_id=task_id,
+                    baseline_output_fingerprint=baseline_output_fingerprint,
+                    baseline_payload=baseline_payload,
+                    target_payload=target_payload,
+                    target_full_context=full_context,
+                    target_output_fingerprint=target_output_fingerprint,
+                    current_provenance=provenance,
+                )
+    _assert_delta_target_stable(settings, project_id, task_id, target)
+    return delivery
 
 
 router = APIRouter(tags=["context-manager"])
@@ -1939,6 +2224,44 @@ def build_context_endpoint(
             task_id,
             top_k=request.top_k if request is not None else DEFAULT_CONTEXT_TOP_K,
             disclosure_level=request.disclosure_level if request is not None else None,
+        )
+    except DisclosureInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DisclosureConsistencyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ContextProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+    except ExtractionNotReadyError as exc:
+        raise HTTPException(status_code=409, detail="task extraction is not ready") from exc
+    except ContextInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ContextManagerError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail="context manager database unavailable") from exc
+
+
+@router.post(
+    "/api/v1/projects/{project_id}/tasks/{task_id}/context/delta",
+    response_model=ContextDelivery,
+)
+def build_delta_context_endpoint(
+    project_id: UUID,
+    task_id: UUID,
+    request: DeltaContextRequest | None = None,
+) -> ContextDelivery:
+    try:
+        return build_delta_context(
+            _settings(),
+            project_id,
+            task_id,
+            top_k=request.top_k if request is not None else DEFAULT_CONTEXT_TOP_K,
+            disclosure_level=request.disclosure_level if request is not None else None,
+            baseline_output_fingerprint=(
+                request.baseline_output_fingerprint if request is not None else None
+            ),
         )
     except DisclosureInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

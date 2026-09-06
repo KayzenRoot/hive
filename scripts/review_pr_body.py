@@ -1003,6 +1003,102 @@ Sol Review State: AWAITING_SOL
 """
 
 
+def _render_wo013_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo
+
+Esta PR adiciona a fundação determinística de Delta Context sobre o Context
+Manager atual. O alvo completo continua sendo montado pelo pipeline aprovado;
+somente depois o sistema calcula um patch JSON determinístico contra um
+baseline HIVE validado e entrega `DELTA` quando a reconstrução é exata e
+estritamente menor. Caso contrário, retorna o capsule completo atual em
+`FULL` com motivo bounded.
+
+## 2. Base, branch, head e PR
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- Base autorizada do WO-013: `8aabcf1d7e908b7f74333d2b3bb937af0f39c4c8`.
+
+## 3. Contrato
+
+O endpoint aditivo é `POST /api/v1/projects/{{project_id}}/tasks/{{task_id}}/context/delta`.
+O request referencia um baseline somente por `baseline_output_fingerprint`.
+O response usa `context-delivery-v1`, policy `delta-context-v1` e patch
+`delta-json-patch-v1`; o seam semântico continua sendo `context-output-v2`.
+`DELTA` contém somente operações `add`, `remove` e `replace`, com arrays
+substituídos integralmente quando mudam, reconstrução local e fingerprint do
+alvo verificados. `FULL` contém o capsule atual e motivo de fallback.
+
+## 4. Baseline e segurança
+
+Somente capsules válidos, completos, cacheáveis e com output fingerprint
+verificado são apontados. O ponteiro é Redis project/task-scoped, bounded,
+versionado e TTL 300 segundos; Redis permanece HOT noncanonical e aponta para
+o cache Context Fingerprint existente. Baselines de HEAD antigo são aceitos
+sem declarar aquele source como current. Mismatch, corrupção, expiração,
+cross-project, cross-task, Redis loss, patch bounds ou delta não menor falham
+fechado para `FULL`. Nenhum texto bruto de task, segredo ou run ID antigo é
+usado como identidade semântica.
+
+## 5. Ordem e estabilidade
+
+O caminho Delta chama o Context Manager atual primeiro e preserva checkpoint,
+governança obrigatória, retrieval/rerank, Progressive Disclosure, Adaptive
+Token Budget, source/Git checks e Context Fingerprints. Há rechecagem de
+source/index/corpus/task imediatamente antes da entrega e o race controlado
+falha fechado; provenance operacional corrente fica separada do delta semântico.
+
+## 6. Evidência
+
+O integration harness Docker valida os cenários A–K: identical, small change,
+new dependency, large/full fallback, missing baseline, Redis loss, API restart,
+cross-project, cross-task, corrupt baseline e source race. O Evidence Bundle
+registra token estimates before/after, operações, patch size, avoided tokens,
+reconstruction, target fingerprint, zero false reconstructions, zero critical
+misses, zero LLM/provider calls e migration unchanged.
+
+## 7. Testes e compatibilidade
+
+O endpoint Context Capsule existente, modelo, fingerprints, disclosure,
+adaptive budget, retrieval/rerank e L4 permanecem cobertos. Não há migration,
+provider prompt cache, memory lifecycle, executor dispatch, mudança canônica,
+refatoração ampla, dashboard não relacionado ou cleanup amplo.
+
+## 8. Governança GitHub
+
+Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
+{merge_after}. Ruleset permanece inalterado, checks reais e squash-only. O
+auto-merge fica desarmado; o executor não aprova, não promove checkpoint e não
+faz merge.
+
+## 9. Evidence Bundle e estado
+
+O consolidado é `{artifact_name}` e o comentário sticky usa
+`<!-- hive-review-evidence:{{work_order}} -->`. A PR permanece aberta, Ready e
+não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-013 READY FOR SOL AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -1089,6 +1185,19 @@ def render_body(
         )
     if work_order == "WO-012":
         return _render_wo012_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-013":
+        return _render_wo013_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
