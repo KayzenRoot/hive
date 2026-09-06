@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -338,6 +339,9 @@ WO012_BASE_SHA = "19ecc6b505e884029a42d121309339977d46e626"
 WO013_BASE_SHA = "8aabcf1d7e908b7f74333d2b3bb937af0f39c4c8"
 WO014_BASE_SHA = "d025cfa6dc306fff0f5664002fef970a438ad266"
 WO014_REJECTED_HEAD = "184821d3cb5743d06c856f29895ceaa58c76ee0d"
+WO014_C1_CORRECTED_HEAD = "dfb6bcb21e6646bc2c056c014ba211245bd64e77"
+WO014_C2_BASE_SHA = "5c8356228b0ce186cde6e64393a167063aa2a9e9"
+WO014_C2_WORK_ORDER = "WO-014-C2"
 WO012P_G1_BASE_SHA = "743253ef079596370a7ff1102faf03b3a603b585"
 WO012P_PROMOTION_BASE_REF = "refs/remotes/origin/main"
 WO012P_G1_ALLOWED_PATHS = frozenset(
@@ -386,6 +390,12 @@ WO014_ALLOWED_PATHS = frozenset(
         "scripts/context_manager_integration.py",
         "scripts/review_evidence.py",
         "scripts/review_pr_body.py",
+    }
+)
+WO014_C2_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
     }
 )
 HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
@@ -547,6 +557,19 @@ def run(command: list[str]) -> tuple[int, str]:
     return result.returncode, result.stdout.strip()
 
 
+def run_in_repository(repository: Path, command: list[str]) -> tuple[int, str]:
+    result = subprocess.run(
+        command,
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    return result.returncode, result.stdout.strip()
+
+
 def git_value(*args: str, fallback: str = "") -> str:
     code, output = run(["git", *args])
     return output if code == 0 and output else fallback
@@ -585,6 +608,8 @@ def parse_authorized_base_marker(body: str) -> str:
 
 
 def require_supported_work_order(work_order: str) -> None:
+    if work_order == WO014_C2_WORK_ORDER:
+        return
     if (
         PROMOTION_WORK_ORDER_IDENTIFIER.fullmatch(work_order)
         and work_order not in CHECKPOINT_PROMOTION_WORK_ORDERS
@@ -1073,11 +1098,6 @@ def require_wo014_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
         return
     if base_sha != WO014_BASE_SHA:
         raise ValueError(f"WO-014 requires exact base {WO014_BASE_SHA}, observed {base_sha}")
-    ancestor_code, _ = run(["git", "merge-base", "--is-ancestor", WO014_REJECTED_HEAD, "HEAD"])
-    if ancestor_code != 0:
-        raise ValueError(
-            "WO-014-C1 requires the rejected WO-014 HEAD to be an ancestor of the corrected HEAD"
-        )
     if any(
         path == "docs/project-brain"
         or path.startswith("docs/project-brain/")
@@ -1094,6 +1114,121 @@ def require_wo014_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
             "WO-014 changed files outside the approved Provider/Prompt Cache scope: "
             + ", ".join(unauthorized)
         )
+
+
+def require_wo014_c1_candidate_lineage(
+    rejected_head: str,
+    candidate_head: str,
+    repository: Path = ROOT,
+) -> None:
+    """Validate a historical C1 candidate relationship in explicit context.
+
+    This intentionally accepts both commit identities and a repository instead
+    of consulting the ambient checkout HEAD.  Squash merges preserve the
+    logical change without preserving the source branch's commit ancestry.
+    """
+    for label, sha in (("rejected", rejected_head), ("candidate", candidate_head)):
+        if HEX_SHA.fullmatch(sha) is None:
+            raise ValueError(f"WO-014-C1 {label} HEAD must be a lowercase 40-hex SHA")
+    ancestor_code, _ = run_in_repository(
+        repository,
+        ["git", "merge-base", "--is-ancestor", rejected_head, candidate_head],
+    )
+    if ancestor_code != 0:
+        raise ValueError(
+            "WO-014-C1 candidate lineage requires rejected HEAD "
+            f"{rejected_head} to be an ancestor of candidate {candidate_head}"
+        )
+
+
+def require_wo014_c2_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != WO014_C2_WORK_ORDER:
+        return
+    if base_sha != WO014_C2_BASE_SHA:
+        raise ValueError(
+            f"{WO014_C2_WORK_ORDER} requires exact post-squash base "
+            f"{WO014_C2_BASE_SHA}, observed {base_sha}"
+        )
+    if any(
+        path == "docs/project-brain"
+        or path.startswith("docs/project-brain/")
+        or path == "migrations"
+        or path.startswith("migrations/")
+        for path in paths
+    ):
+        raise ValueError(
+            f"{WO014_C2_WORK_ORDER} cannot change canonical Project Brain or migrations"
+        )
+    unauthorized = sorted(set(paths) - WO014_C2_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO014_C2_WORK_ORDER} changed files outside the explicit governance/test scope: "
+            + ", ".join(unauthorized)
+        )
+
+
+def verify_wo014_c2_governance_contract() -> str:
+    """Exercise both explicit C1 lineage and post-squash C2 semantics.
+
+    The fixture keeps this evidence independent of whether historical PR
+    branch objects are present in a fresh CI checkout.
+    """
+    require_wo014_scope("WO-014", WO014_BASE_SHA, sorted(WO014_ALLOWED_PATHS))
+    with tempfile.TemporaryDirectory(prefix="hive-wo014-c2-") as directory:
+        repository = Path(directory)
+        for command in (
+            ["git", "init", "--quiet"],
+            ["git", "config", "user.email", "hive-review@example.invalid"],
+            ["git", "config", "user.name", "HIVE Review Evidence"],
+        ):
+            code, output = run_in_repository(repository, command)
+            if code != 0:
+                raise RuntimeError(f"unable to create WO-014-C2 lineage fixture: {output}")
+
+        def commit(content: str, message: str) -> str:
+            (repository / "fixture.txt").write_text(content, encoding="utf-8")
+            for command in (
+                ["git", "add", "fixture.txt"],
+                ["git", "commit", "--quiet", "-m", message],
+            ):
+                code, output = run_in_repository(repository, command)
+                if code != 0:
+                    raise RuntimeError(f"unable to create WO-014-C2 lineage fixture: {output}")
+            code, head = run_in_repository(repository, ["git", "rev-parse", "HEAD"])
+            if code != 0 or HEX_SHA.fullmatch(head) is None:
+                raise RuntimeError("WO-014-C2 lineage fixture did not produce a valid commit")
+            return head
+
+        base = commit("base\n", "base")
+        rejected = commit("rejected\n", "rejected C1 candidate")
+        corrected = commit("corrected\n", "corrected C1 candidate")
+        code, output = run_in_repository(repository, ["git", "checkout", "--quiet", base])
+        if code != 0:
+            raise RuntimeError(f"unable to create WO-014-C2 replacement fixture: {output}")
+        replacement = commit("replacement\n", "replacement without rejected candidate")
+        code, output = run_in_repository(repository, ["git", "checkout", "--quiet", base])
+        if code != 0:
+            raise RuntimeError(f"unable to create WO-014-C2 squash fixture: {output}")
+        squash = commit("corrected\n", "squash result")
+
+        require_wo014_c1_candidate_lineage(rejected, corrected, repository)
+        try:
+            require_wo014_c1_candidate_lineage(rejected, replacement, repository)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("WO-014-C2 lineage fixture accepted a replacement that skipped C1")
+        squash_ancestor_code, _ = run_in_repository(
+            repository,
+            ["git", "merge-base", "--is-ancestor", rejected, squash],
+        )
+        if squash_ancestor_code == 0:
+            raise ValueError("WO-014-C2 squash fixture unexpectedly retained rejected ancestry")
+
+    return (
+        "post_squash_scope=PASS; explicit_c1_lineage=PASS; "
+        "replacement_skipping_c1=REJECTED; squash_without_source_ancestry=PASS"
+    )
 
 
 def require_wo012p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
@@ -2079,7 +2214,7 @@ def require_wo014_provider_prompt_cache_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order != "WO-014":
+    if work_order not in {"WO-014", WO014_C2_WORK_ORDER}:
         return
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
     missing = [
@@ -2744,6 +2879,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo012_scope(work_order, base_sha, paths)
     require_wo013_scope(work_order, base_sha, paths)
     require_wo014_scope(work_order, base_sha, paths)
+    require_wo014_c2_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -2775,6 +2911,9 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         work_order,
         integration,
         migration_head(),
+    )
+    c2_governance_evidence = (
+        verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
     security = security_evidence(
         all_validation,
@@ -2869,7 +3008,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             "No merge or release was performed.",
             canonical_change_statement(canonical_changes),
             "No implementation outside the approved work-order scope was added.",
-        ],
+        ]
+        + (
+            [f"WO-014-C2 governance evidence: {c2_governance_evidence}"]
+            if c2_governance_evidence
+            else []
+        ),
     }
 
 
@@ -2986,6 +3130,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
+    if work_order == WO014_C2_WORK_ORDER:
+        require_wo014_c2_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -3017,6 +3167,13 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         for entry in negative_scope
     ):
         raise ValueError("review evidence cannot deny an observed canonical checkpoint change")
+    if work_order == WO014_C2_WORK_ORDER:
+        c2_evidence = verify_wo014_c2_governance_contract()
+        expected_c2_entry = f"WO-014-C2 governance evidence: {c2_evidence}"
+        if expected_c2_entry not in negative_scope:
+            raise ValueError(
+                "WO-014-C2 evidence must record the explicit squash-safe governance contract"
+            )
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -3101,6 +3258,14 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
     changed_files = cast(dict[str, Any], manifest["changed_files"])
     canonical_changes = canonical_change_evidence(
         changed_files["paths"], cast(str, manifest["work_order"])
+    )
+    c2_governance_text = next(
+        (
+            entry.split(": ", 1)[1]
+            for entry in cast(list[object], manifest["negative_scope"])
+            if isinstance(entry, str) and entry.startswith("WO-014-C2 governance evidence: ")
+        ),
+        "NOT_RECORDED",
     )
     integrity = cast(dict[str, Any], integration["integrity_tests"])
     semantic = cast(dict[str, Any], benchmark.get("semantic", {}))
@@ -3494,6 +3659,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Context Fingerprint evidence: {fingerprint_text}
 - Delta Context evidence: {delta_text}
 - Provider/Prompt Cache evidence: {provider_cache_text}
+- WO-014-C2 governance evidence: {c2_governance_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`

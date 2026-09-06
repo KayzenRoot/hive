@@ -30,6 +30,10 @@ from scripts.review_evidence import (
     WO013P_PROMOTION_ALLOWED_PATHS,
     WO014_ALLOWED_PATHS,
     WO014_BASE_SHA,
+    WO014_C1_CORRECTED_HEAD,
+    WO014_C2_ALLOWED_PATHS,
+    WO014_C2_BASE_SHA,
+    WO014_C2_WORK_ORDER,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -62,11 +66,14 @@ from scripts.review_evidence import (
     require_wo013p_checkpoint_semantics,
     require_wo013p_g1_scope,
     require_wo013p_scope,
+    require_wo014_c1_candidate_lineage,
+    require_wo014_c2_scope,
     require_wo014_provider_prompt_cache_evidence,
     require_wo014_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
+    verify_wo014_c2_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -2388,6 +2395,60 @@ def test_wo014_scope_requires_exact_base_and_allows_only_foundation_files() -> N
         )
 
 
+def test_wo014_c1_candidate_lineage_is_explicit_and_squash_safe() -> None:
+    require_wo014_c1_candidate_lineage(
+        review_evidence.WO014_REJECTED_HEAD,
+        WO014_C1_CORRECTED_HEAD,
+    )
+    with pytest.raises(ValueError, match="candidate lineage"):
+        require_wo014_c1_candidate_lineage(
+            review_evidence.WO014_REJECTED_HEAD,
+            WO014_C2_BASE_SHA,
+        )
+
+
+def test_wo014_c2_scope_is_explicit_and_fail_closed() -> None:
+    require_wo014_c2_scope(
+        WO014_C2_WORK_ORDER,
+        WO014_C2_BASE_SHA,
+        sorted(WO014_C2_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="post-squash base"):
+        require_wo014_c2_scope(WO014_C2_WORK_ORDER, "a" * 40, sorted(WO014_C2_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="Project Brain"):
+        require_wo014_c2_scope(
+            WO014_C2_WORK_ORDER,
+            WO014_C2_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+    with pytest.raises(ValueError, match="Project Brain"):
+        require_wo014_c2_scope(
+            WO014_C2_WORK_ORDER,
+            WO014_C2_BASE_SHA,
+            ["migrations/0006_unrelated.sql"],
+        )
+    with pytest.raises(ValueError, match="explicit governance/test scope"):
+        require_wo014_c2_scope(
+            WO014_C2_WORK_ORDER,
+            WO014_C2_BASE_SHA,
+            ["backend/app/provider_prompt_cache.py"],
+        )
+    with pytest.raises(ValueError, match="explicit governance/test scope"):
+        require_wo014_c2_scope(
+            WO014_C2_WORK_ORDER,
+            WO014_C2_BASE_SHA,
+            ["backend/app/unrelated.py"],
+        )
+
+
+def test_wo014_c2_governance_contract_proves_post_squash_semantics() -> None:
+    evidence = verify_wo014_c2_governance_contract()
+    assert "post_squash_scope=PASS" in evidence
+    assert "explicit_c1_lineage=PASS" in evidence
+    assert "replacement_skipping_c1=REJECTED" in evidence
+    assert "squash_without_source_ancestry=PASS" in evidence
+
+
 def test_wo014_c1_evidence_requires_computed_provider_cache_fixtures() -> None:
     evidence = {
         "status": "PASS",
@@ -2407,6 +2468,11 @@ def test_wo014_c1_evidence_requires_computed_provider_cache_fixtures() -> None:
     }
     require_wo014_provider_prompt_cache_evidence(
         "WO-014",
+        {"context_manager": evidence},
+        "0005_semantic_retrieval",
+    )
+    require_wo014_provider_prompt_cache_evidence(
+        WO014_C2_WORK_ORDER,
         {"context_manager": evidence},
         "0005_semantic_retrieval",
     )
