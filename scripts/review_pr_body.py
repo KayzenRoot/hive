@@ -1236,6 +1236,88 @@ WO-013 READY FOR SOL AUDIT
 """
 
 
+def _render_wo014_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo
+
+Esta PR adiciona a menor fundação provider-independent de Provider/Prompt Cache
+sobre o Context Manager, Progressive Disclosure, Adaptive Token Budget, Context
+Fingerprints e Delta Context existentes. O contrato prepara envelope, identidade
+de prefixo estável, capabilities, adapter, receipt de uso e accounting; não faz
+rede de provider e não declara hit sem receipt final reconciliado.
+
+## 2. Base, branch, head e PR
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- Base autorizada do WO-014: `d025cfa6dc306fff0f5664002fef970a438ad266`.
+
+## 3. Contrato implementado
+
+O endpoint aditivo é `POST /api/v1/projects/{{project_id}}/tasks/{{task_id}}/`
+`context/provider-prompt`.
+O envelope usa `provider-prompt-envelope-v1` e compõe prefixo estável e sufixo
+dinâmico por serialização canônica, verificando a igualdade semântica antes de
+qualquer metadata de provider. Identidades são SHA-256, project-scoped e não
+contêm credenciais, timestamps, request IDs ou contadores.
+
+Capabilities, adapter policy, usage receipt e accounting são versionados. O
+adapter no-op é explícito e nunca declara requested, eligible ou hit. Fixtures
+determinísticas cobrem automatic/explicit, hit positivo, zero conhecido,
+unknown e accounting inválido fail-closed. Estimativas HIVE são rotuladas e não
+substituem usage reportado pelo provider.
+
+## 4. Evidência
+
+O benchmark A-K cobre reuso do prefixo, invalidação por governança e identidade
+material de provider/model, rotação de credencial não material, no-op, isolamento
+cross-project, composição FULL/DELTA, uso reportado, zero explícito, unknown e
+receipts inconsistentes. A integração Docker também chama o endpoint FULL e DELTA.
+Não há LLM calls, provider calls, rede de provider, migration ou cache local de
+conteúdo de prompt.
+
+## 5. Fora de escopo
+
+Não foram implementados live provider transport, semantic response cache,
+memory lifecycle, MCP, autonomous executor dispatch, full cache telemetry,
+cost accounting, migration, alteração canônica, checkpoint promotion, release,
+merge ou cleanup amplo.
+
+## 6. Compatibilidade e governança
+
+Os endpoints `/context` e `/context/delta`, seus fingerprints, budget, disclosure,
+retrieval/rerank e contratos existentes permanecem preservados. Antes: {ruleset_before};
+merge: {merge_before}. Depois: {ruleset_after}; merge: {merge_after}. Ruleset e
+checks protegidos permanecem inalterados; auto-merge fica desarmado e o executor
+não aprova, promove checkpoint ou faz merge.
+
+## 7. Evidence Bundle e estado
+
+O consolidado é `{artifact_name}` e o comentário sticky usa
+`<!-- hive-review-evidence:{{work_order}} -->`. A PR permanece aberta, Ready e
+não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-014 READY FOR SOL AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -1335,6 +1417,19 @@ def render_body(
         )
     if work_order == "WO-013":
         return _render_wo013_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-014":
+        return _render_wo014_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

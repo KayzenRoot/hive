@@ -240,6 +240,60 @@ WO013_DELTA_NEGATIVE_FIELDS = (
     "memory_lifecycle_implemented",
     "autonomous_executor_dispatch_implemented",
 )
+WO014_PROVIDER_CACHE_REQUIRED_FIELDS = (
+    "provider_prompt_cache_foundation_implemented",
+    "provider_prompt_envelope_versioned",
+    "stable_prompt_prefix_policy_versioned",
+    "provider_cache_adapter_versioned",
+    "provider_cache_capabilities_versioned",
+    "provider_usage_receipt_versioned",
+    "provider_cache_accounting_versioned",
+    "provider_cache_provider_independent",
+    "provider_cache_unsupported_noop",
+    "provider_cache_semantic_composition_verified",
+    "provider_cache_endpoint_verified",
+    "provider_cache_stable_prefix_reuse",
+    "provider_cache_governance_invalidation",
+    "provider_cache_material_provider_identity_invalidation",
+    "provider_cache_credential_rotation_nonmaterial",
+    "provider_cache_cross_project_isolation",
+    "provider_cache_cache_requested_distinct_from_hit",
+    "provider_cache_unknown_usage_not_zero",
+    "provider_cache_explicit_zero_distinct_from_unknown",
+    "provider_cache_reported_usage_reconciled",
+    "provider_cache_invalid_usage_fail_closed",
+    "provider_cache_hive_estimates_not_provider_usage",
+    "provider_cache_full_compatible",
+    "provider_cache_delta_compatible",
+)
+WO014_PROVIDER_CACHE_INTEGER_FIELDS = (
+    "provider_cache_semantic_composition_mismatches",
+    "provider_cache_secret_leaks",
+    "provider_cache_cross_project_leaks",
+    "provider_cache_false_hit_claims",
+    "provider_cache_foundation_llm_calls",
+    "provider_cache_foundation_provider_calls",
+    "provider_cache_stable_prefix_bytes",
+    "provider_cache_stable_prefix_characters",
+    "provider_cache_dynamic_suffix_bytes",
+    "provider_cache_dynamic_suffix_characters",
+    "provider_cache_composed_bytes",
+    "provider_cache_composed_characters",
+    "provider_cache_stable_prefix_hive_estimated_tokens",
+    "provider_cache_dynamic_suffix_hive_estimated_tokens",
+    "provider_cache_composed_hive_estimated_tokens",
+    "provider_cache_provider_total_input_tokens",
+    "provider_cache_provider_cached_input_tokens",
+    "provider_cache_provider_fresh_input_tokens",
+)
+WO014_PROVIDER_CACHE_LIST_FIELDS = ("provider_cache_provider_usage_sources",)
+WO014_PROVIDER_CACHE_NEGATIVE_FIELDS = (
+    "live_provider_prompt_cache_network_integration",
+    "memory_lifecycle_implemented",
+    "autonomous_executor_dispatch_implemented",
+    "full_cache_telemetry_implemented",
+    "migration_changed",
+)
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -261,6 +315,7 @@ WO010_BASE_SHA = "68bb6679da32355b9e5c4bbb241bec0d1e685e26"
 WO011_BASE_SHA = "209a485227103872903a560872133aae5f203717"
 WO012_BASE_SHA = "19ecc6b505e884029a42d121309339977d46e626"
 WO013_BASE_SHA = "8aabcf1d7e908b7f74333d2b3bb937af0f39c4c8"
+WO014_BASE_SHA = "d025cfa6dc306fff0f5664002fef970a438ad266"
 WO012P_G1_BASE_SHA = "743253ef079596370a7ff1102faf03b3a603b585"
 WO012P_PROMOTION_BASE_REF = "refs/remotes/origin/main"
 WO012P_G1_ALLOWED_PATHS = frozenset(
@@ -293,6 +348,20 @@ WO013_ALLOWED_PATHS = frozenset(
         "schemas/review-evidence-v1.schema.json",
         "scripts/context_manager_integration.py",
         "scripts/project_registry_integration.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO014_ALLOWED_PATHS = frozenset(
+    {
+        "backend/app/context_manager.py",
+        "backend/app/provider_prompt_cache.py",
+        "backend/tests/test_provider_prompt_cache.py",
+        "backend/tests/test_review_evidence.py",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/context_manager_integration.py",
         "scripts/review_evidence.py",
         "scripts/review_pr_body.py",
     }
@@ -977,6 +1046,29 @@ def require_wo013_scope(work_order: str, base_sha: str, paths: list[str]) -> Non
         )
 
 
+def require_wo014_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-014":
+        return
+    if base_sha != WO014_BASE_SHA:
+        raise ValueError(f"WO-014 requires exact base {WO014_BASE_SHA}, observed {base_sha}")
+    if any(
+        path == "docs/project-brain"
+        or path.startswith("docs/project-brain/")
+        or path == "migrations"
+        or path.startswith("migrations/")
+        for path in paths
+    ):
+        raise ValueError(
+            "WO-014 implementation evidence cannot change canonical Project Brain or migrations"
+        )
+    unauthorized = sorted(set(paths) - WO014_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            "WO-014 changed files outside the approved Provider/Prompt Cache scope: "
+            + ", ".join(unauthorized)
+        )
+
+
 def require_wo012p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
     if work_order != "WO-012-P-G1":
         return
@@ -1397,7 +1489,12 @@ def context_manager_evidence() -> dict[str, object]:
         **{field: False for field in WO012_CONTEXT_FINGERPRINT_REQUIRED_FIELDS},
         **{field: 0 for field in WO012_CONTEXT_FINGERPRINT_INTEGER_FIELDS},
         **{field: False for field in WO012_CONTEXT_FINGERPRINT_NEGATIVE_FIELDS},
+        **{field: False for field in WO014_PROVIDER_CACHE_REQUIRED_FIELDS},
+        **{field: 0 for field in WO014_PROVIDER_CACHE_INTEGER_FIELDS},
+        **{field: [] for field in WO014_PROVIDER_CACHE_LIST_FIELDS},
+        **{field: False for field in WO014_PROVIDER_CACHE_NEGATIVE_FIELDS},
         "context_fingerprint_benchmark_status": "UNKNOWN",
+        "provider_cache_benchmark_status": "UNKNOWN",
         "mandatory_governance_kind_sequence": [],
         "llm_calls": None,
     }
@@ -1551,6 +1648,35 @@ def context_manager_evidence() -> dict[str, object]:
         delta_status = data.get("delta_context_benchmark_status")
         evidence["delta_context_benchmark_status"] = (
             delta_status if delta_status in {"PASS", "FAIL", "UNKNOWN"} else "UNKNOWN"
+        )
+    provider_cache_present = any(
+        field in data
+        for field in (
+            *WO014_PROVIDER_CACHE_REQUIRED_FIELDS,
+            *WO014_PROVIDER_CACHE_INTEGER_FIELDS,
+            *WO014_PROVIDER_CACHE_LIST_FIELDS,
+            *WO014_PROVIDER_CACHE_NEGATIVE_FIELDS,
+            "provider_cache_benchmark_status",
+        )
+    )
+    if provider_cache_present:
+        evidence.update(
+            {field: data.get(field) is True for field in WO014_PROVIDER_CACHE_REQUIRED_FIELDS}
+        )
+        for field in WO014_PROVIDER_CACHE_INTEGER_FIELDS:
+            value = data.get(field)
+            evidence[field] = value if isinstance(value, int) and not isinstance(value, bool) else 0
+        for field in WO014_PROVIDER_CACHE_LIST_FIELDS:
+            value = data.get(field)
+            evidence[field] = value if isinstance(value, list) else []
+        evidence.update(
+            {field: data.get(field) is True for field in WO014_PROVIDER_CACHE_NEGATIVE_FIELDS}
+        )
+        provider_cache_status = data.get("provider_cache_benchmark_status")
+        evidence["provider_cache_benchmark_status"] = (
+            provider_cache_status
+            if provider_cache_status in {"PASS", "FAIL", "UNKNOWN"}
+            else "UNKNOWN"
         )
     return evidence
 
@@ -1915,6 +2041,51 @@ def require_wo012_context_manager_evidence(
             "WO-012/WO-012-P Review Evidence requires migration head 0005_semantic_retrieval, "
             f"observed {migration_head_value}"
         )
+
+
+def require_wo014_provider_prompt_cache_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != "WO-014":
+        return
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    missing = [
+        field
+        for field in WO014_PROVIDER_CACHE_REQUIRED_FIELDS
+        if context_manager.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-014 Review Evidence missing mandatory provider/prompt-cache evidence: "
+            + ", ".join(sorted(missing))
+        )
+    for field in WO014_PROVIDER_CACHE_INTEGER_FIELDS:
+        value = context_manager.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"WO-014 requires bounded integer evidence for {field}")
+    for field in WO014_PROVIDER_CACHE_NEGATIVE_FIELDS:
+        if context_manager.get(field) is not False:
+            raise ValueError(f"WO-014 requires {field}=false")
+    if context_manager.get("provider_cache_benchmark_status") != "PASS":
+        raise ValueError("WO-014 requires a passing provider/prompt-cache benchmark")
+    if context_manager.get("provider_cache_foundation_llm_calls") != 0:
+        raise ValueError("WO-014 requires zero foundation LLM calls")
+    if context_manager.get("provider_cache_foundation_provider_calls") != 0:
+        raise ValueError("WO-014 requires zero foundation provider calls")
+    usage_sources = context_manager.get("provider_cache_provider_usage_sources")
+    if not isinstance(usage_sources, list) or not all(
+        isinstance(item, str) for item in usage_sources
+    ):
+        raise ValueError("WO-014 requires provider usage source labels")
+    if migration_head_value is not None and migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            "WO-014 requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
+    if context_manager.get("status") != "PASS":
+        raise ValueError("WO-014 requires passing Context Manager evidence")
 
 
 def require_wo013_context_manager_evidence(
@@ -2498,6 +2669,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo011_scope(work_order, base_sha, paths)
     require_wo012_scope(work_order, base_sha, paths)
     require_wo013_scope(work_order, base_sha, paths)
+    require_wo014_scope(work_order, base_sha, paths)
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -2521,6 +2693,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     require_wo013_context_manager_evidence(
+        work_order,
+        integration,
+        migration_head(),
+    )
+    require_wo014_provider_prompt_cache_evidence(
         work_order,
         integration,
         migration_head(),
@@ -2729,6 +2906,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
         )
+    if work_order == "WO-014":
+        require_wo014_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
     for key in ("base", "head"):
         section = cast(dict[str, Any], manifest[key])
         sha = section["sha"]
@@ -2789,6 +2972,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo013_context_manager_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo014_provider_prompt_cache_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),

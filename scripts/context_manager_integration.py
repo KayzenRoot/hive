@@ -59,6 +59,15 @@ from app.delta_context import (  # noqa: E402
     serialized_delivery_bytes,
     serialized_patch,
 )
+from app.provider_prompt_cache import (  # noqa: E402
+    PROVIDER_CACHE_ACCOUNTING_POLICY_VERSION,
+    PROVIDER_CACHE_ADAPTER_POLICY_VERSION,
+    PROVIDER_CACHE_CAPABILITIES_VERSION,
+    PROVIDER_PROMPT_ENVELOPE_VERSION,
+    PROVIDER_USAGE_RECEIPT_VERSION,
+    STABLE_PROMPT_PREFIX_POLICY_VERSION,
+    provider_prompt_cache_benchmark,
+)
 from app.registry import ProjectResponse  # noqa: E402
 from app.semantic_retrieval import (  # noqa: E402
     SemanticStatusResponse,
@@ -1041,6 +1050,47 @@ def main() -> int:
         embedding_after_repeat = fixture_stats(embedding_port, "embedding")
         rerank_after_repeat = fixture_stats(rerank_port, "rerank")
         assert_equal(first, second, "identical context capsule")
+        provider_prompt_status, provider_prompt_response = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/{task_ids['Target']}/context/provider-prompt",
+            {"top_k": 10, "request_cache": True, "delivery_mode": "FULL"},
+        )
+        provider_prompt_delta_status, provider_prompt_delta_response = request(
+            base_url,
+            "POST",
+            f"/api/v1/projects/{project_ids['Target']}/tasks/{task_ids['Target']}/context/provider-prompt",
+            {
+                "top_k": 10,
+                "request_cache": True,
+                "delivery_mode": "DELTA",
+                "baseline_output_fingerprint": first["context_fingerprint"]["output_fingerprint"],
+            },
+        )
+        provider_prompt_endpoint_verified = (
+            provider_prompt_status == 200
+            and provider_prompt_delta_status == 200
+            and isinstance(provider_prompt_response, dict)
+            and isinstance(provider_prompt_delta_response, dict)
+            and provider_prompt_response["envelope"]["version"] == PROVIDER_PROMPT_ENVELOPE_VERSION
+            and provider_prompt_delta_response["envelope"]["delivery_mode"] == "DELTA"
+            and provider_prompt_response["capabilities"]["support_mode"] == "UNSUPPORTED"
+            and provider_prompt_response["preparation"]["requested"] is False
+            and provider_prompt_response["observed_hit"] is None
+            and provider_prompt_response["envelope"]["semantic_composition_verified"] is True
+        )
+        provider_prompt_benchmark = provider_prompt_cache_benchmark()
+        if provider_prompt_benchmark["status"] != "PASS" or not provider_prompt_endpoint_verified:
+            raise AssertionError(
+                "Provider/Prompt Cache foundation benchmark or endpoint failed: "
+                + json.dumps(
+                    {
+                        "benchmark": provider_prompt_benchmark,
+                        "endpoint": provider_prompt_endpoint_verified,
+                    },
+                    sort_keys=True,
+                )
+            )
         assert_equal(first["version"], "context-capsule-v1", "context version")
         assert_equal(first["project"]["project_id"], project_ids["Target"], "target project scope")
         assert_equal(
@@ -3108,10 +3158,106 @@ def main() -> int:
             ),
             "delta_context_deterministic_two_run": delta_context_deterministic_two_run,
             "delta_context_benchmark_status": delta_context_benchmark_status,
-            "delta_context_migration_changed": False,
-            "autonomous_executor_dispatch_implemented": False,
-            "provider_prompt_cache_implemented": False,
+            "provider_prompt_cache_foundation_implemented": True,
+            "provider_prompt_envelope_versioned": PROVIDER_PROMPT_ENVELOPE_VERSION
+            == "provider-prompt-envelope-v1",
+            "stable_prompt_prefix_policy_versioned": STABLE_PROMPT_PREFIX_POLICY_VERSION
+            == "stable-prompt-prefix-v1",
+            "provider_cache_adapter_versioned": PROVIDER_CACHE_ADAPTER_POLICY_VERSION
+            == "provider-cache-adapter-v1",
+            "provider_cache_capabilities_versioned": PROVIDER_CACHE_CAPABILITIES_VERSION
+            == "provider-cache-capabilities-v1",
+            "provider_usage_receipt_versioned": PROVIDER_USAGE_RECEIPT_VERSION
+            == "provider-usage-receipt-v1",
+            "provider_cache_accounting_versioned": PROVIDER_CACHE_ACCOUNTING_POLICY_VERSION
+            == "provider-cache-accounting-v1",
+            "provider_cache_provider_independent": True,
+            "provider_cache_unsupported_noop": provider_prompt_benchmark["unsupported_noop"],
+            "provider_cache_semantic_composition_verified": provider_prompt_endpoint_verified
+            and provider_prompt_benchmark["semantic_composition_mismatches"] == 0,
+            "provider_cache_endpoint_verified": provider_prompt_endpoint_verified,
+            "provider_cache_semantic_composition_mismatches": provider_prompt_benchmark[
+                "semantic_composition_mismatches"
+            ],
+            "provider_cache_stable_prefix_reuse": provider_prompt_benchmark["stable_prefix_reuse"],
+            "provider_cache_governance_invalidation": provider_prompt_benchmark[
+                "governance_invalidation"
+            ],
+            "provider_cache_material_provider_identity_invalidation": provider_prompt_benchmark[
+                "material_provider_identity_invalidation"
+            ],
+            "provider_cache_credential_rotation_nonmaterial": provider_prompt_benchmark[
+                "credential_rotation_nonmaterial"
+            ],
+            "provider_cache_secret_leaks": provider_prompt_benchmark["credential_leaks"],
+            "provider_cache_cross_project_isolation": provider_prompt_benchmark[
+                "cross_project_isolation"
+            ],
+            "provider_cache_cross_project_leaks": provider_prompt_benchmark["cross_project_leaks"],
+            "provider_cache_cache_requested_distinct_from_hit": provider_prompt_benchmark[
+                "cache_requested_distinct_from_hit"
+            ],
+            "provider_cache_unknown_usage_not_zero": provider_prompt_benchmark[
+                "unknown_usage_not_zero"
+            ],
+            "provider_cache_explicit_zero_distinct_from_unknown": provider_prompt_benchmark[
+                "explicit_zero_distinct_from_unknown"
+            ],
+            "provider_cache_reported_usage_reconciled": provider_prompt_benchmark[
+                "reported_usage_reconciled"
+            ],
+            "provider_cache_invalid_usage_fail_closed": provider_prompt_benchmark[
+                "invalid_usage_fail_closed"
+            ],
+            "provider_cache_false_hit_claims": provider_prompt_benchmark["false_cache_hits"],
+            "provider_cache_hive_estimates_not_provider_usage": provider_prompt_benchmark[
+                "hive_estimates_not_provider_usage"
+            ],
+            "provider_cache_full_compatible": provider_prompt_benchmark["full_compatible"],
+            "provider_cache_delta_compatible": provider_prompt_benchmark["delta_compatible"],
+            "provider_cache_benchmark_status": provider_prompt_benchmark["status"],
+            "provider_cache_foundation_llm_calls": provider_prompt_benchmark["llm_calls"],
+            "provider_cache_foundation_provider_calls": provider_prompt_benchmark["provider_calls"],
+            "live_provider_prompt_cache_network_integration": False,
             "memory_lifecycle_implemented": False,
+            "autonomous_executor_dispatch_implemented": False,
+            "full_cache_telemetry_implemented": False,
+            "migration_changed": False,
+            "provider_cache_stable_prefix_bytes": provider_prompt_benchmark["stable_prefix_bytes"],
+            "provider_cache_stable_prefix_characters": provider_prompt_benchmark[
+                "stable_prefix_characters"
+            ],
+            "provider_cache_dynamic_suffix_bytes": provider_prompt_benchmark[
+                "dynamic_suffix_bytes"
+            ],
+            "provider_cache_dynamic_suffix_characters": provider_prompt_benchmark[
+                "dynamic_suffix_characters"
+            ],
+            "provider_cache_composed_bytes": provider_prompt_benchmark["composed_bytes"],
+            "provider_cache_composed_characters": provider_prompt_benchmark["composed_characters"],
+            "provider_cache_stable_prefix_hive_estimated_tokens": provider_prompt_benchmark[
+                "stable_prefix_hive_estimated_tokens"
+            ],
+            "provider_cache_dynamic_suffix_hive_estimated_tokens": provider_prompt_benchmark[
+                "dynamic_suffix_hive_estimated_tokens"
+            ],
+            "provider_cache_composed_hive_estimated_tokens": provider_prompt_benchmark[
+                "composed_hive_estimated_tokens"
+            ],
+            "provider_cache_provider_total_input_tokens": provider_prompt_benchmark[
+                "provider_total_input_tokens"
+            ],
+            "provider_cache_provider_cached_input_tokens": provider_prompt_benchmark[
+                "provider_cached_input_tokens"
+            ],
+            "provider_cache_provider_fresh_input_tokens": provider_prompt_benchmark[
+                "provider_fresh_input_tokens"
+            ],
+            "provider_cache_provider_usage_sources": provider_prompt_benchmark[
+                "provider_usage_sources"
+            ],
+            "delta_context_migration_changed": False,
+            "provider_prompt_cache_implemented": False,
             "checkpoint_first": checkpoint_first,
             "governance_project_scoped": governance_project_scoped,
             "task_project_scoped": task_project_scoped,

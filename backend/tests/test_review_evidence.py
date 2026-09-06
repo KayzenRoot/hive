@@ -28,6 +28,8 @@ from scripts.review_evidence import (
     WO013P_G1_ALLOWED_PATHS,
     WO013P_G1_BASE_SHA,
     WO013P_PROMOTION_ALLOWED_PATHS,
+    WO014_ALLOWED_PATHS,
+    WO014_BASE_SHA,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -60,6 +62,7 @@ from scripts.review_evidence import (
     require_wo013p_checkpoint_semantics,
     require_wo013p_g1_scope,
     require_wo013p_scope,
+    require_wo014_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -2331,6 +2334,16 @@ def test_wo013_scope_and_delta_evidence_fail_closed() -> None:
         require_wo013_scope("WO-013", WO013_BASE_SHA, ["docs/project-brain/13-CHECKPOINT.md"])
     with pytest.raises(ValueError, match="outside"):
         require_wo013_scope("WO-013", WO013_BASE_SHA, ["backend/app/unrelated.py"])
+
+
+def test_wo014_scope_requires_exact_base_and_allows_only_foundation_files() -> None:
+    require_wo014_scope("WO-014", WO014_BASE_SHA, sorted(WO014_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo014_scope("WO-014", "a" * 40, sorted(WO014_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="Project Brain"):
+        require_wo014_scope("WO-014", WO014_BASE_SHA, ["docs/project-brain/13-CHECKPOINT.md"])
+    with pytest.raises(ValueError, match="outside the approved Provider/Prompt Cache scope"):
+        require_wo014_scope("WO-014", WO014_BASE_SHA, ["backend/app/unrelated.py"])
 
     evidence = {
         "status": "PASS",
