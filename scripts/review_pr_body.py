@@ -846,6 +846,143 @@ Sol Review State: AWAITING_SOL
 """
 
 
+def _render_wo013p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo
+
+Esta PR adiciona somente o suporte fail-closed de Review Evidence necessário
+para a futura promoção `WO-013-P`. É uma mudança de governança/tooling; não
+promove checkpoint, não altera Project Brain, não altera produto, não altera
+migration, não implementa Provider/Prompt Cache ou Memory e não executa merge.
+
+## 2. Identidade e escopo
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- Head exato desta revisão: `{head_sha}`.
+- Base G1 autorizada: `d952be125da97afacf1099244cf2755f8243d288`.
+- Arquivos permitidos: `scripts/review_evidence.py`,
+  `backend/tests/test_review_evidence.py` e `scripts/review_pr_body.py`.
+- Arquivos do Project Brain alterados: nenhum.
+
+## 3. Governança adicionada
+
+`WO-012-P-G1` e `WO-012-P` permanecem disponíveis somente para compatibilidade
+histórica. Os únicos IDs de promoção Delta ativos são `WO-013-P-G1` e
+`WO-013-P`; `WO-011-P` e `WO-014-P` falham fechado para novos PRs.
+
+`WO-013-P-G1` valida a própria base exata e o escopo exclusivo de tooling/testes.
+`WO-013-P` exige exatamente `13-CHECKPOINT.md` e
+`CANONICAL-SHA256SUMS.txt`, marcador autorizado único e lowercase, base igual à
+PR e ao `origin/main`, transição fechada do checkpoint, cinco bullets Delta e
+manifesto canônico com somente a hash do checkpoint alterada.
+
+## 4. Reuso da evidência WO-013
+
+A promoção futura continua exigindo o benchmark Delta PASS, reconstrução exata,
+zero false reconstructions, zero critical context misses, corridas pós-build
+fail-closed, estabilidade final, baseline not-smaller, byte bound, contrato de
+estimativa final, regressão do falso positivo de metadata, economia de tokens
+truthful, migration inalterada e Provider/Prompt Cache, Memory e autonomous
+dispatch não implementados.
+
+## 5. Estado para auditoria
+
+Ruleset antes: {ruleset_before}; depois: {ruleset_after}. Merge antes:
+{merge_before}; depois: {merge_after}. Checks exigidos permanecem Validate,
+Integration health e Review Evidence; squash-only, zero bypass e zero
+aprovações nativas obrigatórias permanecem preservados.
+
+Auto-merge: UNARMED. Nenhum checkpoint foi promovido e nenhum merge foi
+executado. Evidence Bundle: `{artifact_name}`.
+
+Sol Review State: AWAITING_SOL
+"""
+
+
+def _render_wo013p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Promoção de checkpoint somente
+
+Esta PR futura promove somente o checkpoint Delta Context já aprovado, merged e
+validado no pós-merge. Exige exatamente os dois arquivos canônicos
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`. Não implementa Provider/Prompt
+Cache, Memory, produto novo ou migration.
+
+## 2. Identidade e contrato
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base exata autorizada: `{base_sha}`.
+- Head exato: `{head_sha}`.
+- O marcador `HIVE-AUTHORIZED-BASE` é único, lowercase e igual à base da PR e
+  ao `main` protegido no momento da validação.
+- Auto-merge permanece UNARMED; nenhum merge é presumido neste body.
+
+## 3. Transição canônica fechada
+
+O STATUS muda exatamente de `CONTEXT FINGERPRINTS FOUNDATION APPROVED /
+V0.1 IMPLEMENTATION ACTIVE` para `DELTA CONTEXT FOUNDATION APPROVED / V0.1
+IMPLEMENTATION ACTIVE`. Somente `delta context.` é removido de PENDING.
+IN PROGRESS e NEXT STEP apontam exclusivamente para a preparação do menor
+Provider/Prompt Cache Adapter Foundation provider-independent, mantendo cache
+de provider não canônico, identidade HIVE determinística, accounting medido,
+sem Memory lifecycle, MCP product surface, autonomous dispatch, telemetry
+ampla ou user-managed cache mode.
+
+## 4. Evidência COMPLETED
+
+O prefixo COMPLETED histórico permanece byte/order-preserved e recebe exactly five bullets
+Delta com gramática fechada: versões/arquitetura, baseline/safety,
+correção, token/bounds truthfulness e traceabilidade/later-work non-completion.
+
+## 5. Gates
+
+Review Evidence exige a evidência WO-013 existente no candidate HEAD, manifesto
+com somente a hash do checkpoint alterada, canonical verifier PASS, secret scan
+PASS, migration `0005_semantic_retrieval`, Ruleset 21934284 unchanged, checks
+Validate/Integration health/Review Evidence PASS, backend e dashboard verdes,
+threads resolvidas, squash-only, zero bypass e zero aprovações nativas.
+
+Evidence Bundle: `{artifact_name}`.
+
+Sol Review State: AWAITING_SOL
+"""
+
+
 def _render_wo012_body(
     *,
     work_order: str,
@@ -1222,8 +1359,34 @@ def render_body(
             merge_before=merge_before,
             merge_after=merge_after,
         )
+    if work_order == "WO-013-P-G1":
+        return _render_wo013p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
     if work_order == "WO-012-P":
         return _render_wo012p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-013-P":
+        return _render_wo013p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

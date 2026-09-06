@@ -271,6 +271,15 @@ WO012P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO012P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO013P_G1_BASE_SHA = "d952be125da97afacf1099244cf2755f8243d288"
+WO013P_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO013P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
 WO013_ALLOWED_PATHS = frozenset(
     {
         "backend/app/context_manager.py",
@@ -296,9 +305,11 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         "WO-009-P",
         "WO-010-P",
         "WO-011-P",
+        "WO-012-P-G1",
+        "WO-012-P",
     }
 )
-ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({"WO-012-P-G1", "WO-012-P"})
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({"WO-013-P-G1", "WO-013-P"})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -325,6 +336,60 @@ ACCEPTED_WO012P_BLOCKERS = {
     "None known after Context Fingerprints Foundation approval and post-merge validation.",
 }
 WO012P_PROMOTION_REGISTRY = {"WO-012-P": WO012P_PROMOTION_BASE_REF}
+WO013P_PROMOTION_REGISTRY = {"WO-013-P": WO012P_PROMOTION_BASE_REF}
+EXPECTED_WO013P_STATUS = "DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+EXPECTED_WO013P_PREVIOUS_STATUS = (
+    "CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+)
+EXPECTED_WO013P_IN_PROGRESS = (
+    "Preparing the smallest necessary provider-independent Provider/Prompt Cache Adapter "
+    "Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token "
+    "Budget, Context Fingerprints and Delta Context pipeline."
+)
+EXPECTED_WO013P_NEXT_STEP_PREFIX = (
+    "Prepare the smallest necessary provider-independent Provider/Prompt Cache Adapter "
+    "Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token "
+    "Budget, Context Fingerprints and Delta Context pipeline."
+)
+EXPECTED_WO013P_BLOCKERS = (
+    "None known after Delta Context Foundation approval and post-merge validation."
+)
+WO013P_NEXT_STEP_REQUIRED_INTENTS = (
+    "provider independence",
+    "stable prompt-prefix/provider-cache adapters only where supported",
+    "deterministic HIVE context identity remains canonical",
+    "provider cache never becomes canonical truth",
+    "cached-provider accounting is measured and reconciled, not guessed",
+    "no Memory lifecycle",
+    "no MCP product surface",
+    "no autonomous executor dispatch",
+    "no full telemetry expansion beyond what is strictly necessary for objective evidence",
+    "no user-managed cache mode required",
+)
+WO013P_CANONICAL_COMPLETION_BULLETS = (
+    "delta context foundation approval is recorded with policy delta-context-v1, patch "
+    "delta-json-patch-v1, delivery context-delivery-v1, final delivery estimate "
+    "delta-delivery-estimate-v1 and semantic seam context-output-v2.",
+    "the redis baseline is non-canonical, project-scoped and task-scoped with ttl 300 "
+    "seconds; old-head baseline compatibility, corrupt-baseline safe full, redis-loss "
+    "safe full, api restart reuse, cross-project isolation and cross-task isolation are "
+    "verified.",
+    "exact reconstruction and target fingerprint verification are verified; false delta "
+    "reconstructions 0, critical context misses 0, post-build full/delta races fail "
+    "closed, newly relevant dependency preserved, delta llm calls 0 and delta provider "
+    "calls 0.",
+    "the final delivery token estimate contract is versioned; strict-smaller uses the "
+    "final delivery estimate, the old metadata false-positive regression is verified, "
+    "small-change final delta estimate 1926, small-change full estimate 4152, "
+    "fresh-context tokens avoided 2226, final delivery bytes 7777, patch operations 3, "
+    "patch chars 6632, final byte bound 24000, not-smaller verified and threshold "
+    "266 / 319 / 268 evidence.",
+    "migration 0005_semantic_retrieval, pr #43, audited head "
+    "4d9bf458cea7c7bf91ac84012dd5f991be194263, sol review 5123605890, merge "
+    "d952be125da97afacf1099244cf2755f8243d288, post-merge ci 34002558669, backend "
+    "325, dashboard 7; provider/prompt cache not implemented, memory lifecycle not "
+    "implemented and autonomous executor dispatch not implemented.",
+)
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -620,6 +685,80 @@ def require_wo012p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
             raise ValueError(f"WO-012-P changed unrelated checkpoint section: {name}")
 
 
+def require_wo013p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
+    base = checkpoint_sections(base_text)
+    candidate = checkpoint_sections(candidate_text)
+    if set(base) != set(candidate):
+        raise ValueError("WO-013-P checkpoint sections changed unexpectedly")
+    if normalized_checkpoint_value(base, "STATUS") != EXPECTED_WO013P_PREVIOUS_STATUS:
+        raise ValueError("WO-013-P promotion base has an unexpected checkpoint status")
+    if normalized_checkpoint_value(candidate, "STATUS") != EXPECTED_WO013P_STATUS:
+        raise ValueError("WO-013-P candidate has an unexpected checkpoint status")
+
+    base_completed = checkpoint_bullets(base, "COMPLETED")
+    candidate_completed = checkpoint_bullets(candidate, "COMPLETED")
+    if candidate_completed[: len(base_completed)] != base_completed:
+        raise ValueError("WO-013-P cannot rewrite historical COMPLETED checkpoint truth")
+    appended_completed = candidate_completed[len(base_completed) :]
+    if len(appended_completed) != len(WO013P_CANONICAL_COMPLETION_BULLETS):
+        raise ValueError(
+            "WO-013-P candidate must append exactly 5 authorized completion evidence bullets"
+        )
+    for index, (bullet, expected_bullet) in enumerate(
+        zip(appended_completed, WO013P_CANONICAL_COMPLETION_BULLETS, strict=True), 1
+    ):
+        if normalized_checkpoint_evidence(bullet) != expected_bullet:
+            raise ValueError(
+                f"WO-013-P completion evidence class {index} is outside its closed grammar"
+            )
+
+    base_pending = checkpoint_bullets(base, "PENDING")
+    candidate_pending = checkpoint_bullets(candidate, "PENDING")
+    if base_pending.count("delta context.") != 1:
+        raise ValueError("WO-013-P promotion base must contain exactly one delta context item")
+    expected_pending = list(base_pending)
+    expected_pending.remove("delta context.")
+    if candidate_pending != expected_pending:
+        raise ValueError(
+            "WO-013-P must remove only delta context. from PENDING and preserve all other items"
+        )
+
+    if normalized_checkpoint_value(candidate, "IN PROGRESS") != f"- {EXPECTED_WO013P_IN_PROGRESS}":
+        raise ValueError("WO-013-P candidate has an unexpected IN PROGRESS intent")
+    if normalized_checkpoint_value(candidate, "BLOCKERS") != EXPECTED_WO013P_BLOCKERS:
+        raise ValueError("WO-013-P candidate has an unexpected BLOCKERS intent")
+    next_step = normalized_checkpoint_value(candidate, "NEXT STEP")
+    if not next_step.startswith(EXPECTED_WO013P_NEXT_STEP_PREFIX):
+        raise ValueError("WO-013-P NEXT STEP must target Provider/Prompt Cache Adapter Foundation")
+    normalized_next_step = next_step.casefold()
+    if any(
+        intent.casefold() not in normalized_next_step
+        for intent in WO013P_NEXT_STEP_REQUIRED_INTENTS
+    ):
+        raise ValueError("WO-013-P NEXT STEP must preserve the bounded future-work intent")
+    if any(
+        phrase in normalized_next_step
+        for phrase in (
+            "provider/prompt cache implemented",
+            "memory lifecycle implemented",
+            "mcp product surface implemented",
+            "autonomous executor dispatch implemented",
+        )
+    ):
+        raise ValueError("WO-013-P NEXT STEP falsely marks later work completed")
+
+    for name in set(base) - {
+        "STATUS",
+        "COMPLETED",
+        "IN PROGRESS",
+        "PENDING",
+        "BLOCKERS",
+        "NEXT STEP",
+    }:
+        if base[name] != candidate[name]:
+            raise ValueError(f"WO-013-P changed unrelated checkpoint section: {name}")
+
+
 def parse_canonical_manifest(text: str, source: str) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -640,20 +779,21 @@ def parse_canonical_manifest(text: str, source: str) -> list[tuple[str, str]]:
     return entries
 
 
-def require_wo012p_manifest_contract(
+def require_checkpoint_manifest_contract(
     base_manifest_text: str,
     candidate_manifest_text: str,
     candidate_checkpoint_bytes: bytes,
+    work_order: str,
 ) -> None:
     base_entries = parse_canonical_manifest(base_manifest_text, "base")
     candidate_entries = parse_canonical_manifest(candidate_manifest_text, "candidate")
     if [path for path, _ in candidate_entries] != [path for path, _ in base_entries]:
-        raise ValueError("WO-012-P canonical manifest path set or order changed")
+        raise ValueError(f"{work_order} canonical manifest path set or order changed")
     base_by_path = dict(base_entries)
     base_lines = base_manifest_text.splitlines(keepends=True)
     candidate_lines = candidate_manifest_text.splitlines(keepends=True)
     if len(base_lines) != len(candidate_lines):
-        raise ValueError("WO-012-P canonical manifest line structure changed")
+        raise ValueError(f"{work_order} canonical manifest line structure changed")
     checkpoint_line_indexes = [
         index
         for index, line in enumerate(base_lines)
@@ -661,7 +801,7 @@ def require_wo012p_manifest_contract(
         and line.strip().split(maxsplit=1)[1] == CANONICAL_MANIFEST_CHECKPOINT_NAME
     ]
     if len(checkpoint_line_indexes) != 1:
-        raise ValueError("WO-012-P base manifest must contain one checkpoint hash line")
+        raise ValueError(f"{work_order} base manifest must contain one checkpoint hash line")
     candidate_checkpoint_indexes = [
         index
         for index, line in enumerate(candidate_lines)
@@ -669,14 +809,14 @@ def require_wo012p_manifest_contract(
         and line.strip().split(maxsplit=1)[1] == CANONICAL_MANIFEST_CHECKPOINT_NAME
     ]
     if candidate_checkpoint_indexes != checkpoint_line_indexes:
-        raise ValueError("WO-012-P canonical manifest checkpoint line moved or disappeared")
+        raise ValueError(f"{work_order} canonical manifest checkpoint line moved or disappeared")
     for path, digest in candidate_entries:
         if path == CANONICAL_MANIFEST_CHECKPOINT_NAME:
             expected = hashlib.sha256(candidate_checkpoint_bytes).hexdigest()
             if digest != expected:
-                raise ValueError("WO-012-P checkpoint hash does not match candidate bytes")
+                raise ValueError(f"{work_order} checkpoint hash does not match candidate bytes")
         elif digest != base_by_path[path]:
-            raise ValueError(f"WO-012-P changed an unauthorized canonical hash: {path}")
+            raise ValueError(f"{work_order} changed an unauthorized canonical hash: {path}")
     checkpoint_index = checkpoint_line_indexes[0]
     base_checkpoint_line = base_lines[checkpoint_index]
     base_checkpoint_parts = base_checkpoint_line.strip().split(maxsplit=1)
@@ -691,13 +831,39 @@ def require_wo012p_manifest_contract(
     ):
         if index == checkpoint_index:
             if candidate_line != expected_checkpoint_line:
-                raise ValueError("WO-012-P changed checkpoint manifest line formatting")
+                raise ValueError(f"{work_order} changed checkpoint manifest line formatting")
         elif candidate_line != base_line:
-            raise ValueError("WO-012-P changed an unrelated canonical manifest line")
+            raise ValueError(f"{work_order} changed an unrelated canonical manifest line")
+
+
+def require_wo012p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    require_checkpoint_manifest_contract(
+        base_manifest_text,
+        candidate_manifest_text,
+        candidate_checkpoint_bytes,
+        "WO-012-P",
+    )
+
+
+def require_wo013p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    require_checkpoint_manifest_contract(
+        base_manifest_text,
+        candidate_manifest_text,
+        candidate_checkpoint_bytes,
+        "WO-013-P",
+    )
 
 
 def registered_promotion_base_sha(work_order: str) -> str:
-    base_ref = WO012P_PROMOTION_REGISTRY.get(work_order)
+    base_ref = (WO012P_PROMOTION_REGISTRY | WO013P_PROMOTION_REGISTRY).get(work_order)
     if base_ref is None:
         raise ValueError(f"no registered promotion base for {work_order}")
     base_sha = git_value("rev-parse", base_ref, fallback="")
@@ -826,6 +992,21 @@ def require_wo012p_g1_scope(work_order: str, base_sha: str, paths: list[str]) ->
         )
 
 
+def require_wo013p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != "WO-013-P-G1":
+        return
+    if base_sha != WO013P_G1_BASE_SHA:
+        raise ValueError(
+            f"WO-013-P-G1 requires exact base {WO013P_G1_BASE_SHA}, observed {base_sha}"
+        )
+    unauthorized = sorted(set(paths) - WO013P_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            "WO-013-P-G1 changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
+
+
 def require_wo012p_scope(
     work_order: str,
     base_sha: str,
@@ -865,6 +1046,49 @@ def require_wo012p_scope(
         candidate_checkpoint_bytes.decode("utf-8"),
     )
     require_wo012p_manifest_contract(
+        base_manifest,
+        candidate_manifest,
+        candidate_checkpoint_bytes,
+    )
+
+
+def require_wo013p_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    registered_base_sha: str | None = None,
+    authorized_base_sha: str | None = None,
+) -> None:
+    if work_order != "WO-013-P":
+        return
+    if base_branch != "main":
+        raise ValueError(
+            f"WO-013-P requires the protected main base branch, observed {base_branch}"
+        )
+    expected_base = registered_base_sha or registered_promotion_base_sha(work_order)
+    if base_sha != expected_base:
+        raise ValueError(
+            f"WO-013-P requires registered exact base {expected_base}, observed {base_sha}"
+        )
+    if sorted(set(paths)) != sorted(WO013P_PROMOTION_ALLOWED_PATHS) or len(paths) != 2:
+        raise ValueError("WO-013-P requires exactly the checkpoint and canonical manifest files")
+    if authorized_base_sha is None:
+        raise ValueError("WO-013-P requires exactly one authorized-base marker")
+    if HEX_SHA.fullmatch(authorized_base_sha) is None:
+        raise ValueError("WO-013-P authorized-base marker must be lowercase 40-hex")
+    if authorized_base_sha != base_sha:
+        raise ValueError("WO-013-P authorized-base marker must match the pull request base SHA")
+    base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
+    base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
+    candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
+    candidate_manifest = (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
+    require_wo013p_checkpoint_semantics(
+        base_checkpoint,
+        candidate_checkpoint_bytes.decode("utf-8"),
+    )
+    require_wo013p_manifest_contract(
         base_manifest,
         candidate_manifest,
         candidate_checkpoint_bytes,
@@ -1698,7 +1922,7 @@ def require_wo013_context_manager_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order != "WO-013":
+    if work_order not in {"WO-013", "WO-013-P-G1", "WO-013-P"}:
         return
     context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
     missing = [
@@ -2249,10 +2473,18 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"head SHA mismatch: expected {head_sha}, checked out {actual_head}")
     paths = changed_paths(base_sha, head_sha)
     authorized_base_sha = (
-        parse_authorized_base_marker(pr_body) if work_order == "WO-012-P" else None
+        parse_authorized_base_marker(pr_body) if work_order in {"WO-012-P", "WO-013-P"} else None
     )
     require_wo012p_g1_scope(work_order, base_sha, paths)
+    require_wo013p_g1_scope(work_order, base_sha, paths)
     require_wo012p_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_wo013p_scope(
         work_order,
         base_sha,
         paths,
