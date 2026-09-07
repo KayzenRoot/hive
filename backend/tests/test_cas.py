@@ -7,6 +7,8 @@ from typing import cast
 import pytest
 
 from app.cas import (
+    ACCE_STORAGE_POLICY_MAX_BENCHMARK_INPUT_BYTES,
+    ACCE_STORAGE_POLICY_MIN_BENCHMARK_INPUT_BYTES,
     CASIntegrityError,
     CASStorageError,
     CASStore,
@@ -14,6 +16,7 @@ from app.cas import (
     StoragePolicy,
     StoragePolicyError,
     StorageProfile,
+    StoredBlob,
     bind_storage_profile,
     measure_storage_policy,
     select_storage_policy,
@@ -183,7 +186,8 @@ def test_storage_policy_rejects_ambiguous_or_unsupported_measurements() -> None:
 
 
 def test_storage_policy_benchmark_measures_multiple_candidates() -> None:
-    policy = measure_storage_policy([b"HIVE representative artifact " * 16_384])
+    representative = b"HIVE representative artifact " * 16_384
+    policy = measure_storage_policy([representative])
 
     assert policy.version == "acce-policy-v1"
     assert len(policy.benchmark_matrix) == 6
@@ -194,6 +198,22 @@ def test_storage_policy_benchmark_measures_multiple_candidates() -> None:
         and float(cast(int | float, row["decompression_mib_per_s"])) > 0
         for row in policy.benchmark_matrix
     )
+
+
+def test_storage_policy_benchmark_rejects_tiny_aggregate_input() -> None:
+    with pytest.raises(StoragePolicyError, match="representative minimum"):
+        measure_storage_policy([b"HIVE artifact" * 8])
+
+
+def test_storage_policy_benchmark_rejects_oversized_aggregate_input() -> None:
+    oversized = b"x" * (ACCE_STORAGE_POLICY_MAX_BENCHMARK_INPUT_BYTES + 1)
+
+    with pytest.raises(StoragePolicyError, match="exceeds the bounded size"):
+        measure_storage_policy([oversized])
+
+
+def test_storage_policy_benchmark_minimum_is_materially_bounded() -> None:
+    assert ACCE_STORAGE_POLICY_MIN_BENCHMARK_INPUT_BYTES >= 32 * 1024
 
 
 def test_storage_policy_reports_compression_expansion_truthfully() -> None:
@@ -327,6 +347,68 @@ def test_transition_failure_and_corruption_leave_prior_representation_readable(
         store.transition(initial.sha256, profile, expected_size=len(payload))
     initial.path.write_bytes(before)
     assert store.read_verified(initial.sha256, len(payload)) == payload
+
+
+def test_metadata_persist_failure_restores_prior_representation(
+    tmp_path: Path,
+) -> None:
+    store = make_store(tmp_path)
+    source = tmp_path / "metadata-failure.txt"
+    payload = b"metadata commit failure restores the prior bytes\n" * 4096
+    source.write_bytes(payload)
+    initial = store.put(source)
+    before = initial.path.read_bytes()
+
+    def fail_metadata(_stored: object) -> None:
+        raise CASStorageError("forced metadata persistence failure")
+
+    with pytest.raises(CASStorageError, match="forced metadata persistence failure"):
+        store.transition(
+            initial.sha256,
+            StorageProfile("WARM", "warm-balanced-test", 6),
+            expected_size=len(payload),
+            persist_metadata=fail_metadata,
+        )
+
+    assert initial.path.read_bytes() == before
+    assert store.read_verified(initial.sha256, len(payload)) == payload
+
+
+def test_backup_cleanup_failure_after_metadata_commit_keeps_new_truth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = make_store(tmp_path)
+    source = tmp_path / "cleanup-failure.txt"
+    payload = b"metadata commit outranks backup cleanup failure\n" * 4096
+    source.write_bytes(payload)
+    initial = store.put(source)
+    before = initial.path.read_bytes()
+    persisted: list[dict[str, int | bool | str]] = []
+
+    def persist_metadata(stored: StoredBlob) -> None:
+        persisted.append(stored.codec_config)
+
+    def fail_backup_cleanup(_backup: Path) -> None:
+        raise OSError("forced backup cleanup failure")
+
+    monkeypatch.setattr(store, "_cleanup_backup", fail_backup_cleanup)
+    transitioned = store.transition(
+        initial.sha256,
+        StorageProfile("COLD", "cold-dense-test", 15),
+        expected_size=len(payload),
+        persist_metadata=persist_metadata,
+    )
+
+    assert persisted == [transitioned.codec_config]
+    assert initial.path.read_bytes() != before
+    assert transitioned.physical_size == initial.path.stat().st_size
+    assert transitioned.codec_config["tier"] == "COLD"
+    assert transitioned.codec_config["profile_id"] == "cold-dense-test"
+    assert store.read_verified(initial.sha256, len(payload)) == payload
+    leftovers = list(store.temp_root.glob(".cas-backup-*.zst.tmp"))
+    assert leftovers
+    for leftover in leftovers:
+        leftover.unlink()
 
 
 def test_duplicate_put_does_not_overwrite_active_representation(tmp_path: Path) -> None:

@@ -399,30 +399,52 @@ def create_task(
     extraction = source.extraction
     task_id = uuid4()
     with database_connection(settings) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            INSERT INTO cas_blobs (
-                sha256, logical_size, physical_size, codec, codec_config, last_verified_at
-            ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (sha256) DO UPDATE SET last_verified_at = CURRENT_TIMESTAMP
-            """,
-            (
-                candidate_blob.sha256,
-                candidate_blob.logical_size,
-                candidate_blob.physical_size,
-                candidate_blob.codec,
-                Jsonb(candidate_blob.codec_config),
-            ),
-        )
-        cursor.execute(
-            """
-            SELECT sha256, logical_size, physical_size, codec, codec_config
-            FROM cas_blobs
-            WHERE sha256 = %s
-            """,
-            (candidate_blob.sha256,),
-        )
-        blob = _stored_blob_from_row(store, cursor.fetchone())
+        if not candidate_blob.published_new:
+            cursor.execute(
+                """
+                SELECT sha256, logical_size, physical_size, codec, codec_config
+                FROM cas_blobs
+                WHERE sha256 = %s
+                """,
+                (candidate_blob.sha256,),
+            )
+            existing_row = cursor.fetchone()
+            if existing_row is None:
+                raise CASStorageError("CAS physical representation exists without durable metadata")
+            blob = _stored_blob_from_row(store, existing_row)
+            cursor.execute(
+                """
+                UPDATE cas_blobs
+                SET last_verified_at = CURRENT_TIMESTAMP
+                WHERE sha256 = %s
+                """,
+                (candidate_blob.sha256,),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO cas_blobs (
+                    sha256, logical_size, physical_size, codec, codec_config, last_verified_at
+                ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (sha256) DO UPDATE SET last_verified_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    candidate_blob.sha256,
+                    candidate_blob.logical_size,
+                    candidate_blob.physical_size,
+                    candidate_blob.codec,
+                    Jsonb(candidate_blob.codec_config),
+                ),
+            )
+            cursor.execute(
+                """
+                SELECT sha256, logical_size, physical_size, codec, codec_config
+                FROM cas_blobs
+                WHERE sha256 = %s
+                """,
+                (candidate_blob.sha256,),
+            )
+            blob = _stored_blob_from_row(store, cursor.fetchone())
         cursor.execute(
             """
             INSERT INTO task_extractions (

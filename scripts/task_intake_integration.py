@@ -158,11 +158,24 @@ def measure_policy(
     digests_literal = repr(digests)
     code = (
         "import json\n"
+        "from pathlib import Path\n"
         "from app.cas import CASStore, measure_storage_policy, select_storage_policy\n"
         "from app.config import Settings\n"
         "settings = Settings()\n"
         "store = CASStore(settings)\n"
-        f"samples = [store.read_verified(digest) for digest in {digests_literal}]\n"
+        "representative_paths = [\n"
+        "    Path('/app/docs/project-brain/06-ACCE-TOKEN-STORAGE-OPTIMIZATION.md'),\n"
+        "    Path('/app/docs/project-brain/13-CHECKPOINT.md'),\n"
+        "    Path('/app/backend/app/cas.py'),\n"
+        "    Path('/app/backend/app/task_intake.py'),\n"
+        "    Path('/app/backend/app/config.py'),\n"
+        "    Path('/app/migrations/versions/0002_task_intake_cas.py'),\n"
+        "]\n"
+        "assert all(path.is_file() for path in representative_paths)\n"
+        "samples = [path.read_bytes() for path in representative_paths]\n"
+        f"samples.extend(store.read_verified(digest) for digest in {digests_literal}[:2])\n"
+        "benchmark_input_bytes = sum(len(sample) for sample in samples)\n"
+        "benchmark_sample_count = len(samples)\n"
         "policy = measure_storage_policy(samples)\n"
         "repeat = select_storage_policy(list(policy.benchmark_matrix))\n"
         "selected = {\n"
@@ -179,6 +192,10 @@ def measure_policy(
         "'selected_profiles': {tier: {'tier': profile.tier, 'profile_id': profile.profile_id, "
         "'zstd_level': profile.zstd_level} for tier, profile in policy.selected_profiles.items()}, "
         "'benchmark_matrix': list(policy.benchmark_matrix), "
+        "'benchmark_input_bytes': benchmark_input_bytes, "
+        "'benchmark_sample_count': benchmark_sample_count, "
+        "'benchmark_sources': [str(path) for path in representative_paths] "
+        "+ ['task-cas-fixture'] * 2, "
         "'selection_rationale': policy.selection_rationale, "
         "'deterministic_selection': deterministic_selection}))"
     )
@@ -280,6 +297,133 @@ def reject_unselected_profile(
     )
     result = api_python(project_name, environment, code)
     return result.stdout.strip().splitlines()[-1] == "PASS"
+
+
+def orphan_retry_probe(
+    project_name: str,
+    environment: dict[str, str],
+    project_id: str,
+) -> bool:
+    code = (
+        "from pathlib import Path\n"
+        "from uuid import UUID\n"
+        "from app.cas import CASStorageError, CASStore\n"
+        "from app.config import Settings\n"
+        "from app.db import database_connection\n"
+        "from app.task_intake import ExtractionResult, ValidatedSource, create_task\n"
+        "settings = Settings()\n"
+        "store = CASStore(settings)\n"
+        "source = store.temp_root / 'integration-orphan-retry.txt'\n"
+        "payload = b'orphan physical bytes must remain exact\\n' * 4096\n"
+        "source.write_bytes(payload)\n"
+        "candidate = store.put(source)\n"
+        "assert candidate.published_new is True\n"
+        "failed = False\n"
+        "try:\n"
+        f"    create_task(settings, UUID({project_id!r}), source, ValidatedSource(\n"
+        "        source_type='TXT', media_type='text/plain', original_filename='orphan.txt',\n"
+        "        extraction=ExtractionResult(\n"
+        "            extraction_kind='text', extractor='integration',\n"
+        "            extractor_version='1', config_sha256='orphan-config',\n"
+        "            status='READY', text='orphan', page_count=None, error=None,\n"
+        "        ),\n"
+        "    ), 'Orphan retry')\n"
+        "except CASStorageError:\n"
+        "    failed = True\n"
+        "assert failed\n"
+        "assert store.read_verified(candidate.sha256, len(payload)) == payload\n"
+        "with database_connection(settings) as connection, connection.cursor() as cursor:\n"
+        "    cursor.execute('SELECT 1 FROM cas_blobs WHERE sha256 = %s', (candidate.sha256,))\n"
+        "    assert cursor.fetchone() is None\n"
+        "source.unlink(missing_ok=True)\n"
+        "store.blob_path(candidate.sha256).unlink(missing_ok=True)\n"
+        "print('PASS')"
+    )
+    result = api_python(project_name, environment, code)
+    return result.stdout.strip().splitlines()[-1] == "PASS"
+
+
+def cleanup_failure_probe(
+    project_name: str,
+    environment: dict[str, str],
+    project_id: str,
+    task_id: str,
+    policy: dict[str, Any],
+) -> bool:
+    policy_literal = repr(policy)
+    code = (
+        "from pathlib import Path\n"
+        "from uuid import UUID\n"
+        "from app.cas import CASStore, StoragePolicy, StorageProfile\n"
+        "from app.config import Settings\n"
+        "from app.task_intake import task_blob, transition_task_blob\n"
+        f"policy_payload = {policy_literal}\n"
+        "policy = StoragePolicy(\n"
+        "    version=policy_payload['storage_policy_version'],\n"
+        "    selected_profiles={\n"
+        "        tier: StorageProfile(\n"
+        "            tier=profile['tier'], profile_id=profile['profile_id'],\n"
+        "            zstd_level=profile['zstd_level'],\n"
+        "        )\n"
+        "        for tier, profile in policy_payload['selected_profiles'].items()\n"
+        "    },\n"
+        "    benchmark_matrix=tuple(policy_payload['benchmark_matrix']),\n"
+        "    selection_rationale=policy_payload['selection_rationale'],\n"
+        ")\n"
+        "settings = Settings()\n"
+        "store = CASStore(settings)\n"
+        f"before_task, before_blob = task_blob(settings, UUID({project_id!r}), UUID({task_id!r}))\n"
+        "before_bytes = store.blob_path(before_blob.sha256).read_bytes()\n"
+        "def fail_backup_cleanup(_self: CASStore, _backup: Path) -> None:\n"
+        "    raise OSError('forced post-commit backup cleanup failure')\n"
+        "CASStore._cleanup_backup = fail_backup_cleanup\n"
+        "stored = transition_task_blob(\n"
+        f"    settings, UUID({project_id!r}), UUID({task_id!r}),\n"
+        "    policy, 'WARM', policy.profile_for('WARM'),\n"
+        ")\n"
+        f"after_task, durable = task_blob(settings, UUID({project_id!r}), UUID({task_id!r}))\n"
+        "active_path = store.blob_path(durable.sha256)\n"
+        "assert after_task.original_blob_sha256 == durable.sha256 == stored.sha256\n"
+        "assert active_path.read_bytes() != before_bytes\n"
+        "active_size = active_path.stat().st_size\n"
+        "assert active_size == durable.physical_size == stored.physical_size\n"
+        "assert durable.codec_config == stored.codec_config\n"
+        "assert store.read_verified(durable.sha256, before_task.logical_size)\n"
+        "leftovers = list(store.temp_root.glob('.cas-backup-*.zst.tmp'))\n"
+        "assert leftovers\n"
+        "for leftover in leftovers:\n"
+        "    leftover.unlink(missing_ok=True)\n"
+        "assert not list(store.temp_root.glob('.cas-backup-*.zst.tmp'))\n"
+        "print('PASS')"
+    )
+    result = api_python(project_name, environment, code)
+    return result.stdout.strip().splitlines()[-1] == "PASS"
+
+
+def benchmark_bounds_probe(project_name: str, environment: dict[str, str]) -> tuple[bool, bool]:
+    code = (
+        "from app.cas import (\n"
+        "    ACCE_STORAGE_POLICY_MAX_BENCHMARK_INPUT_BYTES,\n"
+        "    StoragePolicyError,\n"
+        "    measure_storage_policy,\n"
+        ")\n"
+        "tiny_rejected = False\n"
+        "try:\n"
+        "    measure_storage_policy([b'tiny HIVE fixture'])\n"
+        "except StoragePolicyError:\n"
+        "    tiny_rejected = True\n"
+        "oversized_rejected = False\n"
+        "try:\n"
+        "    measure_storage_policy([b'x' * (ACCE_STORAGE_POLICY_MAX_BENCHMARK_INPUT_BYTES + 1)])\n"
+        "except StoragePolicyError:\n"
+        "    oversized_rejected = True\n"
+        "assert tiny_rejected and oversized_rejected\n"
+        "import json\n"
+        "print(json.dumps({'tiny': tiny_rejected, 'oversized': oversized_rejected}))"
+    )
+    result = api_python(project_name, environment, code)
+    value = json.loads(result.stdout.strip().splitlines()[-1])
+    return bool(value["tiny"]), bool(value["oversized"])
 
 
 def main() -> int:
@@ -527,6 +671,24 @@ def main() -> int:
                 None,
             )
             assert selected_row is not None, f"selected profile is not measured for {tier}"
+        assert int(policy["benchmark_input_bytes"]) >= 48 * 1024
+        assert int(policy["benchmark_sample_count"]) == 8
+        assert len(policy["benchmark_sources"]) == 8
+
+        orphan_retry_fail_closed = orphan_retry_probe(project_name, environment, project_a_id)
+        assert orphan_retry_fail_closed
+        cleanup_failure_consistency = cleanup_failure_probe(
+            project_name,
+            environment,
+            project_a_id,
+            str(no_text_task["task_id"]),
+            policy,
+        )
+        assert cleanup_failure_consistency
+        tiny_benchmark_rejected, oversized_benchmark_rejected = benchmark_bounds_probe(
+            project_name, environment
+        )
+        assert tiny_benchmark_rejected and oversized_benchmark_rejected
 
         unselected_profile_rejection = reject_unselected_profile(
             project_name, environment, project_a_id, pdf_task_id, policy, "COLD"
@@ -825,6 +987,14 @@ def main() -> int:
         checks = {
             "hot_warm_cold_policy_defined": set(selected_profiles) == {"HOT", "WARM", "COLD"},
             "policy_selection_internal_deterministic": policy["deterministic_selection"] is True,
+            "representative_benchmark_corpus": int(policy["benchmark_input_bytes"]) >= 48 * 1024
+            and int(policy["benchmark_sample_count"]) == 8
+            and len(policy["benchmark_sources"]) == 8,
+            "tiny_benchmark_rejected": tiny_benchmark_rejected,
+            "oversized_benchmark_rejected": oversized_benchmark_rejected,
+            "cleanup_failure_consistency": cleanup_failure_consistency,
+            "orphan_retry_fail_closed": orphan_retry_fail_closed,
+            "orphan_no_row_not_inserted": orphan_retry_fail_closed,
             "policy_bound_transitions": all(
                 result.get("policy_authorized") is True
                 and result.get("tier") in selected_profiles
@@ -896,6 +1066,9 @@ def main() -> int:
                     "dedup_logical_bytes": dedup_logical,
                     "dedup_unique_logical_bytes": dedup_unique,
                     "dedup_savings_bytes": dedup_savings,
+                    "benchmark_input_bytes": policy["benchmark_input_bytes"],
+                    "benchmark_sample_count": policy["benchmark_sample_count"],
+                    "benchmark_sources": policy["benchmark_sources"],
                     "zstd_supported_level_min": 1,
                     "zstd_supported_level_max": 22,
                     "policy_mapping": {

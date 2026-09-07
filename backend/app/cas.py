@@ -24,6 +24,7 @@ ACCE_STORAGE_POLICY_EVIDENCE_VERSION = "acce-storage-policy-v1"
 ACCE_STORAGE_POLICY_ZSTD_MIN_LEVEL = 1
 ACCE_STORAGE_POLICY_ZSTD_MAX_LEVEL = 22
 ACCE_STORAGE_POLICY_MAX_BENCHMARK_ROWS = 16
+ACCE_STORAGE_POLICY_MIN_BENCHMARK_INPUT_BYTES = 48 * 1024
 ACCE_STORAGE_POLICY_MAX_BENCHMARK_INPUT_BYTES = 8 * 1024 * 1024
 ACCE_STORAGE_POLICY_MAX_BENCHMARK_SAMPLES = 8
 ACCE_STORAGE_POLICY_MEASUREMENT_REPEATS = 3
@@ -272,6 +273,8 @@ def measure_storage_policy(samples: Sequence[bytes]) -> StoragePolicy:
     if any(not isinstance(sample, bytes) or not sample for sample in samples):
         raise StoragePolicyError("benchmark samples must be non-empty bytes")
     total_logical = sum(len(sample) for sample in samples)
+    if total_logical < ACCE_STORAGE_POLICY_MIN_BENCHMARK_INPUT_BYTES:
+        raise StoragePolicyError("benchmark input is below the representative minimum")
     if total_logical > ACCE_STORAGE_POLICY_MAX_BENCHMARK_INPUT_BYTES:
         raise StoragePolicyError("benchmark input exceeds the bounded size")
 
@@ -484,6 +487,9 @@ class CASStore:
             output_handle.flush()
             os.fsync(output_handle.fileno())
 
+    def _cleanup_backup(self, backup: Path) -> None:
+        backup.unlink(missing_ok=True)
+
     def transition(
         self,
         sha256: str,
@@ -503,6 +509,7 @@ class CASStore:
         compressed_temp: Path | None = None
         backup_temp: Path | None = None
         published = False
+        metadata_committed = False
 
         def restore_previous() -> None:
             nonlocal backup_temp
@@ -572,12 +579,23 @@ class CASStore:
                         restore_previous()
                         published = False
                         raise
+                metadata_committed = persist_metadata is not None
                 if backup_temp is not None:
-                    backup_temp.unlink(missing_ok=True)
-                    backup_temp = None
+                    if metadata_committed:
+                        try:
+                            self._cleanup_backup(backup_temp)
+                        except OSError:
+                            # PostgreSQL metadata is already durable. Keep the verified
+                            # backup as best-effort cleanup rather than rolling back truth.
+                            backup_temp = None
+                        else:
+                            backup_temp = None
+                    else:
+                        self._cleanup_backup(backup_temp)
+                        backup_temp = None
                 return stored
             except (OSError, zstandard.ZstdError, CASIntegrityError) as exc:
-                if published:
+                if published and not metadata_committed:
                     try:
                         restore_previous()
                     except (OSError, CASStorageError) as restore_exc:
@@ -588,9 +606,11 @@ class CASStore:
                     raise
                 raise CASStorageError("CAS transition failed") from exc
             finally:
-                for temporary in (logical_temp, compressed_temp, backup_temp):
+                for temporary in (logical_temp, compressed_temp):
                     if temporary is not None:
                         temporary.unlink(missing_ok=True)
+                if backup_temp is not None and not metadata_committed:
+                    backup_temp.unlink(missing_ok=True)
 
     def open_verified(self, sha256: str, expected_size: int | None = None) -> BinaryIO:
         """Materialize a fully verified decompression before any response is returned."""
