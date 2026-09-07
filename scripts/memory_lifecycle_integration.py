@@ -36,15 +36,28 @@ def request(
     return http_request(base_url, method, path, payload, timeout=30)
 
 
-def create_repository(root: Path, name: str) -> tuple[Path, str]:
+def create_repository(root: Path, name: str, *, with_decisions: bool = False) -> tuple[Path, str]:
     repository = root / name
     repository.mkdir()
     environment = os.environ.copy()
     run(["git", "init", "-b", "main", str(repository)], env=environment)
     git(repository, ["config", "user.email", "hive-test@example.invalid"], env=environment)
     git(repository, ["config", "user.name", "HIVE Memory Integration"], env=environment)
-    (repository / "README.md").write_text(f"# {name}\n", encoding="utf-8")
-    git(repository, ["add", "README.md"], env=environment)
+    (repository / "README.md").write_bytes(f"# {name}\n".encode())
+    files_to_add = ["README.md"]
+    if with_decisions:
+        decisions_path = repository / "docs" / "project-brain" / "16-DECISIONS-LEDGER.md"
+        decisions_path.parent.mkdir(parents=True)
+        decisions_path.write_bytes(
+            (
+                "# Decisions\n\n"
+                "## HIVE-ADR-019 — Fixture accepted decision\n"
+                "**Status:** Accepted\n\n"
+                "This fixture is an accepted project decision.\n"
+            ).encode()
+        )
+        files_to_add.append("docs/project-brain/16-DECISIONS-LEDGER.md")
+    git(repository, ["add", *files_to_add], env=environment)
     git(repository, ["commit", "-m", "memory fixture"], env=environment)
     return repository, git(repository, ["rev-parse", "HEAD"], env=environment)
 
@@ -109,7 +122,7 @@ def main() -> int:
     }
     api_url = f"http://127.0.0.1:{api_port}"
     try:
-        repository_a, commit_a = create_repository(projects_root, "project-a")
+        repository_a, commit_a = create_repository(projects_root, "project-a", with_decisions=True)
         repository_b, commit_b = create_repository(projects_root, "project-b")
         compose(project_name, ["up", "-d", "--build", "api"], env=environment)
         wait_for_health(api_url)
@@ -179,6 +192,43 @@ def main() -> int:
             staged["origin"] == "MODEL" and staged["status"] != "CANONICAL"
         )
 
+        status, raw_trusted_memory = request(
+            api_url,
+            "POST",
+            f"/api/v1/projects/{project_a_id}/memories",
+            {
+                "type": "PROJECT",
+                "content": "A tracked project source can qualify canonical promotion.",
+                "source": "integration/project-a-readme",
+                "source_commit": commit_a,
+                "authority": "integration-fixture",
+            },
+        )
+        assert_equal(status, 201, "trusted-source memory creation")
+        trusted_memory = require_dict(raw_trusted_memory, "trusted-source memory")
+        status, _ = request(
+            api_url,
+            "POST",
+            f"/api/v1/projects/{project_a_id}/memories/{trusted_memory['memory_id']}/transition",
+            {"status": "CONFIRMED"},
+        )
+        assert_equal(status, 200, "trusted-source confirmation transition")
+        status, raw_trusted_promotion = request(
+            api_url,
+            "POST",
+            f"/api/v1/projects/{project_a_id}/memories/{trusted_memory['memory_id']}/promote",
+            {"kind": "TRUSTED_SOURCE", "reference": "README.md"},
+        )
+        assert_equal(status, 200, "trusted-source qualified promotion")
+        trusted_promotion = require_dict(raw_trusted_promotion, "trusted-source promotion")
+        assert (
+            trusted_promotion["status"] == "CANONICAL"
+            and trusted_promotion["promotion_basis"]["verified"]["resolver"]
+            == "trusted-project-source-v1"
+            and trusted_promotion["promotion_basis"]["verified"]["reference"] == "README.md"
+            and trusted_promotion["promotion_basis"]["verified"]["source_commit"] == commit_a
+        )
+
         status, _ = request(
             api_url,
             "POST",
@@ -220,8 +270,8 @@ def main() -> int:
             "POST",
             f"/api/v1/projects/{project_a_id}/memories/{memory_id}/promote",
             {
-                "kind": "VALIDATED_EVIDENCE",
-                "reference": "memory-lifecycle integration assertions",
+                "kind": "APPROVED_ADR",
+                "reference": "HIVE-ADR-019",
                 "project_id": project_a_id,
             },
         )
@@ -229,27 +279,120 @@ def main() -> int:
         promoted = require_dict(raw_promoted, "promoted memory")
         evidence["memory_canonical_promotion_qualified"] = (
             promoted["status"] == "CANONICAL"
-            and promoted["promotion_basis"]["kind"] == "VALIDATED_EVIDENCE"
+            and promoted["promotion_basis"]["kind"] == "APPROVED_ADR"
             and promoted["promotion_basis"]["project_id"] == project_a_id
+            and promoted["promotion_basis"]["reference"] == "HIVE-ADR-019"
+            and promoted["promotion_basis"]["verified"]["resolver"]
+            == "accepted-decisions-ledger-adr-v1"
+            and promoted["promotion_basis"]["verified"]["status"] == "Accepted"
+            and promoted["promotion_basis"]["verified"]["decisions_source"]["source_commit"]
+            == commit_a
+            and bool(promoted["promotion_basis"]["verified"]["decisions_source"]["git_blob_sha"])
+            and bool(promoted["promotion_basis"]["verified"]["decisions_source"]["source_sha256"])
         )
 
         status, _ = request(
             api_url,
             "POST",
-            f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}/promote",
-            {"kind": "NOT_A_QUALIFYING_BASIS", "reference": "invalid"},
+            f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}/transition",
+            {"status": "CONFIRMED"},
         )
-        assert_equal(status, 422, "invalid promotion rejection")
+        assert_equal(status, 200, "invalid-basis confirmation transition")
+        staged_before_rejection = require_dict(
+            request(
+                api_url,
+                "GET",
+                f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}",
+            )[1],
+            "staged before invalid basis",
+        )
+        staged_before_provenance = require_dict(
+            request(
+                api_url,
+                "GET",
+                f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}/provenance",
+            )[1],
+            "staged provenance before invalid basis",
+        )
+        invalid_basis_cases = (
+            {"kind": "APPROVED_ADR", "reference": "HIVE-ADR-999"},
+            {"kind": "TRUSTED_SOURCE", "reference": "missing/source.md"},
+            {"kind": "VALIDATED_EVIDENCE", "reference": "memory-lifecycle.json"},
+        )
+        invalid_basis_rejections = 0
+        for invalid_basis in invalid_basis_cases:
+            status, _ = request(
+                api_url,
+                "POST",
+                f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}/promote",
+                invalid_basis,
+            )
+            assert_equal(status, 422, "valid-enum invalid-basis rejection")
+            invalid_basis_rejections += 1
         status, raw_staged_after_rejection = request(
             api_url, "GET", f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}"
         )
         assert_equal(status, 200, "invalid promotion atomicity read")
-        assert (
-            require_dict(raw_staged_after_rejection, "staged after rejection")["status"]
-            != "CANONICAL"
+        staged_after_rejection = require_dict(raw_staged_after_rejection, "staged after rejection")
+        status, raw_staged_after_provenance = request(
+            api_url,
+            "GET",
+            f"/api/v1/projects/{project_a_id}/memories/{staged['memory_id']}/provenance",
         )
-        evidence["memory_invalid_promotion_rejections"] = 1
+        assert_equal(status, 200, "invalid promotion atomicity provenance read")
+        staged_after_provenance = require_dict(
+            raw_staged_after_provenance, "staged provenance after rejection"
+        )
+        assert (
+            staged_after_rejection["status"] == staged_before_rejection["status"] == "CONFIRMED"
+            and staged_after_rejection["version"] == staged_before_rejection["version"]
+            and staged_after_rejection["promotion_basis"]
+            == staged_before_rejection["promotion_basis"]
+            and len(staged_after_provenance["history"]) == len(staged_before_provenance["history"])
+        )
+        evidence["memory_invalid_promotion_rejections"] = invalid_basis_rejections
         evidence["memory_invalid_promotion_rejected"] = True
+
+        status, _ = request(
+            api_url,
+            "POST",
+            f"/api/v1/projects/{project_b_id}/memories/{project_b_memory['memory_id']}/transition",
+            {"status": "CONFIRMED"},
+        )
+        assert_equal(status, 200, "project B confirmation transition")
+        project_b_before_rejection = require_dict(
+            request(
+                api_url,
+                "GET",
+                f"/api/v1/projects/{project_b_id}/memories/{project_b_memory['memory_id']}",
+            )[1],
+            "project B before cross-project promotion",
+        )
+        status, _ = request(
+            api_url,
+            "POST",
+            f"/api/v1/projects/{project_b_id}/memories/{project_b_memory['memory_id']}/promote",
+            {"kind": "APPROVED_ADR", "reference": "HIVE-ADR-019"},
+        )
+        assert_equal(status, 422, "cross-project basis rejection")
+        status, raw_project_b_after_rejection = request(
+            api_url,
+            "GET",
+            f"/api/v1/projects/{project_b_id}/memories/{project_b_memory['memory_id']}",
+        )
+        assert_equal(status, 200, "cross-project promotion atomicity read")
+        project_b_after_rejection = require_dict(
+            raw_project_b_after_rejection, "project B after cross-project promotion"
+        )
+        assert (
+            project_b_after_rejection["status"]
+            == project_b_before_rejection["status"]
+            == "CONFIRMED"
+            and project_b_after_rejection["version"] == project_b_before_rejection["version"]
+            and project_b_after_rejection["promotion_basis"]
+            == project_b_before_rejection["promotion_basis"]
+        )
+        evidence["memory_cross_project_rejections"] += 1
 
         status, raw_provenance = request(
             api_url, "GET", f"/api/v1/projects/{project_a_id}/memories/{memory_id}/provenance"

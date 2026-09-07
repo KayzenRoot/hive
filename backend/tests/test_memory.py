@@ -5,11 +5,14 @@ from pydantic import ValidationError
 
 from app.memory import (
     MemoryCreateRequest,
+    MemoryError,
     MemoryOrigin,
     MemoryStatus,
     MemoryType,
     PromotionBasis,
     PromotionBasisKind,
+    _approved_adr_id,
+    _normalized_source_reference,
     validate_transition,
 )
 
@@ -78,3 +81,26 @@ def test_promotion_basis_is_explicit_and_project_bound() -> None:
     assert basis.kind is PromotionBasisKind.VALIDATED_EVIDENCE
     assert basis.project_id == PROJECT_ID
     assert basis.reference == "memory-lifecycle integration evidence"
+
+
+def test_canonical_basis_references_are_strictly_normalized() -> None:
+    assert _approved_adr_id("HIVE-ADR-019") == "HIVE-ADR-019"
+    assert (
+        _approved_adr_id("docs/project-brain/16-DECISIONS-LEDGER.md#HIVE-ADR-019") == "HIVE-ADR-019"
+    )
+    assert _normalized_source_reference("docs/project-brain/16-DECISIONS-LEDGER.md") == (
+        "docs/project-brain/16-DECISIONS-LEDGER.md"
+    )
+    for reference in (
+        "",
+        "../outside.md",
+        "docs/./source.md",
+        "docs//source.md",
+        "docs\\source.md",
+        "/outside.md",
+        "C:/outside.md",
+    ):
+        with pytest.raises(MemoryError):
+            _normalized_source_reference(reference)
+    with pytest.raises(MemoryError):
+        _approved_adr_id("HIVE-ADR-9999")

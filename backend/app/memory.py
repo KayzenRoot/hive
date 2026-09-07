@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -14,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .config import Settings
 from .db import database_connection
+from .registry import ProjectPathError, _run_git, normalize_project_path
 
 MAX_CONTENT_BYTES = 64 * 1024
 MAX_TAGS = 32
@@ -23,6 +26,10 @@ SECRET_PATTERN = re.compile(
     r"(?i)(?:api[_ -]?key|access[_ -]?token|authorization\s*[:=]|password\s*[:=]|"
     r"secret\s*[:=]|bearer\s+[A-Za-z0-9._-]{12,})"
 )
+APPROVED_ADR_REFERENCE_PATTERN = re.compile(
+    r"^(?:docs/project-brain/16-DECISIONS-LEDGER\.md#)?(HIVE-ADR-\d{3})$"
+)
+DECISIONS_LEDGER_PATH = "docs/project-brain/16-DECISIONS-LEDGER.md"
 
 
 class MemoryType(StrEnum):
@@ -242,6 +249,156 @@ def _project_guard(cursor: Any, project_id: UUID) -> None:
         raise MemoryProjectNotFoundError("project not found")
 
 
+def _project_source_root(
+    cursor: Any, settings: Settings, project_id: UUID
+) -> tuple[str, str | None, Path]:
+    cursor.execute(
+        "SELECT relative_path, git_head_sha FROM projects WHERE project_id = %s",
+        (project_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise MemoryProjectNotFoundError("project not found")
+    try:
+        identity, project_path = normalize_project_path(row["relative_path"], settings)
+    except ProjectPathError as exc:
+        raise MemoryError("project source path is not safely resolvable") from exc
+    return identity, row["git_head_sha"], project_path
+
+
+def _normalized_source_reference(reference: str) -> str:
+    value = reference.strip()
+    if (
+        not value
+        or "\x00" in value
+        or "\\" in value
+        or value.startswith("/")
+        or re.match(r"^[A-Za-z]:", value)
+    ):
+        raise MemoryError("trusted source reference must be a safe project-relative path")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise MemoryError("trusted source reference contains an unsafe path component")
+    return "/".join(parts)
+
+
+def _resolve_trusted_source(
+    cursor: Any, settings: Settings, project_id: UUID, reference: str
+) -> tuple[dict[str, Any], Path]:
+    project_identity, expected_head, project_path = _project_source_root(
+        cursor, settings, project_id
+    )
+    normalized = _normalized_source_reference(reference)
+    candidate = (project_path / Path(*normalized.split("/"))).resolve(strict=False)
+    try:
+        candidate.relative_to(project_path)
+    except ValueError as exc:
+        raise MemoryError("trusted source resolves outside the registered project") from exc
+    if not candidate.is_file():
+        raise MemoryError("trusted source does not resolve to a project file")
+    try:
+        tracked = _run_git(
+            project_path,
+            ["ls-files", "--error-unmatch", "--", normalized],
+            allow_nonzero=True,
+        )
+        if tracked.returncode != 0 or tracked.stdout.strip() != normalized:
+            raise MemoryError("trusted source is not a tracked project file")
+        head = _run_git(project_path, ["rev-parse", "HEAD"]).stdout.strip().lower()
+        if expected_head and expected_head.lower() != head:
+            raise MemoryError("registered project HEAD is stale for the trusted source")
+        dirty = _run_git(
+            project_path,
+            ["diff", "--quiet", "HEAD", "--", normalized],
+            allow_nonzero=True,
+        )
+        if dirty.returncode != 0:
+            raise MemoryError("trusted source has uncommitted changes")
+        blob_result = _run_git(
+            project_path,
+            ["rev-parse", f"HEAD:{normalized}"],
+            allow_nonzero=True,
+        )
+        blob = blob_result.stdout.strip().lower()
+        content_sha256 = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    except (OSError, RuntimeError, TimeoutError) as exc:
+        raise MemoryError("trusted source could not be verified deterministically") from exc
+    if re.fullmatch(r"[0-9a-f]{40}", blob) is None or re.fullmatch(r"[0-9a-f]{40}", head) is None:
+        raise MemoryError("trusted source Git identity is invalid")
+    return (
+        {
+            "resolver": "trusted-project-source-v1",
+            "project_relative_path": project_identity,
+            "reference": normalized,
+            "source_commit": head,
+            "git_blob_sha": blob,
+            "source_sha256": content_sha256,
+        },
+        candidate,
+    )
+
+
+def _approved_adr_id(reference: str) -> str:
+    match = APPROVED_ADR_REFERENCE_PATTERN.fullmatch(reference.strip())
+    if match is None:
+        raise MemoryError("approved ADR reference must identify a HIVE-ADR in the decisions ledger")
+    return match.group(1)
+
+
+def _resolve_promotion_basis(
+    cursor: Any, settings: Settings, project_id: UUID, basis: PromotionBasis
+) -> dict[str, Any]:
+    if basis.project_id is not None and basis.project_id != project_id:
+        raise MemoryProjectConflictError("promotion basis belongs to another project")
+    if SECRET_PATTERN.search(basis.reference):
+        raise MemoryError("promotion basis must not contain credentials or secret material")
+    if basis.kind is PromotionBasisKind.VALIDATED_EVIDENCE:
+        raise MemoryError(
+            "VALIDATED_EVIDENCE promotion is unsupported until a trusted deterministic seam exists"
+        )
+    if basis.kind is PromotionBasisKind.TRUSTED_SOURCE:
+        verified, _ = _resolve_trusted_source(cursor, settings, project_id, basis.reference)
+        return {
+            "kind": basis.kind.value,
+            "reference": verified["reference"],
+            "project_id": str(project_id),
+            "verified": verified,
+        }
+    adr_id = _approved_adr_id(basis.reference)
+    verified_source, candidate = _resolve_trusted_source(
+        cursor, settings, project_id, DECISIONS_LEDGER_PATH
+    )
+    try:
+        ledger = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise MemoryError("canonical decisions ledger could not be read") from exc
+    section_match = re.search(
+        rf"(?m)^##[ \t]+{re.escape(adr_id)}(?:[ \t]+—[^\r\n]*)?[ \t]*\r?\n"
+        rf"((?s:.*?))(?=^##[ \t]+|\Z)",
+        ledger,
+    )
+    if (
+        section_match is None
+        or re.search(
+            r"(?im)^[ \t]*\*{0,2}Status\*{0,2}:\*{0,2}[ \t]*Accepted\b",
+            section_match.group(1),
+        )
+        is None
+    ):
+        raise MemoryError("approved ADR does not exist with Status: Accepted")
+    return {
+        "kind": basis.kind.value,
+        "reference": adr_id,
+        "project_id": str(project_id),
+        "verified": {
+            "resolver": "accepted-decisions-ledger-adr-v1",
+            "adr_id": adr_id,
+            "status": "Accepted",
+            "decisions_source": verified_source,
+        },
+    }
+
+
 def _row_with_superseded_by(cursor: Any, row: dict[str, Any]) -> dict[str, Any]:
     cursor.execute(
         """
@@ -410,21 +567,6 @@ def transition_memory(
 def promote_memory(
     settings: Settings, project_id: UUID, memory_id: UUID, basis: PromotionBasis
 ) -> MemoryResponse:
-    if basis.project_id is not None and basis.project_id != project_id:
-        raise MemoryProjectConflictError("promotion basis belongs to another project")
-    _scan_secret_values(
-        MemoryCreateRequest(
-            type=MemoryType.PROJECT,
-            content=basis.reference,
-            source="promotion-basis",
-            authority="promotion",
-        )
-    )
-    basis_payload = {
-        "kind": basis.kind.value,
-        "reference": basis.reference,
-        "project_id": str(project_id),
-    }
     with (
         database_connection(settings) as connection,
         connection.cursor(row_factory=dict_row) as cursor,
@@ -432,6 +574,7 @@ def promote_memory(
         current = _fetch_memory(cursor, project_id, memory_id, lock=True)
         if MemoryStatus(current["status"]) is not MemoryStatus.CONFIRMED:
             raise MemoryError("only CONFIRMED memory may be promoted to CANONICAL")
+        basis_payload = _resolve_promotion_basis(cursor, settings, project_id, basis)
         cursor.execute(
             "UPDATE memory_records SET status = 'CANONICAL', promotion_basis = %s, "
             "version = version + 1, updated_at = now() WHERE project_id = %s AND memory_id = %s "
