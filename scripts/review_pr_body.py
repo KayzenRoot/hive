@@ -1449,6 +1449,133 @@ WO-014 READY FOR SOL AUDIT
 """
 
 
+def _render_wo016_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita exclusivamente o contrato de Review Evidence e o renderer
+dedicado necessários ao futuro WO-016 — ACCE Storage Tier & Compression Policy
+Foundation. Nenhum comportamento de produto ACCE é implementado nesta G1.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base autorizada exata: `5121316c1a577557039f03770ff7031be74d3e0b`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+
+## 3. Escopo fechado
+
+Os únicos arquivos permitidos são `backend/tests/test_review_evidence.py`,
+`schemas/review-evidence-v1.schema.json`, `scripts/review_evidence.py` e
+`scripts/review_pr_body.py`. Project Brain, checkpoint, migrations e todas as
+superfícies de produto permanecem inalterados; o migration head esperado é
+`0006_memory_lifecycle_provenance`.
+
+## 4. Registro fail-closed do futuro WO-016
+
+`WO-016` possui registro explícito, exige base `main` protegida e renderer
+dedicado. O futuro contrato `acce-storage-policy-v1`, em
+`acce-storage-policy.json`, exigirá política HOT/WARM/COLD, seleção interna
+determinística, matriz Zstd medida, identidade SHA-256/CAS, deduplicação,
+lossless round-trip, corrupção fail-closed, atomicidade, medições lógicas e
+físicas, durabilidade após restart/Redis loss e zero perda canônica/chamadas
+LLM/provider. Evidência ausente, malformada ou inconsistente falha fechado.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. O ruleset permanece inalterado e
+auto-merge permanece UNARMED; nenhum merge, release ou promoção canônica é
+executado.
+
+## 6. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-016-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo016_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo e limites
+
+Esta PR implementa somente a fundação ACCE Storage Tier & Compression Policy
+autorizada pelo Work Order. Não há refatoração ampla, limpeza geral, novo MCP,
+telemetria, Control Center, execução autônoma, tool gating ou promoção de
+checkpoint nesta entrega.
+
+## 2. Identidade e Evidence Bundle
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base protegida exata: `{base_sha}`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+- Migration head observado: deve ser explicitamente reportado no bundle.
+
+## 3. Evidência obrigatória
+
+O renderer não substitui evidência por narrativa. O contrato versionado
+`acce-storage-policy-v1` deve estar PASS em `acce-storage-policy.json` e
+reportar política HOT/WARM/COLD interna, perfis/níveis Zstd medidos e dentro
+do range suportado, round-trip lossless com identidade SHA-256 preservada,
+identidade CAS única e deduplicação entre tiers, corrupção/truncamento
+fail-closed, replacement atômico, bytes lógicos/físicos e métricas truthful
+inclusive expansão, restart persistence, Redis não canônico e zero perda de
+fonte canônica.
+
+A matriz deve conter perfil, nível, bytes lógicos/físicos, ratio, savings,
+expansão, amostras bounded, medição repetida e justificativa derivada dos
+resultados medidos. O bundle também registra LLM/provider calls, testes,
+lint, typecheck, build, CI, ruleset, threads, auto-merge e estado de Sol.
+
+## 4. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED;
+nenhum merge/release é executado e Sol audita o HEAD exato.
+
+## 5. Estado final
+
+A PR permanece aberta e Ready. Sol Review State: AWAITING_SOL.
+
+WO-016 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_g1_body(
     *,
     work_order: str,
@@ -1930,6 +2057,32 @@ def render_body(
         )
     if work_order == "WO-014-P":
         return _render_wo014p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-016-G1":
+        return _render_wo016_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-016":
+        return _render_wo016_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

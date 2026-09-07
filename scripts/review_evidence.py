@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import subprocess
 import tempfile
@@ -357,6 +358,41 @@ WO015_MEMORY_INTEGER_FIELDS = (
 )
 WO015_MEMORY_STRING_FIELDS = ("memory_evidence_version", "memory_migration_head")
 WO015_MEMORY_EVIDENCE_FILE = "memory-lifecycle.json"
+ACCE_STORAGE_POLICY_EVIDENCE_VERSION = "acce-storage-policy-v1"
+ACCE_STORAGE_POLICY_EVIDENCE_FILE = "acce-storage-policy.json"
+ACCE_STORAGE_POLICY_ZSTD_MIN_LEVEL = 1
+ACCE_STORAGE_POLICY_ZSTD_MAX_LEVEL = 22
+ACCE_STORAGE_POLICY_MAX_BENCHMARK_ROWS = 16
+ACCE_STORAGE_POLICY_REQUIRED_FIELDS = (
+    "hot_warm_cold_policy_defined",
+    "policy_selection_internal_deterministic",
+    "zstd_lossless_codec",
+    "zstd_profiles_measured",
+    "zstd_levels_supported",
+    "content_identity_sha256_preserved",
+    "dedup_identity_across_tiers",
+    "single_canonical_cas_identity",
+    "corruption_fail_closed",
+    "physical_replacement_atomic",
+    "logical_bytes_measured",
+    "physical_bytes_measured",
+    "compression_measurements_truthful",
+    "dedup_measurements_truthful",
+    "restart_durable",
+    "redis_loss_preserves_cas_truth",
+    "selection_rationale_measured",
+)
+ACCE_STORAGE_POLICY_INTEGER_FIELDS = (
+    "canonical_source_loss_count",
+    "llm_calls",
+    "provider_calls",
+    "dedup_logical_bytes",
+    "dedup_unique_logical_bytes",
+    "dedup_savings_bytes",
+)
+ACCE_STORAGE_POLICY_STRING_FIELDS = ("acce_evidence_version", "storage_policy_version")
+ACCE_STORAGE_POLICY_ALLOWED_TIERS = ("HOT", "WARM", "COLD")
+ACCE_STORAGE_POLICY_PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -389,6 +425,9 @@ WO014P_WORK_ORDER = "WO-014-P"
 WO015P_G1_BASE_SHA = "2c701d221e481913d2cbe9c0b8f3504632042306"
 WO015P_G1_WORK_ORDER = "WO-015-P-G1"
 WO015P_WORK_ORDER = "WO-015-P"
+WO016_G1_BASE_SHA = "5121316c1a577557039f03770ff7031be74d3e0b"
+WO016_G1_WORK_ORDER = "WO-016-G1"
+WO016_WORK_ORDER = "WO-016"
 WO015_G1_BASE_SHA = "e2f95b5dc3c4b44fd8dfef62c1fc0dad8ce8c89d"
 WO015_G1_WORK_ORDER = "WO-015-G1"
 WO015_WORK_ORDER = "WO-015"
@@ -427,6 +466,27 @@ WO015P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO015P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO016_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO016_PRODUCT_ALLOWED_PATHS = frozenset(
+    {
+        "backend/app/cas.py",
+        "backend/app/config.py",
+        "backend/app/task_intake.py",
+        "backend/app/tasks_api.py",
+        "backend/tests/test_cas.py",
+        "scripts/task_intake_integration.py",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+    }
+)
+WO016_MIGRATION_PATH = re.compile(r"^migrations/versions/0007_[a-z0-9_]+\.py$")
 WO013_ALLOWED_PATHS = frozenset(
     {
         "backend/app/context_manager.py",
@@ -780,6 +840,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO015_WORK_ORDER,
         WO015P_G1_WORK_ORDER,
         WO015P_WORK_ORDER,
+        WO016_G1_WORK_ORDER,
+        WO016_WORK_ORDER,
     }:
         return
     if work_order == WO014_C2_WORK_ORDER:
@@ -1523,6 +1585,70 @@ def require_wo015_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> 
         raise ValueError(f"{WO015_G1_WORK_ORDER} cannot change canonical Project Brain")
 
 
+def require_wo016_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != WO016_G1_WORK_ORDER:
+        return
+    if base_sha != WO016_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO016_G1_WORK_ORDER} requires exact base {WO016_G1_BASE_SHA}, observed {base_sha}"
+        )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO016_G1_WORK_ORDER} cannot change canonical Project Brain")
+    unauthorized = sorted(set(paths) - WO016_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO016_G1_WORK_ORDER} changed files outside the bounded evidence/governance scope: "
+            + ", ".join(unauthorized)
+        )
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO016_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO016_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance"
+        )
+
+
+def require_wo016_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO016_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO016_WORK_ORDER} requires the protected main base branch")
+    if base_sha == "0" * 40:
+        raise ValueError(f"{WO016_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and base_sha != current_main:
+            raise ValueError(
+                f"{WO016_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO016_WORK_ORDER} cannot promote or rewrite canonical Project Brain")
+    migration_paths = [path for path in paths if path.startswith("migrations/")]
+    invalid_migrations = [
+        path for path in migration_paths if not WO016_MIGRATION_PATH.fullmatch(path)
+    ]
+    if invalid_migrations or len(migration_paths) > 1:
+        raise ValueError(
+            f"{WO016_WORK_ORDER} permits at most one additive 0007 migration with a bounded name"
+        )
+    unauthorized = sorted(set(paths) - WO016_PRODUCT_ALLOWED_PATHS - set(migration_paths))
+    if unauthorized:
+        raise ValueError(
+            f"{WO016_WORK_ORDER} changed files outside the approved product/evidence surfaces: "
+            + ", ".join(unauthorized)
+        )
+
+
 def require_wo015p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
     if work_order != WO015P_G1_WORK_ORDER:
         return
@@ -1738,6 +1864,85 @@ def require_wo015_memory_evidence(
         raise ValueError("WO-015 requires a Memory migration head beyond 0005_semantic_retrieval")
 
 
+def require_wo016_storage_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != WO016_WORK_ORDER:
+        return
+    storage = integration.get("acce_storage")
+    if not isinstance(storage, Mapping):
+        raise ValueError("WO-016 Review Evidence missing mandatory ACCE storage-policy evidence")
+    missing = [
+        field for field in ACCE_STORAGE_POLICY_REQUIRED_FIELDS if storage.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            "WO-016 Review Evidence missing mandatory ACCE storage-policy evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if storage.get("status") != "PASS":
+        raise ValueError("WO-016 requires passing ACCE storage-policy evidence")
+    if storage.get("evidence_file") != ACCE_STORAGE_POLICY_EVIDENCE_FILE:
+        raise ValueError("WO-016 requires the bounded ACCE storage-policy evidence file")
+    if storage.get("acce_evidence_version") != ACCE_STORAGE_POLICY_EVIDENCE_VERSION:
+        raise ValueError("WO-016 requires the versioned ACCE evidence contract")
+    if migration_head_value is None or not isinstance(migration_head_value, str):
+        raise ValueError("WO-016 requires an observed migration head")
+    for field in ACCE_STORAGE_POLICY_INTEGER_FIELDS:
+        value = storage.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"WO-016 requires bounded integer evidence for {field}")
+    if storage.get("dedup_savings_bytes") != (
+        storage.get("dedup_logical_bytes", 0) - storage.get("dedup_unique_logical_bytes", 0)
+    ):
+        raise ValueError("WO-016 requires truthful dedup savings evidence")
+    for field in ("canonical_source_loss_count", "llm_calls", "provider_calls"):
+        if storage.get(field) != 0:
+            raise ValueError(f"WO-016 requires {field}=0")
+
+
+def verify_wo016_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO016_G1_WORK_ORDER:
+        return None
+    require_wo016_g1_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO016_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO016_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance, "
+            f"observed {migration_head_value}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO016_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO016_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_current_work_order_authorization(WO016_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO016_WORK_ORDER)
+    return (
+        f"work_order={WO016_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        "migration_head=0006_memory_lifecycle_provenance; migration_changed=False; "
+        f"future_{WO016_WORK_ORDER}_registered=PASS; "
+        f"future_{ACCE_STORAGE_POLICY_EVIDENCE_VERSION}_fail_closed=PASS; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
 def verify_wo015_g1_governance_contract(
     work_order: str,
     base_sha: str,
@@ -1750,6 +1955,7 @@ def verify_wo015_g1_governance_contract(
     if work_order != WO015_G1_WORK_ORDER:
         return None
     require_wo015_g1_scope(work_order, base_sha, paths)
+    require_wo016_g1_scope(work_order, base_sha, paths)
     if canonical_changes != {
         "project_brain_changed": False,
         "checkpoint_changed": False,
@@ -2392,6 +2598,200 @@ def integration_file(name: str) -> str:
     return ""
 
 
+def acce_storage_policy_evidence() -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "evidence_file": ACCE_STORAGE_POLICY_EVIDENCE_FILE,
+        "acce_evidence_version": "UNKNOWN",
+        "storage_policy_version": "UNKNOWN",
+        **{field: False for field in ACCE_STORAGE_POLICY_REQUIRED_FIELDS},
+        "canonical_source_loss_count": 0,
+        "llm_calls": 0,
+        "provider_calls": 0,
+        "dedup_logical_bytes": 0,
+        "dedup_unique_logical_bytes": 0,
+        "dedup_savings_bytes": 0,
+        "zstd_supported_level_min": ACCE_STORAGE_POLICY_ZSTD_MIN_LEVEL,
+        "zstd_supported_level_max": ACCE_STORAGE_POLICY_ZSTD_MAX_LEVEL,
+        "policy_mapping": {},
+        "selection_rationale": "",
+        "benchmark_matrix": [],
+    }
+    text = integration_file(ACCE_STORAGE_POLICY_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+
+    values = {field: data.get(field) is True for field in ACCE_STORAGE_POLICY_REQUIRED_FIELDS}
+    strings = {
+        field: data.get(field) if isinstance(data.get(field), str) else "UNKNOWN"
+        for field in ACCE_STORAGE_POLICY_STRING_FIELDS
+    }
+    integers: dict[str, int] = {}
+    integer_fields_valid = True
+    for field in ACCE_STORAGE_POLICY_INTEGER_FIELDS:
+        value = data.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            integer_fields_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+
+    min_level = data.get("zstd_supported_level_min")
+    max_level = data.get("zstd_supported_level_max")
+    levels_valid = (
+        isinstance(min_level, int)
+        and not isinstance(min_level, bool)
+        and isinstance(max_level, int)
+        and not isinstance(max_level, bool)
+        and ACCE_STORAGE_POLICY_ZSTD_MIN_LEVEL <= min_level <= max_level
+        and max_level <= ACCE_STORAGE_POLICY_ZSTD_MAX_LEVEL
+    )
+    if not levels_valid:
+        min_level = ACCE_STORAGE_POLICY_ZSTD_MIN_LEVEL
+        max_level = ACCE_STORAGE_POLICY_ZSTD_MAX_LEVEL
+
+    policy_mapping = data.get("policy_mapping")
+    policy_valid = (
+        isinstance(policy_mapping, dict)
+        and set(policy_mapping) == set(ACCE_STORAGE_POLICY_ALLOWED_TIERS)
+        and all(
+            isinstance(policy_mapping.get(tier), str)
+            and bool(ACCE_STORAGE_POLICY_PROFILE_ID.fullmatch(policy_mapping[tier]))
+            for tier in ACCE_STORAGE_POLICY_ALLOWED_TIERS
+        )
+        and len(set(policy_mapping.values())) == len(ACCE_STORAGE_POLICY_ALLOWED_TIERS)
+    )
+    normalized_policy = policy_mapping if policy_valid else {}
+    rationale = data.get("selection_rationale")
+    rationale_valid = isinstance(rationale, str) and 1 <= len(rationale) <= 2000
+
+    matrix = data.get("benchmark_matrix")
+    matrix_items = matrix if isinstance(matrix, list) else []
+    normalized_matrix: list[dict[str, object]] = []
+    matrix_valid = (
+        isinstance(matrix, list) and 3 <= len(matrix) <= ACCE_STORAGE_POLICY_MAX_BENCHMARK_ROWS
+    )
+    seen_tiers: set[str] = set()
+    seen_profiles: set[str] = set()
+    if matrix_valid:
+        for row in matrix_items:
+            if not isinstance(row, dict):
+                matrix_valid = False
+                continue
+            tier = row.get("tier")
+            profile_id = row.get("profile_id")
+            zstd_level = row.get("zstd_level")
+            logical = row.get("logical_input_bytes")
+            physical = row.get("physical_bytes")
+            ratio = row.get("compression_ratio")
+            savings = row.get("compression_savings_bytes")
+            expands = row.get("compression_expands")
+            round_trip = row.get("round_trip_identity")
+            samples = row.get("measurement_samples")
+            measured = row.get("benchmark_measured")
+            row_valid = (
+                tier in ACCE_STORAGE_POLICY_ALLOWED_TIERS
+                and isinstance(profile_id, str)
+                and bool(ACCE_STORAGE_POLICY_PROFILE_ID.fullmatch(profile_id))
+                and isinstance(zstd_level, int)
+                and not isinstance(zstd_level, bool)
+                and levels_valid
+                and cast(int, min_level) <= zstd_level <= cast(int, max_level)
+                and isinstance(logical, int)
+                and not isinstance(logical, bool)
+                and logical > 0
+                and isinstance(physical, int)
+                and not isinstance(physical, bool)
+                and physical > 0
+                and isinstance(ratio, int | float)
+                and not isinstance(ratio, bool)
+                and math.isfinite(float(ratio))
+                and abs(float(ratio) - (physical / logical)) <= 1e-9
+                and isinstance(savings, int)
+                and not isinstance(savings, bool)
+                and savings == logical - physical
+                and isinstance(expands, bool)
+                and expands is (physical > logical)
+                and round_trip is True
+                and isinstance(samples, int)
+                and not isinstance(samples, bool)
+                and 1 <= samples <= 100
+                and measured is True
+            )
+            if not row_valid:
+                matrix_valid = False
+            if isinstance(tier, str):
+                seen_tiers.add(tier)
+            if isinstance(profile_id, str):
+                seen_profiles.add(profile_id)
+            normalized_matrix.append(
+                {
+                    "tier": tier if isinstance(tier, str) else "UNKNOWN",
+                    "profile_id": profile_id if isinstance(profile_id, str) else "UNKNOWN",
+                    "zstd_level": zstd_level if isinstance(zstd_level, int) else 0,
+                    "logical_input_bytes": logical if isinstance(logical, int) else 0,
+                    "physical_bytes": physical if isinstance(physical, int) else 0,
+                    "compression_ratio": float(ratio) if isinstance(ratio, int | float) else 0.0,
+                    "compression_savings_bytes": savings if isinstance(savings, int) else 0,
+                    "compression_expands": expands if isinstance(expands, bool) else False,
+                    "round_trip_identity": round_trip is True,
+                    "measurement_samples": samples if isinstance(samples, int) else 0,
+                    "benchmark_measured": measured is True,
+                }
+            )
+    if not matrix_valid:
+        normalized_matrix = normalized_matrix[:ACCE_STORAGE_POLICY_MAX_BENCHMARK_ROWS]
+    policy_values = cast(dict[str, str], normalized_policy)
+    mapping_tiers_present = (
+        policy_valid
+        and seen_tiers == set(ACCE_STORAGE_POLICY_ALLOWED_TIERS)
+        and all(policy_values[tier] in seen_profiles for tier in ACCE_STORAGE_POLICY_ALLOWED_TIERS)
+    )
+    counts_valid = (
+        integer_fields_valid
+        and all(value >= 0 for value in integers.values())
+        and integers["dedup_savings_bytes"]
+        == integers["dedup_logical_bytes"] - integers["dedup_unique_logical_bytes"]
+        and integers["dedup_unique_logical_bytes"] <= integers["dedup_logical_bytes"]
+    )
+    status = (
+        "PASS"
+        if data.get("status") == "PASS"
+        and strings["acce_evidence_version"] == ACCE_STORAGE_POLICY_EVIDENCE_VERSION
+        and isinstance(strings["storage_policy_version"], str)
+        and bool(re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", strings["storage_policy_version"]))
+        and all(values.values())
+        and counts_valid
+        and integers["canonical_source_loss_count"] == 0
+        and integers["llm_calls"] == 0
+        and integers["provider_calls"] == 0
+        and levels_valid
+        and policy_valid
+        and rationale_valid
+        and matrix_valid
+        and mapping_tiers_present
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        "evidence_file": ACCE_STORAGE_POLICY_EVIDENCE_FILE,
+        **values,
+        **strings,
+        **integers,
+        "zstd_supported_level_min": min_level,
+        "zstd_supported_level_max": max_level,
+        "policy_mapping": normalized_policy,
+        "selection_rationale": rationale if isinstance(rationale, str) else "",
+        "benchmark_matrix": normalized_matrix,
+    }
+
+
 def integration_result(name: str, markers: tuple[str, ...]) -> dict[str, object]:
     text = integration_file(name)
     passed = bool(text) and all(marker.casefold() in text.casefold() for marker in markers)
@@ -2457,7 +2857,7 @@ def context_manager_evidence() -> dict[str, object]:
         and llm_calls == 0
         else "FAIL"
     )
-    evidence = {
+    evidence: dict[str, object] = {
         "status": status,
         "evidence_file": evidence_file,
         **values,
@@ -2660,7 +3060,9 @@ def retrieval_integrity(text: str) -> dict[str, bool]:
     }
 
 
-def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
+def integration_evidence(
+    benchmark: dict[str, object], *, work_order: str = ""
+) -> dict[str, object]:
     retrieval = integration_file("retrieval.log") + integration_file("retrieval-integration.txt")
     status = (
         "PASS"
@@ -2676,8 +3078,11 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
     memory = memory_lifecycle_evidence()
     if memory["status"] == "FAIL":
         status = "FAIL"
+    acce_storage = acce_storage_policy_evidence()
+    if acce_storage["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
-    return {
+    evidence: dict[str, object] = {
         "status": status,
         "project_registry": integration_result(
             "project-registry.log", ("project registry integration passed",)
@@ -2726,6 +3131,9 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
             "rerank": benchmark["rerank"],
         },
     }
+    if work_order == WO016_WORK_ORDER:
+        evidence["acce_storage"] = acce_storage
+    return evidence
 
 
 def security_evidence(
@@ -3745,12 +4153,19 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo016_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
     benchmark = benchmark_fields(VALIDATION / "retrieval-benchmark.json")
     tests = tests_evidence(validation, tests_text)
-    integration = integration_evidence(benchmark)
+    integration = integration_evidence(benchmark, work_order=work_order)
     require_wo009_context_manager_evidence(work_order, integration)
     require_wo010_progressive_disclosure_evidence(
         work_order,
@@ -3778,6 +4193,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     require_wo015_memory_evidence(work_order, integration, migration_head())
+    require_wo016_storage_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -3820,6 +4236,15 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo015p_g1_governance_evidence = verify_wo015p_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo016_g1_governance_evidence = verify_wo016_g1_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -3921,6 +4346,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             [f"WO-015-P-G1 governance evidence: {wo015p_g1_governance_evidence}"]
             if wo015p_g1_governance_evidence
             else []
+        )
+        + (
+            [f"WO-016-G1 governance evidence: {wo016_g1_governance_evidence}"]
+            if wo016_g1_governance_evidence
+            else []
         ),
     }
 
@@ -3970,6 +4400,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
     )
+    require_wo016_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+    )
     require_wo012p_scope(
         work_order,
         cast(str, base["sha"]),
@@ -4006,6 +4441,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
         enforce_current_main=True,
         enforce_authorized_base=False,
+    )
+    require_wo016_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
     )
     if work_order == "WO-008-G1":
         require_wo008_g1_scope(
@@ -4083,6 +4527,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         )
     if work_order == WO014_C2_WORK_ORDER:
         require_wo014_c2_scope(
+            work_order,
+            cast(str, base["sha"]),
+            cast(list[str], changed_files["paths"]),
+        )
+    if work_order == WO016_G1_WORK_ORDER:
+        require_wo016_g1_scope(
             work_order,
             cast(str, base["sha"]),
             cast(list[str], changed_files["paths"]),
@@ -4170,6 +4620,21 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-015-P-G1 evidence must record the explicit promotion governance contract"
             )
+    wo016_g1_evidence = verify_wo016_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO016_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-016-G1 governance evidence: {wo016_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-016-G1 evidence must record the explicit governance enablement contract"
+            )
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -4209,6 +4674,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo015_memory_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo016_storage_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -4657,6 +5127,26 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{memory_evidence.get('memory_generic_decision_id_qualified', False)}`, identity `"
         f"{memory_evidence.get('memory_provenance_identity_consistent', False)}`"
     )
+    acce_storage_evidence = cast(dict[str, Any], integration.get("acce_storage", {}))
+    acce_benchmark_matrix = acce_storage_evidence.get("benchmark_matrix")
+    acce_benchmark_rows = (
+        len(acce_benchmark_matrix) if isinstance(acce_benchmark_matrix, list) else 0
+    )
+    acce_storage_text = (
+        f"`{acce_storage_evidence.get('status', 'UNKNOWN')}`; version `"
+        f"{acce_storage_evidence.get('acce_evidence_version', 'UNKNOWN')}`, policy `"
+        f"{acce_storage_evidence.get('storage_policy_version', 'UNKNOWN')}`, HOT/WARM/COLD `"
+        f"{acce_storage_evidence.get('hot_warm_cold_policy_defined', False)}`, benchmark rows `"
+        f"{acce_benchmark_rows}`, "
+        f"logical/physical measured `"
+        f"{acce_storage_evidence.get('logical_bytes_measured', False)}/"
+        f"{acce_storage_evidence.get('physical_bytes_measured', False)}`, dedup truthful `"
+        f"{acce_storage_evidence.get('dedup_measurements_truthful', False)}`, canonical loss `"
+        f"{acce_storage_evidence.get('canonical_source_loss_count', 'UNKNOWN')}`, "
+        f"LLM/provider calls `"
+        f"{acce_storage_evidence.get('llm_calls', 'UNKNOWN')}/"
+        f"{acce_storage_evidence.get('provider_calls', 'UNKNOWN')}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -4668,6 +5158,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("api_restart", "API restart"),
             ("reranking", "Reranking"),
             ("context_manager", "Context Manager"),
+            ("acce_storage", "ACCE Storage Policy"),
         )
         if key in integration
     )
@@ -4708,6 +5199,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Delta Context evidence: {delta_text}
 - Provider/Prompt Cache evidence: {provider_cache_text}
 - Memory Lifecycle evidence: {memory_text}
+- ACCE Storage Policy evidence: {acce_storage_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
 - WO-015-G1 governance evidence: {wo015_g1_governance_text}

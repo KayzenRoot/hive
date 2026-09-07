@@ -12,6 +12,9 @@ import scripts.review_evidence as review_evidence
 from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, redact_service_logs
 from scripts.review_bundle import deterministic_zip
 from scripts.review_evidence import (
+    ACCE_STORAGE_POLICY_EVIDENCE_FILE,
+    ACCE_STORAGE_POLICY_EVIDENCE_VERSION,
+    ACCE_STORAGE_POLICY_REQUIRED_FIELDS,
     CONTEXT_MANAGER_REQUIRED_FIELDS,
     SCHEMA_PATH,
     WO008_G1_ALLOWED_PATHS,
@@ -51,6 +54,12 @@ from scripts.review_evidence import (
     WO015P_G1_WORK_ORDER,
     WO015P_PROMOTION_ALLOWED_PATHS,
     WO015P_WORK_ORDER,
+    WO016_G1_ALLOWED_PATHS,
+    WO016_G1_BASE_SHA,
+    WO016_G1_WORK_ORDER,
+    WO016_PRODUCT_ALLOWED_PATHS,
+    WO016_WORK_ORDER,
+    acce_storage_policy_evidence,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -96,6 +105,9 @@ from scripts.review_evidence import (
     require_wo015p_checkpoint_semantics,
     require_wo015p_g1_scope,
     require_wo015p_scope,
+    require_wo016_g1_scope,
+    require_wo016_scope,
+    require_wo016_storage_evidence,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -103,6 +115,7 @@ from scripts.review_evidence import (
     verify_wo014p_g1_governance_contract,
     verify_wo015_g1_governance_contract,
     verify_wo015p_g1_governance_contract,
+    verify_wo016_g1_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -293,6 +306,69 @@ def memory_evidence_fixture(
     return evidence
 
 
+def acce_storage_evidence_fixture() -> dict[str, object]:
+    return {
+        "status": "PASS",
+        "evidence_file": ACCE_STORAGE_POLICY_EVIDENCE_FILE,
+        "acce_evidence_version": ACCE_STORAGE_POLICY_EVIDENCE_VERSION,
+        "storage_policy_version": "acce-policy-v1",
+        **{field: True for field in ACCE_STORAGE_POLICY_REQUIRED_FIELDS},
+        "canonical_source_loss_count": 0,
+        "llm_calls": 0,
+        "provider_calls": 0,
+        "dedup_logical_bytes": 300,
+        "dedup_unique_logical_bytes": 200,
+        "dedup_savings_bytes": 100,
+        "zstd_supported_level_min": 1,
+        "zstd_supported_level_max": 22,
+        "policy_mapping": {"HOT": "hot-fast", "WARM": "warm-balanced", "COLD": "cold-dense"},
+        "selection_rationale": (
+            "Measured bounded matrix selects profiles by observed compression and access policy."
+        ),
+        "benchmark_matrix": [
+            {
+                "tier": "HOT",
+                "profile_id": "hot-fast",
+                "zstd_level": 1,
+                "logical_input_bytes": 100,
+                "physical_bytes": 50,
+                "compression_ratio": 0.5,
+                "compression_savings_bytes": 50,
+                "compression_expands": False,
+                "round_trip_identity": True,
+                "measurement_samples": 3,
+                "benchmark_measured": True,
+            },
+            {
+                "tier": "WARM",
+                "profile_id": "warm-balanced",
+                "zstd_level": 5,
+                "logical_input_bytes": 100,
+                "physical_bytes": 60,
+                "compression_ratio": 0.6,
+                "compression_savings_bytes": 40,
+                "compression_expands": False,
+                "round_trip_identity": True,
+                "measurement_samples": 3,
+                "benchmark_measured": True,
+            },
+            {
+                "tier": "COLD",
+                "profile_id": "cold-dense",
+                "zstd_level": 12,
+                "logical_input_bytes": 100,
+                "physical_bytes": 80,
+                "compression_ratio": 0.8,
+                "compression_savings_bytes": 20,
+                "compression_expands": False,
+                "round_trip_identity": True,
+                "measurement_samples": 3,
+                "benchmark_measured": True,
+            },
+        ],
+    }
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
@@ -337,6 +413,131 @@ def test_wo015_g1_scope_is_exact_and_future_scope_stays_noncanonical() -> None:
             WO015_WORK_ORDER,
             "b" * 40,
             ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+
+
+def test_wo016_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    require_supported_work_order(WO016_G1_WORK_ORDER)
+    require_supported_work_order(WO016_WORK_ORDER)
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    require_wo016_g1_scope(WO016_G1_WORK_ORDER, WO016_G1_BASE_SHA, sorted(WO016_G1_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo016_g1_scope(WO016_G1_WORK_ORDER, "a" * 40, sorted(WO016_G1_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="outside"):
+        require_wo016_g1_scope(
+            WO016_G1_WORK_ORDER,
+            WO016_G1_BASE_SHA,
+            [*sorted(WO016_G1_ALLOWED_PATHS), "backend/app/cas.py"],
+        )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo016_g1_scope(
+            WO016_G1_WORK_ORDER,
+            WO016_G1_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+    with pytest.raises(ValueError, match="migrations"):
+        require_wo016_g1_scope(
+            WO016_G1_WORK_ORDER,
+            WO016_G1_BASE_SHA,
+            ["migrations/versions/0007_acce.py"],
+        )
+
+    product_paths = sorted(WO016_PRODUCT_ALLOWED_PATHS) + ["migrations/versions/0007_acce.py"]
+    require_wo016_scope(WO016_WORK_ORDER, "a" * 40, product_paths)
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo016_scope(WO016_WORK_ORDER, "a" * 40, ["docs/project-brain/13-CHECKPOINT.md"])
+    with pytest.raises(ValueError, match="at most one"):
+        require_wo016_scope(
+            WO016_WORK_ORDER,
+            "a" * 40,
+            ["migrations/versions/0007_acce.py", "migrations/versions/0007_other.py"],
+        )
+    with pytest.raises(ValueError, match="outside"):
+        require_wo016_scope(WO016_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
+
+
+def test_wo016_storage_evidence_is_versioned_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation = tmp_path / "validation"
+    logs = tmp_path / "integration-logs"
+    validation.mkdir()
+    logs.mkdir()
+    monkeypatch.setattr(review_evidence, "VALIDATION", validation)
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", logs)
+    evidence_path = logs / ACCE_STORAGE_POLICY_EVIDENCE_FILE
+    fixture = acce_storage_evidence_fixture()
+    evidence_path.write_text(json.dumps(fixture), encoding="utf-8")
+    parsed = acce_storage_policy_evidence()
+    assert parsed["status"] == "PASS"
+    require_wo016_storage_evidence(
+        WO016_WORK_ORDER,
+        {"acce_storage": parsed},
+        "0007_acce_storage_policy",
+    )
+    with pytest.raises(ValueError, match="missing mandatory"):
+        require_wo016_storage_evidence(WO016_WORK_ORDER, {}, "0007_acce_storage_policy")
+    for field in (
+        "acce_evidence_version",
+        "hot_warm_cold_policy_defined",
+        "zstd_lossless_codec",
+        "content_identity_sha256_preserved",
+        "corruption_fail_closed",
+        "dedup_measurements_truthful",
+    ):
+        broken = dict(parsed)
+        broken[field] = "wrong" if field == "acce_evidence_version" else False
+        with pytest.raises(ValueError, match="passing|missing mandatory|versioned"):
+            require_wo016_storage_evidence(
+                WO016_WORK_ORDER, {"acce_storage": broken}, "0007_acce_storage_policy"
+            )
+    for field, value in (
+        ("canonical_source_loss_count", 1),
+        ("llm_calls", 1),
+        ("provider_calls", 1),
+        ("dedup_savings_bytes", 99),
+    ):
+        broken = dict(parsed)
+        broken[field] = value
+        with pytest.raises(ValueError, match="requires"):
+            require_wo016_storage_evidence(
+                WO016_WORK_ORDER, {"acce_storage": broken}, "0007_acce_storage_policy"
+            )
+
+    malformed = dict(fixture)
+    benchmark_matrix = cast(list[dict[str, object]], fixture["benchmark_matrix"])
+    malformed["benchmark_matrix"] = [{**benchmark_matrix[0], "zstd_level": 23}]
+    evidence_path.write_text(json.dumps(malformed), encoding="utf-8")
+    assert acce_storage_policy_evidence()["status"] == "FAIL"
+
+
+def test_wo016_g1_governance_contract_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    evidence = verify_wo016_g1_governance_contract(
+        WO016_G1_WORK_ORDER,
+        WO016_G1_BASE_SHA,
+        sorted(WO016_G1_ALLOWED_PATHS),
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {},
+        "0006_memory_lifecycle_provenance",
+    )
+    assert evidence is not None
+    assert "future_WO-016_registered=PASS" in evidence
+    assert "acce-storage-policy-v1" in evidence
+    with pytest.raises(ValueError, match="auto-merge"):
+        verify_wo016_g1_governance_contract(
+            WO016_G1_WORK_ORDER,
+            WO016_G1_BASE_SHA,
+            sorted(WO016_G1_ALLOWED_PATHS),
+            {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": True}},
+            {},
+            "0006_memory_lifecycle_provenance",
         )
 
 
@@ -435,6 +636,29 @@ def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_me
     assert "<!-- HIVE-AUTHORIZED-BASE: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->" in promotion
     assert "WO-015-P READY FOR SOL AUDIT" in promotion
     assert "memory-lifecycle-provenance-v1" not in unknown
+
+
+def test_wo016_renderers_are_dedicated_and_explicit() -> None:
+    common: dict[str, Any] = {
+        "pr_number": 60,
+        "branch": "governance/wo016-acce-storage-review-evidence",
+        "base_sha": WO016_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "hive-review-evidence-WO-016-G1-b",
+        "ruleset_before": "unchanged",
+        "ruleset_after": "unchanged",
+        "merge_before": "unarmed",
+        "merge_after": "unarmed",
+    }
+    g1 = render_body(work_order=WO016_G1_WORK_ORDER, **common)
+    future = render_body(work_order=WO016_WORK_ORDER, **common)
+    assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-016-G1 -->")
+    assert "acce-storage-policy-v1" in g1
+    assert "comportamento de produto ACCE" in g1
+    assert future.startswith("<!-- HIVE-WORK-ORDER: WO-016 -->")
+    assert "matriz" in future
+    assert "LLM/provider calls" in future
+    assert "WO-016 READY FOR SOL AUDIT" in future
 
 
 @pytest.mark.parametrize(
