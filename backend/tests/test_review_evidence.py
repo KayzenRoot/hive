@@ -5,7 +5,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import scripts.review_evidence as review_evidence
@@ -39,6 +39,13 @@ from scripts.review_evidence import (
     WO014P_G1_WORK_ORDER,
     WO014P_PROMOTION_ALLOWED_PATHS,
     WO014P_WORK_ORDER,
+    WO015_G1_ALLOWED_PATHS,
+    WO015_G1_BASE_SHA,
+    WO015_G1_WORK_ORDER,
+    WO015_MEMORY_EVIDENCE_FILE,
+    WO015_MEMORY_INTEGER_FIELDS,
+    WO015_MEMORY_REQUIRED_FIELDS,
+    WO015_WORK_ORDER,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -48,6 +55,7 @@ from scripts.review_evidence import (
     governance_evidence,
     junit_counts,
     manifest_log,
+    memory_lifecycle_evidence,
     parse_authorized_base_marker,
     parse_work_order_marker,
     require_current_work_order_authorization,
@@ -77,11 +85,15 @@ from scripts.review_evidence import (
     require_wo014p_checkpoint_semantics,
     require_wo014p_g1_scope,
     require_wo014p_scope,
+    require_wo015_g1_scope,
+    require_wo015_memory_evidence,
+    require_wo015_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
     verify_wo014_c2_governance_contract,
     verify_wo014p_g1_governance_contract,
+    verify_wo015_g1_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -253,11 +265,157 @@ def evidence_fixture() -> dict[str, object]:
     }
 
 
+def memory_evidence_fixture(
+    migration_head: str = "0006_memory_lifecycle_provenance",
+) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "status": "PASS",
+        "evidence_file": WO015_MEMORY_EVIDENCE_FILE,
+        **{field: True for field in WO015_MEMORY_REQUIRED_FIELDS},
+        **{field: 1 for field in WO015_MEMORY_INTEGER_FIELDS},
+        "memory_project_count": 2,
+        "memory_history_versions": 2,
+        "memory_secret_leaks": 0,
+        "memory_llm_calls": 0,
+        "memory_provider_calls": 0,
+        "memory_evidence_version": "memory-lifecycle-provenance-v1",
+        "memory_migration_head": migration_head,
+    }
+    return evidence
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert schema["properties"]["schema_version"]["const"] == 1
+
+
+def test_wo015_is_explicitly_registered_and_unknown_ids_do_not_get_memory_semantics() -> None:
+    require_supported_work_order(WO015_G1_WORK_ORDER)
+    require_supported_work_order(WO015_WORK_ORDER)
+    with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
+        require_supported_work_order("WO-015-P")
+    require_wo015_memory_evidence("WO-999", {})
+
+
+def test_wo015_g1_scope_is_exact_and_future_scope_stays_noncanonical() -> None:
+    require_wo015_g1_scope(
+        WO015_G1_WORK_ORDER,
+        WO015_G1_BASE_SHA,
+        sorted(WO015_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo015_g1_scope(WO015_G1_WORK_ORDER, "a" * 40, sorted(WO015_G1_ALLOWED_PATHS))
+    with pytest.raises(ValueError, match="outside the approved governance scope"):
+        require_wo015_g1_scope(
+            WO015_G1_WORK_ORDER,
+            WO015_G1_BASE_SHA,
+            [*sorted(WO015_G1_ALLOWED_PATHS), "backend/app/memory.py"],
+        )
+    require_wo015_scope(WO015_WORK_ORDER, "b" * 40, ["backend/app/memory.py"])
+    with pytest.raises(ValueError, match="base branch"):
+        require_wo015_scope(
+            WO015_WORK_ORDER,
+            "b" * 40,
+            ["backend/app/memory.py"],
+            base_branch="release",
+        )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo015_scope(
+            WO015_WORK_ORDER,
+            "b" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+
+
+def test_wo015_memory_evidence_is_bounded_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+    evidence_path = integration_logs / WO015_MEMORY_EVIDENCE_FILE
+    evidence_path.write_text(json.dumps(memory_evidence_fixture()), encoding="utf-8")
+    parsed = memory_lifecycle_evidence()
+    assert parsed["status"] == "PASS"
+    require_wo015_memory_evidence(
+        WO015_WORK_ORDER,
+        {"memory": parsed},
+        "0006_memory_lifecycle_provenance",
+    )
+    with pytest.raises(ValueError, match="missing mandatory Memory evidence"):
+        require_wo015_memory_evidence(WO015_WORK_ORDER, {}, "0006_memory_lifecycle_provenance")
+    incomplete = dict(parsed)
+    incomplete["memory_invalid_promotion_rejected"] = False
+    with pytest.raises(ValueError, match="missing mandatory Memory evidence"):
+        require_wo015_memory_evidence(
+            WO015_WORK_ORDER,
+            {"memory": incomplete},
+            "0006_memory_lifecycle_provenance",
+        )
+    with pytest.raises(ValueError, match="migration head"):
+        require_wo015_memory_evidence(
+            WO015_WORK_ORDER,
+            {"memory": parsed},
+            "0005_semantic_retrieval",
+        )
+
+
+def test_wo015_g1_governance_contract_proves_negative_scope() -> None:
+    evidence = verify_wo015_g1_governance_contract(
+        WO015_G1_WORK_ORDER,
+        WO015_G1_BASE_SHA,
+        sorted(WO015_G1_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"context_manager": {"memory_lifecycle_implemented": False}},
+        "0005_semantic_retrieval",
+    )
+    assert evidence is not None
+    assert "future_WO-015_registered=PASS" in evidence
+    assert "future_memory_evidence_fail_closed=PASS" in evidence
+    with pytest.raises(ValueError, match="must not implement Memory"):
+        verify_wo015_g1_governance_contract(
+            WO015_G1_WORK_ORDER,
+            WO015_G1_BASE_SHA,
+            sorted(WO015_G1_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"context_manager": {"memory_lifecycle_implemented": True}},
+            "0005_semantic_retrieval",
+        )
+
+
+def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_memory() -> None:
+    common: dict[str, Any] = {
+        "pr_number": 50,
+        "branch": "governance/wo015-g1-review-evidence-enablement",
+        "base_sha": "a" * 40,
+        "head_sha": "b" * 40,
+        "artifact_name": "hive-review-evidence-WO-015-b",
+        "ruleset_before": "unchanged",
+        "ruleset_after": "unchanged",
+        "merge_before": "unarmed",
+        "merge_after": "unarmed",
+    }
+    g1 = render_body(work_order=WO015_G1_WORK_ORDER, **common)
+    future = render_body(work_order=WO015_WORK_ORDER, **common)
+    unknown = render_body(work_order="WO-999", **common)
+    assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-015-G1 -->")
+    assert "não implementa Memory" in g1
+    assert "memory-lifecycle-provenance-v1" in g1
+    assert "memory-lifecycle-provenance-v1" in future
+    assert "PostgreSQL" in future
+    assert "memory-lifecycle-provenance-v1" not in unknown
 
 
 @pytest.mark.parametrize(

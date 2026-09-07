@@ -1449,6 +1449,169 @@ WO-014 READY FOR SOL AUDIT
 """
 
 
+def _render_wo015_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita exclusivamente o contrato de Review Evidence e o renderer de
+PR necessários para o futuro WO-015 de Memory Lifecycle and Provenance.
+
+## 2. Base, branch e head
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base semântica exata: `{base_sha}`.
+- HEAD exato desta revisão: `{head_sha}`.
+
+## 3. Escopo G1
+
+O verificador reconhece explicitamente `WO-015-G1`, exige a base autorizada e
+rejeita qualquer arquivo fora do conjunto de governança/evidência autorizado.
+Project Brain, checkpoint, migrations e código de produto permanecem fora da
+alteração.
+
+## 4. Registro do futuro WO-015
+
+`WO-015` agora possui registro explícito, escopo fail-closed para PR de produto
+contra `main` e renderer dedicado. IDs desconhecidos não herdam semântica de
+Memory.
+
+## 5. Contrato de evidência Memory
+
+O contrato versionado `memory-lifecycle-provenance-v1` exige evidência bounded
+para PostgreSQL durável, Redis não canônico, isolamento project-scoped,
+proveniência, saída de modelo staged, promoção canônica qualificada, rejeição
+de promoção inválida, histórico/supersession, restart, perda de Redis,
+segredos e consistência de migration. Faltas, tipos inválidos ou contagens não
+computadas falham fechado.
+
+## 6. Testes e regressão
+
+Há testes de escopo G1, registro explícito, seleção de renderer, contrato de
+evidência Memory completo/incompleto, rejeições de promoção inválida e
+work-order desconhecido, além da regressão de WO-014 e WO-014-P.
+
+## 7. Negativo explícito
+
+Esta PR não implementa Memory, não cria migration/tabela/API, não altera
+Project Brain, não promove checkpoint, não altera ruleset e não executa
+merge/release.
+
+## 8. Governança GitHub
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. O auto-merge permanece UNARMED;
+merge SQUASH e auditoria de Sol continuam obrigatórios.
+
+## 9. Artefato
+
+O Evidence Bundle bounded é `{artifact_name}` e fica vinculado ao HEAD exato.
+
+## 10. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-015-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo015_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Resumo
+
+Esta PR implementa a menor fundação Memory Lifecycle and Provenance,
+project-scoped e durável, sobre PostgreSQL. Derivações e Redis permanecem
+não canônicos.
+
+## 2. Referências exatas
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base exata: `{base_sha}`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+
+## 3. Durabilidade e escopo
+
+Registros canônicos vivem em PostgreSQL; Redis é somente HOT/noncanonical.
+Todas as leituras, listas, transições e promoções exigem project scope e
+rejeitam cross-project. A evidência cobre restart e perda de Redis.
+
+## 4. Lifecycle e proveniência
+
+Working, Session, Project, Semantic, Episodic, Decision, Failure e Procedural
+preservam status, identidade, fonte, versão/commit, confiança, importância,
+autoridade, tags e histórico. Supersession/deprecation preserva o registro
+anterior e sua proveniência.
+
+## 5. Gate canônico
+
+Saída de modelo/executor inicia staged/noncanonical. Promoção só aceita fonte
+confiável, evidência validada ou decisão aprovada; ausência ou invalidez falha
+explicitamente sem mutar o registro canônico.
+
+## 6. Evidence contract
+
+`memory-lifecycle-provenance-v1` comprova PostgreSQL, Redis não canônico,
+isolamento, proveniência, staged output, promoção qualificada, rejeição de
+promoção inválida, histórico, restart, Redis loss, segredos e migration head.
+O contrato exige contagens bounded e zero chamadas LLM/provider no gate.
+
+## 7. Migration, testes e segurança
+
+Migration additive/reversible, testes unitários e de integração cobrem
+transições, escopo, proveniência, promoção, histórico e recuperação. Nenhum
+segredo é armazenado, retornado ou registrado.
+
+## 8. Escopo negativo
+
+Não há MCP memory tools, UI de Memory, dispatch autônomo, shared memory,
+upgrade não relacionado, limpeza ampla, checkpoint promotion ou merge.
+
+## 9. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece desarmado;
+Sol audita o HEAD exato e somente SQUASH é permitido.
+
+## 10. Estado final
+
+A PR permanece aberta e Ready. Sol Review State: AWAITING_SOL.
+
+WO-015 READY FOR SOL AUDIT
+"""
+
+
 def render_body(
     *,
     work_order: str,
@@ -1639,6 +1802,32 @@ def render_body(
         )
     if work_order == "WO-014-P":
         return _render_wo014p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-015-G1":
+        return _render_wo015_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-015":
+        return _render_wo015_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
