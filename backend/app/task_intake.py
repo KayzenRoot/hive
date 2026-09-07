@@ -395,7 +395,23 @@ def create_task(
     if not project_exists(settings, project_id):
         raise ProjectNotFoundError("project not found")
     store = CASStore(settings)
-    candidate_blob = store.put(source_path)
+
+    def reject_recreated_representation(candidate: StoredBlob) -> None:
+        with database_connection(settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM cas_blobs
+                WHERE sha256 = %s
+                """,
+                (candidate.sha256,),
+            )
+            if cursor.fetchone() is not None:
+                raise CASStorageError(
+                    "CAS durable metadata exists while its physical representation was recreated"
+                )
+
+    candidate_blob = store.put(source_path, publish_guard=reject_recreated_representation)
     extraction = source.extraction
     task_id = uuid4()
     with database_connection(settings) as connection, connection.cursor() as cursor:

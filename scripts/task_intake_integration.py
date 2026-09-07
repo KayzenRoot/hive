@@ -400,6 +400,138 @@ def cleanup_failure_probe(
     return result.stdout.strip().splitlines()[-1] == "PASS"
 
 
+def missing_physical_reingest_probe(
+    project_name: str,
+    environment: dict[str, str],
+    project_id: str,
+    task_id: str,
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    policy_literal = repr(policy)
+    code = (
+        "import json\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "from uuid import UUID\n"
+        "from app.cas import CASStorageError, CASStore, StoragePolicy, StorageProfile\n"
+        "from app.config import Settings\n"
+        "from app.db import database_connection\n"
+        "from app.task_intake import (\n"
+        "    ExtractionResult, ValidatedSource, create_task, transition_task_blob\n"
+        ")\n"
+        f"policy_payload = {policy_literal}\n"
+        "policy = StoragePolicy(\n"
+        "    version=policy_payload['storage_policy_version'],\n"
+        "    selected_profiles={\n"
+        "        tier: StorageProfile(\n"
+        "            tier=profile['tier'], profile_id=profile['profile_id'],\n"
+        "            zstd_level=profile['zstd_level'],\n"
+        "        )\n"
+        "        for tier, profile in policy_payload['selected_profiles'].items()\n"
+        "    },\n"
+        "    benchmark_matrix=tuple(policy_payload['benchmark_matrix']),\n"
+        "    selection_rationale=policy_payload['selection_rationale'],\n"
+        ")\n"
+        "settings = Settings()\n"
+        "store = CASStore(settings)\n"
+        f"project_id = UUID({project_id!r})\n"
+        f"task_id = UUID({task_id!r})\n"
+        "digest = None\n"
+        "with database_connection(settings) as connection, connection.cursor() as cursor:\n"
+        "    cursor.execute(\n"
+        "        'SELECT original_blob_sha256 FROM tasks WHERE task_id = %s AND project_id = %s',\n"
+        "        (task_id, project_id),\n"
+        "    )\n"
+        "    digest = cursor.fetchone()[0]\n"
+        "    cursor.execute(\n"
+        "        'SELECT logical_size, physical_size, codec, codec_config '\n"
+        "        'FROM cas_blobs WHERE sha256 = %s',\n"
+        "        (digest,),\n"
+        "    )\n"
+        "    before = cursor.fetchone()\n"
+        "    cursor.execute('SELECT count(*) FROM tasks WHERE project_id = %s', (project_id,))\n"
+        "    task_count_before = cursor.fetchone()[0]\n"
+        "assert before is not None\n"
+        "transition_task_blob(\n"
+        "    settings, project_id, task_id, policy, 'COLD', policy.profile_for('COLD')\n"
+        ")\n"
+        "with database_connection(settings) as connection, connection.cursor() as cursor:\n"
+        "    cursor.execute(\n"
+        "        'SELECT logical_size, physical_size, codec, codec_config '\n"
+        "        'FROM cas_blobs WHERE sha256 = %s',\n"
+        "        (digest,),\n"
+        "    )\n"
+        "    before = cursor.fetchone()\n"
+        "    cursor.execute('SELECT count(*) FROM tasks WHERE project_id = %s', (project_id,))\n"
+        "    task_count_before = cursor.fetchone()[0]\n"
+        "path = store.blob_path(digest)\n"
+        "assert path.stat().st_size == before[1]\n"
+        "backup = store.temp_root / f'{digest}.c3-backup'\n"
+        "backup.write_bytes(path.read_bytes())\n"
+        "logical = store.read_verified(digest, before[0])\n"
+        "assert store.read_verified(digest, before[0]) == logical\n"
+        "pre_delete_physical_size = path.stat().st_size\n"
+        "pre_delete_codec_config = before[3]\n"
+        "path.unlink()\n"
+        "source = store.temp_root / 'integration-missing-physical-retry.txt'\n"
+        "source.write_bytes(logical)\n"
+        "default_codec_config = store.codec_config.copy()\n"
+        "failed = False\n"
+        "error = ''\n"
+        "try:\n"
+        "    create_task(settings, project_id, source, ValidatedSource(\n"
+        "        source_type='TXT', media_type='text/plain', original_filename='retry.txt',\n"
+        "        extraction=ExtractionResult(\n"
+        "            extraction_kind='text', extractor='integration',\n"
+        "            extractor_version='1', config_sha256='c3-retry-config',\n"
+        "            status='READY', text='retry', page_count=None, error=None,\n"
+        "        ),\n"
+        "    ), 'Missing physical retry')\n"
+        "except CASStorageError as exc:\n"
+        "    failed = True\n"
+        "    error = str(exc)\n"
+        "with database_connection(settings) as connection, connection.cursor() as cursor:\n"
+        "    cursor.execute(\n"
+        "        'SELECT logical_size, physical_size, codec, codec_config '\n"
+        "        'FROM cas_blobs WHERE sha256 = %s',\n"
+        "        (digest,),\n"
+        "    )\n"
+        "    after = cursor.fetchone()\n"
+        "    cursor.execute('SELECT count(*) FROM tasks WHERE project_id = %s', (project_id,))\n"
+        "    task_count_after = cursor.fetchone()[0]\n"
+        "assert failed\n"
+        "assert 'physical representation was recreated' in error\n"
+        "assert not path.exists()\n"
+        "rejected_path_exists = path.exists()\n"
+        "assert after == before\n"
+        "assert task_count_after == task_count_before\n"
+        "assert default_codec_config != before[3]\n"
+        "os.replace(backup, path)\n"
+        "assert store.read_verified(digest, before[0]) == logical\n"
+        "source.unlink(missing_ok=True)\n"
+        "print(json.dumps({\n"
+        "    'failed_closed': failed,\n"
+        "    'task_count_unchanged': task_count_after == task_count_before,\n"
+        "    'physical_path_after_rejected_retry': (\n"
+        "        None if not rejected_path_exists else path.stat().st_size\n"
+        "    ),\n"
+        "    'persisted_physical_size': after[1],\n"
+        "    'persisted_codec_config': after[3],\n"
+        "    'retry_default_codec_config': default_codec_config,\n"
+        "    'pre_delete_physical_size': pre_delete_physical_size,\n"
+        "    'pre_delete_codec_config': pre_delete_codec_config,\n"
+        "    'pre_delete_metadata_matches_physical': pre_delete_physical_size == before[1],\n"
+        "    'metadata_unchanged': after == before,\n"
+        "    'restored_exact_bytes': store.read_verified(digest, before[0]) == logical,\n"
+        "}))"
+    )
+    result = api_python(project_name, environment, code)
+    value = json.loads(result.stdout.strip().splitlines()[-1])
+    if not isinstance(value, dict):
+        raise AssertionError(f"missing physical re-ingest evidence is not an object: {value!r}")
+    return value
+
+
 def benchmark_bounds_probe(project_name: str, environment: dict[str, str]) -> tuple[bool, bool]:
     code = (
         "from app.cas import (\n"
@@ -742,6 +874,48 @@ def main() -> int:
         assert_equal(idempotent_status, 200, "idempotent transition readable")
         assert_equal(idempotent_body, pdf_bytes, "idempotent transition exact bytes")
 
+        missing_physical_reingest = missing_physical_reingest_probe(
+            project_name,
+            environment,
+            project_a_id,
+            pdf_task_id,
+            policy,
+        )
+        assert_equal(
+            missing_physical_reingest["failed_closed"],
+            True,
+            "missing physical re-ingest fails closed",
+        )
+        assert_equal(
+            missing_physical_reingest["metadata_unchanged"],
+            True,
+            "missing physical retry preserves durable metadata",
+        )
+        assert_equal(
+            missing_physical_reingest["task_count_unchanged"],
+            True,
+            "missing physical retry does not create a task",
+        )
+        assert_equal(
+            missing_physical_reingest["pre_delete_metadata_matches_physical"],
+            True,
+            "transition metadata matches physical representation before removal",
+        )
+        assert_equal(
+            missing_physical_reingest["physical_path_after_rejected_retry"],
+            None,
+            "rejected replacement is removed",
+        )
+        restored_hot = transition_blob(
+            project_name,
+            environment,
+            project_a_id,
+            pdf_task_id,
+            policy,
+            "HOT",
+        )
+        assert_equal(restored_hot["sha256"], pdf_digest, "C3 post-probe HOT restoration SHA")
+
         metadata_before_reingest = blob_metadata(project_name, environment, pdf_digest)
         status, duplicate_after_transition = multipart_upload(
             base_url,
@@ -1045,6 +1219,20 @@ def main() -> int:
             "persisted_metadata_not_reconstructed_from_settings": persisted_config
             == metadata_before_reingest["codec_config"],
             "duplicate_put_truthful_existing_representation": duplicate_low_level_truth,
+            "missing_physical_reingest_fail_closed": missing_physical_reingest["failed_closed"],
+            "missing_physical_reingest_no_task_success": missing_physical_reingest[
+                "task_count_unchanged"
+            ],
+            "missing_physical_reingest_metadata_unchanged": missing_physical_reingest[
+                "metadata_unchanged"
+            ],
+            "missing_physical_reingest_replacement_removed": missing_physical_reingest[
+                "physical_path_after_rejected_retry"
+            ]
+            is None,
+            "missing_physical_transition_truthful_before_removal": missing_physical_reingest[
+                "pre_delete_metadata_matches_physical"
+            ],
             "redis_loss_preserves_cas_truth": persisted_without_redis["original_blob_sha256"]
             == str(text_task["original_blob_sha256"]),
             "selection_rationale_measured": "Measured deterministic selection"
@@ -1076,6 +1264,7 @@ def main() -> int:
                         for tier, profile in selected_profiles.items()
                         if isinstance(profile, dict)
                     },
+                    "missing_physical_reingest": missing_physical_reingest,
                     "selection_rationale": policy["selection_rationale"],
                     "benchmark_matrix": benchmark_matrix,
                 },

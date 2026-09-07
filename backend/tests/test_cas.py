@@ -442,3 +442,20 @@ def test_duplicate_put_does_not_overwrite_active_representation(tmp_path: Path) 
     assert conflicting.path == duplicate.path == initial.path
     assert conflicting.path.read_bytes() == active
     assert len(list((tmp_path / "cas" / "sha256").rglob("*.zst"))) == 1
+
+
+def test_publish_guard_removes_rejected_new_representation(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    source = tmp_path / "guarded-retry.txt"
+    payload = b"durable metadata must not describe a rejected replacement\n" * 4096
+    source.write_bytes(payload)
+    initial = store.put(source)
+    initial.path.unlink()
+
+    def reject(_stored: StoredBlob) -> None:
+        raise CASStorageError("durable metadata already exists")
+
+    with pytest.raises(CASStorageError, match="durable metadata already exists"):
+        store.put(source, publish_guard=reject)
+
+    assert not initial.path.exists()

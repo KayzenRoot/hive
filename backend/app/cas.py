@@ -385,8 +385,20 @@ class CASStore:
         with cls._publish_locks_guard:
             return cls._publish_locks.setdefault(digest, threading.Lock())
 
-    def put(self, source: Path, profile: StorageProfile | None = None) -> StoredBlob:
-        """Compress a bounded temporary source and publish it atomically by digest."""
+    def put(
+        self,
+        source: Path,
+        profile: StorageProfile | None = None,
+        *,
+        publish_guard: Callable[[StoredBlob], None] | None = None,
+    ) -> StoredBlob:
+        """Compress a bounded source and publish it atomically by digest.
+
+        ``publish_guard`` runs while the per-digest publication lock is held,
+        after a new physical representation is published.  A guard failure
+        removes that just-published representation before the lock is released,
+        so a rejected repair cannot masquerade as the durable CAS truth.
+        """
         compressed_temp: Path | None = None
         digest_builder = hashlib.sha256()
         logical_size = 0
@@ -443,15 +455,31 @@ class CASStore:
                         else:
                             os.replace(compressed_temp, final_path)
                             compressed_temp = None
-            return StoredBlob(
-                sha256=digest,
-                logical_size=logical_size,
-                physical_size=final_path.stat().st_size,
-                codec="zstd",
-                codec_config=(codec_config if published_new else {"representation": "existing"}),
-                path=final_path,
-                published_new=published_new,
-            )
+                stored = StoredBlob(
+                    sha256=digest,
+                    logical_size=logical_size,
+                    physical_size=final_path.stat().st_size,
+                    codec="zstd",
+                    codec_config=(
+                        codec_config if published_new else {"representation": "existing"}
+                    ),
+                    path=final_path,
+                    published_new=published_new,
+                )
+                if publish_guard is not None and published_new:
+                    try:
+                        publish_guard(stored)
+                    except Exception:
+                        try:
+                            self._verify_path(final_path, digest, logical_size)
+                            final_path.unlink()
+                            self._fsync_directory(final_path.parent)
+                        except (OSError, CASIntegrityError) as cleanup_exc:
+                            raise CASStorageError(
+                                "CAS publish guard failed and cleanup was unsafe"
+                            ) from cleanup_exc
+                        raise
+            return stored
         except (OSError, zstandard.ZstdError) as exc:
             raise CASStorageError("CAS write failed") from exc
         finally:
