@@ -3,7 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
+
+EXACT_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _require_exact_head(work_order: str, head_sha: str) -> None:
+    if work_order in {"WO-016-G1", "WO-016"} and not EXACT_SHA.fullmatch(head_sha):
+        raise ValueError(
+            f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
+        )
 
 
 def _render_wo008_body(
@@ -1882,6 +1892,7 @@ def render_body(
     auto_merge_owner_login: str = "",
     auto_merge_owner_type: str = "",
 ) -> str:
+    _require_exact_head(work_order, head_sha)
     if work_order == "WO-008":
         return _render_wo008_body(
             work_order=work_order,

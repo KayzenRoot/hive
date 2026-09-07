@@ -363,6 +363,7 @@ ACCE_STORAGE_POLICY_EVIDENCE_FILE = "acce-storage-policy.json"
 ACCE_STORAGE_POLICY_ZSTD_MIN_LEVEL = 1
 ACCE_STORAGE_POLICY_ZSTD_MAX_LEVEL = 22
 ACCE_STORAGE_POLICY_MAX_BENCHMARK_ROWS = 16
+ACCE_STORAGE_POLICY_MAX_THROUGHPUT_MIB_PER_S = 1_000_000.0
 ACCE_STORAGE_POLICY_REQUIRED_FIELDS = (
     "hot_warm_cold_policy_defined",
     "policy_selection_internal_deterministic",
@@ -2678,7 +2679,17 @@ def acce_storage_policy_evidence() -> dict[str, object]:
         isinstance(matrix, list) and 3 <= len(matrix) <= ACCE_STORAGE_POLICY_MAX_BENCHMARK_ROWS
     )
     seen_tiers: set[str] = set()
-    seen_profiles: set[str] = set()
+    seen_pairs: set[tuple[str, str]] = set()
+    duplicate_pairs = False
+
+    def valid_throughput(value: object) -> bool:
+        return (
+            isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            and 0.0 < float(value) <= ACCE_STORAGE_POLICY_MAX_THROUGHPUT_MIB_PER_S
+        )
+
     if matrix_valid:
         for row in matrix_items:
             if not isinstance(row, dict):
@@ -2695,6 +2706,17 @@ def acce_storage_policy_evidence() -> dict[str, object]:
             round_trip = row.get("round_trip_identity")
             samples = row.get("measurement_samples")
             measured = row.get("benchmark_measured")
+            compression_throughput = row.get("compression_mib_per_s")
+            decompression_throughput = row.get("decompression_mib_per_s")
+            pair = (
+                (tier, profile_id)
+                if isinstance(tier, str) and isinstance(profile_id, str)
+                else None
+            )
+            if pair is not None:
+                if pair in seen_pairs:
+                    duplicate_pairs = True
+                seen_pairs.add(pair)
             row_valid = (
                 tier in ACCE_STORAGE_POLICY_ALLOWED_TIERS
                 and isinstance(profile_id, str)
@@ -2723,13 +2745,13 @@ def acce_storage_policy_evidence() -> dict[str, object]:
                 and not isinstance(samples, bool)
                 and 1 <= samples <= 100
                 and measured is True
+                and valid_throughput(compression_throughput)
+                and valid_throughput(decompression_throughput)
             )
             if not row_valid:
                 matrix_valid = False
             if isinstance(tier, str):
                 seen_tiers.add(tier)
-            if isinstance(profile_id, str):
-                seen_profiles.add(profile_id)
             normalized_matrix.append(
                 {
                     "tier": tier if isinstance(tier, str) else "UNKNOWN",
@@ -2743,6 +2765,18 @@ def acce_storage_policy_evidence() -> dict[str, object]:
                     "round_trip_identity": round_trip is True,
                     "measurement_samples": samples if isinstance(samples, int) else 0,
                     "benchmark_measured": measured is True,
+                    "compression_mib_per_s": (
+                        float(compression_throughput)
+                        if isinstance(compression_throughput, int | float)
+                        and not isinstance(compression_throughput, bool)
+                        else 0.0
+                    ),
+                    "decompression_mib_per_s": (
+                        float(decompression_throughput)
+                        if isinstance(decompression_throughput, int | float)
+                        and not isinstance(decompression_throughput, bool)
+                        else 0.0
+                    ),
                 }
             )
     if not matrix_valid:
@@ -2751,7 +2785,10 @@ def acce_storage_policy_evidence() -> dict[str, object]:
     mapping_tiers_present = (
         policy_valid
         and seen_tiers == set(ACCE_STORAGE_POLICY_ALLOWED_TIERS)
-        and all(policy_values[tier] in seen_profiles for tier in ACCE_STORAGE_POLICY_ALLOWED_TIERS)
+        and not duplicate_pairs
+        and all(
+            (tier, policy_values[tier]) in seen_pairs for tier in ACCE_STORAGE_POLICY_ALLOWED_TIERS
+        )
     )
     counts_valid = (
         integer_fields_valid

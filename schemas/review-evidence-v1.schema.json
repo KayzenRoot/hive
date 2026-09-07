@@ -824,7 +824,9 @@
         "compression_expands",
         "round_trip_identity",
         "measurement_samples",
-        "benchmark_measured"
+        "benchmark_measured",
+        "compression_mib_per_s",
+        "decompression_mib_per_s"
       ],
       "properties": {
         "tier": { "type": "string", "enum": ["HOT", "WARM", "COLD"] },
@@ -837,7 +839,17 @@
         "compression_expands": { "type": "boolean" },
         "round_trip_identity": { "type": "boolean" },
         "measurement_samples": { "type": "integer", "minimum": 1, "maximum": 100 },
-        "benchmark_measured": { "type": "boolean" }
+        "benchmark_measured": { "type": "boolean" },
+        "compression_mib_per_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000
+        },
+        "decompression_mib_per_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000
+        }
       }
     },
     "auto_merge": {

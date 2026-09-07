@@ -338,6 +338,8 @@ def acce_storage_evidence_fixture() -> dict[str, object]:
                 "round_trip_identity": True,
                 "measurement_samples": 3,
                 "benchmark_measured": True,
+                "compression_mib_per_s": 250.0,
+                "decompression_mib_per_s": 400.0,
             },
             {
                 "tier": "WARM",
@@ -351,6 +353,8 @@ def acce_storage_evidence_fixture() -> dict[str, object]:
                 "round_trip_identity": True,
                 "measurement_samples": 3,
                 "benchmark_measured": True,
+                "compression_mib_per_s": 180.0,
+                "decompression_mib_per_s": 320.0,
             },
             {
                 "tier": "COLD",
@@ -364,6 +368,8 @@ def acce_storage_evidence_fixture() -> dict[str, object]:
                 "round_trip_identity": True,
                 "measurement_samples": 3,
                 "benchmark_measured": True,
+                "compression_mib_per_s": 90.0,
+                "decompression_mib_per_s": 220.0,
             },
         ],
     }
@@ -513,6 +519,51 @@ def test_wo016_storage_evidence_is_versioned_and_fails_closed(
     assert acce_storage_policy_evidence()["status"] == "FAIL"
 
 
+def test_wo016_storage_evidence_rejects_tier_binding_and_performance_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logs = tmp_path / "integration-logs"
+    logs.mkdir()
+    monkeypatch.setattr(review_evidence, "VALIDATION", tmp_path / "validation")
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", logs)
+    fixture = acce_storage_evidence_fixture()
+    matrix = cast(list[dict[str, object]], fixture["benchmark_matrix"])
+    evidence_path = logs / ACCE_STORAGE_POLICY_EVIDENCE_FILE
+    mutations: list[tuple[str, dict[str, object]]] = []
+
+    for tier, profile in (("HOT", "cold-dense"), ("COLD", "hot-fast")):
+        swapped = json.loads(json.dumps(fixture))
+        cast(dict[str, str], swapped["policy_mapping"])[tier] = profile
+        mutations.append((f"swapped-{tier}", swapped))
+
+    missing_profile = json.loads(json.dumps(fixture))
+    cast(dict[str, str], missing_profile["policy_mapping"])["HOT"] = "not-measured"
+    mutations.append(("missing-profile", missing_profile))
+
+    for field in ("compression_mib_per_s", "decompression_mib_per_s"):
+        missing_performance = json.loads(json.dumps(fixture))
+        for row in cast(list[dict[str, object]], missing_performance["benchmark_matrix"]):
+            row.pop(field)
+        mutations.append((f"missing-{field}", missing_performance))
+
+    for value in (0, -1, float("nan"), float("inf"), True, 1_000_001):
+        for field in ("compression_mib_per_s", "decompression_mib_per_s"):
+            invalid_performance = json.loads(json.dumps(fixture))
+            cast(list[dict[str, object]], invalid_performance["benchmark_matrix"])[0][field] = value
+            mutations.append((f"invalid-{field}-{value}", invalid_performance))
+
+    duplicate = json.loads(json.dumps(fixture))
+    cast(list[dict[str, object]], duplicate["benchmark_matrix"]).append(dict(matrix[0]))
+    mutations.append(("duplicate-selected-pair", duplicate))
+
+    for _, mutation in mutations:
+        evidence_path.write_text(json.dumps(mutation), encoding="utf-8")
+        assert acce_storage_policy_evidence()["status"] == "FAIL"
+
+    evidence_path.write_text(json.dumps(fixture), encoding="utf-8")
+    assert acce_storage_policy_evidence()["status"] == "PASS"
+
+
 def test_wo016_g1_governance_contract_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
@@ -659,6 +710,12 @@ def test_wo016_renderers_are_dedicated_and_explicit() -> None:
     assert "matriz" in future
     assert "LLM/provider calls" in future
     assert "WO-016 READY FOR SOL AUDIT" in future
+    for work_order in (WO016_G1_WORK_ORDER, WO016_WORK_ORDER):
+        abbreviated = {**common, "head_sha": "ae0a3e6"}
+        with pytest.raises(ValueError, match="40-hex exact HEAD"):
+            render_body(work_order=work_order, **abbreviated)
+        exact = render_body(work_order=work_order, **{**common, "head_sha": "a" * 40})
+        assert "a" * 40 in exact
 
 
 @pytest.mark.parametrize(
