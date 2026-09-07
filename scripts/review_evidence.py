@@ -562,9 +562,7 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         WO015P_WORK_ORDER,
     }
 )
-ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
-    {WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}
-)
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -1328,9 +1326,7 @@ def require_wo016p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
     base_pending = checkpoint_bullets(base, "PENDING")
     candidate_pending = checkpoint_bullets(candidate, "PENDING")
     if base_pending.count(EXPECTED_WO016P_PENDING_ITEM) != 1:
-        raise ValueError(
-            "WO-016-P promotion base must contain exactly one ACCE pending item"
-        )
+        raise ValueError("WO-016-P promotion base must contain exactly one ACCE pending item")
     expected_pending = list(base_pending)
     expected_pending.remove(EXPECTED_WO016P_PENDING_ITEM)
     if candidate_pending != expected_pending:
@@ -2122,9 +2118,7 @@ def require_wo016_storage_evidence(
         work_order in {WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}
         and migration_head_value != "0006_memory_lifecycle_provenance"
     ):
-        raise ValueError(
-            "WO-016-P requires migration head 0006_memory_lifecycle_provenance"
-        )
+        raise ValueError("WO-016-P requires migration head 0006_memory_lifecycle_provenance")
     for field in ACCE_STORAGE_POLICY_INTEGER_FIELDS:
         value = storage.get(field)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -2148,9 +2142,7 @@ def require_wo016_storage_evidence(
                 raise ValueError("WO-016-P requires structured benchmark rows")
             tier = row.get("tier")
             if tier not in counts or row.get("benchmark_measured") is not True:
-                raise ValueError(
-                    "WO-016-P requires six measured HOT/WARM/COLD benchmark rows"
-                )
+                raise ValueError("WO-016-P requires six measured HOT/WARM/COLD benchmark rows")
             counts[cast(str, tier)] += 1
         if counts != {"HOT": 2, "WARM": 2, "COLD": 2}:
             raise ValueError("WO-016-P requires two measured benchmark candidates per tier")
@@ -5251,8 +5243,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         (
             entry.split(": ", 1)[1]
             for entry in cast(list[object], manifest["negative_scope"])
-            if isinstance(entry, str)
-            and entry.startswith("WO-016-P-G1 governance evidence: ")
+            if isinstance(entry, str) and entry.startswith("WO-016-P-G1 governance evidence: ")
         ),
         "NOT_RECORDED",
     )
