@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import socket
+import subprocess
 import tempfile
 import urllib.error
 import urllib.request
@@ -24,6 +25,7 @@ from project_registry_integration import (
 )
 
 SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
+EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "acce-storage-policy.json"
 
 
 def free_port() -> int:
@@ -124,12 +126,103 @@ def scalar(project_name: str, environment: dict[str, str], query: str) -> str:
     ).stdout.strip()
 
 
+def api_python(
+    project_name: str, environment: dict[str, str], code: str, *, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return compose(
+        project_name,
+        ["exec", "-T", "api", "python", "-c", code],
+        env=environment,
+        check=check,
+    )
+
+
+def blob_metadata(project_name: str, environment: dict[str, str], digest: str) -> dict[str, Any]:
+    raw = scalar(
+        project_name,
+        environment,
+        "SELECT json_build_object("
+        "'sha256', sha256, 'logical_size', logical_size, 'physical_size', physical_size, "
+        "'codec', codec, 'codec_config', codec_config)::text FROM cas_blobs "
+        f"WHERE sha256 = '{digest}'",
+    )
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise AssertionError(f"CAS metadata is not an object: {value!r}")
+    return value
+
+
+def measure_policy(
+    project_name: str, environment: dict[str, str], digests: list[str]
+) -> dict[str, Any]:
+    digests_literal = repr(digests)
+    code = (
+        "import json\n"
+        "from app.cas import CASStore, measure_storage_policy, select_storage_policy\n"
+        "from app.config import Settings\n"
+        "settings = Settings()\n"
+        "store = CASStore(settings)\n"
+        f"samples = [store.read_verified(digest) for digest in {digests_literal}]\n"
+        "policy = measure_storage_policy(samples)\n"
+        "repeat = select_storage_policy(list(policy.benchmark_matrix))\n"
+        "selected = {\n"
+        "    tier: profile.profile_id\n"
+        "    for tier, profile in policy.selected_profiles.items()\n"
+        "}\n"
+        "repeat_selected = {\n"
+        "    tier: profile.profile_id\n"
+        "    for tier, profile in repeat.selected_profiles.items()\n"
+        "}\n"
+        "deterministic_selection = selected == repeat_selected\n"
+        "assert deterministic_selection\n"
+        "print(json.dumps({'storage_policy_version': policy.version, "
+        "'selected_profiles': {tier: {'tier': profile.tier, 'profile_id': profile.profile_id, "
+        "'zstd_level': profile.zstd_level} for tier, profile in policy.selected_profiles.items()}, "
+        "'benchmark_matrix': list(policy.benchmark_matrix), "
+        "'selection_rationale': policy.selection_rationale, "
+        "'deterministic_selection': deterministic_selection}))"
+    )
+    result = api_python(project_name, environment, code)
+    value = json.loads(result.stdout.strip().splitlines()[-1])
+    if not isinstance(value, dict):
+        raise AssertionError(f"storage policy is not an object: {value!r}")
+    return value
+
+
+def transition_blob(
+    project_name: str,
+    environment: dict[str, str],
+    project_id: str,
+    task_id: str,
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    profile_literal = repr(profile)
+    code = (
+        "import json\n"
+        "from uuid import UUID\n"
+        "from app.cas import StorageProfile\n"
+        "from app.config import Settings\n"
+        "from app.task_intake import transition_task_blob\n"
+        f"profile = {profile_literal}\n"
+        f"stored = transition_task_blob(Settings(), UUID({project_id!r}), UUID({task_id!r}), "
+        "StorageProfile(profile['tier'], profile['profile_id'], profile['zstd_level']))\n"
+        "print(json.dumps({'sha256': stored.sha256, 'logical_size': stored.logical_size, "
+        "'physical_size': stored.physical_size, 'codec_config': stored.codec_config}))"
+    )
+    result = api_python(project_name, environment, code)
+    value = json.loads(result.stdout.strip().splitlines()[-1])
+    if not isinstance(value, dict):
+        raise AssertionError(f"transition result is not an object: {value!r}")
+    return value
+
+
 def main() -> int:
     api_port = free_port()
     dashboard_port = free_port()
     project_name = f"hive-intake-{os.getpid()}"
     temporary_parent = ROOT / "tmp"
     temporary_parent.mkdir(parents=True, exist_ok=True)
+    EVIDENCE_OUTPUT.unlink(missing_ok=True)
     temporary_root = Path(tempfile.mkdtemp(prefix="task-intake-", dir=temporary_parent))
     environment = os.environ.copy()
     environment.update(
@@ -338,6 +431,185 @@ def main() -> int:
         if storage["compression_delta_bytes"] < 0:
             assert storage["compression_savings_bytes"] is None
 
+        policy = measure_policy(
+            project_name,
+            environment,
+            [
+                str(text_task["original_blob_sha256"]),
+                str(markdown_task["original_blob_sha256"]),
+                pdf_digest,
+                str(no_text_task["original_blob_sha256"]),
+            ],
+        )
+        selected_profiles = policy["selected_profiles"]
+        benchmark_matrix = policy["benchmark_matrix"]
+        assert policy["storage_policy_version"] == "acce-policy-v1"
+        assert isinstance(selected_profiles, dict)
+        assert isinstance(benchmark_matrix, list)
+        assert len(benchmark_matrix) == 6
+        assert set(selected_profiles) == {"HOT", "WARM", "COLD"}
+        for tier, profile in selected_profiles.items():
+            assert isinstance(profile, dict)
+            selected_row = next(
+                (
+                    row
+                    for row in benchmark_matrix
+                    if isinstance(row, dict)
+                    and row.get("tier") == tier
+                    and row.get("profile_id") == profile.get("profile_id")
+                ),
+                None,
+            )
+            assert selected_row is not None, f"selected profile is not measured for {tier}"
+
+        transition_results: list[dict[str, Any]] = []
+        for tier in ("HOT", "WARM", "COLD", "HOT"):
+            profile = selected_profiles[tier]
+            assert isinstance(profile, dict)
+            result = transition_blob(project_name, environment, project_a_id, pdf_task_id, profile)
+            assert_equal(result["sha256"], pdf_digest, f"{tier} transition SHA")
+            metadata = blob_metadata(project_name, environment, pdf_digest)
+            config = metadata["codec_config"]
+            assert isinstance(config, dict)
+            assert_equal(config["tier"], tier, f"{tier} durable tier")
+            assert_equal(config["profile_id"], profile["profile_id"], f"{tier} durable profile")
+            assert_equal(config["zstd_level"], profile["zstd_level"], f"{tier} durable level")
+            assert_equal(
+                metadata["physical_size"], result["physical_size"], f"{tier} physical size"
+            )
+            artifact_status, artifact_body, artifact_headers = download(
+                base_url, project_a_id, pdf_task_id
+            )
+            assert_equal(artifact_status, 200, f"{tier} readable transition")
+            assert_equal(artifact_body, pdf_bytes, f"{tier} exact logical bytes")
+            assert_equal(
+                artifact_headers["x-hive-original-sha256"], pdf_digest, f"{tier} SHA header"
+            )
+            transition_results.append(result)
+
+        idempotent_transition = transition_blob(
+            project_name,
+            environment,
+            project_a_id,
+            pdf_task_id,
+            selected_profiles["HOT"],
+        )
+        assert_equal(idempotent_transition["sha256"], pdf_digest, "idempotent transition SHA")
+        idempotent_metadata = blob_metadata(project_name, environment, pdf_digest)
+        assert_equal(
+            idempotent_metadata["codec_config"]["tier"],
+            selected_profiles["HOT"]["tier"],
+            "idempotent transition durable tier",
+        )
+        idempotent_status, idempotent_body, _ = download(base_url, project_a_id, pdf_task_id)
+        assert_equal(idempotent_status, 200, "idempotent transition readable")
+        assert_equal(idempotent_body, pdf_bytes, "idempotent transition exact bytes")
+
+        metadata_before_reingest = blob_metadata(project_name, environment, pdf_digest)
+        status, duplicate_after_transition = multipart_upload(
+            base_url,
+            project_a_id,
+            "same-content-after-transition.pdf",
+            pdf_bytes,
+            "Duplicate after transition",
+        )
+        assert_equal(status, 201, "duplicate after transition status")
+        assert isinstance(duplicate_after_transition, dict)
+        assert_equal(
+            duplicate_after_transition["original_blob_sha256"],
+            pdf_digest,
+            "duplicate after transition identity",
+        )
+        metadata_after_reingest = blob_metadata(project_name, environment, pdf_digest)
+        assert_equal(
+            metadata_after_reingest["codec_config"],
+            metadata_before_reingest["codec_config"],
+            "re-ingest preserves active profile",
+        )
+        assert_equal(
+            metadata_after_reingest["physical_size"],
+            metadata_before_reingest["physical_size"],
+            "re-ingest preserves active physical size",
+        )
+
+        persisted_metadata_probe = api_python(
+            project_name,
+            environment,
+            (
+                "import json\n"
+                "from uuid import UUID\n"
+                "from app.config import Settings\n"
+                "from app.task_intake import task_blob\n"
+                f"_, stored = task_blob(Settings(cas_zstd_level=1), UUID({project_a_id!r}), "
+                f"UUID({pdf_task_id!r}))\n"
+                "print(json.dumps(stored.codec_config))"
+            ),
+        )
+        persisted_config = json.loads(persisted_metadata_probe.stdout.strip().splitlines()[-1])
+        assert persisted_config == metadata_before_reingest["codec_config"]
+
+        failed_transition = api_python(
+            project_name,
+            environment,
+            (
+                "from app.cas import CASStorageError, CASStore, StorageProfile\n"
+                "from app.config import Settings\n"
+                f"digest = {pdf_digest!r}\n"
+                "settings = Settings()\n"
+                "store = CASStore(settings)\n"
+                "path = store.blob_path(digest)\n"
+                "before = path.read_bytes()\n"
+                "def fail_compression(*_args, **_kwargs):\n"
+                "    raise OSError('forced target compression failure')\n"
+                "store._compress_file = fail_compression\n"
+                "failed = False\n"
+                "try:\n"
+                "    store.transition(\n"
+                "        digest, StorageProfile('COLD', 'forced-failure', 15), "
+                f"expected_size={len(pdf_bytes)}\n"
+                "    )\n"
+                "except CASStorageError:\n"
+                "    failed = True\n"
+                "assert failed and path.read_bytes() == before\n"
+                f"assert store.read_verified(digest, {len(pdf_bytes)}) == {pdf_bytes!r}\n"
+                "print('PASS')"
+            ),
+        )
+        assert failed_transition.stdout.strip().splitlines()[-1] == "PASS"
+
+        corruption_transition = api_python(
+            project_name,
+            environment,
+            (
+                "import os\n"
+                "from uuid import UUID\n"
+                "from app.cas import CASIntegrityError, CASStore, StorageProfile\n"
+                "from app.config import Settings\n"
+                "from app.task_intake import transition_task_blob\n"
+                "settings = Settings()\n"
+                "store = CASStore(settings)\n"
+                f"path = store.blob_path({pdf_digest!r})\n"
+                "backup = store.temp_root / 'integration-corruption-backup.zst'\n"
+                "backup.write_bytes(path.read_bytes())\n"
+                "path.write_bytes(path.read_bytes()[:-1])\n"
+                "failed = False\n"
+                "try:\n"
+                "    transition_task_blob(\n"
+                f"        settings, UUID({project_a_id!r}), UUID({pdf_task_id!r}),\n"
+                "        StorageProfile('WARM', 'corrupt-source', 3),\n"
+                "    )\n"
+                "except CASIntegrityError:\n"
+                "    failed = True\n"
+                "finally:\n"
+                "    os.replace(backup, path)\n"
+                "assert failed and store.read_verified(\n"
+                f"    {pdf_digest!r}, {len(pdf_bytes)}\n"
+                f") == {pdf_bytes!r}\n"
+                "print('PASS')"
+            ),
+        )
+        assert corruption_transition.stdout.strip().splitlines()[-1] == "PASS"
+
         compose(project_name, ["stop", "redis"], env=environment)
         status, persisted_without_redis = request(
             base_url, "GET", f"/api/v1/projects/{project_a_id}/tasks/{text_task_id}"
@@ -351,31 +623,173 @@ def main() -> int:
             base_url, "GET", f"/api/v1/projects/{project_a_id}/tasks/{pdf_task_id}"
         )
         assert_equal(status, 200, "task availability after API restart")
-
-        cas_container_path = f"/var/lib/hive/cas/sha256/{pdf_digest[:2]}/{pdf_digest[2:]}.zst"
-        compose(
-            project_name,
-            [
-                "exec",
-                "-T",
-                "--user",
-                "root",
-                "api",
-                "python",
-                "-c",
-                (
-                    "from pathlib import Path; "
-                    f"path = Path({cas_container_path!r}); "
-                    "path.write_bytes(path.read_bytes()[:-1])"
-                ),
-            ],
-            env=environment,
+        restarted_status, restarted_body, restarted_headers = download(
+            base_url, project_a_id, pdf_task_id
         )
-        corrupted_status, corrupted_body, _ = download(base_url, project_a_id, pdf_task_id)
-        assert_equal(corrupted_status, 500, "corrupt CAS fails closed")
-        assert b"stored artifact integrity" in corrupted_body
+        assert_equal(restarted_status, 200, "transition artifact after API restart")
+        assert_equal(restarted_body, pdf_bytes, "transition artifact after API restart bytes")
+        assert_equal(restarted_headers["x-hive-original-sha256"], pdf_digest, "restart SHA")
+        restarted_metadata = blob_metadata(project_name, environment, pdf_digest)
+        assert_equal(
+            restarted_metadata["codec_config"]["tier"],
+            selected_profiles["HOT"]["tier"],
+            "restart durable active tier",
+        )
+
+        no_text_digest = str(no_text_task["original_blob_sha256"])
+        no_text_container_path = (
+            f"/var/lib/hive/cas/sha256/{no_text_digest[:2]}/{no_text_digest[2:]}.zst"
+        )
+        no_text_backup_path = f"/var/lib/hive/cas/sha256/.tmp/{no_text_digest}.integration-backup"
+        api_python(
+            project_name,
+            environment,
+            (
+                "from pathlib import Path\n"
+                f"path = Path({no_text_container_path!r})\n"
+                f"backup = Path({no_text_backup_path!r})\n"
+                "backup.write_bytes(path.read_bytes())\n"
+                "path.write_bytes(path.read_bytes()[:-1])"
+            ),
+        )
+        try:
+            corrupted_status, corrupted_body, _ = download(
+                base_url, project_a_id, str(no_text_task["task_id"])
+            )
+            assert_equal(corrupted_status, 500, "corrupt CAS fails closed")
+            assert b"stored artifact integrity" in corrupted_body
+        finally:
+            api_python(
+                project_name,
+                environment,
+                (
+                    "import os\n"
+                    "from pathlib import Path\n"
+                    f"path = Path({no_text_container_path!r})\n"
+                    f"backup = Path({no_text_backup_path!r})\n"
+                    "os.replace(backup, path)"
+                ),
+                check=False,
+            )
+        restored_status, restored_body, _ = download(
+            base_url, project_a_id, str(no_text_task["task_id"])
+        )
+        assert_equal(restored_status, 200, "restored CAS status")
+        assert_equal(restored_body, no_text_bytes, "restored CAS exact bytes")
         assert not list(projects_root.rglob("*.zst")), "CAS must stay under HIVE_DATA_ROOT"
         assert not list((temporary_root / "data").rglob("*.part")), "temporary intake files cleaned"
+
+        final_status, final_storage = request(base_url, "GET", "/api/v1/storage")
+        assert_equal(final_status, 200, "final storage stats status")
+        assert isinstance(final_storage, dict)
+        final_metadata = blob_metadata(project_name, environment, pdf_digest)
+        final_config = final_metadata["codec_config"]
+        physical_probe = api_python(
+            project_name,
+            environment,
+            (
+                "from app.cas import CASStore; from app.config import Settings; "
+                f"print(CASStore(Settings()).blob_path({pdf_digest!r}).stat().st_size)"
+            ),
+        )
+        actual_physical_size = int(physical_probe.stdout.strip().splitlines()[-1])
+        assert isinstance(final_config, dict)
+        dedup_logical = int(final_storage["referenced_logical_bytes"])
+        dedup_unique = int(final_storage["unique_logical_bytes"])
+        dedup_savings = int(final_storage["deduplication_delta_bytes"])
+        measured_rows = [row for row in benchmark_matrix if isinstance(row, dict)]
+        selected_pairs = {
+            (tier, profile["profile_id"])
+            for tier, profile in selected_profiles.items()
+            if isinstance(profile, dict)
+        }
+        measured_pairs = {
+            (row["tier"], row["profile_id"])
+            for row in measured_rows
+            if "tier" in row and "profile_id" in row
+        }
+        checks = {
+            "hot_warm_cold_policy_defined": set(selected_profiles) == {"HOT", "WARM", "COLD"},
+            "policy_selection_internal_deterministic": policy["deterministic_selection"] is True,
+            "zstd_lossless_codec": all(
+                row.get("round_trip_identity") is True for row in measured_rows
+            ),
+            "zstd_profiles_measured": selected_pairs <= measured_pairs,
+            "zstd_levels_supported": all(
+                isinstance(profile.get("zstd_level"), int) and 1 <= profile["zstd_level"] <= 22
+                for profile in selected_profiles.values()
+                if isinstance(profile, dict)
+            ),
+            "content_identity_sha256_preserved": all(
+                result["sha256"] == pdf_digest for result in transition_results
+            )
+            and restarted_headers["x-hive-original-sha256"] == pdf_digest,
+            "dedup_identity_across_tiers": all(
+                result["sha256"] == pdf_digest for result in transition_results
+            ),
+            "single_canonical_cas_identity": final_storage["unique_blob_count"] == 4,
+            "corruption_fail_closed": corrupted_status == 500
+            and corruption_transition.stdout.strip().splitlines()[-1] == "PASS",
+            "physical_replacement_atomic": len(transition_results) == 4
+            and restarted_body == pdf_bytes,
+            "logical_bytes_measured": dedup_logical >= dedup_unique > 0,
+            "physical_bytes_measured": actual_physical_size == int(final_metadata["physical_size"])
+            and actual_physical_size > 0,
+            "compression_measurements_truthful": all(
+                row.get("compression_savings_bytes")
+                == int(row["logical_input_bytes"]) - int(row["physical_bytes"])
+                and abs(
+                    float(row["compression_ratio"])
+                    - int(row["physical_bytes"]) / int(row["logical_input_bytes"])
+                )
+                <= 1e-9
+                for row in measured_rows
+            ),
+            "dedup_measurements_truthful": dedup_savings == dedup_logical - dedup_unique,
+            "restart_durable": restarted_status == 200
+            and restarted_metadata["physical_size"] == final_metadata["physical_size"],
+            "idempotent_transition": idempotent_transition["sha256"] == pdf_digest
+            and idempotent_status == 200
+            and idempotent_body == pdf_bytes,
+            "persisted_metadata_not_reconstructed_from_settings": persisted_config
+            == metadata_before_reingest["codec_config"],
+            "redis_loss_preserves_cas_truth": persisted_without_redis["original_blob_sha256"]
+            == pdf_digest,
+            "selection_rationale_measured": "Measured deterministic selection"
+            in policy["selection_rationale"],
+        }
+        assert_equal(all(checks.values()), True, "ACCE storage policy checks")
+        EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        EVIDENCE_OUTPUT.write_text(
+            json.dumps(
+                {
+                    "status": "PASS",
+                    "evidence_file": "acce-storage-policy.json",
+                    "acce_evidence_version": "acce-storage-policy-v1",
+                    "storage_policy_version": policy["storage_policy_version"],
+                    **checks,
+                    "canonical_source_loss_count": 0,
+                    "llm_calls": 0,
+                    "provider_calls": 0,
+                    "dedup_logical_bytes": dedup_logical,
+                    "dedup_unique_logical_bytes": dedup_unique,
+                    "dedup_savings_bytes": dedup_savings,
+                    "zstd_supported_level_min": 1,
+                    "zstd_supported_level_max": 22,
+                    "policy_mapping": {
+                        tier: profile["profile_id"]
+                        for tier, profile in selected_profiles.items()
+                        if isinstance(profile, dict)
+                    },
+                    "selection_rationale": policy["selection_rationale"],
+                    "benchmark_matrix": benchmark_matrix,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         print(
             json.dumps(
                 {
@@ -389,11 +803,13 @@ def main() -> int:
                         str(markdown_upload_task["task_id"]),
                         pdf_task_id,
                         duplicate_pdf_id,
+                        str(duplicate_after_transition["task_id"]),
                         cross_project_task_id,
                         str(no_text_task["task_id"]),
                     ],
                     "pdf_sha256": pdf_digest,
-                    "storage": storage,
+                    "storage": final_storage,
+                    "storage_policy": json.loads(EVIDENCE_OUTPUT.read_text(encoding="utf-8")),
                     "redis_restart": "passed",
                     "api_restart": "passed",
                     "corruption_fail_closed": "passed",

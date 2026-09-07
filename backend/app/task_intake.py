@@ -12,7 +12,7 @@ import pypdf
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
 
-from .cas import CASStore, StoredBlob
+from .cas import CASStorageError, CASStore, StorageProfile, StoredBlob
 from .config import Settings
 from .db import database_connection
 
@@ -586,12 +586,73 @@ def task_blob(
 ) -> tuple[TaskResponse, StoredBlob]:
     task = get_task(settings, project_id, task_id)
     store = CASStore(settings)
-    path = store.blob_path(task.original_blob_sha256)
+    with database_connection(settings) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT sha256, logical_size, physical_size, codec, codec_config
+            FROM cas_blobs
+            WHERE sha256 = %s
+            """,
+            (task.original_blob_sha256,),
+        )
+        row = cursor.fetchone()
+    if row is None or not isinstance(row[4], dict):
+        raise CASStorageError("CAS metadata is missing or malformed")
+    codec_config = row[4]
+    if not all(isinstance(key, str) for key in codec_config):
+        raise CASStorageError("CAS metadata keys are malformed")
+    if not all(isinstance(value, int | bool | str) for value in codec_config.values()):
+        raise CASStorageError("CAS metadata values are malformed")
     return task, StoredBlob(
-        sha256=task.original_blob_sha256,
-        logical_size=task.logical_size,
-        physical_size=task.compressed_size,
-        codec="zstd",
-        codec_config=store.codec_config,
-        path=path,
+        sha256=row[0],
+        logical_size=row[1],
+        physical_size=row[2],
+        codec=row[3],
+        codec_config=codec_config,
+        path=store.blob_path(row[0]),
+    )
+
+
+def transition_task_blob(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    profile: StorageProfile,
+) -> StoredBlob:
+    """Recompress one task's shared CAS identity and commit truthful metadata."""
+    task, current = task_blob(settings, project_id, task_id)
+    store = CASStore(settings)
+
+    def persist_metadata(stored: StoredBlob) -> None:
+        with database_connection(settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE cas_blobs
+                SET physical_size = %s,
+                    codec = %s,
+                    codec_config = %s,
+                    last_verified_at = CURRENT_TIMESTAMP
+                WHERE sha256 = %s
+                  AND logical_size = %s
+                  AND physical_size = %s
+                  AND codec_config = %s
+                """,
+                (
+                    stored.physical_size,
+                    stored.codec,
+                    Jsonb(stored.codec_config),
+                    stored.sha256,
+                    stored.logical_size,
+                    current.physical_size,
+                    Jsonb(current.codec_config),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise CASStorageError("CAS metadata changed during physical transition")
+
+    return store.transition(
+        task.original_blob_sha256,
+        profile,
+        expected_size=task.logical_size,
+        persist_metadata=persist_metadata,
     )
