@@ -23,7 +23,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0005_semantic_retrieval"
+SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
 
 
 def free_port() -> int:

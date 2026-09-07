@@ -127,6 +127,10 @@ def build_files() -> dict[Path, str]:
             "embedding profiles, runs and pgvector chunk embeddings. |"
         ),
         (
+            "| migrations/versions/0006_memory_lifecycle_provenance.py | Durable "
+            "project-scoped memory records, lifecycle history and provenance. |"
+        ),
+        (
             "| scripts/context_manager_integration.py | Real Docker/Git two-project "
             "Context Manager, progressive disclosure, mandatory governance coverage, "
             "isolation, bounds and restart evidence. |"
