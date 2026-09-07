@@ -12,7 +12,14 @@ import pypdf
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
 
-from .cas import CASStore, StoredBlob
+from .cas import (
+    CASStorageError,
+    CASStore,
+    StoragePolicy,
+    StorageProfile,
+    StoredBlob,
+    bind_storage_profile,
+)
 from .config import Settings
 from .db import database_connection
 
@@ -353,6 +360,27 @@ def _extraction_from_row(row: tuple[Any, ...]) -> _StoredExtraction:
     )
 
 
+def _stored_blob_from_row(store: CASStore, row: tuple[Any, ...] | None) -> StoredBlob:
+    if row is None or not isinstance(row[4], dict):
+        raise CASStorageError("CAS metadata is missing or malformed")
+    codec_config = row[4]
+    if not all(isinstance(key, str) for key in codec_config):
+        raise CASStorageError("CAS metadata keys are malformed")
+    if not all(isinstance(value, int | bool | str) for value in codec_config.values()):
+        raise CASStorageError("CAS metadata values are malformed")
+    path = store.blob_path(row[0])
+    return StoredBlob(
+        sha256=row[0],
+        logical_size=row[1],
+        physical_size=row[2],
+        codec=row[3],
+        codec_config=codec_config,
+        path=path,
+        published_new=False,
+        canonical_path_exists=path.exists(),
+    )
+
+
 def project_exists(settings: Settings, project_id: UUID) -> bool:
     with database_connection(settings) as connection, connection.cursor() as cursor:
         cursor.execute("SELECT 1 FROM projects WHERE project_id = %s", (project_id,))
@@ -368,25 +396,73 @@ def create_task(
 ) -> TaskResponse:
     if not project_exists(settings, project_id):
         raise ProjectNotFoundError("project not found")
-    blob = CASStore(settings).put(source_path)
+    store = CASStore(settings)
+
+    def reject_recreated_representation(candidate: StoredBlob) -> None:
+        with database_connection(settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM cas_blobs
+                WHERE sha256 = %s
+                """,
+                (candidate.sha256,),
+            )
+            if cursor.fetchone() is not None:
+                raise CASStorageError(
+                    "CAS durable metadata exists while its physical representation was recreated"
+                )
+
+    candidate_blob = store.put(source_path, publish_guard=reject_recreated_representation)
     extraction = source.extraction
     task_id = uuid4()
     with database_connection(settings) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            INSERT INTO cas_blobs (
-                sha256, logical_size, physical_size, codec, codec_config, last_verified_at
-            ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (sha256) DO UPDATE SET last_verified_at = CURRENT_TIMESTAMP
-            """,
-            (
-                blob.sha256,
-                blob.logical_size,
-                blob.physical_size,
-                blob.codec,
-                Jsonb(blob.codec_config),
-            ),
-        )
+        if not candidate_blob.published_new:
+            cursor.execute(
+                """
+                SELECT sha256, logical_size, physical_size, codec, codec_config
+                FROM cas_blobs
+                WHERE sha256 = %s
+                """,
+                (candidate_blob.sha256,),
+            )
+            existing_row = cursor.fetchone()
+            if existing_row is None:
+                raise CASStorageError("CAS physical representation exists without durable metadata")
+            blob = _stored_blob_from_row(store, existing_row)
+            cursor.execute(
+                """
+                UPDATE cas_blobs
+                SET last_verified_at = CURRENT_TIMESTAMP
+                WHERE sha256 = %s
+                """,
+                (candidate_blob.sha256,),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO cas_blobs (
+                    sha256, logical_size, physical_size, codec, codec_config, last_verified_at
+                ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (sha256) DO UPDATE SET last_verified_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    candidate_blob.sha256,
+                    candidate_blob.logical_size,
+                    candidate_blob.physical_size,
+                    candidate_blob.codec,
+                    Jsonb(candidate_blob.codec_config),
+                ),
+            )
+            cursor.execute(
+                """
+                SELECT sha256, logical_size, physical_size, codec, codec_config
+                FROM cas_blobs
+                WHERE sha256 = %s
+                """,
+                (candidate_blob.sha256,),
+            )
+            blob = _stored_blob_from_row(store, cursor.fetchone())
         cursor.execute(
             """
             INSERT INTO task_extractions (
@@ -586,12 +662,62 @@ def task_blob(
 ) -> tuple[TaskResponse, StoredBlob]:
     task = get_task(settings, project_id, task_id)
     store = CASStore(settings)
-    path = store.blob_path(task.original_blob_sha256)
-    return task, StoredBlob(
-        sha256=task.original_blob_sha256,
-        logical_size=task.logical_size,
-        physical_size=task.compressed_size,
-        codec="zstd",
-        codec_config=store.codec_config,
-        path=path,
+    with database_connection(settings) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT sha256, logical_size, physical_size, codec, codec_config
+            FROM cas_blobs
+            WHERE sha256 = %s
+            """,
+            (task.original_blob_sha256,),
+        )
+        row = cursor.fetchone()
+    return task, _stored_blob_from_row(store, row)
+
+
+def transition_task_blob(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    policy: StoragePolicy,
+    tier: str,
+    profile: StorageProfile,
+) -> StoredBlob:
+    """Recompress one task's shared CAS identity and commit truthful metadata."""
+    authorized_profile = bind_storage_profile(policy, tier, profile)
+    task, current = task_blob(settings, project_id, task_id)
+    store = CASStore(settings)
+
+    def persist_metadata(stored: StoredBlob) -> None:
+        with database_connection(settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE cas_blobs
+                SET physical_size = %s,
+                    codec = %s,
+                    codec_config = %s,
+                    last_verified_at = CURRENT_TIMESTAMP
+                WHERE sha256 = %s
+                  AND logical_size = %s
+                  AND physical_size = %s
+                  AND codec_config = %s
+                """,
+                (
+                    stored.physical_size,
+                    stored.codec,
+                    Jsonb(stored.codec_config),
+                    stored.sha256,
+                    stored.logical_size,
+                    current.physical_size,
+                    Jsonb(current.codec_config),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise CASStorageError("CAS metadata changed during physical transition")
+
+    return store.transition(
+        task.original_blob_sha256,
+        authorized_profile,
+        expected_size=task.logical_size,
+        persist_metadata=persist_metadata,
     )
