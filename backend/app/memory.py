@@ -16,7 +16,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .config import Settings
 from .db import database_connection
-from .registry import ProjectPathError, _run_git, normalize_project_path
+from .registry import ProjectPathError, normalize_project_path
+from .repository_indexer import (
+    RepositoryIndexingError,
+    _git_head,
+    _git_inventory_fingerprint,
+    _read_stable_file,
+    _resolve_tracked_path,
+)
+from .repository_indexer import (
+    _run_git as _run_repository_git,
+)
 
 MAX_CONTENT_BYTES = 64 * 1024
 MAX_TAGS = 32
@@ -26,10 +36,19 @@ SECRET_PATTERN = re.compile(
     r"(?i)(?:api[_ -]?key|access[_ -]?token|authorization\s*[:=]|password\s*[:=]|"
     r"secret\s*[:=]|bearer\s+[A-Za-z0-9._-]{12,})"
 )
-APPROVED_ADR_REFERENCE_PATTERN = re.compile(
-    r"^(?:docs/project-brain/16-DECISIONS-LEDGER\.md#)?(HIVE-ADR-\d{3})$"
-)
 DECISIONS_LEDGER_PATH = "docs/project-brain/16-DECISIONS-LEDGER.md"
+DECISION_ID_PATTERN = r"[A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+){0,15}"
+APPROVED_DECISION_REFERENCE_PATTERN = re.compile(
+    rf"^(?:{re.escape(DECISIONS_LEDGER_PATH)}#)?({DECISION_ID_PATTERN})$"
+)
+DECISION_HEADING_PATTERN = re.compile(
+    rf"(?m)^##[ \t]+(?P<decision_id>{DECISION_ID_PATTERN})"
+    rf"(?:[ \t]+(?:—|-[ \t])[^\r\n]*)?[ \t]*\r?$"
+)
+DECISION_STATUS_PATTERN = re.compile(
+    r"(?im)^[ \t]*\*{0,2}Status\*{0,2}:\*{0,2}[ \t]*"
+    r"(?P<status>Accepted|Approved)\b"
+)
 
 
 class MemoryType(StrEnum):
@@ -282,49 +301,93 @@ def _normalized_source_reference(reference: str) -> str:
     return "/".join(parts)
 
 
+def _decode_git_sha(value: bytes, message: str) -> str:
+    try:
+        decoded = value.decode("ascii").strip().lower()
+    except UnicodeDecodeError as exc:
+        raise MemoryError(message) from exc
+    if re.fullmatch(r"[0-9a-f]{40}", decoded) is None:
+        raise MemoryError(message)
+    return decoded
+
+
+def _git_blob_sha(source: bytes) -> str:
+    return hashlib.sha1(
+        b"blob " + str(len(source)).encode("ascii") + b"\0" + source,
+        usedforsecurity=False,
+    ).hexdigest()
+
+
 def _resolve_trusted_source(
     cursor: Any, settings: Settings, project_id: UUID, reference: str
-) -> tuple[dict[str, Any], Path]:
+) -> tuple[dict[str, Any], bytes]:
     project_identity, expected_head, project_path = _project_source_root(
         cursor, settings, project_id
     )
     normalized = _normalized_source_reference(reference)
-    candidate = (project_path / Path(*normalized.split("/"))).resolve(strict=False)
     try:
-        candidate.relative_to(project_path)
-    except ValueError as exc:
-        raise MemoryError("trusted source resolves outside the registered project") from exc
-    if not candidate.is_file():
-        raise MemoryError("trusted source does not resolve to a project file")
+        candidate = _resolve_tracked_path(project_path, normalized)
+    except ProjectPathError as exc:
+        raise MemoryError("trusted source is not safely contained by the project") from exc
+    if not expected_head or SHA_PATTERN.fullmatch(expected_head) is None:
+        raise MemoryError("registered project HEAD is unavailable for trusted source")
     try:
-        tracked = _run_git(
+        inventory_before = _git_inventory_fingerprint(project_path)
+        head = _git_head(project_path)
+        if expected_head.lower() != head:
+            raise MemoryError("registered project HEAD is stale for the trusted source")
+        tracked = _run_repository_git(
             project_path,
             ["ls-files", "--error-unmatch", "--", normalized],
             allow_nonzero=True,
         )
-        if tracked.returncode != 0 or tracked.stdout.strip() != normalized:
+        try:
+            tracked_path = tracked.stdout.decode("utf-8").strip()
+        except UnicodeDecodeError as exc:
+            raise MemoryError("trusted source path identity is invalid") from exc
+        if tracked.returncode != 0 or tracked_path != normalized:
             raise MemoryError("trusted source is not a tracked project file")
-        head = _run_git(project_path, ["rev-parse", "HEAD"]).stdout.strip().lower()
-        if expected_head and expected_head.lower() != head:
-            raise MemoryError("registered project HEAD is stale for the trusted source")
-        dirty = _run_git(
+        dirty = _run_repository_git(
             project_path,
-            ["diff", "--quiet", "HEAD", "--", normalized],
+            ["diff", "--quiet", head, "--", normalized],
             allow_nonzero=True,
         )
         if dirty.returncode != 0:
             raise MemoryError("trusted source has uncommitted changes")
-        blob_result = _run_git(
+        filesystem_before, stamp_before = _read_stable_file(candidate, settings)
+        blob_result = _run_repository_git(
             project_path,
-            ["rev-parse", f"HEAD:{normalized}"],
+            ["rev-parse", "--verify", f"{head}:{normalized}"],
             allow_nonzero=True,
         )
-        blob = blob_result.stdout.strip().lower()
-        content_sha256 = hashlib.sha256(candidate.read_bytes()).hexdigest()
-    except (OSError, RuntimeError, TimeoutError) as exc:
+        if blob_result.returncode != 0:
+            raise MemoryError("trusted source is not present in the verified Git HEAD")
+        blob = _decode_git_sha(blob_result.stdout, "trusted source Git blob identity is invalid")
+        object_type = _run_repository_git(
+            project_path, ["cat-file", "-t", blob], allow_nonzero=True
+        )
+        if object_type.returncode != 0 or object_type.stdout.strip() != b"blob":
+            raise MemoryError("trusted source Git object is not a blob")
+        immutable_source = _run_repository_git(project_path, ["cat-file", "blob", blob]).stdout
+        if len(immutable_source) > settings.repository_max_file_bytes:
+            raise MemoryError("trusted source exceeds the repository file size limit")
+        if _git_blob_sha(immutable_source) != blob:
+            raise MemoryError("trusted source bytes do not match the recorded Git blob")
+        if filesystem_before != immutable_source:
+            raise MemoryError("trusted source changed before immutable qualification")
+        filesystem_after, stamp_after = _read_stable_file(candidate, settings)
+        inventory_after = _git_inventory_fingerprint(project_path)
+        head_after = _git_head(project_path)
+        if (
+            stamp_before != stamp_after
+            or filesystem_after != immutable_source
+            or inventory_before != inventory_after
+            or head_after != head
+        ):
+            raise MemoryError("trusted source mutated during qualification")
+        content_sha256 = hashlib.sha256(immutable_source).hexdigest()
+    except (OSError, RepositoryIndexingError, RuntimeError, TimeoutError) as exc:
         raise MemoryError("trusted source could not be verified deterministically") from exc
-    if re.fullmatch(r"[0-9a-f]{40}", blob) is None or re.fullmatch(r"[0-9a-f]{40}", head) is None:
-        raise MemoryError("trusted source Git identity is invalid")
     return (
         {
             "resolver": "trusted-project-source-v1",
@@ -333,16 +396,38 @@ def _resolve_trusted_source(
             "source_commit": head,
             "git_blob_sha": blob,
             "source_sha256": content_sha256,
+            "byte_binding": "immutable-git-blob-v1",
         },
-        candidate,
+        immutable_source,
     )
 
 
 def _approved_adr_id(reference: str) -> str:
-    match = APPROVED_ADR_REFERENCE_PATTERN.fullmatch(reference.strip())
+    match = APPROVED_DECISION_REFERENCE_PATTERN.fullmatch(reference.strip())
     if match is None:
-        raise MemoryError("approved ADR reference must identify a HIVE-ADR in the decisions ledger")
+        raise MemoryError("approved decision reference has an unsupported or ambiguous identifier")
     return match.group(1)
+
+
+def _approved_decision_status(source: bytes, decision_id: str) -> str:
+    try:
+        ledger = source.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise MemoryError("canonical decisions ledger is not valid UTF-8") from exc
+    headings = list(DECISION_HEADING_PATTERN.finditer(ledger))
+    matches = [heading for heading in headings if heading.group("decision_id") == decision_id]
+    if len(matches) != 1:
+        raise MemoryError("approved decision is missing or ambiguous in the decisions ledger")
+    heading = matches[0]
+    next_heading = next(
+        (candidate for candidate in headings if candidate.start() > heading.start()),
+        None,
+    )
+    section = ledger[heading.end() : next_heading.start() if next_heading else None]
+    status_match = DECISION_STATUS_PATTERN.search(section)
+    if status_match is None:
+        raise MemoryError("approved decision does not have Status: Accepted or Status: Approved")
+    return status_match.group("status").capitalize()
 
 
 def _resolve_promotion_basis(
@@ -364,36 +449,19 @@ def _resolve_promotion_basis(
             "project_id": str(project_id),
             "verified": verified,
         }
-    adr_id = _approved_adr_id(basis.reference)
-    verified_source, candidate = _resolve_trusted_source(
+    decision_id = _approved_adr_id(basis.reference)
+    verified_source, immutable_source = _resolve_trusted_source(
         cursor, settings, project_id, DECISIONS_LEDGER_PATH
     )
-    try:
-        ledger = candidate.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise MemoryError("canonical decisions ledger could not be read") from exc
-    section_match = re.search(
-        rf"(?m)^##[ \t]+{re.escape(adr_id)}(?:[ \t]+—[^\r\n]*)?[ \t]*\r?\n"
-        rf"((?s:.*?))(?=^##[ \t]+|\Z)",
-        ledger,
-    )
-    if (
-        section_match is None
-        or re.search(
-            r"(?im)^[ \t]*\*{0,2}Status\*{0,2}:\*{0,2}[ \t]*Accepted\b",
-            section_match.group(1),
-        )
-        is None
-    ):
-        raise MemoryError("approved ADR does not exist with Status: Accepted")
+    decision_status = _approved_decision_status(immutable_source, decision_id)
     return {
         "kind": basis.kind.value,
-        "reference": adr_id,
+        "reference": decision_id,
         "project_id": str(project_id),
         "verified": {
             "resolver": "accepted-decisions-ledger-adr-v1",
-            "adr_id": adr_id,
-            "status": "Accepted",
+            "decision_id": decision_id,
+            "status": decision_status,
             "decisions_source": verified_source,
         },
     }

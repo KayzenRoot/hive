@@ -325,6 +325,13 @@ WO015_MEMORY_REQUIRED_FIELDS = (
     "memory_provenance_queryable",
     "memory_model_output_staged",
     "memory_canonical_promotion_qualified",
+    "memory_immutable_git_blob_binding",
+    "memory_source_mutation_rejected",
+    "memory_adr_mutation_rejected",
+    "memory_head_mutation_rejected",
+    "memory_race_atomicity_preserved",
+    "memory_generic_decision_id_qualified",
+    "memory_provenance_identity_consistent",
     "memory_invalid_promotion_rejected",
     "memory_history_preserved",
     "memory_restart_recovery",
@@ -338,6 +345,9 @@ WO015_MEMORY_INTEGER_FIELDS = (
     "memory_cross_project_rejections",
     "memory_provenance_records",
     "memory_invalid_promotion_rejections",
+    "memory_source_race_rejections",
+    "memory_adr_race_rejections",
+    "memory_head_race_rejections",
     "memory_history_versions",
     "memory_restart_records",
     "memory_redis_loss_records",
@@ -1445,6 +1455,9 @@ def memory_lifecycle_evidence() -> dict[str, object]:
         and integers["memory_cross_project_rejections"] >= 1
         and integers["memory_provenance_records"] >= 1
         and integers["memory_invalid_promotion_rejections"] >= 1
+        and integers["memory_source_race_rejections"] >= 1
+        and integers["memory_adr_race_rejections"] >= 1
+        and integers["memory_head_race_rejections"] >= 1
         and integers["memory_history_versions"] >= 2
         and integers["memory_restart_records"] >= 1
         and integers["memory_redis_loss_records"] >= 1
@@ -1493,6 +1506,9 @@ def require_wo015_memory_evidence(
         "memory_cross_project_rejections": 1,
         "memory_provenance_records": 1,
         "memory_invalid_promotion_rejections": 1,
+        "memory_source_race_rejections": 1,
+        "memory_adr_race_rejections": 1,
+        "memory_head_race_rejections": 1,
         "memory_history_versions": 2,
         "memory_restart_records": 1,
         "memory_redis_loss_records": 1,
@@ -4278,7 +4294,15 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{memory_evidence.get('memory_history_preserved', False)}`, restart/Redis loss `"
         f"{memory_evidence.get('memory_restart_recovery', False)}/"
         f"{memory_evidence.get('memory_redis_loss_recovery', False)}`, secret leaks `"
-        f"{memory_evidence.get('memory_secret_leaks', 'UNKNOWN')}`"
+        f"{memory_evidence.get('memory_secret_leaks', 'UNKNOWN')}`, immutable Git blob `"
+        f"{memory_evidence.get('memory_immutable_git_blob_binding', False)}`, source/ADR/HEAD "
+        f"race rejection `"
+        f"{memory_evidence.get('memory_source_mutation_rejected', False)}/"
+        f"{memory_evidence.get('memory_adr_mutation_rejected', False)}/"
+        f"{memory_evidence.get('memory_head_mutation_rejected', False)}`, race atomicity `"
+        f"{memory_evidence.get('memory_race_atomicity_preserved', False)}`, generic decision `"
+        f"{memory_evidence.get('memory_generic_decision_id_qualified', False)}`, identity `"
+        f"{memory_evidence.get('memory_provenance_identity_consistent', False)}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,7 @@ def request(
     return http_request(base_url, method, path, payload, timeout=30)
 
 
-def create_repository(root: Path, name: str, *, with_decisions: bool = False) -> tuple[Path, str]:
+def create_repository(root: Path, name: str, *, decision_id: str | None = None) -> tuple[Path, str]:
     repository = root / name
     repository.mkdir()
     environment = os.environ.copy()
@@ -45,13 +46,13 @@ def create_repository(root: Path, name: str, *, with_decisions: bool = False) ->
     git(repository, ["config", "user.name", "HIVE Memory Integration"], env=environment)
     (repository / "README.md").write_bytes(f"# {name}\n".encode())
     files_to_add = ["README.md"]
-    if with_decisions:
+    if decision_id is not None:
         decisions_path = repository / "docs" / "project-brain" / "16-DECISIONS-LEDGER.md"
         decisions_path.parent.mkdir(parents=True)
         decisions_path.write_bytes(
             (
                 "# Decisions\n\n"
-                "## HIVE-ADR-019 — Fixture accepted decision\n"
+                f"## {decision_id} — Fixture accepted decision\n"
                 "**Status:** Accepted\n\n"
                 "This fixture is an accepted project decision.\n"
             ).encode()
@@ -102,6 +103,13 @@ def main() -> int:
         "memory_provenance_queryable": False,
         "memory_model_output_staged": False,
         "memory_canonical_promotion_qualified": False,
+        "memory_immutable_git_blob_binding": False,
+        "memory_source_mutation_rejected": False,
+        "memory_adr_mutation_rejected": False,
+        "memory_head_mutation_rejected": False,
+        "memory_race_atomicity_preserved": False,
+        "memory_generic_decision_id_qualified": False,
+        "memory_provenance_identity_consistent": False,
         "memory_invalid_promotion_rejected": False,
         "memory_history_preserved": False,
         "memory_restart_recovery": False,
@@ -113,6 +121,9 @@ def main() -> int:
         "memory_cross_project_rejections": 0,
         "memory_provenance_records": 0,
         "memory_invalid_promotion_rejections": 0,
+        "memory_source_race_rejections": 0,
+        "memory_adr_race_rejections": 0,
+        "memory_head_race_rejections": 0,
         "memory_history_versions": 0,
         "memory_restart_records": 0,
         "memory_redis_loss_records": 0,
@@ -122,8 +133,22 @@ def main() -> int:
     }
     api_url = f"http://127.0.0.1:{api_port}"
     try:
-        repository_a, commit_a = create_repository(projects_root, "project-a", with_decisions=True)
-        repository_b, commit_b = create_repository(projects_root, "project-b")
+        repository_a, commit_a = create_repository(
+            projects_root, "project-a", decision_id="HIVE-ADR-019"
+        )
+        repository_b, commit_b = create_repository(
+            projects_root, "project-b", decision_id="PROJECT-DEC-7"
+        )
+        stability_result = run(
+            [sys.executable, str(ROOT / "scripts" / "memory_c2_stability.py")],
+            env=environment,
+        )
+        stability_evidence = json.loads(stability_result.stdout)
+        if not isinstance(stability_evidence, dict) or stability_evidence.get("status") != "PASS":
+            raise AssertionError(f"C2 stability evidence failed: {stability_evidence!r}")
+        evidence.update(
+            {key: value for key, value in stability_evidence.items() if key != "status"}
+        )
         compose(project_name, ["up", "-d", "--build", "api"], env=environment)
         wait_for_health(api_url)
 
@@ -227,6 +252,10 @@ def main() -> int:
             == "trusted-project-source-v1"
             and trusted_promotion["promotion_basis"]["verified"]["reference"] == "README.md"
             and trusted_promotion["promotion_basis"]["verified"]["source_commit"] == commit_a
+            and trusted_promotion["promotion_basis"]["verified"]["byte_binding"]
+            == "immutable-git-blob-v1"
+            and bool(trusted_promotion["promotion_basis"]["verified"]["git_blob_sha"])
+            and bool(trusted_promotion["promotion_basis"]["verified"]["source_sha256"])
         )
 
         status, _ = request(
@@ -287,6 +316,9 @@ def main() -> int:
             and promoted["promotion_basis"]["verified"]["status"] == "Accepted"
             and promoted["promotion_basis"]["verified"]["decisions_source"]["source_commit"]
             == commit_a
+            and promoted["promotion_basis"]["verified"]["decision_id"] == "HIVE-ADR-019"
+            and promoted["promotion_basis"]["verified"]["decisions_source"]["byte_binding"]
+            == "immutable-git-blob-v1"
             and bool(promoted["promotion_basis"]["verified"]["decisions_source"]["git_blob_sha"])
             and bool(promoted["promotion_basis"]["verified"]["decisions_source"]["source_sha256"])
         )
@@ -393,6 +425,26 @@ def main() -> int:
             == project_b_before_rejection["promotion_basis"]
         )
         evidence["memory_cross_project_rejections"] += 1
+
+        status, raw_project_b_generic = request(
+            api_url,
+            "POST",
+            f"/api/v1/projects/{project_b_id}/memories/{project_b_memory['memory_id']}/promote",
+            {"kind": "APPROVED_ADR", "reference": "PROJECT-DEC-7"},
+        )
+        assert_equal(status, 200, "generic project decision promotion")
+        project_b_generic = require_dict(
+            raw_project_b_generic, "generic project decision promotion"
+        )
+        generic_verified = project_b_generic["promotion_basis"]["verified"]
+        evidence["memory_generic_decision_id_qualified"] = (
+            project_b_generic["status"] == "CANONICAL"
+            and project_b_generic["promotion_basis"]["reference"] == "PROJECT-DEC-7"
+            and generic_verified["decision_id"] == "PROJECT-DEC-7"
+            and generic_verified["status"] == "Accepted"
+            and generic_verified["decisions_source"]["source_commit"] == commit_b
+            and generic_verified["decisions_source"]["byte_binding"] == "immutable-git-blob-v1"
+        )
 
         status, raw_provenance = request(
             api_url, "GET", f"/api/v1/projects/{project_a_id}/memories/{memory_id}/provenance"
