@@ -379,7 +379,7 @@ def cleanup_failure_probe(
         "CASStore._cleanup_backup = fail_backup_cleanup\n"
         "stored = transition_task_blob(\n"
         f"    settings, UUID({project_id!r}), UUID({task_id!r}),\n"
-        "    policy, 'WARM', policy.profile_for('WARM'),\n"
+        "    policy, 'COLD', policy.profile_for('COLD'),\n"
         ")\n"
         f"after_task, durable = task_blob(settings, UUID({project_id!r}), UUID({task_id!r}))\n"
         "active_path = store.blob_path(durable.sha256)\n"
