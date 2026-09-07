@@ -85,6 +85,7 @@ class StoredBlob:
     codec_config: dict[str, int | bool | str]
     path: Path
     published_new: bool = True
+    canonical_path_exists: bool = True
 
 
 def _validate_storage_profile(profile: StorageProfile) -> None:
@@ -395,9 +396,10 @@ class CASStore:
         """Compress a bounded source and publish it atomically by digest.
 
         ``publish_guard`` runs while the per-digest publication lock is held,
-        after a new physical representation is published.  A guard failure
-        removes that just-published representation before the lock is released,
-        so a rejected repair cannot masquerade as the durable CAS truth.
+        after the candidate has been verified but before a new physical
+        representation is published.  The guard receives a deterministic
+        candidate descriptor, so a rejected repair never becomes visible at
+        the canonical digest path.
         """
         compressed_temp: Path | None = None
         digest_builder = hashlib.sha256()
@@ -437,6 +439,29 @@ class CASStore:
                     compressed_temp.unlink(missing_ok=True)
                     published_new = False
                 else:
+                    candidate = StoredBlob(
+                        sha256=digest,
+                        logical_size=logical_size,
+                        physical_size=compressed_temp.stat().st_size,
+                        codec="zstd",
+                        codec_config=codec_config,
+                        path=final_path,
+                        published_new=True,
+                        canonical_path_exists=False,
+                    )
+                    if publish_guard is not None:
+                        try:
+                            publish_guard(candidate)
+                        except Exception:
+                            try:
+                                compressed_temp.unlink(missing_ok=True)
+                            except Exception as cleanup_exc:
+                                compressed_temp = None
+                                raise CASStorageError(
+                                    "CAS publish guard rejected and candidate cleanup failed"
+                                ) from cleanup_exc
+                            compressed_temp = None
+                            raise
                     try:
                         os.link(compressed_temp, final_path)
                         compressed_temp.unlink(missing_ok=True)
@@ -465,26 +490,17 @@ class CASStore:
                     ),
                     path=final_path,
                     published_new=published_new,
+                    canonical_path_exists=True,
                 )
-                if publish_guard is not None and published_new:
-                    try:
-                        publish_guard(stored)
-                    except Exception:
-                        try:
-                            self._verify_path(final_path, digest, logical_size)
-                            final_path.unlink()
-                            self._fsync_directory(final_path.parent)
-                        except (OSError, CASIntegrityError) as cleanup_exc:
-                            raise CASStorageError(
-                                "CAS publish guard failed and cleanup was unsafe"
-                            ) from cleanup_exc
-                        raise
             return stored
         except (OSError, zstandard.ZstdError) as exc:
             raise CASStorageError("CAS write failed") from exc
         finally:
             if compressed_temp is not None:
-                compressed_temp.unlink(missing_ok=True)
+                try:
+                    compressed_temp.unlink(missing_ok=True)
+                except OSError as cleanup_exc:
+                    raise CASStorageError("CAS temporary cleanup failed") from cleanup_exc
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:

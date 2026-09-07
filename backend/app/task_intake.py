@@ -368,14 +368,16 @@ def _stored_blob_from_row(store: CASStore, row: tuple[Any, ...] | None) -> Store
         raise CASStorageError("CAS metadata keys are malformed")
     if not all(isinstance(value, int | bool | str) for value in codec_config.values()):
         raise CASStorageError("CAS metadata values are malformed")
+    path = store.blob_path(row[0])
     return StoredBlob(
         sha256=row[0],
         logical_size=row[1],
         physical_size=row[2],
         codec=row[3],
         codec_config=codec_config,
-        path=store.blob_path(row[0]),
+        path=path,
         published_new=False,
+        canonical_path_exists=path.exists(),
     )
 
 

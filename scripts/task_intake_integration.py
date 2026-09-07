@@ -476,6 +476,51 @@ def missing_physical_reingest_probe(
         "source = store.temp_root / 'integration-missing-physical-retry.txt'\n"
         "source.write_bytes(logical)\n"
         "default_codec_config = store.codec_config.copy()\n"
+        "cleanup_failure = False\n"
+        "cleanup_error = ''\n"
+        "cleanup_attempts = []\n"
+        "original_unlink = Path.unlink\n"
+        "def fail_candidate_cleanup(candidate_path, missing_ok=False):\n"
+        "    if candidate_path.parent == store.temp_root:\n"
+        "        if candidate_path.name.startswith('.cas-'):\n"
+        "            cleanup_attempts.append(candidate_path)\n"
+        "            raise OSError('forced candidate cleanup failure')\n"
+        "    original_unlink(candidate_path, missing_ok=missing_ok)\n"
+        "Path.unlink = fail_candidate_cleanup\n"
+        "try:\n"
+        "    create_task(settings, project_id, source, ValidatedSource(\n"
+        "        source_type='TXT', media_type='text/plain',\n"
+        "        original_filename='retry-cleanup.txt',\n"
+        "        extraction=ExtractionResult(\n"
+        "            extraction_kind='text', extractor='integration',\n"
+        "            extractor_version='1', config_sha256='c4-cleanup-failure-config',\n"
+        "            status='READY', text='retry cleanup failure', page_count=None, error=None,\n"
+        "        ),\n"
+        "    ), 'Missing physical cleanup failure')\n"
+        "except CASStorageError as exc:\n"
+        "    cleanup_failure = True\n"
+        "    cleanup_error = str(exc)\n"
+        "finally:\n"
+        "    Path.unlink = original_unlink\n"
+        "with database_connection(settings) as connection, connection.cursor() as cursor:\n"
+        "    cursor.execute(\n"
+        "        'SELECT logical_size, physical_size, codec, codec_config '\n"
+        "        'FROM cas_blobs WHERE sha256 = %s',\n"
+        "        (digest,),\n"
+        "    )\n"
+        "    cleanup_after = cursor.fetchone()\n"
+        "    cursor.execute('SELECT count(*) FROM tasks WHERE project_id = %s', (project_id,))\n"
+        "    cleanup_task_count_after = cursor.fetchone()[0]\n"
+        "assert cleanup_failure\n"
+        "assert 'candidate cleanup failed' in cleanup_error\n"
+        "assert not path.exists()\n"
+        "cleanup_final_path_absent = not path.exists()\n"
+        "assert len(cleanup_attempts) == 1\n"
+        "leaked_candidate = cleanup_attempts[0]\n"
+        "assert leaked_candidate.exists()\n"
+        "leaked_candidate.unlink(missing_ok=True)\n"
+        "assert cleanup_after == before\n"
+        "assert cleanup_task_count_after == task_count_before\n"
         "failed = False\n"
         "error = ''\n"
         "try:\n"
@@ -512,6 +557,14 @@ def missing_physical_reingest_probe(
         "print(json.dumps({\n"
         "    'failed_closed': failed,\n"
         "    'task_count_unchanged': task_count_after == task_count_before,\n"
+        "    'cleanup_failure_failed_closed': cleanup_failure,\n"
+        "    'cleanup_failure_error': cleanup_error,\n"
+        "    'cleanup_failure_candidate_leaked': len(cleanup_attempts) == 1,\n"
+        "    'cleanup_failure_final_path_absent': cleanup_final_path_absent,\n"
+        "    'cleanup_failure_metadata_unchanged': cleanup_after == before,\n"
+        "    'cleanup_failure_task_count_unchanged': (\n"
+        "        cleanup_task_count_after == task_count_before\n"
+        "    ),\n"
         "    'physical_path_after_rejected_retry': (\n"
         "        None if not rejected_path_exists else path.stat().st_size\n"
         "    ),\n"
@@ -1219,6 +1272,18 @@ def main() -> int:
             "persisted_metadata_not_reconstructed_from_settings": persisted_config
             == metadata_before_reingest["codec_config"],
             "duplicate_put_truthful_existing_representation": duplicate_low_level_truth,
+            "prepublication_guard_rejection_no_canonical_path": missing_physical_reingest[
+                "cleanup_failure_final_path_absent"
+            ],
+            "prepublication_guard_cleanup_failure_bounded": missing_physical_reingest[
+                "cleanup_failure_failed_closed"
+            ],
+            "prepublication_guard_cleanup_failure_no_task": missing_physical_reingest[
+                "cleanup_failure_task_count_unchanged"
+            ],
+            "prepublication_guard_cleanup_failure_metadata_unchanged": (
+                missing_physical_reingest["cleanup_failure_metadata_unchanged"]
+            ),
             "missing_physical_reingest_fail_closed": missing_physical_reingest["failed_closed"],
             "missing_physical_reingest_no_task_success": missing_physical_reingest[
                 "task_count_unchanged"

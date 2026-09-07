@@ -444,18 +444,78 @@ def test_duplicate_put_does_not_overwrite_active_representation(tmp_path: Path) 
     assert len(list((tmp_path / "cas" / "sha256").rglob("*.zst"))) == 1
 
 
-def test_publish_guard_removes_rejected_new_representation(tmp_path: Path) -> None:
+def test_publish_guard_rejects_before_final_path_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = make_store(tmp_path)
     source = tmp_path / "guarded-retry.txt"
     payload = b"durable metadata must not describe a rejected replacement\n" * 4096
     source.write_bytes(payload)
     initial = store.put(source)
     initial.path.unlink()
+    events: list[tuple[str, object]] = []
+    original_verify = store._verify_path
 
-    def reject(_stored: StoredBlob) -> None:
+    def observe_verify(path: Path, digest: str, logical_size: int) -> None:
+        events.append(("verify", path))
+        original_verify(path, digest, logical_size)
+
+    monkeypatch.setattr(store, "_verify_path", observe_verify)
+    publication_calls: list[str] = []
+
+    def unexpected_publication(*_args: object) -> None:
+        publication_calls.append("publication")
+        raise OSError("publication must not run after guard rejection")
+
+    monkeypatch.setattr(os, "link", unexpected_publication)
+    monkeypatch.setattr(os, "replace", unexpected_publication)
+
+    def reject(candidate: StoredBlob) -> None:
+        events.append(("guard", candidate))
+        assert candidate.canonical_path_exists is False
+        assert not candidate.path.exists()
+        assert candidate.physical_size > 0
+        assert candidate.codec == "zstd"
+        assert candidate.codec_config["level"] == store.codec_config["level"]
         raise CASStorageError("durable metadata already exists")
 
     with pytest.raises(CASStorageError, match="durable metadata already exists"):
         store.put(source, publish_guard=reject)
 
+    assert [event[0] for event in events] == ["verify", "guard"]
+    assert publication_calls == []
     assert not initial.path.exists()
+
+
+def test_publish_guard_cleanup_failure_cannot_publish_final_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = make_store(tmp_path)
+    source = tmp_path / "guarded-cleanup-failure.txt"
+    payload = b"a leaked managed candidate is safer than false canonical truth\n" * 4096
+    source.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    final_path = store.blob_path(digest)
+    cleanup_attempts: list[Path] = []
+    original_unlink = Path.unlink
+
+    def fail_candidate_cleanup(self: Path, missing_ok: bool = False) -> None:
+        if self.parent == store.temp_root and self.name.startswith(".cas-"):
+            cleanup_attempts.append(self)
+            raise OSError("forced candidate cleanup failure")
+        original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", fail_candidate_cleanup)
+
+    def reject(_candidate: StoredBlob) -> None:
+        raise CASStorageError("durable metadata already exists")
+
+    with pytest.raises(CASStorageError, match="candidate cleanup failed"):
+        store.put(source, publish_guard=reject)
+
+    assert not final_path.exists()
+    assert len(cleanup_attempts) == 1
+    leaked_candidate = cleanup_attempts[0]
+    assert leaked_candidate.exists()
+    monkeypatch.undo()
+    leaked_candidate.unlink(missing_ok=True)
