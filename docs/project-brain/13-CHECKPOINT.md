@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-PROVIDER / PROMPT CACHE ADAPTER FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+MEMORY LIFECYCLE AND PROVENANCE FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -190,6 +190,11 @@ See `03-SCOPE.md`.
 - full and delta provider-prompt compatibility are measured; delta false reconstructions and critical context misses remain 0/0; foundation provider and llm calls remain 0/0; no live provider prompt-cache network integration, memory lifecycle, autonomous executor dispatch or full cache telemetry was implemented; migration remains 0005_semantic_retrieval.
 - provider/prompt cache implementation evidence references pr #46, audited head dfb6bcb21e6646bc2c056c014ba211245bd64e77, sol review 5125220660 and squash merge 5c8356228b0ce186cde6e64393a167063aa2a9e9; initial post-merge ci 34031448696 failed only the squash-unsafe review-evidence lineage regression and therefore did not close the work order.
 - wo-014-c2 repaired the squash-unsafe lineage validator on pr #47, audited head ba2a87ee71c4039dc692f96fd20c9aa05d22401a, sol review 5125500085, squash merge 13888d63572db0e90fb4536369867d995a9e1c90 and post-merge ci 34037204379; validate and integration health passed on the exact main sha, backend 358 and dashboard 7 passed, canonical verifier and secret scan passed.
+- memory lifecycle and provenance foundation approval is recorded with migration 0006_memory_lifecycle_provenance; durable project-scoped memory is in postgresql and redis remains hot/noncanonical.
+- canonical memory classes, lifecycle, provenance and history are implemented; staged model/executor output remains noncanonical by default; restart and redis-loss durability are proven.
+- canonical promotion requires a deterministic qualified source or decision basis; immutable git byte/source identity and source/adr/head races fail closed; cross-project rejection remains mandatory.
+- memory evidence for pr #51, audited head 95c3bafbd9be2b76b308097f7568b215bb055fa0, sol review 5131840941, squash merge 2c701d221e481913d2cbe9c0b8f3504632042306, post-merge ci 34120545634, backend 382 and dashboard 7 is pass.
+- memory llm/provider calls are 0/0; ruleset 21934284 is unchanged; auto-merge is unarmed; validated_evidence remains fail-closed; no mcp memory surface, autonomous dispatch, full telemetry, full control center or v0.1 completion is claimed.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -197,10 +202,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary Memory Lifecycle and Provenance Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints, Delta Context and Provider/Prompt Cache foundations.
+- Preparing the smallest necessary ACCE increment beyond current intake/storage/context foundations.
 
 ## PENDING
-- memory.
 - ACCE beyond current intake/storage/context foundations.
 - MCP server product surface.
 - autonomous execution beyond the Local Verified Runner foundation.
@@ -216,27 +220,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Provider/Prompt Cache Adapter Foundation approval and post-merge validation.
+None known after Memory Lifecycle and Provenance Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary Memory Lifecycle and Provenance Foundation over the approved Context Manager, Progressive Disclosure, Adaptive Token Budget, Context Fingerprints, Delta Context and Provider/Prompt Cache foundations.
-
-Continue with the following bounded intent:
-- durable structured memory belongs in PostgreSQL;
-- Redis remains HOT/noncanonical only;
-- every promoted memory record carries provenance;
-- staged executor/model output is not canonical until validated;
-- derived summaries/embeddings never replace canonical source;
-- project isolation remains mandatory;
-- deterministic mechanisms before LLM calls;
-- no MCP product surface yet;
-- no autonomous executor dispatch expansion yet;
-- no full telemetry expansion beyond objective evidence;
-- no silent canonical memory mutation;
-Do not implement Memory in the promotion PR.
+Prepare the smallest necessary ACCE increment beyond current intake/storage/context foundations.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
