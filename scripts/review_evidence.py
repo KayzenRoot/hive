@@ -316,6 +316,37 @@ WO014_PROVIDER_CACHE_NEGATIVE_FIELDS = (
     "full_cache_telemetry_implemented",
     "migration_changed",
 )
+WO015_MEMORY_REQUIRED_FIELDS = (
+    "memory_lifecycle_implemented",
+    "memory_postgres_durable",
+    "memory_redis_noncanonical",
+    "memory_project_scoped",
+    "memory_cross_project_rejected",
+    "memory_provenance_queryable",
+    "memory_model_output_staged",
+    "memory_canonical_promotion_qualified",
+    "memory_invalid_promotion_rejected",
+    "memory_history_preserved",
+    "memory_restart_recovery",
+    "memory_redis_loss_recovery",
+    "memory_secrets_not_exposed",
+    "memory_migration_consistent",
+    "memory_migration_changed",
+)
+WO015_MEMORY_INTEGER_FIELDS = (
+    "memory_project_count",
+    "memory_cross_project_rejections",
+    "memory_provenance_records",
+    "memory_invalid_promotion_rejections",
+    "memory_history_versions",
+    "memory_restart_records",
+    "memory_redis_loss_records",
+    "memory_secret_leaks",
+    "memory_llm_calls",
+    "memory_provider_calls",
+)
+WO015_MEMORY_STRING_FIELDS = ("memory_evidence_version", "memory_migration_head")
+WO015_MEMORY_EVIDENCE_FILE = "memory-lifecycle.json"
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -345,6 +376,9 @@ WO014_C2_WORK_ORDER = "WO-014-C2"
 WO014P_G1_BASE_SHA = "13888d63572db0e90fb4536369867d995a9e1c90"
 WO014P_G1_WORK_ORDER = "WO-014-P-G1"
 WO014P_WORK_ORDER = "WO-014-P"
+WO015_G1_BASE_SHA = "e2f95b5dc3c4b44fd8dfef62c1fc0dad8ce8c89d"
+WO015_G1_WORK_ORDER = "WO-015-G1"
+WO015_WORK_ORDER = "WO-015"
 WO012P_G1_BASE_SHA = "743253ef079596370a7ff1102faf03b3a603b585"
 WO012P_PROMOTION_BASE_REF = "refs/remotes/origin/main"
 WO012P_G1_ALLOWED_PATHS = frozenset(
@@ -407,6 +441,14 @@ WO014_C2_ALLOWED_PATHS = frozenset(
     {
         "backend/tests/test_review_evidence.py",
         "scripts/review_evidence.py",
+    }
+)
+WO015_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
     }
 )
 HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
@@ -674,6 +716,8 @@ def parse_authorized_base_marker(body: str) -> str:
 
 
 def require_supported_work_order(work_order: str) -> None:
+    if work_order in {WO015_G1_WORK_ORDER, WO015_WORK_ORDER}:
+        return
     if work_order == WO014_C2_WORK_ORDER:
         return
     if (
@@ -1318,6 +1362,193 @@ def require_wo014_c2_scope(work_order: str, base_sha: str, paths: list[str]) -> 
             f"{WO014_C2_WORK_ORDER} changed files outside the explicit governance/test scope: "
             + ", ".join(unauthorized)
         )
+
+
+def require_wo015_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != WO015_G1_WORK_ORDER:
+        return
+    if base_sha != WO015_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO015_G1_WORK_ORDER} requires exact base {WO015_G1_BASE_SHA}, observed {base_sha}"
+        )
+    unauthorized = sorted(set(paths) - WO015_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO015_G1_WORK_ORDER} changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO015_G1_WORK_ORDER} cannot change canonical Project Brain")
+
+
+def require_wo015_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO015_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO015_WORK_ORDER} requires the protected main base branch")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO015_WORK_ORDER} cannot promote or rewrite canonical Project Brain")
+    if base_sha == "0" * 40:
+        raise ValueError(f"{WO015_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and base_sha != current_main:
+            raise ValueError(
+                f"{WO015_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+
+
+def memory_lifecycle_evidence() -> dict[str, object]:
+    text = integration_file(WO015_MEMORY_EVIDENCE_FILE)
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "evidence_file": WO015_MEMORY_EVIDENCE_FILE,
+        **{field: False for field in WO015_MEMORY_REQUIRED_FIELDS},
+        **{field: 0 for field in WO015_MEMORY_INTEGER_FIELDS},
+        **{field: "UNKNOWN" for field in WO015_MEMORY_STRING_FIELDS},
+    }
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return unknown
+    if not isinstance(data, dict):
+        return unknown
+    values = {field: data.get(field) is True for field in WO015_MEMORY_REQUIRED_FIELDS}
+    integers: dict[str, int] = {}
+    for field in WO015_MEMORY_INTEGER_FIELDS:
+        value = data.get(field)
+        integers[field] = value if isinstance(value, int) and not isinstance(value, bool) else 0
+    strings = {
+        field: data.get(field) if isinstance(data.get(field), str) else "UNKNOWN"
+        for field in WO015_MEMORY_STRING_FIELDS
+    }
+    bounded_counts = all(value >= 0 for value in integers.values())
+    status = (
+        "PASS"
+        if data.get("status") == "PASS"
+        and all(values.values())
+        and bounded_counts
+        and strings["memory_evidence_version"] == "memory-lifecycle-provenance-v1"
+        and integers["memory_project_count"] >= 2
+        and integers["memory_cross_project_rejections"] >= 1
+        and integers["memory_provenance_records"] >= 1
+        and integers["memory_invalid_promotion_rejections"] >= 1
+        and integers["memory_history_versions"] >= 2
+        and integers["memory_restart_records"] >= 1
+        and integers["memory_redis_loss_records"] >= 1
+        and integers["memory_secret_leaks"] == 0
+        and integers["memory_llm_calls"] == 0
+        and integers["memory_provider_calls"] == 0
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        "evidence_file": WO015_MEMORY_EVIDENCE_FILE,
+        **values,
+        **integers,
+        **strings,
+    }
+
+
+def require_wo015_memory_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != WO015_WORK_ORDER:
+        return
+    memory = integration.get("memory")
+    if not isinstance(memory, Mapping):
+        raise ValueError("WO-015 Review Evidence missing mandatory Memory evidence")
+    missing = [field for field in WO015_MEMORY_REQUIRED_FIELDS if memory.get(field) is not True]
+    if missing:
+        raise ValueError(
+            "WO-015 Review Evidence missing mandatory Memory evidence: "
+            + ", ".join(sorted(missing))
+        )
+    if memory.get("status") != "PASS":
+        raise ValueError("WO-015 requires passing Memory lifecycle evidence")
+    if memory.get("evidence_file") != WO015_MEMORY_EVIDENCE_FILE:
+        raise ValueError("WO-015 requires the bounded memory-lifecycle evidence file")
+    if memory.get("memory_evidence_version") != "memory-lifecycle-provenance-v1":
+        raise ValueError("WO-015 requires the versioned Memory evidence contract")
+    for field in WO015_MEMORY_INTEGER_FIELDS:
+        value = memory.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"WO-015 requires bounded integer evidence for {field}")
+    required_positive = {
+        "memory_project_count": 2,
+        "memory_cross_project_rejections": 1,
+        "memory_provenance_records": 1,
+        "memory_invalid_promotion_rejections": 1,
+        "memory_history_versions": 2,
+        "memory_restart_records": 1,
+        "memory_redis_loss_records": 1,
+    }
+    for field, minimum in required_positive.items():
+        if cast(int, memory[field]) < minimum:
+            raise ValueError(f"WO-015 requires computed evidence for {field} >= {minimum}")
+    for field in ("memory_secret_leaks", "memory_llm_calls", "memory_provider_calls"):
+        if memory.get(field) != 0:
+            raise ValueError(f"WO-015 requires {field}=0")
+    if migration_head_value is None or memory.get("memory_migration_head") != migration_head_value:
+        raise ValueError("WO-015 requires Memory evidence to match the observed migration head")
+    if migration_head_value == "0005_semantic_retrieval":
+        raise ValueError("WO-015 requires a Memory migration head beyond 0005_semantic_retrieval")
+
+
+def verify_wo015_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO015_G1_WORK_ORDER:
+        return None
+    require_wo015_g1_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO015_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != "0005_semantic_retrieval":
+        raise ValueError(
+            f"{WO015_G1_WORK_ORDER} requires migration head 0005_semantic_retrieval, "
+            f"observed {migration_head_value}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO015_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO015_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    context_manager = cast(dict[str, Any], integration.get("context_manager", {}))
+    if context_manager.get("memory_lifecycle_implemented") is not False:
+        raise ValueError(f"{WO015_G1_WORK_ORDER} must not implement Memory")
+    require_current_work_order_authorization(WO015_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO015_WORK_ORDER)
+    return (
+        f"work_order={WO015_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        "migration_head=0005_semantic_retrieval; memory_implementation=False; "
+        "future_WO-015_registered=PASS; future_memory_evidence_fail_closed=PASS; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
 
 
 def verify_wo014_c2_governance_contract() -> str:
@@ -2140,6 +2371,9 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
     context_manager = context_manager_evidence()
     if context_manager["status"] == "FAIL":
         status = "FAIL"
+    memory = memory_lifecycle_evidence()
+    if memory["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     return {
         "status": status,
@@ -2162,6 +2396,7 @@ def integration_evidence(benchmark: dict[str, object]) -> dict[str, object]:
             "evidence_file": "retrieval.log",
         },
         "context_manager": context_manager,
+        "memory": memory,
         "benchmark_gate": {
             "status": benchmark["status"],
             "query_count": benchmark["query_count"],
@@ -3185,6 +3420,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo013_scope(work_order, base_sha, paths)
     require_wo014_scope(work_order, base_sha, paths)
     require_wo014_c2_scope(work_order, base_sha, paths)
+    require_wo015_g1_scope(work_order, base_sha, paths)
+    require_wo015_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -3217,6 +3460,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         integration,
         migration_head(),
     )
+    require_wo015_memory_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -3241,6 +3485,15 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     pr_auto_merge = pull_request_auto_merge_evidence(pr_governance)
     g1_governance_evidence = verify_wo014p_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo015_g1_governance_evidence = verify_wo015_g1_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -3332,6 +3585,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             [f"WO-014-P-G1 governance evidence: {g1_governance_evidence}"]
             if g1_governance_evidence
             else []
+        )
+        + (
+            [f"WO-015-G1 governance evidence: {wo015_g1_governance_evidence}"]
+            if wo015_g1_governance_evidence
+            else []
         ),
     }
 
@@ -3371,6 +3629,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
     )
+    require_wo015_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+    )
     require_wo012p_scope(
         work_order,
         cast(str, base["sha"]),
@@ -3388,6 +3651,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if isinstance(manifest["base"], Mapping)
         else "main",
         enforce_authorized_base=False,
+    )
+    require_wo015_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
     )
     if work_order == "WO-008-G1":
         require_wo008_g1_scope(
@@ -3522,6 +3794,21 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-014-C2 evidence must record the explicit squash-safe governance contract"
             )
+    wo015_g1_evidence = verify_wo015_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO015_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-015-G1 governance evidence: {wo015_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-015-G1 evidence must record the explicit governance enablement contract"
+            )
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -3556,6 +3843,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo014_provider_prompt_cache_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo015_memory_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -3620,6 +3912,14 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             entry.split(": ", 1)[1]
             for entry in cast(list[object], manifest["negative_scope"])
             if isinstance(entry, str) and entry.startswith("WO-014-P-G1 governance evidence: ")
+        ),
+        "NOT_RECORDED",
+    )
+    wo015_g1_governance_text = next(
+        (
+            entry.split(": ", 1)[1]
+            for entry in cast(list[object], manifest["negative_scope"])
+            if isinstance(entry, str) and entry.startswith("WO-015-G1 governance evidence: ")
         ),
         "NOT_RECORDED",
     )
@@ -3965,6 +4265,21 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"LLM/provider calls `{provider_cache_llm_calls}/"
         f"{provider_cache_provider_calls}`"
     )
+    memory_evidence = cast(dict[str, Any], integration.get("memory", {}))
+    memory_text = (
+        f"`{memory_evidence.get('status', 'UNKNOWN')}`; PostgreSQL durable `"
+        f"{memory_evidence.get('memory_postgres_durable', False)}`, Redis noncanonical `"
+        f"{memory_evidence.get('memory_redis_noncanonical', False)}`, project-scoped `"
+        f"{memory_evidence.get('memory_project_scoped', False)}`, cross-project rejection `"
+        f"{memory_evidence.get('memory_cross_project_rejected', False)}`, provenance `"
+        f"{memory_evidence.get('memory_provenance_queryable', False)}`, staged model output `"
+        f"{memory_evidence.get('memory_model_output_staged', False)}`, qualified promotion `"
+        f"{memory_evidence.get('memory_canonical_promotion_qualified', False)}`, history `"
+        f"{memory_evidence.get('memory_history_preserved', False)}`, restart/Redis loss `"
+        f"{memory_evidence.get('memory_restart_recovery', False)}/"
+        f"{memory_evidence.get('memory_redis_loss_recovery', False)}`, secret leaks `"
+        f"{memory_evidence.get('memory_secret_leaks', 'UNKNOWN')}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -4015,8 +4330,10 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Context Fingerprint evidence: {fingerprint_text}
 - Delta Context evidence: {delta_text}
 - Provider/Prompt Cache evidence: {provider_cache_text}
+- Memory Lifecycle evidence: {memory_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
+- WO-015-G1 governance evidence: {wo015_g1_governance_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`

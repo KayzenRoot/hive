@@ -162,6 +162,7 @@
             "api_restart": { "$ref": "#/$defs/result" },
             "reranking": { "$ref": "#/$defs/result" },
             "context_manager": { "$ref": "#/$defs/context_manager_evidence" },
+            "memory": { "$ref": "#/$defs/memory_lifecycle_evidence" },
             "benchmark_gate": {
               "type": "object",
               "additionalProperties": false,
@@ -386,6 +387,42 @@
       "properties": {
         "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
         "evidence_file": { "type": "string", "minLength": 1 }
+      }
+    },
+    "memory_lifecycle_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence_file"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "evidence_file": { "type": "string", "const": "memory-lifecycle.json" },
+        "memory_lifecycle_implemented": { "type": "boolean" },
+        "memory_postgres_durable": { "type": "boolean" },
+        "memory_redis_noncanonical": { "type": "boolean" },
+        "memory_project_scoped": { "type": "boolean" },
+        "memory_cross_project_rejected": { "type": "boolean" },
+        "memory_provenance_queryable": { "type": "boolean" },
+        "memory_model_output_staged": { "type": "boolean" },
+        "memory_canonical_promotion_qualified": { "type": "boolean" },
+        "memory_invalid_promotion_rejected": { "type": "boolean" },
+        "memory_history_preserved": { "type": "boolean" },
+        "memory_restart_recovery": { "type": "boolean" },
+        "memory_redis_loss_recovery": { "type": "boolean" },
+        "memory_secrets_not_exposed": { "type": "boolean" },
+        "memory_migration_consistent": { "type": "boolean" },
+        "memory_migration_changed": { "type": "boolean" },
+        "memory_project_count": { "type": "integer", "minimum": 0 },
+        "memory_cross_project_rejections": { "type": "integer", "minimum": 0 },
+        "memory_provenance_records": { "type": "integer", "minimum": 0 },
+        "memory_invalid_promotion_rejections": { "type": "integer", "minimum": 0 },
+        "memory_history_versions": { "type": "integer", "minimum": 0 },
+        "memory_restart_records": { "type": "integer", "minimum": 0 },
+        "memory_redis_loss_records": { "type": "integer", "minimum": 0 },
+        "memory_secret_leaks": { "type": "integer", "minimum": 0 },
+        "memory_llm_calls": { "type": "integer", "minimum": 0, "maximum": 0 },
+        "memory_provider_calls": { "type": "integer", "minimum": 0, "maximum": 0 },
+        "memory_evidence_version": { "type": "string", "minLength": 1 },
+        "memory_migration_head": { "type": "string", "minLength": 1 }
       }
     },
     "context_manager_evidence": {
