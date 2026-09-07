@@ -1530,6 +1530,134 @@ WO-015-G1 READY FOR SOL AUDIT
 """
 
 
+def _render_wo015p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo e limite
+
+Esta PR habilita exclusivamente o suporte determinístico de Review Evidence e
+renderer para a futura promoção do checkpoint Memory Lifecycle and Provenance.
+Não promove o checkpoint e não inicia o WO-015-P.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base autorizada exata: `2c701d221e481913d2cbe9c0b8f3504632042306`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+
+## 3. Escopo fechado
+
+Arquivos G1 permitidos: `backend/tests/test_review_evidence.py`,
+`scripts/review_evidence.py` e `scripts/review_pr_body.py`. Project Brain,
+checkpoint, migrations, produto, MCP, telemetria, Control Center e execução
+autônoma permanecem intocados.
+
+O futuro `WO-015-P` fica registrado como o único próximo promotion work order
+ativo. Ele exige exatamente `13-CHECKPOINT.md` e
+`CANONICAL-SHA256SUMS.txt`, com marcador de base autorizado, base `main`
+atual, sem mudança de manifest além do hash do checkpoint e sem IDs
+desconhecidos herdarem semântica.
+
+## 4. Contratos fechados
+
+O renderer e o verificador exigem status Memory exato, prefixo histórico de
+COMPLETED, remoção somente de `memory.` em PENDING, próximo passo limitado a
+ACCE além das fundações atuais e o gate versionado de evidência Memory. O gate
+exige migration `0006_memory_lifecycle_provenance`, PostgreSQL durável,
+Redis não canônico, isolamento, proveniência, corridas source/ADR/HEAD,
+atomicidade, restart/Redis-loss e zero chamadas LLM/provider.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED;
+nenhum merge/release é executado e Sol continua obrigatório.
+
+## 6. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-015-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo015p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Promoção Memory fechada
+
+Esta PR promove somente o checkpoint Memory Lifecycle and Provenance já
+validado. A alteração deve conter exatamente `docs/project-brain/13-CHECKPOINT.md`
+e `docs/project-brain/CANONICAL-SHA256SUMS.txt`, com o hash do checkpoint
+recalculado e todos os demais hashes preservados.
+
+## 2. Identidade e evidência
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base protegida exata: `{base_sha}`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+- Status de checkpoint: Memory Lifecycle and Provenance Foundation APPROVED /
+  V0.1 IMPLEMENTATION ACTIVE.
+- A evidência deve estar PASS, bounded, reproduzível e vinculada ao migration
+  `0006_memory_lifecycle_provenance`.
+
+## 3. Limites semânticos
+
+COMPLETED preserva seu prefixo histórico e adiciona somente as cinco classes
+Memory autorizadas. PENDING remove somente `memory.`. O próximo passo é apenas
+o menor incremento ACCE além das fundações de intake/storage/context; não há
+claim de MCP Memory, Memory compartilhada, VALIDATED_EVIDENCE aberto,
+dispatch autônomo, telemetria completa, Control Center completo, ACCE completo
+ou V0.1 completo.
+
+## 4. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED;
+nenhum merge/release é executado nesta etapa.
+
+## 5. Estado de Sol
+
+A PR permanece aberta e Ready até auditoria do HEAD exato. Sol Review State:
+AWAITING_SOL.
+
+WO-015-P READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_body(
     *,
     work_order: str,
@@ -1815,6 +1943,32 @@ def render_body(
         )
     if work_order == "WO-015-G1":
         return _render_wo015_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-015-P-G1":
+        return _render_wo015p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-015-P":
+        return _render_wo015p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

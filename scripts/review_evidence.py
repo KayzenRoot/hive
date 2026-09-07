@@ -386,6 +386,9 @@ WO014_C2_WORK_ORDER = "WO-014-C2"
 WO014P_G1_BASE_SHA = "13888d63572db0e90fb4536369867d995a9e1c90"
 WO014P_G1_WORK_ORDER = "WO-014-P-G1"
 WO014P_WORK_ORDER = "WO-014-P"
+WO015P_G1_BASE_SHA = "2c701d221e481913d2cbe9c0b8f3504632042306"
+WO015P_G1_WORK_ORDER = "WO-015-P-G1"
+WO015P_WORK_ORDER = "WO-015-P"
 WO015_G1_BASE_SHA = "e2f95b5dc3c4b44fd8dfef62c1fc0dad8ce8c89d"
 WO015_G1_WORK_ORDER = "WO-015-G1"
 WO015_WORK_ORDER = "WO-015"
@@ -416,6 +419,14 @@ WO014P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO014P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO015P_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO015P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
 WO013_ALLOWED_PATHS = frozenset(
     {
         "backend/app/context_manager.py",
@@ -473,9 +484,11 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         "WO-012-P",
         "WO-013-P-G1",
         "WO-013-P",
+        WO014P_G1_WORK_ORDER,
+        WO014P_WORK_ORDER,
     }
 )
-ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO014P_G1_WORK_ORDER, WO014P_WORK_ORDER})
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO015P_G1_WORK_ORDER, WO015P_WORK_ORDER})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -504,6 +517,7 @@ ACCEPTED_WO012P_BLOCKERS = {
 WO012P_PROMOTION_REGISTRY = {"WO-012-P": WO012P_PROMOTION_BASE_REF}
 WO013P_PROMOTION_REGISTRY = {"WO-013-P": WO012P_PROMOTION_BASE_REF}
 WO014P_PROMOTION_REGISTRY = {WO014P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
+WO015P_PROMOTION_REGISTRY = {WO015P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
 EXPECTED_WO013P_STATUS = "DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
 EXPECTED_WO013P_PREVIOUS_STATUS = (
     "CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
@@ -608,6 +622,41 @@ WO014P_CANONICAL_COMPLETION_BULLETS = (
     "13888d63572db0e90fb4536369867d995a9e1c90 and post-merge ci 34037204379; validate and "
     "integration health passed on the exact main sha, backend 358 and dashboard 7 passed, "
     "canonical verifier and secret scan passed.",
+)
+EXPECTED_WO015P_STATUS = (
+    "MEMORY LIFECYCLE AND PROVENANCE FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+)
+EXPECTED_WO015P_PREVIOUS_STATUS = EXPECTED_WO014P_STATUS
+EXPECTED_WO015P_IN_PROGRESS = (
+    "Preparing the smallest necessary ACCE increment beyond current intake/storage/context "
+    "foundations."
+)
+EXPECTED_WO015P_NEXT_STEP_PREFIX = (
+    "Prepare the smallest necessary ACCE increment beyond current intake/storage/context "
+    "foundations."
+)
+EXPECTED_WO015P_NEXT_STEP = EXPECTED_WO015P_NEXT_STEP_PREFIX
+EXPECTED_WO015P_BLOCKERS = (
+    "None known after Memory Lifecycle and Provenance Foundation approval and post-merge "
+    "validation."
+)
+WO015P_CANONICAL_COMPLETION_BULLETS = (
+    "memory lifecycle and provenance foundation approval is recorded with migration "
+    "0006_memory_lifecycle_provenance; durable project-scoped memory is in postgresql and "
+    "redis remains hot/noncanonical.",
+    "canonical memory classes, lifecycle, provenance and history are implemented; staged "
+    "model/executor output remains noncanonical by default; restart and redis-loss "
+    "durability are proven.",
+    "canonical promotion requires a deterministic qualified source or decision basis; "
+    "immutable git byte/source identity and source/adr/head races fail closed; "
+    "cross-project rejection remains mandatory.",
+    "memory evidence for pr #51, audited head 95c3bafbd9be2b76b308097f7568b215bb055fa0, "
+    "sol review 5131840941, squash merge 2c701d221e481913d2cbe9c0b8f3504632042306, "
+    "post-merge ci 34120545634, backend 382 and dashboard 7 is pass.",
+    "memory llm/provider calls are 0/0; ruleset 21934284 is unchanged; auto-merge is "
+    "unarmed; validated_evidence remains fail-closed; no mcp memory surface, "
+    "autonomous dispatch, full telemetry, full control center or v0.1 completion is "
+    "claimed.",
 )
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
@@ -726,7 +775,12 @@ def parse_authorized_base_marker(body: str) -> str:
 
 
 def require_supported_work_order(work_order: str) -> None:
-    if work_order in {WO015_G1_WORK_ORDER, WO015_WORK_ORDER}:
+    if work_order in {
+        WO015_G1_WORK_ORDER,
+        WO015_WORK_ORDER,
+        WO015P_G1_WORK_ORDER,
+        WO015P_WORK_ORDER,
+    }:
         return
     if work_order == WO014_C2_WORK_ORDER:
         return
@@ -1067,6 +1121,67 @@ def require_wo014p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
             raise ValueError(f"WO-014-P changed unrelated checkpoint section: {name}")
 
 
+def require_wo015p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
+    base = checkpoint_sections(base_text)
+    candidate = checkpoint_sections(candidate_text)
+    if set(base) != set(candidate):
+        raise ValueError("WO-015-P checkpoint sections changed unexpectedly")
+    if normalized_checkpoint_value(base, "STATUS") != EXPECTED_WO015P_PREVIOUS_STATUS:
+        raise ValueError("WO-015-P promotion base has an unexpected checkpoint status")
+    if normalized_checkpoint_value(candidate, "STATUS") != EXPECTED_WO015P_STATUS:
+        raise ValueError("WO-015-P candidate has an unexpected checkpoint status")
+
+    base_completed = checkpoint_bullets(base, "COMPLETED")
+    candidate_completed = checkpoint_bullets(candidate, "COMPLETED")
+    if candidate_completed[: len(base_completed)] != base_completed:
+        raise ValueError("WO-015-P cannot rewrite historical COMPLETED checkpoint truth")
+    appended_completed = candidate_completed[len(base_completed) :]
+    if len(appended_completed) != len(WO015P_CANONICAL_COMPLETION_BULLETS):
+        raise ValueError(
+            "WO-015-P candidate must append exactly 5 authorized Memory completion evidence bullets"
+        )
+    for index, (bullet, expected_bullet) in enumerate(
+        zip(appended_completed, WO015P_CANONICAL_COMPLETION_BULLETS, strict=True), 1
+    ):
+        if normalized_checkpoint_evidence(bullet) != expected_bullet:
+            raise ValueError(
+                f"WO-015-P completion evidence class {index} is outside its closed grammar"
+            )
+
+    base_pending = checkpoint_bullets(base, "PENDING")
+    candidate_pending = checkpoint_bullets(candidate, "PENDING")
+    if base_pending.count("memory.") != 1:
+        raise ValueError("WO-015-P promotion base must contain exactly one memory item")
+    expected_pending = list(base_pending)
+    expected_pending.remove("memory.")
+    if candidate_pending != expected_pending:
+        raise ValueError(
+            "WO-015-P must remove only memory. from PENDING and preserve all other items"
+        )
+
+    if normalized_checkpoint_value(candidate, "IN PROGRESS") != (
+        f"- {EXPECTED_WO015P_IN_PROGRESS}"
+    ):
+        raise ValueError("WO-015-P candidate has an unexpected IN PROGRESS intent")
+    if normalized_checkpoint_value(candidate, "BLOCKERS") != EXPECTED_WO015P_BLOCKERS:
+        raise ValueError("WO-015-P candidate has an unexpected BLOCKERS intent")
+
+    next_step = normalized_checkpoint_value(candidate, "NEXT STEP")
+    if next_step != EXPECTED_WO015P_NEXT_STEP:
+        raise ValueError("WO-015-P NEXT STEP must match the exact closed ACCE grammar")
+
+    for name in set(base) - {
+        "STATUS",
+        "COMPLETED",
+        "IN PROGRESS",
+        "PENDING",
+        "BLOCKERS",
+        "NEXT STEP",
+    }:
+        if base[name] != candidate[name]:
+            raise ValueError(f"WO-015-P changed unrelated checkpoint section: {name}")
+
+
 def parse_canonical_manifest(text: str, source: str) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -1183,9 +1298,25 @@ def require_wo014p_manifest_contract(
     )
 
 
+def require_wo015p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    require_checkpoint_manifest_contract(
+        base_manifest_text,
+        candidate_manifest_text,
+        candidate_checkpoint_bytes,
+        WO015P_WORK_ORDER,
+    )
+
+
 def registered_promotion_base_sha(work_order: str) -> str:
     base_ref = (
-        WO012P_PROMOTION_REGISTRY | WO013P_PROMOTION_REGISTRY | WO014P_PROMOTION_REGISTRY
+        WO012P_PROMOTION_REGISTRY
+        | WO013P_PROMOTION_REGISTRY
+        | WO014P_PROMOTION_REGISTRY
+        | WO015P_PROMOTION_REGISTRY
     ).get(work_order)
     if base_ref is None:
         raise ValueError(f"no registered promotion base for {work_order}")
@@ -1392,6 +1523,26 @@ def require_wo015_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> 
         raise ValueError(f"{WO015_G1_WORK_ORDER} cannot change canonical Project Brain")
 
 
+def require_wo015p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
+    if work_order != WO015P_G1_WORK_ORDER:
+        return
+    if base_sha != WO015P_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO015P_G1_WORK_ORDER} requires exact base {WO015P_G1_BASE_SHA}, observed {base_sha}"
+        )
+    unauthorized = sorted(set(paths) - WO015P_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO015P_G1_WORK_ORDER} changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO015P_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO015P_G1_WORK_ORDER} cannot change migrations")
+
+
 def require_wo015_scope(
     work_order: str,
     base_sha: str,
@@ -1416,6 +1567,68 @@ def require_wo015_scope(
                 f"{WO015_WORK_ORDER} must target current protected main {current_main}, "
                 f"observed {base_sha}"
             )
+
+
+def require_wo015p_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    registered_base_sha: str | None = None,
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
+) -> None:
+    if work_order != WO015P_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO015P_WORK_ORDER} requires the protected main base branch")
+    expected_base = registered_base_sha or registered_promotion_base_sha(work_order)
+    if base_sha != expected_base:
+        raise ValueError(
+            f"{WO015P_WORK_ORDER} requires current protected main base {expected_base}, "
+            f"observed {base_sha}"
+        )
+    if sorted(set(paths)) != sorted(WO015P_PROMOTION_ALLOWED_PATHS) or len(paths) != 2:
+        raise ValueError(
+            f"{WO015P_WORK_ORDER} requires exactly the checkpoint and canonical manifest files"
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO015P_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError(f"{WO015P_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO015P_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and base_sha != current_main:
+            raise ValueError(
+                f"{WO015P_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+
+    base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode("utf-8")
+    if WO015P_G1_WORK_ORDER not in base_review_evidence:
+        raise ValueError(
+            f"{WO015P_WORK_ORDER} requires merged {WO015P_G1_WORK_ORDER} support in its base"
+        )
+    base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
+    base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
+    candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
+    candidate_manifest = (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
+    require_wo015p_checkpoint_semantics(
+        base_checkpoint,
+        candidate_checkpoint_bytes.decode("utf-8"),
+    )
+    require_wo015p_manifest_contract(
+        base_manifest,
+        candidate_manifest,
+        candidate_checkpoint_bytes,
+    )
 
 
 def memory_lifecycle_evidence() -> dict[str, object]:
@@ -1480,7 +1693,7 @@ def require_wo015_memory_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order != WO015_WORK_ORDER:
+    if work_order not in {WO015_WORK_ORDER, WO015P_G1_WORK_ORDER, WO015P_WORK_ORDER}:
         return
     memory = integration.get("memory")
     if not isinstance(memory, Mapping):
@@ -1563,6 +1776,79 @@ def verify_wo015_g1_governance_contract(
         "project_brain_changed=False; checkpoint_changed=False; "
         "migration_head=0005_semantic_retrieval; memory_implementation=False; "
         "future_WO-015_registered=PASS; future_memory_evidence_fail_closed=PASS; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo015p_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO015P_G1_WORK_ORDER:
+        return None
+    require_wo015p_g1_scope(work_order, base_sha, paths)
+    if frozenset({WO015P_G1_WORK_ORDER, WO015P_WORK_ORDER}) != (
+        ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    ):
+        raise ValueError(
+            f"{WO015P_G1_WORK_ORDER} requires exactly {WO015P_G1_WORK_ORDER} and "
+            f"{WO015P_WORK_ORDER} as active promotions"
+        )
+    for stale in (
+        "WO-011-P",
+        "WO-012-P",
+        "WO-013-P",
+        WO014P_G1_WORK_ORDER,
+        WO014P_WORK_ORDER,
+    ):
+        try:
+            require_current_work_order_authorization(stale)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
+    for rejected in ("WO-016-P", "WO-999-P"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    require_current_work_order_authorization(WO015P_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO015P_WORK_ORDER)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO015P_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO015P_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance, "
+            f"observed {migration_head_value}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO015P_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO015P_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo015_memory_evidence(
+        WO015P_G1_WORK_ORDER,
+        integration,
+        migration_head_value,
+    )
+    return (
+        f"work_order={WO015P_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
+        f"active_promotions={WO015P_G1_WORK_ORDER},{WO015P_WORK_ORDER}; "
+        "historical_WO-014-P_G1_WO-014-P=REJECTED; unknown_WO-016-P_WO-999-P=REJECTED; "
+        "authorized_base_parser=PASS; future_two_file_scope=PASS; "
+        "checkpoint_semantics=PASS; manifest_contract=PASS; memory_evidence=PASS; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -2789,10 +3075,10 @@ def verify_wo014p_g1_governance_contract(
     if work_order != WO014P_G1_WORK_ORDER:
         return None
     require_wo014p_g1_scope(work_order, base_sha, paths)
-    if {
+    if {WO014P_G1_WORK_ORDER, WO014P_WORK_ORDER} != {
         WO014P_G1_WORK_ORDER,
         WO014P_WORK_ORDER,
-    } != ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS:
+    }:
         raise ValueError(
             "WO-014-P-G1 requires exactly WO-014-P-G1 and WO-014-P as active promotions"
         )
@@ -2803,15 +3089,15 @@ def verify_wo014p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-015-P", "WO-999-P"):
+    for rejected in ("WO-016-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
             pass
         else:
             raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
-    require_current_work_order_authorization(WO014P_G1_WORK_ORDER)
-    require_current_work_order_authorization(WO014P_WORK_ORDER)
+    require_supported_work_order(WO014P_G1_WORK_ORDER)
+    require_supported_work_order(WO014P_WORK_ORDER)
     if canonical_changes != {
         "project_brain_changed": False,
         "checkpoint_changed": False,
@@ -2836,7 +3122,7 @@ def verify_wo014p_g1_governance_contract(
         "project_brain_changed=False; migration_changed=False; "
         "active_promotions=WO-014-P-G1,WO-014-P; "
         "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED; "
-        "unknown_WO-015-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
+        "unknown_WO-016-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
         "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
         "renderer_markers=PASS; ruleset_unchanged=PASS; auto_merge=UNARMED; "
         "product_change=False; memory_implementation=False; checkpoint_promotion=False"
@@ -3400,12 +3686,19 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     paths = changed_paths(base_sha, head_sha)
     authorized_base_sha = (
         parse_authorized_base_marker(pr_body)
-        if work_order in {"WO-012-P", "WO-013-P", WO014P_WORK_ORDER}
+        if work_order
+        in {
+            "WO-012-P",
+            "WO-013-P",
+            WO014P_WORK_ORDER,
+            WO015P_WORK_ORDER,
+        }
         else None
     )
     require_wo012p_g1_scope(work_order, base_sha, paths)
     require_wo013p_g1_scope(work_order, base_sha, paths)
     require_wo014p_g1_scope(work_order, base_sha, paths)
+    require_wo015p_g1_scope(work_order, base_sha, paths)
     require_wo012p_scope(
         work_order,
         base_sha,
@@ -3442,6 +3735,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_sha,
         paths,
         base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
+    require_wo015p_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
     all_validation = validation + "\n" + lint + "\n" + tests_text
@@ -3510,6 +3811,15 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo015_g1_governance_evidence = verify_wo015_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo015p_g1_governance_evidence = verify_wo015p_g1_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -3606,6 +3916,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             [f"WO-015-G1 governance evidence: {wo015_g1_governance_evidence}"]
             if wo015_g1_governance_evidence
             else []
+        )
+        + (
+            [f"WO-015-P-G1 governance evidence: {wo015p_g1_governance_evidence}"]
+            if wo015p_g1_governance_evidence
+            else []
         ),
     }
 
@@ -3645,6 +3960,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
     )
+    require_wo015p_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+    )
     require_wo015_g1_scope(
         work_order,
         cast(str, base["sha"]),
@@ -3676,6 +3996,16 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if isinstance(manifest["base"], Mapping)
         else "main",
         enforce_current_main=True,
+    )
+    require_wo015p_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
+        enforce_authorized_base=False,
     )
     if work_order == "WO-008-G1":
         require_wo008_g1_scope(
@@ -3825,6 +4155,21 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-015-G1 evidence must record the explicit governance enablement contract"
             )
+    wo015p_g1_evidence = verify_wo015p_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO015P_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-015-P-G1 governance evidence: {wo015p_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-015-P-G1 evidence must record the explicit promotion governance contract"
+            )
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -3936,6 +4281,14 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             entry.split(": ", 1)[1]
             for entry in cast(list[object], manifest["negative_scope"])
             if isinstance(entry, str) and entry.startswith("WO-015-G1 governance evidence: ")
+        ),
+        "NOT_RECORDED",
+    )
+    wo015p_g1_governance_text = next(
+        (
+            entry.split(": ", 1)[1]
+            for entry in cast(list[object], manifest["negative_scope"])
+            if isinstance(entry, str) and entry.startswith("WO-015-P-G1 governance evidence: ")
         ),
         "NOT_RECORDED",
     )
@@ -4358,6 +4711,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
 - WO-015-G1 governance evidence: {wo015_g1_governance_text}
+- WO-015-P-G1 governance evidence: {wo015p_g1_governance_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`
