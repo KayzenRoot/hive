@@ -11,8 +11,10 @@ from app.cas import (
     CASStorageError,
     CASStore,
     InvalidDigestError,
+    StoragePolicy,
     StoragePolicyError,
     StorageProfile,
+    bind_storage_profile,
     measure_storage_policy,
     select_storage_policy,
 )
@@ -47,6 +49,19 @@ def measured_row(
         "compression_mib_per_s": compression,
         "decompression_mib_per_s": decompression,
     }
+
+
+def measured_policy() -> StoragePolicy:
+    return select_storage_policy(
+        [
+            measured_row("HOT", "hot-a", 1, 600, 100.0, 110.0),
+            measured_row("HOT", "hot-b", 3, 700, 200.0, 210.0),
+            measured_row("WARM", "warm-a", 3, 500, 100.0, 100.0),
+            measured_row("WARM", "warm-b", 6, 1000, 200.0, 200.0),
+            measured_row("COLD", "cold-a", 9, 900, 100.0, 100.0),
+            measured_row("COLD", "cold-b", 15, 800, 50.0, 50.0),
+        ]
+    )
 
 
 def test_known_hash_round_trip_and_hash_derived_path(tmp_path: Path) -> None:
@@ -202,6 +217,55 @@ def test_storage_policy_reports_compression_expansion_truthfully() -> None:
         )
 
 
+def test_measured_policy_binding_accepts_selected_hot_warm_cold() -> None:
+    policy = measured_policy()
+
+    for tier in ("HOT", "WARM", "COLD"):
+        selected = policy.profile_for(tier)
+        assert bind_storage_profile(policy, tier, selected) == selected
+
+
+@pytest.mark.parametrize("tier", ["HOT", "WARM", "COLD"])
+def test_measured_policy_binding_rejects_unselected_profile(tier: str) -> None:
+    policy = measured_policy()
+    unselected_row = next(
+        row
+        for row in policy.benchmark_matrix
+        if row["tier"] == tier and row["profile_id"] != policy.profile_for(tier).profile_id
+    )
+    unselected = StorageProfile(
+        tier=tier,
+        profile_id=cast(str, unselected_row["profile_id"]),
+        zstd_level=cast(int, unselected_row["zstd_level"]),
+    )
+
+    with pytest.raises(StoragePolicyError, match="selected profile"):
+        bind_storage_profile(policy, tier, unselected)
+
+
+def test_measured_policy_binding_rejects_selected_profile_from_another_tier() -> None:
+    policy = measured_policy()
+
+    with pytest.raises(StoragePolicyError, match="selected profile"):
+        bind_storage_profile(policy, "HOT", policy.profile_for("WARM"))
+
+
+def test_measured_policy_binding_rejects_policy_profile_mismatch() -> None:
+    policy = measured_policy()
+    mismatched_policy = StoragePolicy(
+        version=policy.version,
+        selected_profiles={
+            **policy.selected_profiles,
+            "HOT": StorageProfile("HOT", "hot-unmeasured", 3),
+        },
+        benchmark_matrix=policy.benchmark_matrix,
+        selection_rationale=policy.selection_rationale,
+    )
+
+    with pytest.raises(StoragePolicyError, match="measured and deterministic"):
+        bind_storage_profile(mismatched_policy, "HOT", policy.profile_for("HOT"))
+
+
 def test_verified_transition_preserves_sha_and_publishes_atomically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -273,7 +337,7 @@ def test_duplicate_put_does_not_overwrite_active_representation(tmp_path: Path) 
     initial = store.put(source)
     store.transition(
         initial.sha256,
-        StorageProfile("HOT", "hot-fast-test", 1),
+        StorageProfile("COLD", "cold-dense-test", 15),
         expected_size=len(payload),
     )
     active = initial.path.read_bytes()
@@ -281,4 +345,18 @@ def test_duplicate_put_does_not_overwrite_active_representation(tmp_path: Path) 
     duplicate = store.put(source)
 
     assert duplicate.sha256 == initial.sha256
+    assert duplicate.published_new is False
+    assert duplicate.codec_config == {"representation": "existing"}
+    assert "level" not in duplicate.codec_config
+    assert "tier" not in duplicate.codec_config
+    assert "profile_id" not in duplicate.codec_config
     assert duplicate.path.read_bytes() == active
+
+    conflicting = store.put(source, StorageProfile("HOT", "hot-fast-test", 1))
+
+    assert conflicting.sha256 == initial.sha256
+    assert conflicting.published_new is False
+    assert conflicting.codec_config == {"representation": "existing"}
+    assert conflicting.path == duplicate.path == initial.path
+    assert conflicting.path.read_bytes() == active
+    assert len(list((tmp_path / "cas" / "sha256").rglob("*.zst"))) == 1

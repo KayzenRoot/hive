@@ -194,26 +194,92 @@ def transition_blob(
     environment: dict[str, str],
     project_id: str,
     task_id: str,
-    profile: dict[str, Any],
+    policy: dict[str, Any],
+    tier: str,
 ) -> dict[str, Any]:
-    profile_literal = repr(profile)
+    policy_literal = repr(policy)
     code = (
         "import json\n"
         "from uuid import UUID\n"
-        "from app.cas import StorageProfile\n"
+        "from app.cas import StoragePolicy, StorageProfile\n"
         "from app.config import Settings\n"
         "from app.task_intake import transition_task_blob\n"
-        f"profile = {profile_literal}\n"
+        f"policy_payload = {policy_literal}\n"
+        "policy = StoragePolicy(\n"
+        "    version=policy_payload['storage_policy_version'],\n"
+        "    selected_profiles={\n"
+        "        tier: StorageProfile(\n"
+        "            tier=profile['tier'], profile_id=profile['profile_id'],\n"
+        "            zstd_level=profile['zstd_level'],\n"
+        "        )\n"
+        "        for tier, profile in policy_payload['selected_profiles'].items()\n"
+        "    },\n"
+        "    benchmark_matrix=tuple(policy_payload['benchmark_matrix']),\n"
+        "    selection_rationale=policy_payload['selection_rationale'],\n"
+        ")\n"
+        f"tier = {tier!r}\n"
+        "profile = policy.profile_for(tier)\n"
         f"stored = transition_task_blob(Settings(), UUID({project_id!r}), UUID({task_id!r}), "
-        "StorageProfile(profile['tier'], profile['profile_id'], profile['zstd_level']))\n"
+        "policy, tier, profile)\n"
+        "assert stored.codec_config['tier'] == tier\n"
+        "assert stored.codec_config['profile_id'] == profile.profile_id\n"
+        "assert stored.codec_config['zstd_level'] == profile.zstd_level\n"
         "print(json.dumps({'sha256': stored.sha256, 'logical_size': stored.logical_size, "
-        "'physical_size': stored.physical_size, 'codec_config': stored.codec_config}))"
+        "'physical_size': stored.physical_size, 'codec_config': stored.codec_config, "
+        "'policy_authorized': True, 'tier': tier, 'profile_id': profile.profile_id}))"
     )
     result = api_python(project_name, environment, code)
     value = json.loads(result.stdout.strip().splitlines()[-1])
     if not isinstance(value, dict):
         raise AssertionError(f"transition result is not an object: {value!r}")
     return value
+
+
+def reject_unselected_profile(
+    project_name: str,
+    environment: dict[str, str],
+    project_id: str,
+    task_id: str,
+    policy: dict[str, Any],
+    tier: str,
+) -> bool:
+    policy_literal = repr(policy)
+    code = (
+        "from uuid import UUID\n"
+        "from app.cas import StoragePolicy, StoragePolicyError, StorageProfile\n"
+        "from app.config import Settings\n"
+        "from app.task_intake import transition_task_blob\n"
+        f"policy_payload = {policy_literal}\n"
+        "policy = StoragePolicy(\n"
+        "    version=policy_payload['storage_policy_version'],\n"
+        "    selected_profiles={\n"
+        "        tier: StorageProfile(\n"
+        "            tier=profile['tier'], profile_id=profile['profile_id'],\n"
+        "            zstd_level=profile['zstd_level'],\n"
+        "        )\n"
+        "        for tier, profile in policy_payload['selected_profiles'].items()\n"
+        "    },\n"
+        "    benchmark_matrix=tuple(policy_payload['benchmark_matrix']),\n"
+        "    selection_rationale=policy_payload['selection_rationale'],\n"
+        ")\n"
+        f"tier = {tier!r}\n"
+        "selected = policy.profile_for(tier)\n"
+        "candidate = next(row for row in policy.benchmark_matrix "
+        "if row['tier'] == tier and row['profile_id'] != selected.profile_id)\n"
+        "rejected = False\n"
+        "try:\n"
+        f"    transition_task_blob(Settings(), UUID({project_id!r}), UUID({task_id!r}), "
+        "        policy, tier, StorageProfile(\n"
+        "            tier=candidate['tier'], profile_id=candidate['profile_id'],\n"
+        "            zstd_level=candidate['zstd_level'],\n"
+        "        ))\n"
+        "except StoragePolicyError:\n"
+        "    rejected = True\n"
+        "assert rejected\n"
+        "print('PASS')"
+    )
+    result = api_python(project_name, environment, code)
+    return result.stdout.strip().splitlines()[-1] == "PASS"
 
 
 def main() -> int:
@@ -462,12 +528,20 @@ def main() -> int:
             )
             assert selected_row is not None, f"selected profile is not measured for {tier}"
 
+        unselected_profile_rejection = reject_unselected_profile(
+            project_name, environment, project_a_id, pdf_task_id, policy, "COLD"
+        )
+        assert unselected_profile_rejection
+
         transition_results: list[dict[str, Any]] = []
         for tier in ("HOT", "WARM", "COLD", "HOT"):
             profile = selected_profiles[tier]
             assert isinstance(profile, dict)
-            result = transition_blob(project_name, environment, project_a_id, pdf_task_id, profile)
+            result = transition_blob(
+                project_name, environment, project_a_id, pdf_task_id, policy, tier
+            )
             assert_equal(result["sha256"], pdf_digest, f"{tier} transition SHA")
+            assert_equal(result["policy_authorized"], True, f"{tier} policy authorization")
             metadata = blob_metadata(project_name, environment, pdf_digest)
             config = metadata["codec_config"]
             assert isinstance(config, dict)
@@ -492,7 +566,8 @@ def main() -> int:
             environment,
             project_a_id,
             pdf_task_id,
-            selected_profiles["HOT"],
+            policy,
+            "HOT",
         )
         assert_equal(idempotent_transition["sha256"], pdf_digest, "idempotent transition SHA")
         idempotent_metadata = blob_metadata(project_name, environment, pdf_digest)
@@ -531,6 +606,32 @@ def main() -> int:
             metadata_before_reingest["physical_size"],
             "re-ingest preserves active physical size",
         )
+
+        duplicate_low_level_probe = api_python(
+            project_name,
+            environment,
+            (
+                "from app.cas import CASStore, StorageProfile\n"
+                "from app.config import Settings\n"
+                "settings = Settings(cas_zstd_level=1)\n"
+                "store = CASStore(settings)\n"
+                f"digest = {pdf_digest!r}\n"
+                "path = store.blob_path(digest)\n"
+                "before = path.read_bytes()\n"
+                "source = store.temp_root / 'integration-duplicate-source.pdf'\n"
+                "source.write_bytes(store.read_verified(digest))\n"
+                "duplicate = store.put(source, StorageProfile('COLD', 'cold-dense-a', 9))\n"
+                "source.unlink(missing_ok=True)\n"
+                "assert duplicate.published_new is False\n"
+                "assert duplicate.codec_config == {'representation': 'existing'}\n"
+                "assert duplicate.path == path and path.read_bytes() == before\n"
+                "print('PASS')"
+            ),
+        )
+        duplicate_low_level_truth = (
+            duplicate_low_level_probe.stdout.strip().splitlines()[-1] == "PASS"
+        )
+        assert duplicate_low_level_truth
 
         persisted_metadata_probe = api_python(
             project_name,
@@ -583,9 +684,22 @@ def main() -> int:
             (
                 "import os\n"
                 "from uuid import UUID\n"
-                "from app.cas import CASIntegrityError, CASStore, StorageProfile\n"
+                "from app.cas import CASIntegrityError, CASStore, StoragePolicy, StorageProfile\n"
                 "from app.config import Settings\n"
                 "from app.task_intake import transition_task_blob\n"
+                f"policy_payload = {repr(policy)}\n"
+                "policy = StoragePolicy(\n"
+                "    version=policy_payload['storage_policy_version'],\n"
+                "    selected_profiles={\n"
+                "        tier: StorageProfile(\n"
+                "            tier=profile['tier'], profile_id=profile['profile_id'],\n"
+                "            zstd_level=profile['zstd_level'],\n"
+                "        )\n"
+                "        for tier, profile in policy_payload['selected_profiles'].items()\n"
+                "    },\n"
+                "    benchmark_matrix=tuple(policy_payload['benchmark_matrix']),\n"
+                "    selection_rationale=policy_payload['selection_rationale'],\n"
+                ")\n"
                 "settings = Settings()\n"
                 "store = CASStore(settings)\n"
                 f"path = store.blob_path({pdf_digest!r})\n"
@@ -596,7 +710,7 @@ def main() -> int:
                 "try:\n"
                 "    transition_task_blob(\n"
                 f"        settings, UUID({project_a_id!r}), UUID({pdf_task_id!r}),\n"
-                "        StorageProfile('WARM', 'corrupt-source', 3),\n"
+                "        policy, 'WARM', policy.profile_for('WARM'),\n"
                 "    )\n"
                 "except CASIntegrityError:\n"
                 "    failed = True\n"
@@ -711,6 +825,13 @@ def main() -> int:
         checks = {
             "hot_warm_cold_policy_defined": set(selected_profiles) == {"HOT", "WARM", "COLD"},
             "policy_selection_internal_deterministic": policy["deterministic_selection"] is True,
+            "policy_bound_transitions": all(
+                result.get("policy_authorized") is True
+                and result.get("tier") in selected_profiles
+                and result.get("profile_id") == selected_profiles[result["tier"]]["profile_id"]
+                for result in transition_results
+            ),
+            "unselected_profile_rejected": unselected_profile_rejection,
             "zstd_lossless_codec": all(
                 row.get("round_trip_identity") is True for row in measured_rows
             ),
@@ -753,6 +874,7 @@ def main() -> int:
             and idempotent_body == pdf_bytes,
             "persisted_metadata_not_reconstructed_from_settings": persisted_config
             == metadata_before_reingest["codec_config"],
+            "duplicate_put_truthful_existing_representation": duplicate_low_level_truth,
             "redis_loss_preserves_cas_truth": persisted_without_redis["original_blob_sha256"]
             == str(text_task["original_blob_sha256"]),
             "selection_rationale_measured": "Measured deterministic selection"

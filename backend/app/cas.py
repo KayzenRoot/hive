@@ -83,6 +83,7 @@ class StoredBlob:
     codec: str
     codec_config: dict[str, int | bool | str]
     path: Path
+    published_new: bool = True
 
 
 def _validate_storage_profile(profile: StorageProfile) -> None:
@@ -246,6 +247,24 @@ def select_storage_policy(matrix: list[dict[str, object]]) -> StoragePolicy:
     )
 
 
+def bind_storage_profile(
+    policy: StoragePolicy, tier: str, profile: StorageProfile
+) -> StorageProfile:
+    """Authorize a physical profile against the exact measured policy selection."""
+    if policy.version != ACCE_STORAGE_POLICY_VERSION:
+        raise StoragePolicyError("unsupported ACCE storage policy version")
+    if not all(isinstance(row, dict) for row in policy.benchmark_matrix):
+        raise StoragePolicyError("storage policy benchmark matrix is malformed")
+    recomputed = select_storage_policy([dict(row) for row in policy.benchmark_matrix])
+    if recomputed.selected_profiles != policy.selected_profiles:
+        raise StoragePolicyError("storage policy selection is not measured and deterministic")
+    _validate_storage_profile(profile)
+    selected = policy.profile_for(tier)
+    if profile != selected:
+        raise StoragePolicyError("storage profile is not the measured selected profile for tier")
+    return selected
+
+
 def measure_storage_policy(samples: Sequence[bytes]) -> StoragePolicy:
     """Measure bounded representative logical bytes and select a policy."""
     if not 1 <= len(samples) <= ACCE_STORAGE_POLICY_MAX_BENCHMARK_SAMPLES:
@@ -396,10 +415,12 @@ class CASStore:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             self._verify_path(compressed_temp, digest, logical_size)
             lock = self._publish_lock(digest)
+            published_new = True
             with lock:
                 if final_path.exists():
                     self._verify_path(final_path, digest, logical_size)
                     compressed_temp.unlink(missing_ok=True)
+                    published_new = False
                 else:
                     try:
                         os.link(compressed_temp, final_path)
@@ -407,6 +428,7 @@ class CASStore:
                     except FileExistsError:
                         self._verify_path(final_path, digest, logical_size)
                         compressed_temp.unlink(missing_ok=True)
+                        published_new = False
                     except OSError:
                         # Hard links are the non-overwriting atomic publication path on
                         # normal filesystems. The lock plus replace is a safe fallback
@@ -414,6 +436,7 @@ class CASStore:
                         if final_path.exists():
                             self._verify_path(final_path, digest, logical_size)
                             compressed_temp.unlink(missing_ok=True)
+                            published_new = False
                         else:
                             os.replace(compressed_temp, final_path)
                             compressed_temp = None
@@ -422,8 +445,9 @@ class CASStore:
                 logical_size=logical_size,
                 physical_size=final_path.stat().st_size,
                 codec="zstd",
-                codec_config=codec_config,
+                codec_config=(codec_config if published_new else {"representation": "existing"}),
                 path=final_path,
+                published_new=published_new,
             )
         except (OSError, zstandard.ZstdError) as exc:
             raise CASStorageError("CAS write failed") from exc
