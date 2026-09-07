@@ -754,7 +754,7 @@ def main() -> int:
             "persisted_metadata_not_reconstructed_from_settings": persisted_config
             == metadata_before_reingest["codec_config"],
             "redis_loss_preserves_cas_truth": persisted_without_redis["original_blob_sha256"]
-            == pdf_digest,
+            == str(text_task["original_blob_sha256"]),
             "selection_rationale_measured": "Measured deterministic selection"
             in policy["selection_rationale"],
         }
