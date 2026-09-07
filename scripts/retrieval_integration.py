@@ -24,7 +24,7 @@ from project_registry_integration import (
     request as http_request,
 )
 
-SCHEMA_REVISION = "0005_semantic_retrieval"
+SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
 MANIFEST = ROOT / "benchmarks" / "retrieval_lexical_manifest.json"
 BENCHMARK_OUTPUT = ROOT / "tmp" / "validation" / "retrieval-benchmark.json"
 RERANK_SECRET_SENTINEL = ""

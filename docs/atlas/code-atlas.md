@@ -14,6 +14,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/delta_context.py: Python source or test module.
 - backend/app/health.py: Python source or test module.
 - backend/app/main.py: Python source or test module.
+- backend/app/memory.py: Python source or test module.
 - backend/app/progressive_disclosure.py: Python source or test module.
 - backend/app/provider_prompt_cache.py: Python source or test module.
 - backend/app/registry.py: Python source or test module.
@@ -32,6 +33,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_context_manager.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
+- backend/tests/test_memory.py: Python source or test module.
 - backend/tests/test_progressive_disclosure.py: Python source or test module.
 - backend/tests/test_projects_api.py: Python source or test module.
 - backend/tests/test_provider_prompt_cache.py: Python source or test module.
@@ -63,6 +65,7 @@ Generated deterministically by scripts/generate_maps.py.
 - migrations/versions/0003_repository_indexing.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0004_retrieval_lexical.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0005_semantic_retrieval.py: Ordered PostgreSQL business-schema revision.
+- migrations/versions/0006_memory_lifecycle_provenance.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/__init__.py: Ordered PostgreSQL business-schema revision.
 
 ## Operational scripts
@@ -74,6 +77,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/embedding_fixture.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
+- scripts/memory_lifecycle_integration.py: deterministic maintenance or validation script.
 - scripts/migrate.py: deterministic maintenance or validation script.
 - scripts/prepare_release.py: deterministic maintenance or validation script.
 - scripts/project_registry_integration.py: deterministic maintenance or validation script.

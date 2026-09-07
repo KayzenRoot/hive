@@ -6,7 +6,7 @@ import psycopg
 
 from .config import Settings
 
-CURRENT_SCHEMA_REVISION = "0005_semantic_retrieval"
+CURRENT_SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
 
 
 @contextmanager

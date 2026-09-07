@@ -25,6 +25,7 @@ Generated deterministically by scripts/generate_maps.py.
 | migrations/versions/0003_repository_indexing.py | Durable repository index runs, current files and Python symbol metadata. |
 | migrations/versions/0004_retrieval_lexical.py | Durable retrieval corpus, chunk and reference metadata. |
 | migrations/versions/0005_semantic_retrieval.py | Durable project-scoped embedding profiles, runs and pgvector chunk embeddings. |
+| migrations/versions/0006_memory_lifecycle_provenance.py | Durable project-scoped memory records, lifecycle history and provenance. |
 | scripts/context_manager_integration.py | Real Docker/Git two-project Context Manager, progressive disclosure, mandatory governance coverage, isolation, bounds and restart evidence. |
 | scripts/adaptive_token_budget_benchmark.py | Provider-independent adaptive budget benchmark and machine-readable evidence. |
 | scripts/review_bundle.py | Generic audit bundle generation from repository evidence. |

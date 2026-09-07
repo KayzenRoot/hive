@@ -14,7 +14,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0005_semantic_retrieval"
+SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
 
 
 def postgres_sql(project_name: str, environment: dict[str, str], query: str, *, check: bool = True):

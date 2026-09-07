@@ -10,6 +10,7 @@ from .config import get_settings
 from .context_manager import router as context_manager_router
 from .db import ensure_schema_current
 from .health import HealthResponse, collect_health
+from .memory import router as memory_router
 from .registry import (
     ProjectConflictError,
     ProjectCreateRequest,
@@ -54,6 +55,7 @@ app.include_router(retrieval_router)
 app.include_router(semantic_retrieval_router)
 app.include_router(reranking_router)
 app.include_router(context_manager_router)
+app.include_router(memory_router)
 
 
 @app.get("/", tags=["meta"])
