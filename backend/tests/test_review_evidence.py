@@ -46,6 +46,11 @@ from scripts.review_evidence import (
     WO015_MEMORY_INTEGER_FIELDS,
     WO015_MEMORY_REQUIRED_FIELDS,
     WO015_WORK_ORDER,
+    WO015P_G1_ALLOWED_PATHS,
+    WO015P_G1_BASE_SHA,
+    WO015P_G1_WORK_ORDER,
+    WO015P_PROMOTION_ALLOWED_PATHS,
+    WO015P_WORK_ORDER,
     authorize_merge_action,
     auto_merge_evidence,
     canonical_change_evidence,
@@ -88,12 +93,16 @@ from scripts.review_evidence import (
     require_wo015_g1_scope,
     require_wo015_memory_evidence,
     require_wo015_scope,
+    require_wo015p_checkpoint_semantics,
+    require_wo015p_g1_scope,
+    require_wo015p_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
     verify_wo014_c2_governance_contract,
     verify_wo014p_g1_governance_contract,
     verify_wo015_g1_governance_contract,
+    verify_wo015p_g1_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -294,8 +303,10 @@ def test_review_evidence_schema_is_validated() -> None:
 def test_wo015_is_explicitly_registered_and_unknown_ids_do_not_get_memory_semantics() -> None:
     require_supported_work_order(WO015_G1_WORK_ORDER)
     require_supported_work_order(WO015_WORK_ORDER)
+    require_supported_work_order(WO015P_G1_WORK_ORDER)
+    require_supported_work_order(WO015P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-015-P")
+        require_supported_work_order("WO-016-P")
     require_wo015_memory_evidence("WO-999", {})
 
 
@@ -409,12 +420,20 @@ def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_me
     }
     g1 = render_body(work_order=WO015_G1_WORK_ORDER, **common)
     future = render_body(work_order=WO015_WORK_ORDER, **common)
+    promotion_g1 = render_body(work_order=WO015P_G1_WORK_ORDER, **common)
+    promotion = render_body(work_order=WO015P_WORK_ORDER, **common)
     unknown = render_body(work_order="WO-999", **common)
     assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-015-G1 -->")
     assert "não implementa Memory" in g1
     assert "memory-lifecycle-provenance-v1" in g1
     assert "memory-lifecycle-provenance-v1" in future
     assert "PostgreSQL" in future
+    assert promotion_g1.startswith("<!-- HIVE-WORK-ORDER: WO-015-P-G1 -->")
+    assert "2c701d221e481913d2cbe9c0b8f3504632042306" in promotion_g1
+    assert "WO-015-P-G1 READY FOR SOL AUDIT" in promotion_g1
+    assert promotion.startswith("<!-- HIVE-WORK-ORDER: WO-015-P -->")
+    assert "<!-- HIVE-AUTHORIZED-BASE: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->" in promotion
+    assert "WO-015-P READY FOR SOL AUDIT" in promotion
     assert "memory-lifecycle-provenance-v1" not in unknown
 
 
@@ -733,6 +752,47 @@ def wo014p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
     return base, candidate
 
 
+def wo015p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
+    base = review_evidence.git_blob_bytes(
+        WO015P_G1_BASE_SHA,
+        review_evidence.CHECKPOINT_PATH,
+    ).decode("utf-8")
+    candidate = replace_checkpoint_section(
+        base,
+        "STATUS",
+        review_evidence.EXPECTED_WO015P_STATUS,
+    )
+    candidate = candidate.replace("- memory.\n", "")
+    candidate = replace_checkpoint_section(
+        candidate,
+        "IN PROGRESS",
+        f"- {review_evidence.EXPECTED_WO015P_IN_PROGRESS}",
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "BLOCKERS",
+        review_evidence.EXPECTED_WO015P_BLOCKERS,
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "NEXT STEP",
+        review_evidence.EXPECTED_WO015P_NEXT_STEP_PREFIX,
+    )
+    if include_evidence:
+        completed = review_evidence.checkpoint_bullets(
+            review_evidence.checkpoint_sections(base), "COMPLETED"
+        )
+        candidate = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(
+                f"- {item}"
+                for item in completed + list(review_evidence.WO015P_CANONICAL_COMPLETION_BULLETS)
+            ),
+        )
+    return base, candidate
+
+
 def test_wo012p_g1_scope_is_explicit_and_fail_closed() -> None:
     require_wo012p_g1_scope(
         "WO-012-P-G1",
@@ -798,13 +858,15 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
         require_supported_work_order(historical)
     require_supported_work_order(WO014P_G1_WORK_ORDER)
     require_supported_work_order(WO014P_WORK_ORDER)
+    require_supported_work_order(WO015P_G1_WORK_ORDER)
+    require_supported_work_order(WO015P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-015-P")
+        require_supported_work_order("WO-016-P")
 
 
 def test_current_checkpoint_promotion_authorization_separates_history() -> None:
-    require_current_work_order_authorization(WO014P_G1_WORK_ORDER)
-    require_current_work_order_authorization(WO014P_WORK_ORDER)
+    require_current_work_order_authorization(WO015P_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO015P_WORK_ORDER)
     for historical in (
         "WO-010-P",
         "WO-011-P",
@@ -813,11 +875,13 @@ def test_current_checkpoint_promotion_authorization_separates_history() -> None:
         "WO-013-P",
         "WO-013-P-G1",
         "WO-007-P-C1",
+        WO014P_G1_WORK_ORDER,
+        WO014P_WORK_ORDER,
     ):
         with pytest.raises(ValueError, match="historical checkpoint-promotion"):
             require_current_work_order_authorization(historical)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_current_work_order_authorization("WO-015-P")
+        require_current_work_order_authorization("WO-016-P")
 
 
 def test_authorized_base_marker_requires_one_lowercase_exact_sha() -> None:
@@ -1380,6 +1444,138 @@ def test_wo014p_scope_binds_marker_base_current_main_and_g1_support(
         )
 
 
+def test_wo015p_g1_scope_is_exact_and_noncanonical() -> None:
+    require_wo015p_g1_scope(
+        WO015P_G1_WORK_ORDER,
+        WO015P_G1_BASE_SHA,
+        sorted(WO015P_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo015p_g1_scope(
+            WO015P_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(WO015P_G1_ALLOWED_PATHS),
+        )
+    for unauthorized in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        "migrations/0006_memory_lifecycle_provenance.py",
+        "backend/app/memory.py",
+    ):
+        with pytest.raises(ValueError, match="outside|migrations"):
+            require_wo015p_g1_scope(
+                WO015P_G1_WORK_ORDER,
+                WO015P_G1_BASE_SHA,
+                ["scripts/review_evidence.py", unauthorized],
+            )
+
+
+def test_wo015p_checkpoint_semantics_accept_only_memory_transition() -> None:
+    base, candidate = wo015p_checkpoint_fixture()
+    require_wo015p_checkpoint_semantics(base, candidate)
+    with pytest.raises(ValueError, match="remove only"):
+        altered_pending = candidate.replace(
+            "- MCP server product surface",
+            "- altered MCP server product surface",
+            1,
+        )
+        require_wo015p_checkpoint_semantics(base, altered_pending)
+    with pytest.raises(ValueError, match="closed grammar"):
+        malformed = candidate.replace(
+            "memory llm/provider calls are 0/0",
+            "memory llm/provider calls are 1/0",
+            1,
+        )
+        require_wo015p_checkpoint_semantics(base, malformed)
+
+
+def test_wo015p_scope_binds_markers_manifest_and_merged_g1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_checkpoint, candidate_checkpoint = wo015p_checkpoint_fixture()
+    base_manifest = review_evidence.git_blob_bytes(
+        WO015P_G1_BASE_SHA,
+        review_evidence.CANONICAL_MANIFEST_PATH,
+    ).decode("utf-8")
+    candidate_bytes = candidate_checkpoint.encode("utf-8")
+    candidate_manifest = "".join(
+        line.replace(
+            line.strip().split(maxsplit=1)[0],
+            hashlib.sha256(candidate_bytes).hexdigest(),
+            1,
+        )
+        if (
+            len(line.strip().split(maxsplit=1)) == 2
+            and line.strip().split(maxsplit=1)[1]
+            == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
+        )
+        else line
+        for line in base_manifest.splitlines(keepends=True)
+    )
+    checkpoint_path = tmp_path / review_evidence.CHECKPOINT_PATH
+    manifest_path = tmp_path / review_evidence.CANONICAL_MANIFEST_PATH
+    checkpoint_path.parent.mkdir(parents=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_bytes(candidate_bytes)
+    manifest_path.write_text(candidate_manifest, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(review_evidence, "ROOT", tmp_path)
+
+    def fake_git_blob_bytes(revision: str, path: str) -> bytes:
+        assert revision == "d" * 40
+        if path == "scripts/review_evidence.py":
+            return WO015P_G1_WORK_ORDER.encode("utf-8")
+        if path == review_evidence.CHECKPOINT_PATH:
+            return base_checkpoint.encode("utf-8")
+        return base_manifest.encode("utf-8")
+
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", fake_git_blob_bytes)
+    require_wo015p_scope(
+        WO015P_WORK_ORDER,
+        "d" * 40,
+        sorted(WO015P_PROMOTION_ALLOWED_PATHS),
+        registered_base_sha="d" * 40,
+        authorized_base_sha="d" * 40,
+    )
+    with pytest.raises(ValueError, match="authorized-base"):
+        require_wo015p_scope(
+            WO015P_WORK_ORDER,
+            "d" * 40,
+            sorted(WO015P_PROMOTION_ALLOWED_PATHS),
+            registered_base_sha="d" * 40,
+            authorized_base_sha="e" * 40,
+        )
+
+
+def test_wo015p_g1_governance_contract_requires_memory_evidence() -> None:
+    common = {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }
+    evidence = verify_wo015p_g1_governance_contract(
+        WO015P_G1_WORK_ORDER,
+        WO015P_G1_BASE_SHA,
+        sorted(WO015P_G1_ALLOWED_PATHS),
+        common,
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"memory": memory_evidence_fixture()},
+        "0006_memory_lifecycle_provenance",
+    )
+    assert evidence is not None
+    assert "active_promotions=WO-015-P-G1,WO-015-P" in evidence
+    assert "memory_evidence=PASS" in evidence
+    with pytest.raises(ValueError, match="missing mandatory Memory evidence"):
+        verify_wo015p_g1_governance_contract(
+            WO015P_G1_WORK_ORDER,
+            WO015P_G1_BASE_SHA,
+            sorted(WO015P_G1_ALLOWED_PATHS),
+            common,
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {},
+            "0006_memory_lifecycle_provenance",
+        )
+
+
 def test_wo014p_g1_governance_contract_is_self_validating() -> None:
     evidence = verify_wo014p_g1_governance_contract(
         WO014P_G1_WORK_ORDER,
@@ -1400,7 +1596,7 @@ def test_wo014p_g1_governance_contract_is_self_validating() -> None:
     assert evidence is not None
     assert "active_promotions=WO-014-P-G1,WO-014-P" in evidence
     assert "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED" in evidence
-    assert "unknown_WO-015-P_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-016-P_WO-999-P=REJECTED" in evidence
     assert "auto_merge=UNARMED" in evidence
 
     with pytest.raises(ValueError, match="ruleset"):
