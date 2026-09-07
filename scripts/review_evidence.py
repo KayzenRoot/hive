@@ -635,6 +635,7 @@ EXPECTED_WO015P_NEXT_STEP_PREFIX = (
     "Prepare the smallest necessary ACCE increment beyond current intake/storage/context "
     "foundations."
 )
+EXPECTED_WO015P_NEXT_STEP = EXPECTED_WO015P_NEXT_STEP_PREFIX
 EXPECTED_WO015P_BLOCKERS = (
     "None known after Memory Lifecycle and Provenance Foundation approval and post-merge "
     "validation."
@@ -1166,19 +1167,8 @@ def require_wo015p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
         raise ValueError("WO-015-P candidate has an unexpected BLOCKERS intent")
 
     next_step = normalized_checkpoint_value(candidate, "NEXT STEP")
-    if not next_step.startswith(EXPECTED_WO015P_NEXT_STEP_PREFIX):
-        raise ValueError("WO-015-P NEXT STEP must target the bounded ACCE increment")
-    forbidden_future_claims = (
-        "memory lifecycle implemented",
-        "mcp memory implemented",
-        "autonomous executor dispatch implemented",
-        "full telemetry implemented",
-        "full control center implemented",
-        "acce completed",
-        "v0.1 complete",
-    )
-    if any(phrase in next_step.casefold() for phrase in forbidden_future_claims):
-        raise ValueError("WO-015-P NEXT STEP overclaims future work")
+    if next_step != EXPECTED_WO015P_NEXT_STEP:
+        raise ValueError("WO-015-P NEXT STEP must match the exact closed ACCE grammar")
 
     for name in set(base) - {
         "STATUS",

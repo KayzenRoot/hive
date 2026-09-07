@@ -1480,12 +1480,28 @@ def test_wo015p_checkpoint_semantics_accept_only_memory_transition() -> None:
             1,
         )
         require_wo015p_checkpoint_semantics(base, altered_pending)
-    with pytest.raises(ValueError, match="closed grammar"):
-        malformed = candidate.replace(
-            "memory llm/provider calls are 0/0",
-            "memory llm/provider calls are 1/0",
-            1,
-        )
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "Then prepare the MCP server product surface.",
+        "Then add telemetry for the next increment.",
+        "Then implement the full Control Center.",
+        "Then expand autonomous execution.",
+        "Then add arbitrary free text.",
+        "Then implement ACCE token scheduling details.",
+        "- Add one more bounded intent bullet.",
+    ],
+)
+def test_wo015p_next_step_rejects_all_trailing_content(suffix: str) -> None:
+    base, candidate = wo015p_checkpoint_fixture()
+    malformed = replace_checkpoint_section(
+        candidate,
+        "NEXT STEP",
+        f"{review_evidence.EXPECTED_WO015P_NEXT_STEP}\n{suffix}",
+    )
+    with pytest.raises(ValueError, match="exact closed ACCE grammar"):
         require_wo015p_checkpoint_semantics(base, malformed)
 
 
