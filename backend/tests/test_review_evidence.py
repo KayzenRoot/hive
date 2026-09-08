@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -54,6 +55,12 @@ from scripts.review_evidence import (
     WO015P_G1_WORK_ORDER,
     WO015P_PROMOTION_ALLOWED_PATHS,
     WO015P_WORK_ORDER,
+    WO016_APPROVED_LINEAGE_STATEMENT_PREFIX,
+    WO016_APPROVED_POST_MERGE_CI_RUN,
+    WO016_APPROVED_PRODUCT_BASE_SHA,
+    WO016_APPROVED_PRODUCT_HEAD,
+    WO016_APPROVED_SOL_REVIEW_ID,
+    WO016_APPROVED_SQUASH_MERGE_SHA,
     WO016_G1_ALLOWED_PATHS,
     WO016_G1_BASE_SHA,
     WO016_G1_WORK_ORDER,
@@ -76,6 +83,7 @@ from scripts.review_evidence import (
     manifest_log,
     memory_lifecycle_evidence,
     parse_authorized_base_marker,
+    parse_wo016_approved_lineage_statement,
     parse_work_order_marker,
     require_current_work_order_authorization,
     require_hive_final_handoff,
@@ -110,6 +118,7 @@ from scripts.review_evidence import (
     require_wo015p_checkpoint_semantics,
     require_wo015p_g1_scope,
     require_wo015p_scope,
+    require_wo016_approved_lineage_result,
     require_wo016_g1_scope,
     require_wo016_scope,
     require_wo016_storage_evidence,
@@ -124,8 +133,10 @@ from scripts.review_evidence import (
     verify_wo014p_g1_governance_contract,
     verify_wo015_g1_governance_contract,
     verify_wo015p_g1_governance_contract,
+    verify_wo016_approved_lineage,
     verify_wo016_g1_governance_contract,
     verify_wo016p_g1_governance_contract,
+    verify_wo016p_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -765,6 +776,7 @@ def test_wo016p_governance_requires_six_row_acce_lineage() -> None:
         "checkpoint_changed": False,
         "authorized_paths": [],
     }
+    approved_lineage = verify_wo016_approved_lineage(approved_wo016_lineage_sources_fixture())
     evidence = verify_wo016p_g1_governance_contract(
         WO016P_G1_WORK_ORDER,
         WO016P_G1_BASE_SHA,
@@ -773,6 +785,7 @@ def test_wo016p_governance_requires_six_row_acce_lineage() -> None:
         {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
         {"acce_storage": acce_storage_promotion_evidence_fixture()},
         "0006_memory_lifecycle_provenance",
+        approved_lineage,
     )
     assert evidence is not None
     assert "active_promotions=WO-016-P-G1,WO-016-P" in evidence
@@ -789,6 +802,176 @@ def test_wo016p_governance_requires_six_row_acce_lineage() -> None:
             {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
             {"acce_storage": broken},
             "0006_memory_lifecycle_provenance",
+            approved_lineage,
+        )
+
+
+def test_wo016_approved_lineage_is_objective_and_fail_closed() -> None:
+    sources = approved_wo016_lineage_sources_fixture()
+    result = verify_wo016_approved_lineage(sources)
+    require_wo016_approved_lineage_result(result)
+    statement = review_evidence.wo016_approved_lineage_statement(result)
+    assert statement.startswith(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX)
+    assert parse_wo016_approved_lineage_statement(statement) == result
+
+    mutations: list[tuple[str, Callable[[dict[str, Any]], object]]] = [
+        ("wrong product PR number", lambda value: value["product_pr"].update(number=56)),
+        (
+            "wrong audited HEAD",
+            lambda value: value["product_pr"]["head"].update(sha="a" * 40),
+        ),
+        ("missing Sol review", lambda value: value.update(product_reviews=[])),
+        (
+            "wrong Sol review ID",
+            lambda value: value["product_reviews"][0].update(id=5135618101),
+        ),
+        (
+            "Sol review bound to another commit",
+            lambda value: value["product_reviews"][0].update(commit_id="b" * 40),
+        ),
+        (
+            "review does not express approval",
+            lambda value: value["product_reviews"][0].update(body="COMMENTED"),
+        ),
+        (
+            "wrong merge SHA",
+            lambda value: value["product_pr"].update(merge_commit_sha="c" * 40),
+        ),
+        ("product PR not merged", lambda value: value["product_pr"].update(merged=False)),
+        (
+            "wrong post-merge CI run ID",
+            lambda value: value["post_merge_run"].update(id=34168038155),
+        ),
+        (
+            "post-merge CI event not push",
+            lambda value: value["post_merge_run"].update(event="pull_request"),
+        ),
+        (
+            "post-merge CI head SHA wrong",
+            lambda value: value["post_merge_run"].update(head_sha="d" * 40),
+        ),
+        (
+            "post-merge CI conclusion failed",
+            lambda value: value["post_merge_run"].update(conclusion="failure"),
+        ),
+        (
+            "Validate missing",
+            lambda value: value["post_merge_jobs"].pop(0),
+        ),
+        (
+            "Integration health failed",
+            lambda value: value["post_merge_jobs"][1].update(conclusion="failure"),
+        ),
+        (
+            "post-push Review Evidence not skipped",
+            lambda value: value["post_merge_jobs"][2].update(conclusion="success"),
+        ),
+        (
+            "prior exact-head Review Evidence missing",
+            lambda value: value.update(prior_review_comments=[]),
+        ),
+        (
+            "prior exact-head evidence HEAD mismatch",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace(
+                    WO016_APPROVED_PRODUCT_HEAD, "e" * 40
+                )
+            ),
+        ),
+        (
+            "backend count not 418",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("418 passed", "417 passed")
+            ),
+        ),
+        (
+            "dashboard count not 7",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("7 passed", "6 passed")
+            ),
+        ),
+        (
+            "ACCE evidence not PASS",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("**PASS**", "**FAIL**")
+            ),
+        ),
+        (
+            "wrong ACCE evidence version",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace(
+                    "acce-storage-policy-v1", "acce-storage-policy-v0"
+                )
+            ),
+        ),
+        (
+            "wrong storage policy version",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace(
+                    "acce-policy-v1", "acce-policy-v0"
+                )
+            ),
+        ),
+        (
+            "canonical source loss above zero",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("loss `0`", "loss `1`")
+            ),
+        ),
+        (
+            "LLM calls above zero",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("0/0", "1/0")
+            ),
+        ),
+        (
+            "provider calls above zero",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("0/0", "0/1")
+            ),
+        ),
+        ("unavailable lineage data", lambda value: value.update(product_pr=None)),
+    ]
+    for _label, mutate in mutations:
+        broken = json.loads(json.dumps(sources))
+        mutate(broken)
+        with pytest.raises(ValueError, match="WO-016"):
+            verify_wo016_approved_lineage(broken)
+
+
+def test_wo016p_future_governance_reuses_approved_lineage_validator() -> None:
+    approved_lineage = verify_wo016_approved_lineage(approved_wo016_lineage_sources_fixture())
+    evidence = verify_wo016p_governance_contract(
+        WO016P_WORK_ORDER,
+        "d" * 40,
+        sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+        {
+            "project_brain_changed": True,
+            "checkpoint_changed": True,
+            "authorized_paths": sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"acce_storage": acce_storage_promotion_evidence_fixture()},
+        "0006_memory_lifecycle_provenance",
+        approved_lineage,
+    )
+    assert evidence is not None
+    broken = dict(approved_lineage)
+    broken["sol_review_id"] = WO016_APPROVED_SOL_REVIEW_ID + 1
+    with pytest.raises(ValueError, match="approved lineage"):
+        verify_wo016p_governance_contract(
+            WO016P_WORK_ORDER,
+            "d" * 40,
+            sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+            {
+                "project_brain_changed": True,
+                "checkpoint_changed": True,
+                "authorized_paths": sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"acce_storage": acce_storage_promotion_evidence_fixture()},
+            "0006_memory_lifecycle_provenance",
+            broken,
         )
 
 
@@ -1325,6 +1508,69 @@ def acce_storage_promotion_evidence_fixture() -> dict[str, object]:
         )
     matrix.extend(second_rows)
     return fixture
+
+
+def approved_wo016_lineage_sources_fixture() -> dict[str, object]:
+    review_body = (
+        "APPROVED — WO-016\n"
+        f"Sol review exact HEAD: {WO016_APPROVED_PRODUCT_HEAD}\n"
+        "Verdict: APPROVED for exact-head SQUASH merge under HIVE-ADR-019."
+    )
+    prior_body = (
+        "<!-- hive-review-evidence:WO-016 -->\n"
+        f"Exact HEAD SHA: `{WO016_APPROVED_PRODUCT_HEAD}`\n"
+        "Backend tests: `418 passed, 0 failed, 0 skipped`\n"
+        "Dashboard tests: `7 passed, 0 failed`\n"
+        "Validate result: **PASS**\n"
+        "Integration health result: **PASS**\n"
+        "Review Evidence result: **PASS**\n"
+        "ACCE Storage Policy evidence: **PASS**; version `acce-storage-policy-v1`, "
+        "policy `acce-policy-v1`, canonical loss `0`, LLM/provider calls `0/0`"
+    )
+    return {
+        "product_pr": {
+            "number": 55,
+            "state": "closed",
+            "merged": True,
+            "base": {"ref": "main", "sha": WO016_APPROVED_PRODUCT_BASE_SHA},
+            "head": {"sha": WO016_APPROVED_PRODUCT_HEAD},
+            "merge_commit_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+            "body": "<!-- HIVE-WORK-ORDER: WO-016 -->\nWO-016 READY FOR SOL AUDIT",
+        },
+        "product_reviews": [
+            {
+                "id": WO016_APPROVED_SOL_REVIEW_ID,
+                "state": "APPROVED",
+                "commit_id": WO016_APPROVED_PRODUCT_HEAD,
+                "body": review_body,
+            }
+        ],
+        "merge_commit": {
+            "sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+            "parents": [{"sha": WO016_APPROVED_PRODUCT_BASE_SHA}],
+        },
+        "post_merge_run": {
+            "id": WO016_APPROVED_POST_MERGE_CI_RUN,
+            "event": "push",
+            "head_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+            "status": "completed",
+            "conclusion": "success",
+        },
+        "post_merge_jobs": [
+            {"name": "Validate", "status": "completed", "conclusion": "success"},
+            {
+                "name": "Integration health",
+                "status": "completed",
+                "conclusion": "success",
+            },
+            {
+                "name": "Review Evidence",
+                "status": "completed",
+                "conclusion": "skipped",
+            },
+        ],
+        "prior_review_comments": [{"body": prior_body}],
+    }
 
 
 def wo016p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:

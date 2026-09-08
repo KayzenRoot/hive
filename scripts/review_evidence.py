@@ -499,6 +499,12 @@ WO016_PRODUCT_ALLOWED_PATHS = frozenset(
     }
 )
 WO016_MIGRATION_PATH = re.compile(r"^migrations/versions/0007_[a-z0-9_]+\.py$")
+WO016_APPROVED_PRODUCT_HEAD = "0de6dc345262fc77fdda99c2f2dca6be88f9552c"
+WO016_APPROVED_PRODUCT_BASE_SHA = "4d7b3e677e4cf7b00f29eb2fa0920b23799f8d4b"
+WO016_APPROVED_SOL_REVIEW_ID = 5135618100
+WO016_APPROVED_SQUASH_MERGE_SHA = "54c32e939c7be6d505727df24d3ce2ad48af5518"
+WO016_APPROVED_POST_MERGE_CI_RUN = 34168038154
+WO016_APPROVED_LINEAGE_STATEMENT_PREFIX = "Approved WO-016 product lineage: "
 WO013_ALLOWED_PATHS = frozenset(
     {
         "backend/app/context_manager.py",
@@ -2305,6 +2311,7 @@ def verify_wo016p_g1_governance_contract(
     governance: Mapping[str, object],
     integration: Mapping[str, object],
     migration_head_value: str,
+    approved_lineage: Mapping[str, object] | None = None,
 ) -> str | None:
     if work_order != WO016P_G1_WORK_ORDER:
         return None
@@ -2361,6 +2368,9 @@ def verify_wo016p_g1_governance_contract(
         integration,
         migration_head_value,
     )
+    if approved_lineage is None:
+        raise ValueError("WO-016-P-G1 requires approved product lineage evidence")
+    require_wo016_approved_lineage_result(approved_lineage)
     return (
         f"work_order={WO016P_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
@@ -2369,9 +2379,13 @@ def verify_wo016p_g1_governance_contract(
         f"future_{WO016P_WORK_ORDER}_registered=PASS; "
         "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
         "acce_evidence=PASS; acce_policy=acce-policy-v1; benchmark_rows=6; "
-        "approved_lineage=PR#55,audited_head=0de6dc345262fc77fdda99c2f2dca6be88f9552c,"
-        "sol_review=5135618100,squash_merge=54c32e939c7be6d505727df24d3ce2ad48af5518,"
-        "post_merge_ci=34168038154,backend=418,dashboard=7; "
+        f"approved_lineage=PASS,PR#{approved_lineage['product_pr']},"
+        f"audited_head={approved_lineage['audited_product_head']},"
+        f"sol_review={approved_lineage['sol_review_id']},"
+        f"squash_merge={approved_lineage['squash_merge_sha']},"
+        f"post_merge_ci={approved_lineage['post_merge_ci_run']},"
+        f"backend={approved_lineage['prior_backend_passed']},"
+        f"dashboard={approved_lineage['prior_dashboard_passed']}; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -2384,9 +2398,13 @@ def verify_wo016p_governance_contract(
     governance: Mapping[str, object],
     integration: Mapping[str, object],
     migration_head_value: str,
+    approved_lineage: Mapping[str, object] | None = None,
 ) -> str | None:
     if work_order != WO016P_WORK_ORDER:
         return None
+    if approved_lineage is None:
+        raise ValueError("WO-016-P requires approved product lineage evidence")
+    require_wo016_approved_lineage_result(approved_lineage)
     require_wo016_storage_evidence(work_order, integration, migration_head_value)
     if canonical_changes != {
         "project_brain_changed": True,
@@ -2404,7 +2422,11 @@ def verify_wo016p_governance_contract(
     return (
         f"work_order={WO016P_WORK_ORDER}; promotion_scope=PASS; checkpoint_semantics=PASS; "
         "manifest_contract=PASS; acce_evidence=PASS; acce_policy=acce-policy-v1; "
-        "benchmark_rows=6; canonical_source_loss=0; llm_provider_calls=0/0; "
+        f"benchmark_rows=6; approved_lineage=PASS,PR#{approved_lineage['product_pr']},"
+        f"audited_head={approved_lineage['audited_product_head']},"
+        f"squash_merge={approved_lineage['squash_merge_sha']},"
+        f"post_merge_ci={approved_lineage['post_merge_ci_run']}; "
+        "canonical_source_loss=0; llm_provider_calls=0/0; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; merge_performed=False"
     )
 
@@ -4020,6 +4042,251 @@ def _gh_json(repository: str, endpoint: str) -> dict[str, Any] | list[Any] | Non
     return value if isinstance(value, dict | list) else None
 
 
+def _lineage_mapping(value: object, label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"WO-016 approved lineage requires {label}")
+    return value
+
+
+def _lineage_list(value: object, label: str) -> list[object]:
+    if not isinstance(value, list):
+        raise ValueError(f"WO-016 approved lineage requires {label}")
+    return value
+
+
+def _lineage_id_matches(value: object, expected: int) -> bool:
+    return value == expected or value == str(expected)
+
+
+def _normalized_lineage_text(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"WO-016 approved lineage requires {label}")
+    return " ".join(value.replace("—", "-").split()).casefold()
+
+
+def require_wo016_approved_lineage_result(result: Mapping[str, object]) -> None:
+    expected: dict[str, object] = {
+        "status": "PASS",
+        "product_work_order": WO016_WORK_ORDER,
+        "product_pr": 55,
+        "audited_product_head": WO016_APPROVED_PRODUCT_HEAD,
+        "sol_review_id": WO016_APPROVED_SOL_REVIEW_ID,
+        "sol_review_commit": WO016_APPROVED_PRODUCT_HEAD,
+        "squash_merge_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+        "product_pr_merged": True,
+        "squash_lineage_compatible": True,
+        "post_merge_ci_run": WO016_APPROVED_POST_MERGE_CI_RUN,
+        "post_merge_ci_event": "push",
+        "post_merge_ci_head_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+        "post_merge_ci_conclusion": "success",
+        "post_merge_validate": "success",
+        "post_merge_integration_health": "success",
+        "post_merge_review_evidence": "skipped",
+        "prior_review_evidence_head": WO016_APPROVED_PRODUCT_HEAD,
+        "prior_backend_passed": 418,
+        "prior_dashboard_passed": 7,
+        "prior_acce_status": "PASS",
+        "prior_acce_version": ACCE_STORAGE_POLICY_EVIDENCE_VERSION,
+        "prior_storage_policy": "acce-policy-v1",
+        "prior_canonical_source_loss": 0,
+        "prior_llm_calls": 0,
+        "prior_provider_calls": 0,
+    }
+    missing = [key for key in expected if result.get(key) != expected[key]]
+    if missing:
+        raise ValueError(
+            "WO-016 approved lineage evidence mismatch: " + ", ".join(sorted(missing))
+        )
+
+
+def verify_wo016_approved_lineage(sources: Mapping[str, object]) -> dict[str, object]:
+    """Validate the approved WO-016 product lineage from bounded GitHub sources."""
+    product_pr = _lineage_mapping(sources.get("product_pr"), "product PR data")
+    if product_pr.get("number") != 55:
+        raise ValueError("WO-016 approved lineage requires product PR #55")
+    if product_pr.get("state") != "closed" or product_pr.get("merged") is not True:
+        raise ValueError("WO-016 approved lineage requires a merged product PR")
+    base = _lineage_mapping(product_pr.get("base"), "product PR base")
+    head = _lineage_mapping(product_pr.get("head"), "product PR head")
+    if base.get("ref") != "main" or base.get("sha") != WO016_APPROVED_PRODUCT_BASE_SHA:
+        raise ValueError("WO-016 approved lineage requires the authorized product base")
+    if head.get("sha") != WO016_APPROVED_PRODUCT_HEAD:
+        raise ValueError("WO-016 approved lineage requires the audited product HEAD")
+    if product_pr.get("merge_commit_sha") != WO016_APPROVED_SQUASH_MERGE_SHA:
+        raise ValueError("WO-016 approved lineage requires the approved squash merge SHA")
+    product_body = _normalized_lineage_text(product_pr.get("body"), "product PR body")
+    if "<!-- hive-work-order: wo-016 -->" not in product_body:
+        raise ValueError("WO-016 approved lineage requires the product work-order marker")
+
+    reviews = _lineage_list(sources.get("product_reviews"), "product PR reviews")
+    matching_reviews = [
+        _lineage_mapping(review, "product review")
+        for review in reviews
+        if _lineage_id_matches(
+            _lineage_mapping(review, "product review").get("id"),
+            WO016_APPROVED_SOL_REVIEW_ID,
+        )
+    ]
+    if len(matching_reviews) != 1:
+        raise ValueError("WO-016 approved lineage requires exactly one Sol review")
+    sol_review = matching_reviews[0]
+    if sol_review.get("state") != "APPROVED":
+        raise ValueError("WO-016 approved lineage requires an approved Sol review")
+    if sol_review.get("commit_id") != WO016_APPROVED_PRODUCT_HEAD:
+        raise ValueError("WO-016 Sol review is not bound to the audited product HEAD")
+    review_text = _normalized_lineage_text(sol_review.get("body"), "Sol review body")
+    for marker in (
+        "approved - wo-016",
+        "verdict: approved for exact-head squash merge",
+        WO016_APPROVED_PRODUCT_HEAD,
+    ):
+        if marker.casefold() not in review_text:
+            raise ValueError("WO-016 Sol review does not express the approved result")
+
+    merge_commit = _lineage_mapping(sources.get("merge_commit"), "squash merge commit")
+    if merge_commit.get("sha") != WO016_APPROVED_SQUASH_MERGE_SHA:
+        raise ValueError("WO-016 squash merge commit identity is not verified")
+    parents = _lineage_list(merge_commit.get("parents"), "squash merge parents")
+    if len(parents) != 1:
+        raise ValueError("WO-016 approved merge is not compatible with a squash lineage")
+
+    post_merge_run = _lineage_mapping(sources.get("post_merge_run"), "post-merge CI run")
+    if not _lineage_id_matches(post_merge_run.get("id"), WO016_APPROVED_POST_MERGE_CI_RUN):
+        raise ValueError("WO-016 approved lineage requires the approved post-merge CI run")
+    if (
+        post_merge_run.get("event") != "push"
+        or post_merge_run.get("head_sha") != WO016_APPROVED_SQUASH_MERGE_SHA
+        or post_merge_run.get("status") != "completed"
+        or post_merge_run.get("conclusion") != "success"
+    ):
+        raise ValueError("WO-016 post-merge CI run is not a successful push on the merge SHA")
+
+    jobs = _lineage_list(sources.get("post_merge_jobs"), "post-merge CI jobs")
+    by_name: dict[str, Mapping[str, Any]] = {}
+    for raw_job in jobs:
+        job = _lineage_mapping(raw_job, "post-merge CI job")
+        name = job.get("name")
+        if isinstance(name, str):
+            if name in by_name:
+                raise ValueError(f"WO-016 post-merge CI has duplicate job {name}")
+            by_name[name] = job
+    for name in ("Validate", "Integration health", "Review Evidence"):
+        if name not in by_name:
+            raise ValueError(f"WO-016 post-merge CI is missing {name}")
+    for name in ("Validate", "Integration health"):
+        job = by_name[name]
+        if job.get("status") != "completed" or job.get("conclusion") != "success":
+            raise ValueError(f"WO-016 post-merge {name} did not succeed")
+    review_job = by_name["Review Evidence"]
+    if review_job.get("status") != "completed" or review_job.get("conclusion") != "skipped":
+        raise ValueError("WO-016 post-push Review Evidence is not skipped by design")
+
+    comments = _lineage_list(sources.get("prior_review_comments"), "prior Review Evidence comments")
+    sticky_comments = []
+    for raw_comment in comments:
+        comment = _lineage_mapping(raw_comment, "prior Review Evidence comment")
+        body = comment.get("body")
+        if isinstance(body, str) and "<!-- hive-review-evidence:wo-016 -->" in body.casefold():
+            sticky_comments.append(body)
+    if len(sticky_comments) != 1:
+        raise ValueError("WO-016 requires exactly one prior exact-head Review Evidence comment")
+    prior_text = _normalized_lineage_text(sticky_comments[0], "prior Review Evidence body")
+    required_prior_fragments = (
+        f"exact head sha: `{WO016_APPROVED_PRODUCT_HEAD}`",
+        "backend tests: `418 passed, 0 failed, 0 skipped`",
+        "dashboard tests: `7 passed, 0 failed`",
+        "validate result: **pass**",
+        "integration health result: **pass**",
+        "review evidence result: **pass**",
+        "acce storage policy evidence: **pass**",
+        "version `acce-storage-policy-v1`",
+        "policy `acce-policy-v1`",
+        "canonical loss `0`",
+        "llm/provider calls `0/0`",
+    )
+    missing_prior = [
+        fragment for fragment in required_prior_fragments if fragment not in prior_text
+    ]
+    if missing_prior:
+        raise ValueError(
+            "WO-016 prior Review Evidence is incomplete: "
+            + ", ".join(missing_prior)
+        )
+
+    result: dict[str, object] = {
+        "status": "PASS",
+        "product_work_order": WO016_WORK_ORDER,
+        "product_pr": 55,
+        "audited_product_head": WO016_APPROVED_PRODUCT_HEAD,
+        "sol_review_id": WO016_APPROVED_SOL_REVIEW_ID,
+        "sol_review_commit": sol_review["commit_id"],
+        "squash_merge_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+        "product_pr_merged": True,
+        "squash_lineage_compatible": True,
+        "post_merge_ci_run": WO016_APPROVED_POST_MERGE_CI_RUN,
+        "post_merge_ci_event": post_merge_run["event"],
+        "post_merge_ci_head_sha": post_merge_run["head_sha"],
+        "post_merge_ci_conclusion": post_merge_run["conclusion"],
+        "post_merge_validate": by_name["Validate"]["conclusion"],
+        "post_merge_integration_health": by_name["Integration health"]["conclusion"],
+        "post_merge_review_evidence": by_name["Review Evidence"]["conclusion"],
+        "prior_review_evidence_head": WO016_APPROVED_PRODUCT_HEAD,
+        "prior_backend_passed": 418,
+        "prior_dashboard_passed": 7,
+        "prior_acce_status": "PASS",
+        "prior_acce_version": ACCE_STORAGE_POLICY_EVIDENCE_VERSION,
+        "prior_storage_policy": "acce-policy-v1",
+        "prior_canonical_source_loss": 0,
+        "prior_llm_calls": 0,
+        "prior_provider_calls": 0,
+    }
+    require_wo016_approved_lineage_result(result)
+    return result
+
+
+def fetch_wo016_approved_lineage(repository: str) -> dict[str, object]:
+    """Fetch and validate the immutable approved product lineage via GitHub API."""
+    jobs_response = _gh_json(
+        repository, f"actions/runs/{WO016_APPROVED_POST_MERGE_CI_RUN}/jobs"
+    )
+    return verify_wo016_approved_lineage(
+        {
+            "product_pr": _gh_json(repository, "pulls/55"),
+            "product_reviews": _gh_json(repository, "pulls/55/reviews"),
+            "merge_commit": _gh_json(
+                repository, f"commits/{WO016_APPROVED_SQUASH_MERGE_SHA}"
+            ),
+            "post_merge_run": _gh_json(
+                repository, f"actions/runs/{WO016_APPROVED_POST_MERGE_CI_RUN}"
+            ),
+            "post_merge_jobs": jobs_response.get("jobs")
+            if isinstance(jobs_response, Mapping)
+            else None,
+            "prior_review_comments": _gh_json(repository, "issues/55/comments"),
+        }
+    )
+
+
+def wo016_approved_lineage_statement(result: Mapping[str, object]) -> str:
+    require_wo016_approved_lineage_result(result)
+    return WO016_APPROVED_LINEAGE_STATEMENT_PREFIX + json.dumps(
+        dict(result), sort_keys=True, separators=(",", ":")
+    )
+
+
+def parse_wo016_approved_lineage_statement(entry: object) -> dict[str, object]:
+    if not isinstance(entry, str) or not entry.startswith(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX):
+        raise ValueError("WO-016 approved lineage statement is missing")
+    try:
+        result = json.loads(entry[len(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX) :])
+    except json.JSONDecodeError:
+        raise ValueError("WO-016 approved lineage statement is not valid JSON") from None
+    if not isinstance(result, dict):
+        raise ValueError("WO-016 approved lineage statement has an invalid shape")
+    require_wo016_approved_lineage_result(result)
+    return result
+
+
 def auto_merge_evidence(auto_merge: Mapping[str, Any] | None) -> dict[str, object]:
     owner = auto_merge.get("enabled_by") if isinstance(auto_merge, Mapping) else None
     owner = owner if isinstance(owner, Mapping) else {}
@@ -4618,6 +4885,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     governance = governance_evidence(repository, args.pr_number)
     pr_governance = cast(dict[str, Any], governance.get("pull_request", {}))
     pr_auto_merge = pull_request_auto_merge_evidence(pr_governance)
+    approved_lineage = (
+        fetch_wo016_approved_lineage(repository)
+        if work_order in {WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}
+        else None
+    )
     g1_governance_evidence = verify_wo014p_g1_governance_contract(
         work_order,
         base_sha,
@@ -4653,6 +4925,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         governance,
         integration,
         migration_head(),
+        approved_lineage,
     )
     wo016p_governance_evidence = verify_wo016p_governance_contract(
         work_order,
@@ -4662,6 +4935,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         governance,
         integration,
         migration_head(),
+        approved_lineage,
     )
     wo016_g1_governance_evidence = verify_wo016_g1_governance_contract(
         work_order,
@@ -4769,6 +5043,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         + (
             [f"WO-016-P-G1 governance evidence: {wo016p_g1_governance_evidence}"]
             if wo016p_g1_governance_evidence
+            else []
+        )
+        + (
+            [wo016_approved_lineage_statement(approved_lineage)]
+            if approved_lineage is not None
             else []
         )
         + (
@@ -5015,6 +5294,17 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         for entry in negative_scope
     ):
         raise ValueError("review evidence cannot deny an observed canonical checkpoint change")
+    approved_lineage = None
+    if work_order in {WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}:
+        lineage_entries = [
+            entry
+            for entry in negative_scope
+            if isinstance(entry, str)
+            and entry.startswith(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX)
+        ]
+        if len(lineage_entries) != 1:
+            raise ValueError("WO-016 evidence must include exactly one approved lineage statement")
+        approved_lineage = parse_wo016_approved_lineage_statement(lineage_entries[0])
     g1_evidence = verify_wo014p_g1_governance_contract(
         work_order,
         cast(str, base["sha"]),
@@ -5075,6 +5365,7 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(dict[str, object], manifest["governance"]),
         cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+        approved_lineage,
     )
     if work_order == WO016P_G1_WORK_ORDER:
         expected_g1_entry = f"WO-016-P-G1 governance evidence: {wo016p_g1_evidence}"
@@ -5090,6 +5381,7 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(dict[str, object], manifest["governance"]),
         cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+        approved_lineage,
     )
     if work_order == WO016P_WORK_ORDER:
         expected_p_entry = f"WO-016-P governance evidence: {wo016p_evidence}"
