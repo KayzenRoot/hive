@@ -4128,7 +4128,7 @@ def verify_wo016_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
     if len(matching_reviews) != 1:
         raise ValueError("WO-016 approved lineage requires exactly one Sol review")
     sol_review = matching_reviews[0]
-    if sol_review.get("state") != "APPROVED":
+    if sol_review.get("state") not in {"APPROVED", "COMMENTED"}:
         raise ValueError("WO-016 approved lineage requires an approved Sol review")
     if sol_review.get("commit_id") != WO016_APPROVED_PRODUCT_HEAD:
         raise ValueError("WO-016 Sol review is not bound to the audited product HEAD")

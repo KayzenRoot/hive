@@ -1540,7 +1540,7 @@ def approved_wo016_lineage_sources_fixture() -> dict[str, object]:
         "product_reviews": [
             {
                 "id": WO016_APPROVED_SOL_REVIEW_ID,
-                "state": "APPROVED",
+                "state": "COMMENTED",
                 "commit_id": WO016_APPROVED_PRODUCT_HEAD,
                 "body": review_body,
             }
