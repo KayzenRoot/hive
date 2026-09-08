@@ -21,6 +21,8 @@ from scripts.review_evidence import (
     MCP_CORE_SURFACE_EVIDENCE_VERSION,
     MCP_CORE_SURFACE_FALSE_FIELDS,
     MCP_CORE_SURFACE_INTEGER_FIELDS,
+    MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT,
+    MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT,
     MCP_CORE_SURFACE_TOOLS,
     MCP_CORE_SURFACE_TRUE_FIELDS,
     SCHEMA_PATH,
@@ -418,6 +420,7 @@ def mcp_surface_evidence_fixture() -> dict[str, object]:
         "status": "PASS",
         "evidence_file": MCP_CORE_SURFACE_EVIDENCE_FILE,
         "mcp_evidence_version": MCP_CORE_SURFACE_EVIDENCE_VERSION,
+        MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT: 2,
         **{field: True for field in MCP_CORE_SURFACE_TRUE_FIELDS},
         **{field: False for field in MCP_CORE_SURFACE_FALSE_FIELDS},
         "tool_list_exact": list(MCP_CORE_SURFACE_TOOLS),
@@ -625,9 +628,9 @@ def test_wo017_mcp_evidence_is_versioned_exact_and_fail_closed(
             "0006_memory_lifecycle_provenance",
         )
     for field in MCP_CORE_SURFACE_TRUE_FIELDS:
-        broken = dict(fixture)
-        broken[field] = False
-        evidence_path.write_text(json.dumps(broken), encoding="utf-8")
+        broken_true_field: dict[str, object] = dict(fixture)
+        broken_true_field[field] = False
+        evidence_path.write_text(json.dumps(broken_true_field), encoding="utf-8")
         with pytest.raises(ValueError, match="missing mandatory|passing"):
             require_wo017_mcp_evidence(
                 WO017_WORK_ORDER,
@@ -635,9 +638,9 @@ def test_wo017_mcp_evidence_is_versioned_exact_and_fail_closed(
                 "0006_memory_lifecycle_provenance",
             )
     for field in MCP_CORE_SURFACE_FALSE_FIELDS:
-        broken = dict(fixture)
-        broken[field] = True
-        evidence_path.write_text(json.dumps(broken), encoding="utf-8")
+        broken_false_field = dict(fixture)
+        broken_false_field[field] = True
+        evidence_path.write_text(json.dumps(broken_false_field), encoding="utf-8")
         with pytest.raises(ValueError, match="negative|passing"):
             require_wo017_mcp_evidence(
                 WO017_WORK_ORDER,
@@ -654,15 +657,46 @@ def test_wo017_mcp_evidence_is_versioned_exact_and_fail_closed(
         ("secret_leaks", 1),
         ("filesystem_path_leaks", 1),
     ):
-        broken = dict(fixture)
-        broken[field] = value
-        evidence_path.write_text(json.dumps(broken), encoding="utf-8")
+        broken_contract: dict[str, object] = dict(fixture)
+        broken_contract[field] = value
+        evidence_path.write_text(json.dumps(broken_contract), encoding="utf-8")
         with pytest.raises(ValueError, match="versioned|bounded|requires|exact|observed"):
             require_wo017_mcp_evidence(
                 WO017_WORK_ORDER,
                 {"mcp_surface": mcp_surface_evidence()},
                 "0006_memory_lifecycle_provenance",
             )
+    for project_count_value in (
+        None,
+        True,
+        False,
+        0,
+        1,
+        -1,
+        MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT + 1,
+        10**9,
+    ):
+        broken_count: dict[str, object] = dict(fixture)
+        if project_count_value is None:
+            broken_count.pop(MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT)
+        else:
+            broken_count[MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT] = project_count_value
+        evidence_path.write_text(json.dumps(broken_count), encoding="utf-8")
+        parsed = mcp_surface_evidence()
+        assert parsed["status"] == "FAIL"
+        with pytest.raises(ValueError, match="passing|registered_project_count"):
+            require_wo017_mcp_evidence(
+                WO017_WORK_ORDER,
+                {"mcp_surface": parsed},
+                "0006_memory_lifecycle_provenance",
+            )
+
+    bounded = dict(fixture)
+    bounded[MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT] = (
+        MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT
+    )
+    evidence_path.write_text(json.dumps(bounded), encoding="utf-8")
+    assert mcp_surface_evidence()["status"] == "PASS"
     with pytest.raises(ValueError, match="migration head"):
         evidence_path.write_text(json.dumps(fixture), encoding="utf-8")
         require_wo017_mcp_evidence(
@@ -1602,6 +1636,17 @@ def test_wo017_renderers_are_dedicated_and_explicit() -> None:
     assert "REST loopback" in future
     assert "PostgreSQL" in future
     assert "mcp_llm_calls=0" in future
+    assert "registered_project_count >= 2" in future
+    assert "arbitrary_filesystem_access_rejected=true" in future
+    assert "checkpoint_missing_fail_closed=true" in future
+    assert "checkpoint_untracked_fail_closed=true" in future
+    assert "checkpoint_stale_fail_closed=true" in future
+    assert "checkpoint_hive_substitution_absent=true" in future
+    assert "context_search_provenance_preserved=true" in future
+    assert "context_search_result_bound_enforced=true" in future
+    assert "memory_status_visibility_preserved=true" in future
+    assert "structured_errors_enforced=true" in future
+    assert "bounded_errors_enforced=true" in future
     assert "WO-017 READY FOR SOL AUDIT" in future
     for work_order in (WO017_G1_WORK_ORDER, WO017_WORK_ORDER):
         with pytest.raises(ValueError, match="40-hex exact HEAD"):

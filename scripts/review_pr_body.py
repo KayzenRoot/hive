@@ -1743,9 +1743,22 @@ duplicar persistência ou regra de negócio; PostgreSQL continua canônico e Red
 continua não canônico. `project.list`/`project.status` respeitam identidade do
 Registry; `context.build` mantém checkpoint primeiro; search e Memory permanecem
 project-scoped; `checkpoint.read` só lê o checkpoint do projeto correto.
-Argumentos inválidos e tools desconhecidas falham closed. Outputs e erros são
-bounded, estruturados, sem segredos, sem caminhos absolutos e sem acesso a
-filesystem arbitrário.
+O bundle registra `registered_project_count >= 2` para provar dois ou mais
+projetos registrados, e `arbitrary_filesystem_access_rejected=true` para provar
+que tentativas de escape por caminho falham closed. `checkpoint.read` também
+prova `checkpoint_missing_fail_closed=true`,
+`checkpoint_untracked_fail_closed=true`, `checkpoint_stale_fail_closed=true` e
+`checkpoint_hive_substitution_absent=true`, sem substituir silenciosamente pelo
+checkpoint do HIVE. `context.search` exige
+`context_search_provenance_preserved=true` e
+`context_search_result_bound_enforced=true`; Memory exige
+`memory_search_provenance_preserved=true`,
+`memory_get_provenance_preserved=true` e
+`memory_status_visibility_preserved=true`. Argumentos inválidos e tools
+desconhecidas falham closed. Outputs e erros são bounded, estruturados, sem
+segredos, sem caminhos absolutos e sem acesso a filesystem arbitrário; o
+contrato exige `structured_errors_enforced=true` e
+`bounded_errors_enforced=true`.
 
 ## 5. Controles e recuperação
 

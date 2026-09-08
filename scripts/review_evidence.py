@@ -429,7 +429,22 @@ MCP_CORE_SURFACE_TRUE_FIELDS = (
     "restart_recovery",
     "redis_loss_recovery",
     "deterministic_repeat",
+    "arbitrary_filesystem_access_rejected",
+    "checkpoint_missing_fail_closed",
+    "checkpoint_untracked_fail_closed",
+    "checkpoint_stale_fail_closed",
+    "checkpoint_hive_substitution_absent",
+    "context_search_provenance_preserved",
+    "context_search_result_bound_enforced",
+    "memory_search_provenance_preserved",
+    "memory_get_provenance_preserved",
+    "memory_status_visibility_preserved",
+    "structured_errors_enforced",
+    "bounded_errors_enforced",
 )
+MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT = "registered_project_count"
+MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT = 32
+MCP_CORE_SURFACE_COUNT_FIELDS = (MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT,)
 MCP_CORE_SURFACE_FALSE_FIELDS = (
     "migration_changed",
     "canonical_write_tools_exposed",
@@ -445,6 +460,7 @@ MCP_CORE_SURFACE_REQUIRED_FIELDS = (
     "evidence_file",
     "mcp_evidence_version",
     "tool_list_exact",
+    *MCP_CORE_SURFACE_COUNT_FIELDS,
     *MCP_CORE_SURFACE_TRUE_FIELDS,
     *MCP_CORE_SURFACE_FALSE_FIELDS,
     "observed_migration_head",
@@ -461,6 +477,8 @@ WO017_MCP_EVIDENCE_VERSION = MCP_CORE_SURFACE_EVIDENCE_VERSION
 WO017_MCP_EVIDENCE_FILE = MCP_CORE_SURFACE_EVIDENCE_FILE
 WO017_MCP_TOOLS = MCP_CORE_SURFACE_TOOLS
 WO017_MCP_REQUIRED_FIELDS = MCP_CORE_SURFACE_REQUIRED_FIELDS
+WO017_MCP_COUNT_FIELDS = MCP_CORE_SURFACE_COUNT_FIELDS
+WO017_MCP_MAX_REGISTERED_PROJECT_COUNT = MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT
 WO017_MCP_INTEGER_FIELDS = MCP_CORE_SURFACE_INTEGER_FIELDS
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
@@ -2463,6 +2481,16 @@ def require_wo017_mcp_evidence(
         raise ValueError("WO-017 requires the bounded mcp-surface.json evidence file")
     if surface.get("mcp_evidence_version") != MCP_CORE_SURFACE_EVIDENCE_VERSION:
         raise ValueError("WO-017 requires the versioned MCP evidence contract")
+    registered_project_count = surface.get(MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT)
+    if (
+        not isinstance(registered_project_count, int)
+        or isinstance(registered_project_count, bool)
+        or not 2 <= registered_project_count <= MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT
+    ):
+        raise ValueError(
+            "WO-017 requires registered_project_count between 2 and "
+            f"{MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT}"
+        )
     missing = [field for field in MCP_CORE_SURFACE_TRUE_FIELDS if surface.get(field) is not True]
     if missing:
         raise ValueError(
@@ -2565,6 +2593,11 @@ def verify_wo017_governance_contract(
         f"tool_list_exact={','.join(MCP_CORE_SURFACE_TOOLS)}; "
         "real_transport=PASS; direct_core=PASS; rest_loopback=False; "
         "duplicate_persistence=False; project_isolation=PASS; checkpoint_first=PASS; "
+        "registered_project_count>=2; arbitrary_filesystem_access_rejected=PASS; "
+        "checkpoint_missing/untracked/stale/hive_substitution=PASS/PASS/PASS/PASS; "
+        "context_search_provenance/result_bound=PASS/PASS; "
+        "memory_search/memory_get_provenance/status_visibility=PASS/PASS/PASS; "
+        "structured_errors/bounded_errors=PASS/PASS; "
         "canonical_write_tools=False; restart_recovery=PASS; redis_loss_recovery=PASS; "
         "mcp_llm_calls=0; mcp_provider_calls=0; migration_head=0006_memory_lifecycle_provenance; "
         "migration_changed=False; ruleset_unchanged=PASS; auto_merge=UNARMED; "
@@ -3393,6 +3426,7 @@ def mcp_surface_evidence() -> dict[str, object]:
         "status": "UNKNOWN",
         "evidence_file": MCP_CORE_SURFACE_EVIDENCE_FILE,
         "mcp_evidence_version": MCP_CORE_SURFACE_EVIDENCE_VERSION,
+        MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT: 0,
         **{field: False for field in MCP_CORE_SURFACE_TRUE_FIELDS},
         **{field: False for field in MCP_CORE_SURFACE_FALSE_FIELDS},
         "tool_list_exact": [],
@@ -3433,6 +3467,15 @@ def mcp_surface_evidence() -> dict[str, object]:
         isinstance(tool, str) for tool in cast(list[object], raw_tools)
     )
     tool_list = list(cast(list[str], raw_tools)) if tool_list_valid else []
+    raw_project_count = data.get(MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT)
+    project_count_is_integer = isinstance(raw_project_count, int) and not isinstance(
+        raw_project_count, bool
+    )
+    registered_project_count: int = cast(int, raw_project_count) if project_count_is_integer else 0
+    project_count_valid = (
+        project_count_is_integer
+        and 0 <= registered_project_count <= MCP_CORE_SURFACE_MAX_REGISTERED_PROJECT_COUNT
+    )
 
     integers: dict[str, int] = {}
     integer_fields_valid = True
@@ -3450,6 +3493,8 @@ def mcp_surface_evidence() -> dict[str, object]:
         and not extra_fields
         and evidence_file == MCP_CORE_SURFACE_EVIDENCE_FILE
         and version == MCP_CORE_SURFACE_EVIDENCE_VERSION
+        and project_count_valid
+        and registered_project_count >= 2
         and all(true_values.values())
         and all(false_checks.values())
         and tool_list_valid
@@ -3463,6 +3508,7 @@ def mcp_surface_evidence() -> dict[str, object]:
         "status": status,
         "evidence_file": evidence_file,
         "mcp_evidence_version": version,
+        MCP_CORE_SURFACE_REGISTERED_PROJECT_COUNT: registered_project_count,
         **true_values,
         **false_values,
         "tool_list_exact": tool_list,
@@ -6551,7 +6597,25 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{mcp_surface_evidence.get('secret_leaks', 'UNKNOWN')}/"
         f"{mcp_surface_evidence.get('filesystem_path_leaks', 'UNKNOWN')}`, calls `"
         f"{mcp_surface_evidence.get('mcp_llm_calls', 'UNKNOWN')}/"
-        f"{mcp_surface_evidence.get('mcp_provider_calls', 'UNKNOWN')}`"
+        f"{mcp_surface_evidence.get('mcp_provider_calls', 'UNKNOWN')}`, projects `"
+        f"{mcp_surface_evidence.get('registered_project_count', 'UNKNOWN')}`, arbitrary "
+        f"filesystem rejection `"
+        f"{mcp_surface_evidence.get('arbitrary_filesystem_access_rejected', False)}`, "
+        f"checkpoint missing/untracked/stale/substitution `"
+        f"{mcp_surface_evidence.get('checkpoint_missing_fail_closed', False)}/"
+        f"{mcp_surface_evidence.get('checkpoint_untracked_fail_closed', False)}/"
+        f"{mcp_surface_evidence.get('checkpoint_stale_fail_closed', False)}/"
+        f"{mcp_surface_evidence.get('checkpoint_hive_substitution_absent', False)}`, "
+        f"context provenance/bounds `"
+        f"{mcp_surface_evidence.get('context_search_provenance_preserved', False)}/"
+        f"{mcp_surface_evidence.get('context_search_result_bound_enforced', False)}`, "
+        f"memory provenance/status `"
+        f"{mcp_surface_evidence.get('memory_search_provenance_preserved', False)}/"
+        f"{mcp_surface_evidence.get('memory_get_provenance_preserved', False)}/"
+        f"{mcp_surface_evidence.get('memory_status_visibility_preserved', False)}`, "
+        f"errors structured/bounded `"
+        f"{mcp_surface_evidence.get('structured_errors_enforced', False)}/"
+        f"{mcp_surface_evidence.get('bounded_errors_enforced', False)}`"
     )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"

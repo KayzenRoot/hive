@@ -402,6 +402,7 @@
         "protocol_tool_list_passed",
         "real_transport_exercised",
         "tool_list_exact",
+        "registered_project_count",
         "project_list_passed",
         "project_status_passed",
         "context_build_passed",
@@ -427,6 +428,18 @@
         "restart_recovery",
         "redis_loss_recovery",
         "deterministic_repeat",
+        "arbitrary_filesystem_access_rejected",
+        "checkpoint_missing_fail_closed",
+        "checkpoint_untracked_fail_closed",
+        "checkpoint_stale_fail_closed",
+        "checkpoint_hive_substitution_absent",
+        "context_search_provenance_preserved",
+        "context_search_result_bound_enforced",
+        "memory_search_provenance_preserved",
+        "memory_get_provenance_preserved",
+        "memory_status_visibility_preserved",
+        "structured_errors_enforced",
+        "bounded_errors_enforced",
         "mcp_llm_calls",
         "mcp_provider_calls"
       ],
@@ -454,6 +467,11 @@
               "checkpoint.read"
             ]
           }
+        },
+        "registered_project_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 32
         },
         "project_list_passed": { "type": "boolean" },
         "project_status_passed": { "type": "boolean" },
@@ -483,6 +501,18 @@
         "restart_recovery": { "type": "boolean" },
         "redis_loss_recovery": { "type": "boolean" },
         "deterministic_repeat": { "type": "boolean" },
+        "arbitrary_filesystem_access_rejected": { "type": "boolean" },
+        "checkpoint_missing_fail_closed": { "type": "boolean" },
+        "checkpoint_untracked_fail_closed": { "type": "boolean" },
+        "checkpoint_stale_fail_closed": { "type": "boolean" },
+        "checkpoint_hive_substitution_absent": { "type": "boolean" },
+        "context_search_provenance_preserved": { "type": "boolean" },
+        "context_search_result_bound_enforced": { "type": "boolean" },
+        "memory_search_provenance_preserved": { "type": "boolean" },
+        "memory_get_provenance_preserved": { "type": "boolean" },
+        "memory_status_visibility_preserved": { "type": "boolean" },
+        "structured_errors_enforced": { "type": "boolean" },
+        "bounded_errors_enforced": { "type": "boolean" },
         "mcp_llm_calls": { "type": "integer", "minimum": 0, "maximum": 0 },
         "mcp_provider_calls": { "type": "integer", "minimum": 0, "maximum": 0 }
       }
