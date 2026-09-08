@@ -4196,7 +4196,7 @@ def verify_wo016_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
         "validate result: **pass**",
         "integration health result: **pass**",
         "review evidence result: **pass**",
-        "acce storage policy evidence: **pass**",
+        "acce storage policy evidence: `pass`",
         "version `acce-storage-policy-v1`",
         "policy `acce-policy-v1`",
         "canonical loss `0`",

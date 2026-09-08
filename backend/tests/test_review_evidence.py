@@ -893,7 +893,7 @@ def test_wo016_approved_lineage_is_objective_and_fail_closed() -> None:
         (
             "ACCE evidence not PASS",
             lambda value: value["prior_review_comments"][0].update(
-                body=value["prior_review_comments"][0]["body"].replace("**PASS**", "**FAIL**")
+                body=value["prior_review_comments"][0]["body"].replace("`PASS`", "`FAIL`")
             ),
         ),
         (
@@ -1524,7 +1524,7 @@ def approved_wo016_lineage_sources_fixture() -> dict[str, object]:
         "Validate result: **PASS**\n"
         "Integration health result: **PASS**\n"
         "Review Evidence result: **PASS**\n"
-        "ACCE Storage Policy evidence: **PASS**; version `acce-storage-policy-v1`, "
+        "ACCE Storage Policy evidence: `PASS`; version `acce-storage-policy-v1`, "
         "policy `acce-policy-v1`, canonical loss `0`, LLM/provider calls `0/0`"
     )
     return {
