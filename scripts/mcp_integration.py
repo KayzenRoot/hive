@@ -49,7 +49,6 @@ GOVERNANCE_RELATIVE_PATHS = (
     "docs/project-brain/16-DECISIONS-LEDGER.md",
 )
 SAFE_SHA = re.compile(r"^[0-9a-f]{40}$")
-MCP_PRODUCT_PATH = "backend/app/mcp_server.py"
 MCP_INSTRUMENTATION_CONTAINER_PATH = "/workspace/projects/.mcp-instrumentation"
 MCP_PROVIDER_COUNTER_CONTAINER_PATH = "/var/lib/hive/tmp/mcp-provider-calls.json"
 MCP_PROVIDER_COUNTER_FIELDS = frozenset({"trap_installed", "mcp_llm_calls", "mcp_provider_calls"})
@@ -784,51 +783,63 @@ def _static_surface_checks() -> dict[str, bool]:
     }
 
 
-def _assert_current_protected_main_base(environment: dict[str, str]) -> None:
-    """Keep candidate stale-base protection independent from product evidence."""
-
-    origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
-    if git(ROOT, ["merge-base", "origin/main", "HEAD"], env=environment) != origin_main:
-        raise AssertionError("candidate is not based on the current protected-main base")
-
-
-def _product_introduction_commit(environment: dict[str, str]) -> tuple[str, str]:
-    """Resolve one unambiguous commit that first introduced the MCP product file."""
-
-    introduction_commits = [
-        commit
-        for commit in git(
-            ROOT,
-            ["log", "--format=%H", "--diff-filter=A", "--", MCP_PRODUCT_PATH],
-            env=environment,
-        ).splitlines()
-        if commit
-    ]
-    if len(introduction_commits) != 1:
-        raise AssertionError("MCP product lineage is missing or ambiguous")
-
-    introduction = introduction_commits[0]
-    parents = git(ROOT, ["rev-list", "--parents", "-n", "1", introduction], env=environment).split()
-    if len(parents) != 2:
-        raise AssertionError("MCP product lineage introduction must have exactly one parent")
-    return introduction, parents[1]
+def _git_paths(environment: dict[str, str], arguments: list[str]) -> set[str]:
+    try:
+        output = git(ROOT, arguments, env=environment)
+    except RuntimeError as exc:
+        raise AssertionError("unable to determine the current validation delta") from exc
+    return {path for path in output.splitlines() if path}
 
 
-def _observe_product_lineage_migration(environment: dict[str, str]) -> bool:
-    """Observe migrations in the bounded product-introduction commit only."""
+def _current_validation_paths(environment: dict[str, str]) -> set[str]:
+    """Resolve the exact committed and local delta for the current validation mode."""
 
-    _introduction, parent = _product_introduction_commit(environment)
-    changed_paths = git(
-        ROOT,
-        ["diff-tree", "--no-commit-id", "--name-only", "-r", parent, _introduction],
-        env=environment,
-    ).splitlines()
-    return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
+    try:
+        head = git(ROOT, ["rev-parse", "HEAD"], env=environment)
+        origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
+    except RuntimeError as exc:
+        raise AssertionError("unable to resolve HEAD and origin/main") from exc
+    if not SAFE_SHA.fullmatch(head) or not SAFE_SHA.fullmatch(origin_main):
+        raise AssertionError("validation boundary contains an invalid Git SHA")
+
+    if head != origin_main:
+        try:
+            merge_base = git(ROOT, ["merge-base", "origin/main", "HEAD"], env=environment)
+        except RuntimeError as exc:
+            raise AssertionError(
+                "candidate is stale or divergent from current protected-main base"
+            ) from exc
+        if merge_base != origin_main:
+            raise AssertionError("candidate is stale or divergent from current protected-main base")
+        committed_paths = _git_paths(
+            environment, ["diff", "--name-only", "--no-renames", "origin/main", "HEAD", "--"]
+        )
+    else:
+        try:
+            parents = git(
+                ROOT, ["rev-list", "--parents", "-n", "1", "HEAD"], env=environment
+            ).split()
+        except RuntimeError as exc:
+            raise AssertionError("unable to resolve the current protected-main lineage") from exc
+        if len(parents) != 2 or not SAFE_SHA.fullmatch(parents[1]):
+            raise AssertionError("current protected-main HEAD must have exactly one parent")
+        committed_paths = _git_paths(
+            environment, ["diff", "--name-only", "--no-renames", parents[1], "HEAD", "--"]
+        )
+
+    unresolved_paths = _git_paths(
+        environment, ["diff", "--name-only", "--diff-filter=U", "HEAD", "--"]
+    )
+    if unresolved_paths:
+        raise AssertionError("working tree has unresolved merge state")
+    working_tree_paths = _git_paths(environment, ["diff", "--name-only", "HEAD", "--"])
+    untracked_paths = _git_paths(environment, ["ls-files", "--others", "--exclude-standard", "--"])
+    return committed_paths | working_tree_paths | untracked_paths
 
 
 def _observe_migration_changed(environment: dict[str, str]) -> bool:
-    _assert_current_protected_main_base(environment)
-    return _observe_product_lineage_migration(environment)
+    changed_paths = _current_validation_paths(environment)
+    return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
 
 
 def _write_evidence(flags: dict[str, object]) -> None:

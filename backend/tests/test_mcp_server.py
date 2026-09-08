@@ -567,7 +567,7 @@ def test_adapter_has_no_rest_provider_or_persistence_surface() -> None:
     assert "database_connection" not in source
 
 
-def test_migration_observation_accepts_post_squash_head_equal_to_current_main(
+def test_migration_observation_pr_delta_without_migration(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     integration = _mcp_integration_module()
@@ -577,12 +577,34 @@ def test_migration_observation_accepts_post_squash_head_equal_to_current_main(
         {"backend/app/mcp_server.py": "product\n"},
         "introduce MCP product",
     )
+    candidate = _commit_files(repo, {"scripts/evidence.py": "evidence\n"}, "add evidence")
+    assert candidate != product
     _set_origin_main(repo, product)
 
     assert _observe_lineage(integration, monkeypatch, repo) is False
 
 
-def test_migration_observation_ignores_unrelated_later_commit(
+def test_migration_observation_pr_delta_with_migration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    repo, _base = _lineage_repo(tmp_path)
+    product = _commit_files(
+        repo,
+        {"backend/app/mcp_server.py": "product\n"},
+        "introduce MCP product",
+    )
+    _commit_files(
+        repo,
+        {"migrations/versions/0007_current_pr.py": "revision = '0007'\n"},
+        "add current PR migration",
+    )
+    _set_origin_main(repo, product)
+
+    assert _observe_lineage(integration, monkeypatch, repo) is True
+
+
+def test_migration_observation_post_merge_current_commit_without_migration(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     integration = _mcp_integration_module()
@@ -592,86 +614,134 @@ def test_migration_observation_ignores_unrelated_later_commit(
         {"backend/app/mcp_server.py": "product\n"},
         "introduce MCP product",
     )
-    later = _commit_files(repo, {"README.md": "unrelated\n"}, "unrelated later change")
-    _set_origin_main(repo, later)
+    current = _commit_files(repo, {"scripts/evidence.py": "evidence\n"}, "post-merge evidence")
+    _set_origin_main(repo, current)
 
     assert _observe_lineage(integration, monkeypatch, repo) is False
 
 
-def test_migration_observation_detects_migration_in_product_introduction(
+def test_migration_observation_post_merge_current_commit_with_migration(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     integration = _mcp_integration_module()
     repo, _base = _lineage_repo(tmp_path)
-    product = _commit_files(
-        repo,
-        {
-            "backend/app/mcp_server.py": "product\n",
-            "migrations/versions/0007_mcp_product.py": "revision = '0007'\n",
-        },
-        "introduce MCP product with migration",
-    )
-    _set_origin_main(repo, product)
-
-    assert _observe_lineage(integration, monkeypatch, repo) is True
-
-
-def test_migration_observation_fails_closed_when_product_lineage_is_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    integration = _mcp_integration_module()
-    repo, base = _lineage_repo(tmp_path)
-    _set_origin_main(repo, base)
-
-    monkeypatch.setattr(integration, "ROOT", repo)
-    with pytest.raises(AssertionError, match="lineage is missing or ambiguous"):
-        integration._observe_migration_changed(os.environ.copy())
-
-
-def test_migration_observation_fails_closed_when_product_lineage_is_ambiguous(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    integration = _mcp_integration_module()
-    repo, _base = _lineage_repo(tmp_path)
-    first_product = _commit_files(
-        repo,
-        {"backend/app/mcp_server.py": "first\n"},
-        "introduce MCP product",
-    )
-    _git(repo, "rm", "backend/app/mcp_server.py")
-    _git(repo, "commit", "-m", "remove MCP product")
-    second_product = _commit_files(
-        repo,
-        {"backend/app/mcp_server.py": "second\n"},
-        "reintroduce MCP product",
-    )
-    assert first_product != second_product
-    _set_origin_main(repo, second_product)
-
-    monkeypatch.setattr(integration, "ROOT", repo)
-    with pytest.raises(AssertionError, match="lineage is missing or ambiguous"):
-        integration._observe_migration_changed(os.environ.copy())
-
-
-def test_migration_observation_preserves_current_base_stale_candidate_guard(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    integration = _mcp_integration_module()
-    repo, _base = _lineage_repo(tmp_path)
-    product = _commit_files(
+    _commit_files(
         repo,
         {"backend/app/mcp_server.py": "product\n"},
         "introduce MCP product",
     )
-    _git(repo, "branch", "future-main")
-    _git(repo, "switch", "future-main")
-    future_main = _commit_files(repo, {"README.md": "future\n"}, "future protected-main change")
-    _set_origin_main(repo, future_main)
-    _git(repo, "switch", "--detach", product)
+    current = _commit_files(
+        repo,
+        {"migrations/versions/0007_post_merge.py": "revision = '0007'\n"},
+        "post-merge migration",
+    )
+    _set_origin_main(repo, current)
+
+    assert _observe_lineage(integration, monkeypatch, repo) is True
+
+
+def test_migration_observation_ignores_historical_base_and_later_unrelated_delta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    repo, _historical_base = _lineage_repo(tmp_path)
+    _commit_files(
+        repo,
+        {"backend/app/mcp_server.py": "product\n"},
+        "historical MCP product introduction",
+    )
+    current_base = _commit_files(repo, {"README.md": "current base\n"}, "advance protected main")
+    _commit_files(repo, {"scripts/evidence.py": "evidence\n"}, "current candidate")
+    _set_origin_main(repo, current_base)
+
+    assert _observe_lineage(integration, monkeypatch, repo) is False
+
+
+def test_migration_observation_fails_closed_for_stale_divergent_candidate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    repo, base = _lineage_repo(tmp_path)
+    candidate = _commit_files(
+        repo,
+        {"scripts/evidence.py": "candidate\n"},
+        "candidate change",
+    )
+    _git(repo, "branch", "protected-main")
+    _git(repo, "switch", "protected-main")
+    protected = _commit_files(repo, {"protected.txt": "protected\n"}, "divergent protected change")
+    assert base != protected
+    _set_origin_main(repo, protected)
+    _git(repo, "switch", "--detach", candidate)
 
     monkeypatch.setattr(integration, "ROOT", repo)
-    with pytest.raises(AssertionError, match="current protected-main base"):
+    with pytest.raises(AssertionError, match="stale or divergent"):
         integration._observe_migration_changed(os.environ.copy())
+
+
+def test_migration_observation_fails_closed_for_multi_parent_post_merge(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    repo, _base = _lineage_repo(tmp_path)
+    _commit_files(
+        repo,
+        {"backend/app/mcp_server.py": "product\n"},
+        "introduce MCP product",
+    )
+    _git(repo, "branch", "side")
+    _git(repo, "switch", "side")
+    _commit_files(repo, {"side.txt": "side\n"}, "side change")
+    _git(repo, "switch", "main")
+    _commit_files(repo, {"main.txt": "main\n"}, "main change")
+    _git(repo, "merge", "--no-ff", "side", "-m", "merge protected main")
+    merged = _git(repo, "rev-parse", "HEAD")
+    _set_origin_main(repo, merged)
+
+    monkeypatch.setattr(integration, "ROOT", repo)
+    with pytest.raises(AssertionError, match="exactly one parent"):
+        integration._observe_migration_changed(os.environ.copy())
+
+
+def test_migration_observation_detects_untracked_local_migration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    repo, _base = _lineage_repo(tmp_path)
+    current = _commit_files(
+        repo,
+        {"backend/app/mcp_server.py": "product\n"},
+        "current product",
+    )
+    _set_origin_main(repo, current)
+    migration = repo / "migrations" / "versions" / "0008_local.py"
+    migration.parent.mkdir(parents=True)
+    migration.write_text("revision = '0008'\n", encoding="utf-8")
+
+    assert _observe_lineage(integration, monkeypatch, repo) is True
+
+
+def test_migration_observation_detects_tracked_local_migration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    repo, _base = _lineage_repo(tmp_path)
+    _commit_files(
+        repo,
+        {"migrations/versions/0001_base.py": "revision = '0001'\n"},
+        "existing migration",
+    )
+    current = _commit_files(
+        repo,
+        {"backend/app/mcp_server.py": "product\n"},
+        "current product",
+    )
+    _set_origin_main(repo, current)
+    (repo / "migrations" / "versions" / "0001_base.py").write_text(
+        "revision = '0001'\ndirty = True\n", encoding="utf-8"
+    )
+
+    assert _observe_lineage(integration, monkeypatch, repo) is True
 
 
 def test_evidence_writer_fails_closed_on_missing_observation(
