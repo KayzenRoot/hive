@@ -986,6 +986,89 @@ def checkpoint_sections(text: str) -> dict[str, str]:
     return {name: "\n".join(lines).strip() for name, lines in sections.items()}
 
 
+_RAW_CHECKPOINT_HEADING = re.compile(r"(?m)^##[ \t]+([^\r\n]*?)[ \t]*(?:\r\n|\n|\r|\Z)")
+_WO016P_RAW_CONTROLLED_SECTIONS = frozenset(
+    {"STATUS", "COMPLETED", "IN PROGRESS", "PENDING", "BLOCKERS", "NEXT STEP"}
+)
+
+
+def _raw_checkpoint_structure(text: str, label: str) -> tuple[str, tuple[str, ...], dict[str, str]]:
+    matches = list(_RAW_CHECKPOINT_HEADING.finditer(text))
+    if not matches:
+        raise ValueError(f"WO-016-P {label} has no canonical section headings")
+    if "\r" in text:
+        raise ValueError(f"WO-016-P {label} must use the canonical LF newline policy")
+
+    preamble = text[: matches[0].start()]
+    names: list[str] = []
+    bodies: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        name = match.group(1).strip().upper()
+        if not name:
+            raise ValueError(f"WO-016-P {label} contains an empty section heading")
+        if name in bodies:
+            raise ValueError(f"WO-016-P {label} contains duplicate section heading: {name}")
+        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        names.append(name)
+        bodies[name] = text[match.end() : next_start]
+    return preamble, tuple(names), bodies
+
+
+def _require_wo016p_strict_raw_checkpoint_grammar(base_text: str, candidate_text: str) -> None:
+    base_preamble, base_names, base_sections = _raw_checkpoint_structure(base_text, "base")
+    candidate_preamble, candidate_names, candidate_sections = _raw_checkpoint_structure(
+        candidate_text, "candidate"
+    )
+    if base_preamble != candidate_preamble:
+        raise ValueError("WO-016-P candidate preamble changed byte-for-byte")
+    if base_names != candidate_names:
+        raise ValueError("WO-016-P checkpoint section sequence changed unexpectedly")
+
+    required_sections = set(_WO016P_RAW_CONTROLLED_SECTIONS)
+    if not required_sections.issubset(base_sections):
+        raise ValueError("WO-016-P base is missing a required canonical checkpoint section")
+
+    for name in base_names:
+        if (
+            name not in _WO016P_RAW_CONTROLLED_SECTIONS
+            and candidate_sections[name] != base_sections[name]
+        ):
+            raise ValueError(f"WO-016-P changed unrelated checkpoint section: {name}")
+
+    newline = "\n"
+    expected_controlled = {
+        "STATUS": f"{EXPECTED_WO016P_STATUS}{newline}{newline}",
+        "IN PROGRESS": f"- {EXPECTED_WO016P_IN_PROGRESS}{newline}{newline}",
+        "BLOCKERS": f"{EXPECTED_WO016P_BLOCKERS}{newline}{newline}",
+        "NEXT STEP": f"{EXPECTED_WO016P_NEXT_STEP}{newline}{newline}",
+    }
+
+    base_completed = base_sections["COMPLETED"]
+    if not base_completed.endswith(newline):
+        raise ValueError("WO-016-P base COMPLETED section lacks the canonical final newline")
+    # The final newline in the raw section body is the canonical separator
+    # before the next heading.  The fixture and the checkpoint grammar append
+    # the new completion bullets immediately after the historical final line,
+    # retaining the section's single final newline.
+    expected_controlled["COMPLETED"] = (
+        base_completed[:-1]
+        + "".join(f"- {bullet}{newline}" for bullet in WO016P_CANONICAL_COMPLETION_BULLETS)
+        + newline
+    )
+
+    base_pending_lines = base_sections["PENDING"].splitlines(keepends=True)
+    pending_line = f"- {EXPECTED_WO016P_PENDING_ITEM}{newline}"
+    if base_pending_lines.count(pending_line) != 1:
+        raise ValueError("WO-016-P base PENDING must contain exactly one raw ACCE pending line")
+    expected_controlled["PENDING"] = "".join(
+        line for line in base_pending_lines if line != pending_line
+    )
+
+    for name, expected_body in expected_controlled.items():
+        if candidate_sections.get(name) != expected_body:
+            raise ValueError(f"WO-016-P {name} section is outside the strict raw grammar")
+
+
 def checkpoint_bullets(sections: Mapping[str, str], name: str) -> list[str]:
     return [
         line.strip()[2:].strip()
@@ -1303,6 +1386,7 @@ def require_wo015p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
 
 
 def require_wo016p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
+    _require_wo016p_strict_raw_checkpoint_grammar(base_text, candidate_text)
     base = checkpoint_sections(base_text)
     candidate = checkpoint_sections(candidate_text)
     if set(base) != set(candidate):

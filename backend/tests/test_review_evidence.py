@@ -661,6 +661,132 @@ def test_wo016p_checkpoint_semantics_are_closed_and_exact() -> None:
     )
     historical = completed[:-5]
     evidence = completed[-5:]
+    pending = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "PENDING"
+    )
+    strict_mutations = [
+        (
+            "duplicate NEXT STEP with unauthorized first body",
+            duplicate_checkpoint_section(
+                candidate,
+                "NEXT STEP",
+                "Unauthorized MCP implementation instructions.",
+                review_evidence.EXPECTED_WO016P_NEXT_STEP,
+            ),
+        ),
+        (
+            "duplicate STATUS",
+            duplicate_checkpoint_section(
+                candidate,
+                "STATUS",
+                "Unauthorized status prose.",
+                review_evidence.EXPECTED_WO016P_STATUS,
+            ),
+        ),
+        (
+            "modified top-level checkpoint title",
+            candidate.replace(
+                "# 13 — CHECKPOINT",
+                "# 13 — CHECKPOINT TAMPERED",
+                1,
+            ),
+        ),
+        (
+            "arbitrary preamble text",
+            candidate.replace("## STATUS", "Unauthorized preamble.\n\n## STATUS", 1),
+        ),
+        (
+            "non-bullet COMPLETED prose",
+            replace_checkpoint_section(
+                candidate,
+                "COMPLETED",
+                "\n".join(f"- {item}" for item in completed) + "\nUnauthorized completed prose",
+            ),
+        ),
+        (
+            "non-bullet PENDING prose",
+            replace_checkpoint_section(
+                candidate,
+                "PENDING",
+                "\n".join(f"- {item}" for item in pending) + "\nUnauthorized pending prose",
+            ),
+        ),
+        (
+            "historical COMPLETED indentation mutation",
+            candidate.replace(
+                "- Product objective defined.",
+                "  - Product objective defined.",
+                1,
+            ),
+        ),
+        (
+            "historical COMPLETED trailing whitespace mutation",
+            candidate.replace(
+                "- Product objective defined.\n",
+                "- Product objective defined. \n",
+                1,
+            ),
+        ),
+        (
+            "untouched PENDING formatting mutation",
+            candidate.replace("- telemetry.\n", "- telemetry. \n", 1),
+        ),
+        (
+            "hidden line between ACCE completion bullets",
+            candidate.replace(
+                f"- {evidence[0]}\n- {evidence[1]}",
+                f"- {evidence[0]}\n\n- {evidence[1]}",
+                1,
+            ),
+        ),
+        (
+            "sixth ACCE completion bullet",
+            replace_checkpoint_section(
+                candidate,
+                "COMPLETED",
+                "\n".join(f"- {item}" for item in completed + [evidence[0]]),
+            ),
+        ),
+        (
+            "extra NEXT STEP line",
+            replace_checkpoint_section(
+                candidate,
+                "NEXT STEP",
+                f"{review_evidence.EXPECTED_WO016P_NEXT_STEP}\n- Extra intent.",
+            ),
+        ),
+        (
+            "arbitrary NEXT STEP trailing text",
+            replace_checkpoint_section(
+                candidate,
+                "NEXT STEP",
+                f"{review_evidence.EXPECTED_WO016P_NEXT_STEP}\nImplement MCP transport.",
+            ),
+        ),
+        (
+            "unrelated section raw mutation",
+            replace_checkpoint_section(
+                candidate,
+                "VERSION",
+                "HIVE V0.1 — Foundation changed",
+            ),
+        ),
+    ]
+    assert len(strict_mutations) == 14
+    with pytest.raises(ValueError, match="duplicate section heading"):
+        require_wo016p_checkpoint_semantics(
+            duplicate_checkpoint_section(
+                base,
+                "NEXT STEP",
+                "Unauthorized base heading.",
+                review_evidence.EXPECTED_WO016P_NEXT_STEP,
+            ),
+            candidate,
+        )
+    for _, malformed in strict_mutations:
+        with pytest.raises(ValueError):
+            require_wo016p_checkpoint_semantics(base, malformed)
+
     mutations = [
         replace_checkpoint_section(candidate, "STATUS", "WRONG STATUS"),
         replace_checkpoint_section(
@@ -1292,6 +1418,14 @@ def replace_checkpoint_section(text: str, name: str, body: str) -> str:
     updated, count = re.subn(pattern, replacement, text, count=1)
     assert count == 1
     return updated
+
+
+def duplicate_checkpoint_section(text: str, name: str, first_body: str, second_body: str) -> str:
+    return replace_checkpoint_section(
+        text,
+        name,
+        f"{first_body}\n\n## {name}\n{second_body}",
+    )
 
 
 def wo012p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
