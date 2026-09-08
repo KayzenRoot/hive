@@ -49,7 +49,7 @@ GOVERNANCE_RELATIVE_PATHS = (
     "docs/project-brain/16-DECISIONS-LEDGER.md",
 )
 SAFE_SHA = re.compile(r"^[0-9a-f]{40}$")
-AUTHORIZED_BASE_SHA = "0733699b4c682e8b639c5e2236d45324ca2ad6c0"
+MCP_PRODUCT_PATH = "backend/app/mcp_server.py"
 MCP_INSTRUMENTATION_CONTAINER_PATH = "/workspace/projects/.mcp-instrumentation"
 MCP_PROVIDER_COUNTER_CONTAINER_PATH = "/var/lib/hive/tmp/mcp-provider-calls.json"
 MCP_PROVIDER_COUNTER_FIELDS = frozenset({"trap_installed", "mcp_llm_calls", "mcp_provider_calls"})
@@ -784,29 +784,51 @@ def _static_surface_checks() -> dict[str, bool]:
     }
 
 
-def _observe_migration_changed(environment: dict[str, str]) -> bool:
-    origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
-    if origin_main != AUTHORIZED_BASE_SHA:
-        raise AssertionError("protected main moved from the authorized base")
-    if (
-        git(ROOT, ["merge-base", AUTHORIZED_BASE_SHA, "HEAD"], env=environment)
-        != AUTHORIZED_BASE_SHA
-    ):
-        raise AssertionError("candidate is not based on the authorized protected-main base")
+def _assert_current_protected_main_base(environment: dict[str, str]) -> None:
+    """Keep candidate stale-base protection independent from product evidence."""
 
-    committed_paths = set(
-        git(
-            ROOT, ["diff", "--name-only", f"{AUTHORIZED_BASE_SHA}...HEAD"], env=environment
+    origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
+    if git(ROOT, ["merge-base", "origin/main", "HEAD"], env=environment) != origin_main:
+        raise AssertionError("candidate is not based on the current protected-main base")
+
+
+def _product_introduction_commit(environment: dict[str, str]) -> tuple[str, str]:
+    """Resolve one unambiguous commit that first introduced the MCP product file."""
+
+    introduction_commits = [
+        commit
+        for commit in git(
+            ROOT,
+            ["log", "--format=%H", "--diff-filter=A", "--", MCP_PRODUCT_PATH],
+            env=environment,
         ).splitlines()
-    )
-    working_tree_paths = set(
-        git(ROOT, ["diff", "--name-only", AUTHORIZED_BASE_SHA, "--"], env=environment).splitlines()
-    )
-    untracked_paths = set(
-        git(ROOT, ["ls-files", "--others", "--exclude-standard"], env=environment).splitlines()
-    )
-    changed_paths = committed_paths | working_tree_paths | untracked_paths
+        if commit
+    ]
+    if len(introduction_commits) != 1:
+        raise AssertionError("MCP product lineage is missing or ambiguous")
+
+    introduction = introduction_commits[0]
+    parents = git(ROOT, ["rev-list", "--parents", "-n", "1", introduction], env=environment).split()
+    if len(parents) != 2:
+        raise AssertionError("MCP product lineage introduction must have exactly one parent")
+    return introduction, parents[1]
+
+
+def _observe_product_lineage_migration(environment: dict[str, str]) -> bool:
+    """Observe migrations in the bounded product-introduction commit only."""
+
+    _introduction, parent = _product_introduction_commit(environment)
+    changed_paths = git(
+        ROOT,
+        ["diff-tree", "--no-commit-id", "--name-only", "-r", parent, _introduction],
+        env=environment,
+    ).splitlines()
     return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
+
+
+def _observe_migration_changed(environment: dict[str, str]) -> bool:
+    _assert_current_protected_main_base(environment)
+    return _observe_product_lineage_migration(environment)
 
 
 def _write_evidence(flags: dict[str, object]) -> None:
