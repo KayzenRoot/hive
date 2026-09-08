@@ -87,7 +87,7 @@ def _set_origin_main(repo: Path, commit: str) -> None:
 
 def _observe_lineage(integration: Any, monkeypatch: pytest.MonkeyPatch, repo: Path) -> bool:
     monkeypatch.setattr(integration, "ROOT", repo)
-    return integration._observe_migration_changed(os.environ.copy())
+    return bool(integration._observe_migration_changed(os.environ.copy()))
 
 
 def project_response(
