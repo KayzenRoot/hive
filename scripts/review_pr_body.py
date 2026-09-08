@@ -10,7 +10,9 @@ EXACT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _require_exact_head(work_order: str, head_sha: str) -> None:
-    if work_order in {"WO-016-G1", "WO-016"} and not EXACT_SHA.fullmatch(head_sha):
+    if work_order in {"WO-016-G1", "WO-016", "WO-016-P-G1", "WO-016-P"} and not (
+        EXACT_SHA.fullmatch(head_sha)
+    ):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
         )
@@ -1795,6 +1797,129 @@ WO-015-P READY FOR SOL AUDIT
 """
 
 
+def _render_wo016p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo e limite
+
+Esta PR habilita exclusivamente o suporte determinístico de Review Evidence e
+renderer para a futura promoção do checkpoint ACCE Storage Tier and Compression
+Policy Foundation. Não promove o checkpoint e não executa `WO-016-P`.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base autorizada exata: `54c32e939c7be6d505727df24d3ce2ad48af5518`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+
+## 3. Escopo G1 fechado
+
+Arquivos permitidos: `backend/tests/test_review_evidence.py`,
+`scripts/review_evidence.py` e `scripts/review_pr_body.py`. Project Brain,
+manifest canônico, migrations, produto ACCE, MCP, telemetria, Control Center e
+execução autônoma permanecem intocados. O migration head exigido é
+`0006_memory_lifecycle_provenance`.
+
+O futuro `WO-016-P` é registrado explicitamente e permitirá somente
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`, com base protegida atual,
+marcador autorizado, sem mudança de outras linhas do manifest e sem alteração
+fora do contrato fechado do checkpoint.
+
+## 4. Contrato ACCE e lineage
+
+O contrato exige `acce-storage-policy-v1` PASS, política `acce-policy-v1`,
+HOT/WARM/COLD, seis linhas medidas (dois candidatos por tier), bytes lógicos e
+físicos truthfully medidos, identidade SHA-256/CAS única, deduplicação válida,
+corruption/truncation fail-closed, recovery após restart/Redis loss, perda de
+fonte canônica zero e chamadas LLM/provider `0/0`. A evidência permanece ligada
+à linhagem aprovada de PR #55, HEAD auditado, revisão Sol, squash merge, CI,
+backend 418 e dashboard 7.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED;
+nenhum merge, release ou promoção canônica é executado nesta etapa.
+
+## 6. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-016-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo016p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Promoção ACCE fechada
+
+Esta PR futura promove somente o checkpoint ACCE Storage Tier and Compression
+Policy Foundation já aprovado, merged e validado no pós-merge. Exige exatamente
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`; não implementa MCP, produto,
+migration ou qualquer outra mudança canônica.
+
+## 2. Contrato semântico
+
+O STATUS, o prefixo histórico de COMPLETED, as cinco bullets ACCE, a remoção
+única de ACCE em PENDING e o próximo passo MCP são contratos fechados. O
+manifest preserva comentários, ordem, conjunto de paths e todas as hashes
+exceto a hash exata do checkpoint. A evidência `acce-storage-policy-v1` deve
+continuar PASS com política `acce-policy-v1`, seis linhas medidas, perda
+canônica zero e chamadas LLM/provider `0/0`.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base protegida exata: `{base_sha}`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Auto-merge permanece UNARMED. A PR permanece aberta e não mesclada para
+auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-016-P READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_body(
     *,
     work_order: str,
@@ -2133,6 +2258,32 @@ def render_body(
         )
     if work_order == "WO-015-P":
         return _render_wo015p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-016-P-G1":
+        return _render_wo016p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-016-P":
+        return _render_wo016p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

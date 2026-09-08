@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -54,11 +55,22 @@ from scripts.review_evidence import (
     WO015P_G1_WORK_ORDER,
     WO015P_PROMOTION_ALLOWED_PATHS,
     WO015P_WORK_ORDER,
+    WO016_APPROVED_LINEAGE_STATEMENT_PREFIX,
+    WO016_APPROVED_POST_MERGE_CI_RUN,
+    WO016_APPROVED_PRODUCT_BASE_SHA,
+    WO016_APPROVED_PRODUCT_HEAD,
+    WO016_APPROVED_SOL_REVIEW_ID,
+    WO016_APPROVED_SQUASH_MERGE_SHA,
     WO016_G1_ALLOWED_PATHS,
     WO016_G1_BASE_SHA,
     WO016_G1_WORK_ORDER,
     WO016_PRODUCT_ALLOWED_PATHS,
     WO016_WORK_ORDER,
+    WO016P_G1_ALLOWED_PATHS,
+    WO016P_G1_BASE_SHA,
+    WO016P_G1_WORK_ORDER,
+    WO016P_PROMOTION_ALLOWED_PATHS,
+    WO016P_WORK_ORDER,
     acce_storage_policy_evidence,
     authorize_merge_action,
     auto_merge_evidence,
@@ -71,6 +83,7 @@ from scripts.review_evidence import (
     manifest_log,
     memory_lifecycle_evidence,
     parse_authorized_base_marker,
+    parse_wo016_approved_lineage_statement,
     parse_work_order_marker,
     require_current_work_order_authorization,
     require_hive_final_handoff,
@@ -105,9 +118,14 @@ from scripts.review_evidence import (
     require_wo015p_checkpoint_semantics,
     require_wo015p_g1_scope,
     require_wo015p_scope,
+    require_wo016_approved_lineage_result,
     require_wo016_g1_scope,
     require_wo016_scope,
     require_wo016_storage_evidence,
+    require_wo016p_checkpoint_semantics,
+    require_wo016p_g1_scope,
+    require_wo016p_manifest_contract,
+    require_wo016p_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -115,7 +133,10 @@ from scripts.review_evidence import (
     verify_wo014p_g1_governance_contract,
     verify_wo015_g1_governance_contract,
     verify_wo015p_g1_governance_contract,
+    verify_wo016_approved_lineage,
     verify_wo016_g1_governance_contract,
+    verify_wo016p_g1_governance_contract,
+    verify_wo016p_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -387,8 +408,10 @@ def test_wo015_is_explicitly_registered_and_unknown_ids_do_not_get_memory_semant
     require_supported_work_order(WO015_WORK_ORDER)
     require_supported_work_order(WO015P_G1_WORK_ORDER)
     require_supported_work_order(WO015P_WORK_ORDER)
+    require_supported_work_order(WO016P_G1_WORK_ORDER)
+    require_supported_work_order(WO016P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-016-P")
+        require_supported_work_order("WO-017-P")
     require_wo015_memory_evidence("WO-999", {})
 
 
@@ -592,6 +615,527 @@ def test_wo016_g1_governance_contract_is_explicit(monkeypatch: pytest.MonkeyPatc
         )
 
 
+def test_wo016p_g1_scope_is_exact_and_noncanonical(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    require_wo016p_g1_scope(
+        WO016P_G1_WORK_ORDER,
+        WO016P_G1_BASE_SHA,
+        sorted(WO016P_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo016p_g1_scope(
+            WO016P_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(WO016P_G1_ALLOWED_PATHS),
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        require_wo016p_g1_scope(
+            WO016P_G1_WORK_ORDER,
+            WO016P_G1_BASE_SHA,
+            sorted(WO016P_G1_ALLOWED_PATHS),
+            base_branch="release",
+        )
+    for unauthorized in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        "migrations/versions/0007_acce.py",
+        "backend/app/cas.py",
+        "unexpected.txt",
+    ):
+        with pytest.raises(ValueError, match="outside|canonical Project Brain|migrations"):
+            require_wo016p_g1_scope(
+                WO016P_G1_WORK_ORDER,
+                WO016P_G1_BASE_SHA,
+                ["scripts/review_evidence.py", unauthorized],
+            )
+
+
+def test_wo016p_checkpoint_semantics_are_closed_and_exact() -> None:
+    base, candidate = wo016p_checkpoint_fixture()
+    require_wo016p_checkpoint_semantics(base, candidate)
+
+    completed = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "COMPLETED"
+    )
+    historical = completed[:-5]
+    evidence = completed[-5:]
+    pending = review_evidence.checkpoint_bullets(
+        review_evidence.checkpoint_sections(candidate), "PENDING"
+    )
+    strict_mutations = [
+        (
+            "duplicate NEXT STEP with unauthorized first body",
+            duplicate_checkpoint_section(
+                candidate,
+                "NEXT STEP",
+                "Unauthorized MCP implementation instructions.",
+                review_evidence.EXPECTED_WO016P_NEXT_STEP,
+            ),
+        ),
+        (
+            "duplicate STATUS",
+            duplicate_checkpoint_section(
+                candidate,
+                "STATUS",
+                "Unauthorized status prose.",
+                review_evidence.EXPECTED_WO016P_STATUS,
+            ),
+        ),
+        (
+            "modified top-level checkpoint title",
+            candidate.replace(
+                "# 13 — CHECKPOINT",
+                "# 13 — CHECKPOINT TAMPERED",
+                1,
+            ),
+        ),
+        (
+            "arbitrary preamble text",
+            candidate.replace("## STATUS", "Unauthorized preamble.\n\n## STATUS", 1),
+        ),
+        (
+            "non-bullet COMPLETED prose",
+            replace_checkpoint_section(
+                candidate,
+                "COMPLETED",
+                "\n".join(f"- {item}" for item in completed) + "\nUnauthorized completed prose",
+            ),
+        ),
+        (
+            "non-bullet PENDING prose",
+            replace_checkpoint_section(
+                candidate,
+                "PENDING",
+                "\n".join(f"- {item}" for item in pending) + "\nUnauthorized pending prose",
+            ),
+        ),
+        (
+            "historical COMPLETED indentation mutation",
+            candidate.replace(
+                "- Product objective defined.",
+                "  - Product objective defined.",
+                1,
+            ),
+        ),
+        (
+            "historical COMPLETED trailing whitespace mutation",
+            candidate.replace(
+                "- Product objective defined.\n",
+                "- Product objective defined. \n",
+                1,
+            ),
+        ),
+        (
+            "untouched PENDING formatting mutation",
+            candidate.replace("- telemetry.\n", "- telemetry. \n", 1),
+        ),
+        (
+            "hidden line between ACCE completion bullets",
+            candidate.replace(
+                f"- {evidence[0]}\n- {evidence[1]}",
+                f"- {evidence[0]}\n\n- {evidence[1]}",
+                1,
+            ),
+        ),
+        (
+            "sixth ACCE completion bullet",
+            replace_checkpoint_section(
+                candidate,
+                "COMPLETED",
+                "\n".join(f"- {item}" for item in completed + [evidence[0]]),
+            ),
+        ),
+        (
+            "extra NEXT STEP line",
+            replace_checkpoint_section(
+                candidate,
+                "NEXT STEP",
+                f"{review_evidence.EXPECTED_WO016P_NEXT_STEP}\n- Extra intent.",
+            ),
+        ),
+        (
+            "arbitrary NEXT STEP trailing text",
+            replace_checkpoint_section(
+                candidate,
+                "NEXT STEP",
+                f"{review_evidence.EXPECTED_WO016P_NEXT_STEP}\nImplement MCP transport.",
+            ),
+        ),
+        (
+            "unrelated section raw mutation",
+            replace_checkpoint_section(
+                candidate,
+                "VERSION",
+                "HIVE V0.1 — Foundation changed",
+            ),
+        ),
+    ]
+    assert len(strict_mutations) == 14
+    with pytest.raises(ValueError, match="duplicate section heading"):
+        require_wo016p_checkpoint_semantics(
+            duplicate_checkpoint_section(
+                base,
+                "NEXT STEP",
+                "Unauthorized base heading.",
+                review_evidence.EXPECTED_WO016P_NEXT_STEP,
+            ),
+            candidate,
+        )
+    for _, malformed in strict_mutations:
+        with pytest.raises(ValueError):
+            require_wo016p_checkpoint_semantics(base, malformed)
+
+    heading_mutations = [
+        (
+            "case-only STATUS heading mutation",
+            candidate.replace("## STATUS\n", "## status\n", 1),
+        ),
+        (
+            "leading-space STATUS heading mutation",
+            candidate.replace("## STATUS\n", "##  STATUS\n", 1),
+        ),
+        (
+            "trailing-space NEXT STEP heading mutation",
+            candidate.replace("## NEXT STEP\n", "## NEXT STEP \n", 1),
+        ),
+        (
+            "tab-based BLOCKERS heading mutation",
+            candidate.replace("## BLOCKERS\n", "##\tBLOCKERS\n", 1),
+        ),
+        (
+            "unrelated VERSION heading mutation",
+            candidate.replace("## VERSION\n", "##  VERSION\n", 1),
+        ),
+    ]
+    assert len(heading_mutations) == 5
+    for _, malformed in heading_mutations:
+        with pytest.raises(ValueError, match="heading changed byte-for-byte"):
+            require_wo016p_checkpoint_semantics(base, malformed)
+
+    duplicate_case_variant = candidate.replace(
+        "## STATUS\n",
+        "## STATUS\nUnauthorized duplicate heading body.\n\n## status\n",
+        1,
+    )
+    with pytest.raises(ValueError, match="duplicate section heading: STATUS"):
+        require_wo016p_checkpoint_semantics(base, duplicate_case_variant)
+
+    mutations = [
+        replace_checkpoint_section(candidate, "STATUS", "WRONG STATUS"),
+        replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(f"- {item}" for item in historical + evidence[:4]),
+        ),
+        replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(f"- {item}" for item in completed + [evidence[0]]),
+        ),
+        replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(
+                f"- {item}" for item in historical + [evidence[1], evidence[0], *evidence[2:]]
+            ),
+        ),
+        candidate.replace("- Product objective defined.", "- Product objective changed.", 1),
+        candidate.replace(
+            "- MCP server product surface.\n",
+            "",
+            1,
+        ),
+        candidate.replace(
+            f"- {review_evidence.EXPECTED_WO016P_IN_PROGRESS}",
+            f"- {review_evidence.EXPECTED_WO016P_IN_PROGRESS}\n- Extra intent.",
+            1,
+        ),
+        replace_checkpoint_section(
+            candidate,
+            "BLOCKERS",
+            f"{review_evidence.EXPECTED_WO016P_BLOCKERS} extra",
+        ),
+        replace_checkpoint_section(
+            candidate,
+            "NEXT STEP",
+            f"{review_evidence.EXPECTED_WO016P_NEXT_STEP}\nImplement MCP transport.",
+        ),
+    ]
+    for malformed in mutations:
+        with pytest.raises(ValueError):
+            require_wo016p_checkpoint_semantics(base, malformed)
+
+
+def test_wo016p_scope_binds_future_base_manifest_and_merged_g1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_checkpoint, candidate_checkpoint = wo016p_checkpoint_fixture()
+    base_manifest = review_evidence.git_blob_bytes(
+        WO016P_G1_BASE_SHA,
+        review_evidence.CANONICAL_MANIFEST_PATH,
+    ).decode("utf-8")
+    candidate_bytes = candidate_checkpoint.encode("utf-8")
+    candidate_manifest = "".join(
+        line.replace(
+            line.strip().split(maxsplit=1)[0],
+            hashlib.sha256(candidate_bytes).hexdigest(),
+            1,
+        )
+        if (
+            len(line.strip().split(maxsplit=1)) == 2
+            and line.strip().split(maxsplit=1)[1]
+            == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
+        )
+        else line
+        for line in base_manifest.splitlines(keepends=True)
+    )
+    checkpoint_path = tmp_path / review_evidence.CHECKPOINT_PATH
+    manifest_path = tmp_path / review_evidence.CANONICAL_MANIFEST_PATH
+    checkpoint_path.parent.mkdir(parents=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_bytes(candidate_bytes)
+    manifest_path.write_text(candidate_manifest, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(review_evidence, "ROOT", tmp_path)
+
+    def fake_git_blob_bytes(revision: str, path: str) -> bytes:
+        assert revision == "d" * 40
+        if path == "scripts/review_evidence.py":
+            return WO016P_G1_WORK_ORDER.encode("utf-8")
+        if path == review_evidence.CHECKPOINT_PATH:
+            return base_checkpoint.encode("utf-8")
+        return base_manifest.encode("utf-8")
+
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", fake_git_blob_bytes)
+    require_wo016p_scope(
+        WO016P_WORK_ORDER,
+        "d" * 40,
+        sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+        registered_base_sha="d" * 40,
+        authorized_base_sha="d" * 40,
+    )
+    with pytest.raises(ValueError, match="authorized-base"):
+        require_wo016p_scope(
+            WO016P_WORK_ORDER,
+            "d" * 40,
+            sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+            registered_base_sha="d" * 40,
+            authorized_base_sha="e" * 40,
+        )
+    with pytest.raises(ValueError, match="manifest"):
+        require_wo016p_manifest_contract(
+            base_manifest,
+            candidate_manifest + "# unexpected\n",
+            candidate_bytes,
+        )
+
+
+def test_wo016p_governance_requires_six_row_acce_lineage() -> None:
+    common = {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }
+    approved_lineage = verify_wo016_approved_lineage(approved_wo016_lineage_sources_fixture())
+    evidence = verify_wo016p_g1_governance_contract(
+        WO016P_G1_WORK_ORDER,
+        WO016P_G1_BASE_SHA,
+        sorted(WO016P_G1_ALLOWED_PATHS),
+        common,
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"acce_storage": acce_storage_promotion_evidence_fixture()},
+        "0006_memory_lifecycle_provenance",
+        approved_lineage,
+    )
+    assert evidence is not None
+    assert "active_promotions=WO-016-P-G1,WO-016-P" in evidence
+    assert "benchmark_rows=6" in evidence
+    assert "PR#55" in evidence
+    broken = acce_storage_promotion_evidence_fixture()
+    cast(list[dict[str, object]], broken["benchmark_matrix"]).pop()
+    with pytest.raises(ValueError, match="exactly six"):
+        verify_wo016p_g1_governance_contract(
+            WO016P_G1_WORK_ORDER,
+            WO016P_G1_BASE_SHA,
+            sorted(WO016P_G1_ALLOWED_PATHS),
+            common,
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"acce_storage": broken},
+            "0006_memory_lifecycle_provenance",
+            approved_lineage,
+        )
+
+
+def test_wo016_approved_lineage_is_objective_and_fail_closed() -> None:
+    sources = approved_wo016_lineage_sources_fixture()
+    result = verify_wo016_approved_lineage(sources)
+    require_wo016_approved_lineage_result(result)
+    statement = review_evidence.wo016_approved_lineage_statement(result)
+    assert statement.startswith(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX)
+    assert parse_wo016_approved_lineage_statement(statement) == result
+
+    mutations: list[tuple[str, Callable[[dict[str, Any]], object]]] = [
+        ("wrong product PR number", lambda value: value["product_pr"].update(number=56)),
+        (
+            "wrong audited HEAD",
+            lambda value: value["product_pr"]["head"].update(sha="a" * 40),
+        ),
+        ("missing Sol review", lambda value: value.update(product_reviews=[])),
+        (
+            "wrong Sol review ID",
+            lambda value: value["product_reviews"][0].update(id=5135618101),
+        ),
+        (
+            "Sol review bound to another commit",
+            lambda value: value["product_reviews"][0].update(commit_id="b" * 40),
+        ),
+        (
+            "review does not express approval",
+            lambda value: value["product_reviews"][0].update(body="COMMENTED"),
+        ),
+        (
+            "wrong merge SHA",
+            lambda value: value["product_pr"].update(merge_commit_sha="c" * 40),
+        ),
+        ("product PR not merged", lambda value: value["product_pr"].update(merged=False)),
+        (
+            "wrong post-merge CI run ID",
+            lambda value: value["post_merge_run"].update(id=34168038155),
+        ),
+        (
+            "post-merge CI event not push",
+            lambda value: value["post_merge_run"].update(event="pull_request"),
+        ),
+        (
+            "post-merge CI head SHA wrong",
+            lambda value: value["post_merge_run"].update(head_sha="d" * 40),
+        ),
+        (
+            "post-merge CI conclusion failed",
+            lambda value: value["post_merge_run"].update(conclusion="failure"),
+        ),
+        (
+            "Validate missing",
+            lambda value: value["post_merge_jobs"].pop(0),
+        ),
+        (
+            "Integration health failed",
+            lambda value: value["post_merge_jobs"][1].update(conclusion="failure"),
+        ),
+        (
+            "post-push Review Evidence not skipped",
+            lambda value: value["post_merge_jobs"][2].update(conclusion="success"),
+        ),
+        (
+            "prior exact-head Review Evidence missing",
+            lambda value: value.update(prior_review_comments=[]),
+        ),
+        (
+            "prior exact-head evidence HEAD mismatch",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace(
+                    WO016_APPROVED_PRODUCT_HEAD, "e" * 40
+                )
+            ),
+        ),
+        (
+            "backend count not 418",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("418 passed", "417 passed")
+            ),
+        ),
+        (
+            "dashboard count not 7",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("7 passed", "6 passed")
+            ),
+        ),
+        (
+            "ACCE evidence not PASS",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("`PASS`", "`FAIL`")
+            ),
+        ),
+        (
+            "wrong ACCE evidence version",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace(
+                    "acce-storage-policy-v1", "acce-storage-policy-v0"
+                )
+            ),
+        ),
+        (
+            "wrong storage policy version",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace(
+                    "acce-policy-v1", "acce-policy-v0"
+                )
+            ),
+        ),
+        (
+            "canonical source loss above zero",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("loss `0`", "loss `1`")
+            ),
+        ),
+        (
+            "LLM calls above zero",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("0/0", "1/0")
+            ),
+        ),
+        (
+            "provider calls above zero",
+            lambda value: value["prior_review_comments"][0].update(
+                body=value["prior_review_comments"][0]["body"].replace("0/0", "0/1")
+            ),
+        ),
+        ("unavailable lineage data", lambda value: value.update(product_pr=None)),
+    ]
+    for _label, mutate in mutations:
+        broken = json.loads(json.dumps(sources))
+        mutate(broken)
+        with pytest.raises(ValueError, match="WO-016"):
+            verify_wo016_approved_lineage(broken)
+
+
+def test_wo016p_future_governance_reuses_approved_lineage_validator() -> None:
+    approved_lineage = verify_wo016_approved_lineage(approved_wo016_lineage_sources_fixture())
+    evidence = verify_wo016p_governance_contract(
+        WO016P_WORK_ORDER,
+        "d" * 40,
+        sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+        {
+            "project_brain_changed": True,
+            "checkpoint_changed": True,
+            "authorized_paths": sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"acce_storage": acce_storage_promotion_evidence_fixture()},
+        "0006_memory_lifecycle_provenance",
+        approved_lineage,
+    )
+    assert evidence is not None
+    broken = dict(approved_lineage)
+    broken["sol_review_id"] = WO016_APPROVED_SOL_REVIEW_ID + 1
+    with pytest.raises(ValueError, match="approved lineage"):
+        verify_wo016p_governance_contract(
+            WO016P_WORK_ORDER,
+            "d" * 40,
+            sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+            {
+                "project_brain_changed": True,
+                "checkpoint_changed": True,
+                "authorized_paths": sorted(WO016P_PROMOTION_ALLOWED_PATHS),
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"acce_storage": acce_storage_promotion_evidence_fixture()},
+            "0006_memory_lifecycle_provenance",
+            broken,
+        )
+
+
 def test_wo015_memory_evidence_is_bounded_and_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -716,6 +1260,34 @@ def test_wo016_renderers_are_dedicated_and_explicit() -> None:
             render_body(work_order=work_order, **abbreviated)
         exact = render_body(work_order=work_order, **{**common, "head_sha": "a" * 40})
         assert "a" * 40 in exact
+
+
+def test_wo016p_renderers_are_dedicated_and_explicit() -> None:
+    common: dict[str, Any] = {
+        "pr_number": 61,
+        "branch": "governance/wo016p-review-evidence-support",
+        "base_sha": WO016P_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "hive-review-evidence-WO-016-P-G1-b",
+        "ruleset_before": "unchanged",
+        "ruleset_after": "unchanged",
+        "merge_before": "unarmed",
+        "merge_after": "unarmed",
+    }
+    g1 = render_body(work_order=WO016P_G1_WORK_ORDER, **common)
+    future = render_body(work_order=WO016P_WORK_ORDER, **common)
+    assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-016-P-G1 -->")
+    assert "54c32e939c7be6d505727df24d3ce2ad48af5518" in g1
+    assert "acce-storage-policy-v1" in g1
+    assert "WO-016-P-G1 READY FOR SOL AUDIT" in g1
+    assert future.startswith("<!-- HIVE-WORK-ORDER: WO-016-P -->")
+    assert "<!-- HIVE-AUTHORIZED-BASE:" in future
+    assert "canonical-sha256sums.txt" in future.casefold()
+    assert "seis" in future.casefold()
+    assert "WO-016-P READY FOR SOL AUDIT" in future
+    for work_order in (WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER):
+        with pytest.raises(ValueError, match="40-hex exact HEAD"):
+            render_body(work_order=work_order, **{**common, "head_sha": "ae0a3e6"})
 
 
 @pytest.mark.parametrize(
@@ -881,6 +1453,14 @@ def replace_checkpoint_section(text: str, name: str, body: str) -> str:
     updated, count = re.subn(pattern, replacement, text, count=1)
     assert count == 1
     return updated
+
+
+def duplicate_checkpoint_section(text: str, name: str, first_body: str, second_body: str) -> str:
+    return replace_checkpoint_section(
+        text,
+        name,
+        f"{first_body}\n\n## {name}\n{second_body}",
+    )
 
 
 def wo012p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
@@ -1074,6 +1654,138 @@ def wo015p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
     return base, candidate
 
 
+def acce_storage_promotion_evidence_fixture() -> dict[str, object]:
+    fixture = cast(
+        dict[str, object],
+        json.loads(json.dumps(acce_storage_evidence_fixture())),
+    )
+    matrix = cast(list[dict[str, object]], fixture["benchmark_matrix"])
+    second_rows: list[dict[str, object]] = []
+    for row in matrix:
+        logical = cast(int, row["logical_input_bytes"])
+        physical = cast(int, row["physical_bytes"])
+        zstd_level = cast(int, row["zstd_level"])
+        second_rows.append(
+            {
+                **row,
+                "profile_id": f"{row['profile_id']}-candidate2",
+                "zstd_level": zstd_level + 1,
+                "physical_bytes": physical + 1,
+                "compression_ratio": (physical + 1) / logical,
+                "compression_savings_bytes": logical - physical - 1,
+            }
+        )
+    matrix.extend(second_rows)
+    return fixture
+
+
+def approved_wo016_lineage_sources_fixture() -> dict[str, object]:
+    review_body = (
+        "APPROVED — WO-016\n"
+        f"Sol review exact HEAD: {WO016_APPROVED_PRODUCT_HEAD}\n"
+        "Verdict: APPROVED for exact-head SQUASH merge under HIVE-ADR-019."
+    )
+    prior_body = (
+        "<!-- hive-review-evidence:WO-016 -->\n"
+        f"Exact HEAD SHA: `{WO016_APPROVED_PRODUCT_HEAD}`\n"
+        "Backend tests: `418 passed, 0 failed, 0 skipped`\n"
+        "Dashboard tests: `7 passed, 0 failed`\n"
+        "Validate result: **PASS**\n"
+        "Integration health result: **PASS**\n"
+        "Review Evidence result: **PASS**\n"
+        "ACCE Storage Policy evidence: `PASS`; version `acce-storage-policy-v1`, "
+        "policy `acce-policy-v1`, canonical loss `0`, LLM/provider calls `0/0`"
+    )
+    return {
+        "product_pr": {
+            "number": 55,
+            "state": "closed",
+            "merged": True,
+            "base": {"ref": "main", "sha": WO016_APPROVED_PRODUCT_BASE_SHA},
+            "head": {"sha": WO016_APPROVED_PRODUCT_HEAD},
+            "merge_commit_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+            "body": "<!-- HIVE-WORK-ORDER: WO-016 -->\nWO-016 READY FOR SOL AUDIT",
+        },
+        "product_reviews": [
+            {
+                "id": WO016_APPROVED_SOL_REVIEW_ID,
+                "state": "COMMENTED",
+                "commit_id": WO016_APPROVED_PRODUCT_HEAD,
+                "body": review_body,
+            }
+        ],
+        "merge_commit": {
+            "sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+            "parents": [{"sha": WO016_APPROVED_PRODUCT_BASE_SHA}],
+        },
+        "post_merge_run": {
+            "id": WO016_APPROVED_POST_MERGE_CI_RUN,
+            "event": "push",
+            "head_sha": WO016_APPROVED_SQUASH_MERGE_SHA,
+            "status": "completed",
+            "conclusion": "success",
+        },
+        "post_merge_jobs": [
+            {"name": "Validate", "status": "completed", "conclusion": "success"},
+            {
+                "name": "Integration health",
+                "status": "completed",
+                "conclusion": "success",
+            },
+            {
+                "name": "Review Evidence",
+                "status": "completed",
+                "conclusion": "skipped",
+            },
+        ],
+        "prior_review_comments": [{"body": prior_body}],
+    }
+
+
+def wo016p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, str]:
+    base = review_evidence.git_blob_bytes(
+        WO016P_G1_BASE_SHA,
+        review_evidence.CHECKPOINT_PATH,
+    ).decode("utf-8")
+    candidate = replace_checkpoint_section(
+        base,
+        "STATUS",
+        review_evidence.EXPECTED_WO016P_STATUS,
+    )
+    candidate = candidate.replace(
+        f"- {review_evidence.EXPECTED_WO016P_PENDING_ITEM}\n",
+        "",
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "IN PROGRESS",
+        f"- {review_evidence.EXPECTED_WO016P_IN_PROGRESS}",
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "BLOCKERS",
+        review_evidence.EXPECTED_WO016P_BLOCKERS,
+    )
+    candidate = replace_checkpoint_section(
+        candidate,
+        "NEXT STEP",
+        review_evidence.EXPECTED_WO016P_NEXT_STEP,
+    )
+    if include_evidence:
+        completed = review_evidence.checkpoint_bullets(
+            review_evidence.checkpoint_sections(base), "COMPLETED"
+        )
+        candidate = replace_checkpoint_section(
+            candidate,
+            "COMPLETED",
+            "\n".join(
+                f"- {item}"
+                for item in completed + list(review_evidence.WO016P_CANONICAL_COMPLETION_BULLETS)
+            ),
+        )
+    return base, candidate
+
+
 def test_wo012p_g1_scope_is_explicit_and_fail_closed() -> None:
     require_wo012p_g1_scope(
         "WO-012-P-G1",
@@ -1141,13 +1853,15 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
     require_supported_work_order(WO014P_WORK_ORDER)
     require_supported_work_order(WO015P_G1_WORK_ORDER)
     require_supported_work_order(WO015P_WORK_ORDER)
+    require_supported_work_order(WO016P_G1_WORK_ORDER)
+    require_supported_work_order(WO016P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-016-P")
+        require_supported_work_order("WO-017-P")
 
 
 def test_current_checkpoint_promotion_authorization_separates_history() -> None:
-    require_current_work_order_authorization(WO015P_G1_WORK_ORDER)
-    require_current_work_order_authorization(WO015P_WORK_ORDER)
+    require_current_work_order_authorization(WO016P_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO016P_WORK_ORDER)
     for historical in (
         "WO-010-P",
         "WO-011-P",
@@ -1158,11 +1872,11 @@ def test_current_checkpoint_promotion_authorization_separates_history() -> None:
         "WO-007-P-C1",
         WO014P_G1_WORK_ORDER,
         WO014P_WORK_ORDER,
+        WO015P_G1_WORK_ORDER,
+        WO015P_WORK_ORDER,
     ):
         with pytest.raises(ValueError, match="historical checkpoint-promotion"):
             require_current_work_order_authorization(historical)
-    with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_current_work_order_authorization("WO-016-P")
 
 
 def test_authorized_base_marker_requires_one_lowercase_exact_sha() -> None:
@@ -1893,7 +2607,7 @@ def test_wo014p_g1_governance_contract_is_self_validating() -> None:
     assert evidence is not None
     assert "active_promotions=WO-014-P-G1,WO-014-P" in evidence
     assert "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED" in evidence
-    assert "unknown_WO-016-P_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-017-P_WO-999-P=REJECTED" in evidence
     assert "auto_merge=UNARMED" in evidence
 
     with pytest.raises(ValueError, match="ruleset"):
