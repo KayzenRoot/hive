@@ -4094,9 +4094,7 @@ def require_wo016_approved_lineage_result(result: Mapping[str, object]) -> None:
     }
     missing = [key for key in expected if result.get(key) != expected[key]]
     if missing:
-        raise ValueError(
-            "WO-016 approved lineage evidence mismatch: " + ", ".join(sorted(missing))
-        )
+        raise ValueError("WO-016 approved lineage evidence mismatch: " + ", ".join(sorted(missing)))
 
 
 def verify_wo016_approved_lineage(sources: Mapping[str, object]) -> dict[str, object]:
@@ -4208,10 +4206,7 @@ def verify_wo016_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
         fragment for fragment in required_prior_fragments if fragment not in prior_text
     ]
     if missing_prior:
-        raise ValueError(
-            "WO-016 prior Review Evidence is incomplete: "
-            + ", ".join(missing_prior)
-        )
+        raise ValueError("WO-016 prior Review Evidence is incomplete: " + ", ".join(missing_prior))
 
     result: dict[str, object] = {
         "status": "PASS",
@@ -4246,16 +4241,12 @@ def verify_wo016_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
 
 def fetch_wo016_approved_lineage(repository: str) -> dict[str, object]:
     """Fetch and validate the immutable approved product lineage via GitHub API."""
-    jobs_response = _gh_json(
-        repository, f"actions/runs/{WO016_APPROVED_POST_MERGE_CI_RUN}/jobs"
-    )
+    jobs_response = _gh_json(repository, f"actions/runs/{WO016_APPROVED_POST_MERGE_CI_RUN}/jobs")
     return verify_wo016_approved_lineage(
         {
             "product_pr": _gh_json(repository, "pulls/55"),
             "product_reviews": _gh_json(repository, "pulls/55/reviews"),
-            "merge_commit": _gh_json(
-                repository, f"commits/{WO016_APPROVED_SQUASH_MERGE_SHA}"
-            ),
+            "merge_commit": _gh_json(repository, f"commits/{WO016_APPROVED_SQUASH_MERGE_SHA}"),
             "post_merge_run": _gh_json(
                 repository, f"actions/runs/{WO016_APPROVED_POST_MERGE_CI_RUN}"
             ),
@@ -5299,8 +5290,7 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         lineage_entries = [
             entry
             for entry in negative_scope
-            if isinstance(entry, str)
-            and entry.startswith(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX)
+            if isinstance(entry, str) and entry.startswith(WO016_APPROVED_LINEAGE_STATEMENT_PREFIX)
         ]
         if len(lineage_entries) != 1:
             raise ValueError("WO-016 evidence must include exactly one approved lineage statement")
