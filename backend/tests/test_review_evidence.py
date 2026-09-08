@@ -787,6 +787,41 @@ def test_wo016p_checkpoint_semantics_are_closed_and_exact() -> None:
         with pytest.raises(ValueError):
             require_wo016p_checkpoint_semantics(base, malformed)
 
+    heading_mutations = [
+        (
+            "case-only STATUS heading mutation",
+            candidate.replace("## STATUS\n", "## status\n", 1),
+        ),
+        (
+            "leading-space STATUS heading mutation",
+            candidate.replace("## STATUS\n", "##  STATUS\n", 1),
+        ),
+        (
+            "trailing-space NEXT STEP heading mutation",
+            candidate.replace("## NEXT STEP\n", "## NEXT STEP \n", 1),
+        ),
+        (
+            "tab-based BLOCKERS heading mutation",
+            candidate.replace("## BLOCKERS\n", "##\tBLOCKERS\n", 1),
+        ),
+        (
+            "unrelated VERSION heading mutation",
+            candidate.replace("## VERSION\n", "##  VERSION\n", 1),
+        ),
+    ]
+    assert len(heading_mutations) == 5
+    for _, malformed in heading_mutations:
+        with pytest.raises(ValueError, match="heading changed byte-for-byte"):
+            require_wo016p_checkpoint_semantics(base, malformed)
+
+    duplicate_case_variant = candidate.replace(
+        "## STATUS\n",
+        "## STATUS\nUnauthorized duplicate heading body.\n\n## status\n",
+        1,
+    )
+    with pytest.raises(ValueError, match="duplicate section heading: STATUS"):
+        require_wo016p_checkpoint_semantics(base, duplicate_case_variant)
+
     mutations = [
         replace_checkpoint_section(candidate, "STATUS", "WRONG STATUS"),
         replace_checkpoint_section(

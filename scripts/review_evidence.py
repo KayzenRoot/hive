@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import jsonschema
 
@@ -992,7 +992,15 @@ _WO016P_RAW_CONTROLLED_SECTIONS = frozenset(
 )
 
 
-def _raw_checkpoint_structure(text: str, label: str) -> tuple[str, tuple[str, ...], dict[str, str]]:
+class _RawCheckpointSection(NamedTuple):
+    name: str
+    heading: str
+    body: str
+
+
+def _raw_checkpoint_structure(
+    text: str, label: str
+) -> tuple[str, tuple[_RawCheckpointSection, ...], dict[str, str]]:
     matches = list(_RAW_CHECKPOINT_HEADING.finditer(text))
     if not matches:
         raise ValueError(f"WO-016-P {label} has no canonical section headings")
@@ -1000,7 +1008,7 @@ def _raw_checkpoint_structure(text: str, label: str) -> tuple[str, tuple[str, ..
         raise ValueError(f"WO-016-P {label} must use the canonical LF newline policy")
 
     preamble = text[: matches[0].start()]
-    names: list[str] = []
+    sections: list[_RawCheckpointSection] = []
     bodies: dict[str, str] = {}
     for index, match in enumerate(matches):
         name = match.group(1).strip().upper()
@@ -1009,20 +1017,33 @@ def _raw_checkpoint_structure(text: str, label: str) -> tuple[str, tuple[str, ..
         if name in bodies:
             raise ValueError(f"WO-016-P {label} contains duplicate section heading: {name}")
         next_start = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        names.append(name)
-        bodies[name] = text[match.end() : next_start]
-    return preamble, tuple(names), bodies
+        body = text[match.end() : next_start]
+        sections.append(_RawCheckpointSection(name, match.group(0), body))
+        bodies[name] = body
+    return preamble, tuple(sections), bodies
 
 
 def _require_wo016p_strict_raw_checkpoint_grammar(base_text: str, candidate_text: str) -> None:
-    base_preamble, base_names, base_sections = _raw_checkpoint_structure(base_text, "base")
-    candidate_preamble, candidate_names, candidate_sections = _raw_checkpoint_structure(
+    base_preamble, base_ordered_sections, base_sections = _raw_checkpoint_structure(
+        base_text, "base"
+    )
+    candidate_preamble, candidate_ordered_sections, candidate_sections = _raw_checkpoint_structure(
         candidate_text, "candidate"
     )
     if base_preamble != candidate_preamble:
         raise ValueError("WO-016-P candidate preamble changed byte-for-byte")
+    base_names = tuple(section.name for section in base_ordered_sections)
+    candidate_names = tuple(section.name for section in candidate_ordered_sections)
     if base_names != candidate_names:
         raise ValueError("WO-016-P checkpoint section sequence changed unexpectedly")
+
+    for position, (base_section, candidate_section) in enumerate(
+        zip(base_ordered_sections, candidate_ordered_sections, strict=True), 1
+    ):
+        if base_section.heading.encode("utf-8") != candidate_section.heading.encode("utf-8"):
+            raise ValueError(
+                f"WO-016-P section heading changed byte-for-byte at position {position}"
+            )
 
     required_sections = set(_WO016P_RAW_CONTROLLED_SECTIONS)
     if not required_sections.issubset(base_sections):
