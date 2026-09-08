@@ -394,6 +394,74 @@ ACCE_STORAGE_POLICY_INTEGER_FIELDS = (
 ACCE_STORAGE_POLICY_STRING_FIELDS = ("acce_evidence_version", "storage_policy_version")
 ACCE_STORAGE_POLICY_ALLOWED_TIERS = ("HOT", "WARM", "COLD")
 ACCE_STORAGE_POLICY_PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+MCP_CORE_SURFACE_EVIDENCE_VERSION = "mcp-core-surface-v1"
+MCP_CORE_SURFACE_EVIDENCE_FILE = "mcp-surface.json"
+MCP_CORE_SURFACE_TOOLS = (
+    "project.list",
+    "project.status",
+    "context.build",
+    "context.search",
+    "memory.search",
+    "memory.get",
+    "checkpoint.read",
+)
+MCP_CORE_SURFACE_TRUE_FIELDS = (
+    "protocol_handshake_passed",
+    "protocol_tool_list_passed",
+    "real_transport_exercised",
+    "project_list_passed",
+    "project_status_passed",
+    "context_build_passed",
+    "context_search_passed",
+    "memory_search_passed",
+    "memory_get_passed",
+    "checkpoint_read_passed",
+    "direct_core_reuse",
+    "rest_loopback_absent",
+    "duplicate_persistence_absent",
+    "project_isolation_passed",
+    "cross_project_access_rejected",
+    "invalid_arguments_fail_closed",
+    "unknown_tool_fail_closed",
+    "bounded_output_enforced",
+    "checkpoint_target_project_correct",
+    "context_checkpoint_first",
+    "restart_recovery",
+    "redis_loss_recovery",
+    "deterministic_repeat",
+)
+MCP_CORE_SURFACE_FALSE_FIELDS = (
+    "migration_changed",
+    "canonical_write_tools_exposed",
+)
+MCP_CORE_SURFACE_INTEGER_FIELDS = (
+    "secret_leaks",
+    "filesystem_path_leaks",
+    "mcp_llm_calls",
+    "mcp_provider_calls",
+)
+MCP_CORE_SURFACE_REQUIRED_FIELDS = (
+    "status",
+    "evidence_file",
+    "mcp_evidence_version",
+    "tool_list_exact",
+    *MCP_CORE_SURFACE_TRUE_FIELDS,
+    *MCP_CORE_SURFACE_FALSE_FIELDS,
+    "observed_migration_head",
+    *MCP_CORE_SURFACE_INTEGER_FIELDS,
+)
+MCP_CORE_SURFACE_ALLOWED_FIELDS = frozenset(
+    {
+        *MCP_CORE_SURFACE_REQUIRED_FIELDS,
+    }
+)
+# Work-order-scoped aliases keep the contract discoverable alongside the older
+# WO-015/WO-016 evidence constants.
+WO017_MCP_EVIDENCE_VERSION = MCP_CORE_SURFACE_EVIDENCE_VERSION
+WO017_MCP_EVIDENCE_FILE = MCP_CORE_SURFACE_EVIDENCE_FILE
+WO017_MCP_TOOLS = MCP_CORE_SURFACE_TOOLS
+WO017_MCP_REQUIRED_FIELDS = MCP_CORE_SURFACE_REQUIRED_FIELDS
+WO017_MCP_INTEGER_FIELDS = MCP_CORE_SURFACE_INTEGER_FIELDS
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -494,6 +562,32 @@ WO016_PRODUCT_ALLOWED_PATHS = frozenset(
         "backend/app/tasks_api.py",
         "backend/tests/test_cas.py",
         "scripts/task_intake_integration.py",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+    }
+)
+WO017_G1_BASE_SHA = "bb7db2cc8b4850c472e7e567e1991c6cbf36dd4c"
+WO017_G1_WORK_ORDER = "WO-017-G1"
+WO017_WORK_ORDER = "WO-017"
+WO017_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO017_PRODUCT_ALLOWED_PATHS = frozenset(
+    {
+        "requirements.txt",
+        "backend/app/mcp_server.py",
+        "backend/tests/test_mcp_server.py",
+        "backend/app/config.py",
+        "backend/app/main.py",
+        "docker-compose.yml",
+        ".env.example",
+        "scripts/mcp_integration.py",
+        ".github/workflows/ci.yml",
         "docs/atlas/code-atlas.md",
         "docs/atlas/test-map.md",
     }
@@ -900,6 +994,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO016P_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
+        WO017_G1_WORK_ORDER,
+        WO017_WORK_ORDER,
     }:
         return
     if work_order == WO014_C2_WORK_ORDER:
@@ -1886,6 +1982,93 @@ def require_wo016_scope(
         )
 
 
+def require_wo017_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+) -> None:
+    if work_order != WO017_G1_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO017_G1_WORK_ORDER} requires the protected main base branch")
+    if base_sha != WO017_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO017_G1_WORK_ORDER} requires exact base {WO017_G1_BASE_SHA}, observed {base_sha}"
+        )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO017_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO017_G1_WORK_ORDER} cannot change migrations")
+    unauthorized = sorted(set(paths) - WO017_G1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO017_G1_WORK_ORDER} changed files outside the approved governance scope: "
+            + ", ".join(unauthorized)
+        )
+    if sorted(set(paths)) != sorted(WO017_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO017_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(
+            f"{WO017_G1_WORK_ORDER} requires exactly the four governance/evidence files"
+        )
+    if migration_head() != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO017_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance"
+        )
+
+
+def require_wo017_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO017_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO017_WORK_ORDER} requires the protected main base branch")
+    if HEX_SHA.fullmatch(base_sha) is None or base_sha == "0" * 40:
+        raise ValueError(f"{WO017_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) is None:
+            raise ValueError(f"{WO017_WORK_ORDER} requires a resolved current protected main SHA")
+        if base_sha != current_main:
+            raise ValueError(
+                f"{WO017_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+        try:
+            base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode(
+                "utf-8"
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"{WO017_WORK_ORDER} requires a readable protected-main base with "
+                f"merged {WO017_G1_WORK_ORDER} support"
+            ) from exc
+        if WO017_G1_WORK_ORDER not in base_review_evidence:
+            raise ValueError(
+                f"{WO017_WORK_ORDER} requires merged {WO017_G1_WORK_ORDER} support in its base"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO017_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO017_WORK_ORDER} cannot change migrations")
+    unauthorized = sorted(set(paths) - WO017_PRODUCT_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO017_WORK_ORDER} changed files outside the bounded MCP product scope: "
+            + ", ".join(unauthorized)
+        )
+
+
 def require_wo015p_g1_scope(work_order: str, base_sha: str, paths: list[str]) -> None:
     if work_order != WO015P_G1_WORK_ORDER:
         return
@@ -2257,6 +2440,136 @@ def require_wo016_storage_evidence(
             counts[cast(str, tier)] += 1
         if counts != {"HOT": 2, "WARM": 2, "COLD": 2}:
             raise ValueError("WO-016-P requires two measured benchmark candidates per tier")
+
+
+def require_wo017_mcp_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order != WO017_WORK_ORDER:
+        return
+    surface = integration.get("mcp_surface")
+    if not isinstance(surface, Mapping):
+        raise ValueError("WO-017 Review Evidence missing mandatory MCP surface evidence")
+    if set(surface) != MCP_CORE_SURFACE_ALLOWED_FIELDS:
+        raise ValueError(
+            "WO-017 MCP surface evidence must match the closed contract exactly; "
+            "missing mandatory or extra fields"
+        )
+    if surface.get("status") != "PASS":
+        raise ValueError("WO-017 requires passing MCP surface evidence")
+    if surface.get("evidence_file") != MCP_CORE_SURFACE_EVIDENCE_FILE:
+        raise ValueError("WO-017 requires the bounded mcp-surface.json evidence file")
+    if surface.get("mcp_evidence_version") != MCP_CORE_SURFACE_EVIDENCE_VERSION:
+        raise ValueError("WO-017 requires the versioned MCP evidence contract")
+    missing = [field for field in MCP_CORE_SURFACE_TRUE_FIELDS if surface.get(field) is not True]
+    if missing:
+        raise ValueError(
+            "WO-017 Review Evidence missing mandatory MCP surface evidence: "
+            + ", ".join(sorted(missing))
+        )
+    invalid_false_fields = [
+        field for field in MCP_CORE_SURFACE_FALSE_FIELDS if surface.get(field) is not False
+    ]
+    if invalid_false_fields:
+        raise ValueError(
+            "WO-017 Review Evidence requires negative MCP controls to remain false: "
+            + ", ".join(sorted(invalid_false_fields))
+        )
+    if surface.get("tool_list_exact") != list(MCP_CORE_SURFACE_TOOLS):
+        raise ValueError("WO-017 requires the exact bounded MCP read-only tool list")
+    if surface.get("observed_migration_head") != "0006_memory_lifecycle_provenance":
+        raise ValueError("WO-017 requires observed migration head 0006_memory_lifecycle_provenance")
+    if migration_head_value != "0006_memory_lifecycle_provenance":
+        raise ValueError("WO-017 requires migration head 0006_memory_lifecycle_provenance")
+    for field in MCP_CORE_SURFACE_INTEGER_FIELDS:
+        value = surface.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"WO-017 requires bounded integer evidence for {field}")
+        if value != 0:
+            raise ValueError(f"WO-017 requires {field}=0")
+
+
+def verify_wo017_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO017_G1_WORK_ORDER:
+        return None
+    require_wo017_g1_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO017_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO017_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance, "
+            f"observed {migration_head_value}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO017_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO017_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    if "mcp_surface" in integration:
+        raise ValueError(f"{WO017_G1_WORK_ORDER} must not claim MCP product evidence")
+    require_current_work_order_authorization(WO017_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO017_WORK_ORDER)
+    return (
+        f"work_order={WO017_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        "migration_head=0006_memory_lifecycle_provenance; migration_changed=False; "
+        f"future_{WO017_WORK_ORDER}_registered=PASS; "
+        f"future_{MCP_CORE_SURFACE_EVIDENCE_VERSION}_fail_closed=PASS; "
+        "mcp_implementation=False; ruleset_unchanged=PASS; auto_merge=UNARMED; "
+        "checkpoint_promotion=False"
+    )
+
+
+def verify_wo017_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO017_WORK_ORDER:
+        return None
+    require_wo017_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO017_WORK_ORDER} cannot change canonical Project Brain")
+    require_wo017_mcp_evidence(work_order, integration, migration_head_value)
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO017_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO017_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_current_work_order_authorization(WO017_WORK_ORDER)
+    return (
+        f"work_order={WO017_WORK_ORDER}; product_scope=PASS; mcp_evidence=PASS; "
+        f"evidence_version={MCP_CORE_SURFACE_EVIDENCE_VERSION}; "
+        f"tool_list_exact={','.join(MCP_CORE_SURFACE_TOOLS)}; "
+        "real_transport=PASS; direct_core=PASS; rest_loopback=False; "
+        "duplicate_persistence=False; project_isolation=PASS; checkpoint_first=PASS; "
+        "canonical_write_tools=False; restart_recovery=PASS; redis_loss_recovery=PASS; "
+        "mcp_llm_calls=0; mcp_provider_calls=0; migration_head=0006_memory_lifecycle_provenance; "
+        "migration_changed=False; ruleset_unchanged=PASS; auto_merge=UNARMED; "
+        "checkpoint_promotion=False"
+    )
 
 
 def verify_wo016_g1_governance_contract(
@@ -3075,6 +3388,89 @@ def integration_file(name: str) -> str:
     return ""
 
 
+def mcp_surface_evidence() -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "evidence_file": MCP_CORE_SURFACE_EVIDENCE_FILE,
+        "mcp_evidence_version": MCP_CORE_SURFACE_EVIDENCE_VERSION,
+        **{field: False for field in MCP_CORE_SURFACE_TRUE_FIELDS},
+        **{field: False for field in MCP_CORE_SURFACE_FALSE_FIELDS},
+        "tool_list_exact": [],
+        "observed_migration_head": "UNKNOWN",
+        **{field: 0 for field in MCP_CORE_SURFACE_INTEGER_FIELDS},
+    }
+    text = integration_file(MCP_CORE_SURFACE_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+
+    extra_fields = set(data) - MCP_CORE_SURFACE_ALLOWED_FIELDS
+    true_values = {field: data.get(field) is True for field in MCP_CORE_SURFACE_TRUE_FIELDS}
+    false_checks = {field: data.get(field) is False for field in MCP_CORE_SURFACE_FALSE_FIELDS}
+    false_values = {field: data.get(field) is True for field in MCP_CORE_SURFACE_FALSE_FIELDS}
+    evidence_file = (
+        data.get("evidence_file")
+        if isinstance(data.get("evidence_file"), str)
+        else MCP_CORE_SURFACE_EVIDENCE_FILE
+    )
+    version = (
+        data.get("mcp_evidence_version")
+        if isinstance(data.get("mcp_evidence_version"), str)
+        else "UNKNOWN"
+    )
+    observed_migration_head = (
+        data.get("observed_migration_head")
+        if isinstance(data.get("observed_migration_head"), str)
+        else "UNKNOWN"
+    )
+    raw_tools = data.get("tool_list_exact")
+    tool_list_valid = isinstance(raw_tools, list) and all(
+        isinstance(tool, str) for tool in cast(list[object], raw_tools)
+    )
+    tool_list = list(cast(list[str], raw_tools)) if tool_list_valid else []
+
+    integers: dict[str, int] = {}
+    integer_fields_valid = True
+    for field in MCP_CORE_SURFACE_INTEGER_FIELDS:
+        value = data.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            integer_fields_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+
+    status = (
+        "PASS"
+        if data.get("status") == "PASS"
+        and not extra_fields
+        and evidence_file == MCP_CORE_SURFACE_EVIDENCE_FILE
+        and version == MCP_CORE_SURFACE_EVIDENCE_VERSION
+        and all(true_values.values())
+        and all(false_checks.values())
+        and tool_list_valid
+        and tool_list == list(MCP_CORE_SURFACE_TOOLS)
+        and observed_migration_head == "0006_memory_lifecycle_provenance"
+        and integer_fields_valid
+        and all(value == 0 for value in integers.values())
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        "evidence_file": evidence_file,
+        "mcp_evidence_version": version,
+        **true_values,
+        **false_values,
+        "tool_list_exact": tool_list,
+        "observed_migration_head": observed_migration_head,
+        **integers,
+    }
+
+
 def acce_storage_policy_evidence() -> dict[str, object]:
     unknown: dict[str, object] = {
         "status": "UNKNOWN",
@@ -3594,6 +3990,9 @@ def integration_evidence(
     acce_storage = acce_storage_policy_evidence()
     if acce_storage["status"] == "FAIL":
         status = "FAIL"
+    mcp_surface = mcp_surface_evidence()
+    if work_order == WO017_WORK_ORDER and mcp_surface["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
         "status": status,
@@ -3646,6 +4045,8 @@ def integration_evidence(
     }
     if work_order in {WO016_WORK_ORDER, WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}:
         evidence["acce_storage"] = acce_storage
+    if work_order == WO017_WORK_ORDER:
+        evidence["mcp_surface"] = mcp_surface
     return evidence
 
 
@@ -4924,6 +5325,19 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_branch=args.base_branch,
         enforce_current_main=True,
     )
+    require_wo017_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+    )
+    require_wo017_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -4958,6 +5372,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     )
     require_wo015_memory_evidence(work_order, integration, migration_head())
     require_wo016_storage_evidence(work_order, integration, migration_head())
+    require_wo017_mcp_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -5034,6 +5449,24 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         approved_lineage,
     )
     wo016_g1_governance_evidence = verify_wo016_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo017_g1_governance_evidence = verify_wo017_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo017_governance_evidence = verify_wo017_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -5155,6 +5588,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             [f"WO-016-G1 governance evidence: {wo016_g1_governance_evidence}"]
             if wo016_g1_governance_evidence
             else []
+        )
+        + (
+            [f"WO-017-G1 governance evidence: {wo017_g1_governance_evidence}"]
+            if wo017_g1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-017 governance evidence: {wo017_governance_evidence}"]
+            if wo017_governance_evidence
+            else []
         ),
     }
 
@@ -5217,6 +5660,12 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
     )
+    require_wo017_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, base.get("branch", "main")),
+    )
     require_wo012p_scope(
         work_order,
         cast(str, base["sha"]),
@@ -5265,6 +5714,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_authorized_base=False,
     )
     require_wo016_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
+    )
+    require_wo017_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -5499,6 +5957,36 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-016-G1 evidence must record the explicit governance enablement contract"
             )
+    wo017_g1_evidence = verify_wo017_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO017_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-017-G1 governance evidence: {wo017_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-017-G1 evidence must record the explicit governance enablement contract"
+            )
+    wo017_evidence = verify_wo017_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO017_WORK_ORDER:
+        expected_entry = f"WO-017 governance evidence: {wo017_evidence}"
+        if expected_entry not in negative_scope:
+            raise ValueError(
+                "WO-017 evidence must record the explicit MCP product governance contract"
+            )
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -5543,6 +6031,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo016_storage_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo017_mcp_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -5639,6 +6132,22 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             entry.split(": ", 1)[1]
             for entry in cast(list[object], manifest["negative_scope"])
             if isinstance(entry, str) and entry.startswith("WO-016-P governance evidence: ")
+        ),
+        "NOT_RECORDED",
+    )
+    wo017_g1_governance_text = next(
+        (
+            entry.split(": ", 1)[1]
+            for entry in cast(list[object], manifest["negative_scope"])
+            if isinstance(entry, str) and entry.startswith("WO-017-G1 governance evidence: ")
+        ),
+        "NOT_RECORDED",
+    )
+    wo017_governance_text = next(
+        (
+            entry.split(": ", 1)[1]
+            for entry in cast(list[object], manifest["negative_scope"])
+            if isinstance(entry, str) and entry.startswith("WO-017 governance evidence: ")
         ),
         "NOT_RECORDED",
     )
@@ -6027,6 +6536,23 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{acce_storage_evidence.get('llm_calls', 'UNKNOWN')}/"
         f"{acce_storage_evidence.get('provider_calls', 'UNKNOWN')}`"
     )
+    mcp_surface_evidence = cast(dict[str, Any], integration.get("mcp_surface", {}))
+    mcp_surface_text = (
+        f"`{mcp_surface_evidence.get('status', 'UNKNOWN')}`; version `"
+        f"{mcp_surface_evidence.get('mcp_evidence_version', 'UNKNOWN')}`, file `"
+        f"{mcp_surface_evidence.get('evidence_file', 'UNKNOWN')}`, tools `"
+        f"{mcp_surface_evidence.get('tool_list_exact', [])}`, real transport `"
+        f"{mcp_surface_evidence.get('real_transport_exercised', False)}`, direct Core `"
+        f"{mcp_surface_evidence.get('direct_core_reuse', False)}`, isolation `"
+        f"{mcp_surface_evidence.get('project_isolation_passed', False)}`, checkpoint first `"
+        f"{mcp_surface_evidence.get('context_checkpoint_first', False)}`, restart/Redis loss `"
+        f"{mcp_surface_evidence.get('restart_recovery', False)}/"
+        f"{mcp_surface_evidence.get('redis_loss_recovery', False)}`, leaks `"
+        f"{mcp_surface_evidence.get('secret_leaks', 'UNKNOWN')}/"
+        f"{mcp_surface_evidence.get('filesystem_path_leaks', 'UNKNOWN')}`, calls `"
+        f"{mcp_surface_evidence.get('mcp_llm_calls', 'UNKNOWN')}/"
+        f"{mcp_surface_evidence.get('mcp_provider_calls', 'UNKNOWN')}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -6039,6 +6565,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("reranking", "Reranking"),
             ("context_manager", "Context Manager"),
             ("acce_storage", "ACCE Storage Policy"),
+            ("mcp_surface", "MCP Core Surface"),
         )
         if key in integration
     )
@@ -6080,12 +6607,15 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Provider/Prompt Cache evidence: {provider_cache_text}
 - Memory Lifecycle evidence: {memory_text}
 - ACCE Storage Policy evidence: {acce_storage_text}
+- MCP Core Surface evidence: {mcp_surface_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
 - WO-015-G1 governance evidence: {wo015_g1_governance_text}
 - WO-015-P-G1 governance evidence: {wo015p_g1_governance_text}
 - WO-016-P-G1 governance evidence: {wo016p_g1_governance_text}
 - WO-016-P governance evidence: {wo016p_governance_text}
+- WO-017-G1 governance evidence: {wo017_g1_governance_text}
+- WO-017 governance evidence: {wo017_governance_text}
 - Progressive Disclosure evidence: {progressive_disclosure_text}
 - Required independent approvals: {approval_text}
 - Consolidated artifact: `{artifact["name"]}`

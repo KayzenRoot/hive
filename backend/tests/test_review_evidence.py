@@ -17,6 +17,12 @@ from scripts.review_evidence import (
     ACCE_STORAGE_POLICY_EVIDENCE_VERSION,
     ACCE_STORAGE_POLICY_REQUIRED_FIELDS,
     CONTEXT_MANAGER_REQUIRED_FIELDS,
+    MCP_CORE_SURFACE_EVIDENCE_FILE,
+    MCP_CORE_SURFACE_EVIDENCE_VERSION,
+    MCP_CORE_SURFACE_FALSE_FIELDS,
+    MCP_CORE_SURFACE_INTEGER_FIELDS,
+    MCP_CORE_SURFACE_TOOLS,
+    MCP_CORE_SURFACE_TRUE_FIELDS,
     SCHEMA_PATH,
     WO008_G1_ALLOWED_PATHS,
     WO008_G1_BASE_SHA,
@@ -71,6 +77,11 @@ from scripts.review_evidence import (
     WO016P_G1_WORK_ORDER,
     WO016P_PROMOTION_ALLOWED_PATHS,
     WO016P_WORK_ORDER,
+    WO017_G1_ALLOWED_PATHS,
+    WO017_G1_BASE_SHA,
+    WO017_G1_WORK_ORDER,
+    WO017_PRODUCT_ALLOWED_PATHS,
+    WO017_WORK_ORDER,
     acce_storage_policy_evidence,
     authorize_merge_action,
     auto_merge_evidence,
@@ -81,6 +92,7 @@ from scripts.review_evidence import (
     governance_evidence,
     junit_counts,
     manifest_log,
+    mcp_surface_evidence,
     memory_lifecycle_evidence,
     parse_authorized_base_marker,
     parse_wo016_approved_lineage_statement,
@@ -126,6 +138,9 @@ from scripts.review_evidence import (
     require_wo016p_g1_scope,
     require_wo016p_manifest_contract,
     require_wo016p_scope,
+    require_wo017_g1_scope,
+    require_wo017_mcp_evidence,
+    require_wo017_scope,
     summary_markdown,
     validate_manifest,
     verify_native_auto_merge,
@@ -137,6 +152,8 @@ from scripts.review_evidence import (
     verify_wo016_g1_governance_contract,
     verify_wo016p_g1_governance_contract,
     verify_wo016p_governance_contract,
+    verify_wo017_g1_governance_contract,
+    verify_wo017_governance_contract,
     warnings_evidence,
     write_consolidated_artifact,
 )
@@ -396,6 +413,19 @@ def acce_storage_evidence_fixture() -> dict[str, object]:
     }
 
 
+def mcp_surface_evidence_fixture() -> dict[str, object]:
+    return {
+        "status": "PASS",
+        "evidence_file": MCP_CORE_SURFACE_EVIDENCE_FILE,
+        "mcp_evidence_version": MCP_CORE_SURFACE_EVIDENCE_VERSION,
+        **{field: True for field in MCP_CORE_SURFACE_TRUE_FIELDS},
+        **{field: False for field in MCP_CORE_SURFACE_FALSE_FIELDS},
+        "tool_list_exact": list(MCP_CORE_SURFACE_TOOLS),
+        "observed_migration_head": "0006_memory_lifecycle_provenance",
+        **{field: 0 for field in MCP_CORE_SURFACE_INTEGER_FIELDS},
+    }
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
@@ -485,6 +515,292 @@ def test_wo016_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
         )
     with pytest.raises(ValueError, match="outside"):
         require_wo016_scope(WO016_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
+
+
+def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    require_supported_work_order(WO017_G1_WORK_ORDER)
+    require_supported_work_order(WO017_WORK_ORDER)
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    require_wo017_g1_scope(
+        WO017_G1_WORK_ORDER,
+        WO017_G1_BASE_SHA,
+        sorted(WO017_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        require_wo017_g1_scope(
+            WO017_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(WO017_G1_ALLOWED_PATHS),
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        require_wo017_g1_scope(
+            WO017_G1_WORK_ORDER,
+            WO017_G1_BASE_SHA,
+            sorted(WO017_G1_ALLOWED_PATHS),
+            base_branch="release",
+        )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo017_g1_scope(
+            WO017_G1_WORK_ORDER,
+            WO017_G1_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+    with pytest.raises(ValueError, match="migrations"):
+        require_wo017_g1_scope(
+            WO017_G1_WORK_ORDER,
+            WO017_G1_BASE_SHA,
+            ["migrations/versions/0007_mcp.py"],
+        )
+    for forbidden in (
+        "backend/app/mcp_server.py",
+        ".github/workflows/ci.yml",
+        "requirements.txt",
+        "backend/app/unrelated.py",
+    ):
+        with pytest.raises(ValueError, match="outside"):
+            require_wo017_g1_scope(
+                WO017_G1_WORK_ORDER,
+                WO017_G1_BASE_SHA,
+                [forbidden],
+            )
+
+    require_wo017_scope(
+        WO017_WORK_ORDER,
+        "a" * 40,
+        sorted(WO017_PRODUCT_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="base branch"):
+        require_wo017_scope(
+            WO017_WORK_ORDER,
+            "a" * 40,
+            ["backend/app/mcp_server.py"],
+            base_branch="release",
+        )
+    with pytest.raises(ValueError, match="resolved"):
+        require_wo017_scope(
+            WO017_WORK_ORDER,
+            "0" * 40,
+            ["backend/app/mcp_server.py"],
+        )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        require_wo017_scope(
+            WO017_WORK_ORDER,
+            "a" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+    with pytest.raises(ValueError, match="migrations"):
+        require_wo017_scope(
+            WO017_WORK_ORDER,
+            "a" * 40,
+            ["migrations/versions/0007_mcp.py"],
+        )
+    with pytest.raises(ValueError, match="outside"):
+        require_wo017_scope(WO017_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
+
+
+def test_wo017_mcp_evidence_is_versioned_exact_and_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logs = tmp_path / "integration-logs"
+    logs.mkdir()
+    monkeypatch.setattr(review_evidence, "VALIDATION", tmp_path / "validation")
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", logs)
+    evidence_path = logs / MCP_CORE_SURFACE_EVIDENCE_FILE
+    fixture = mcp_surface_evidence_fixture()
+    evidence_path.write_text(json.dumps(fixture), encoding="utf-8")
+    parsed = mcp_surface_evidence()
+    assert parsed["status"] == "PASS"
+    require_wo017_mcp_evidence(
+        WO017_WORK_ORDER,
+        {"mcp_surface": parsed},
+        "0006_memory_lifecycle_provenance",
+    )
+
+    with pytest.raises(ValueError, match="missing mandatory"):
+        require_wo017_mcp_evidence(
+            WO017_WORK_ORDER,
+            {},
+            "0006_memory_lifecycle_provenance",
+        )
+    for field in MCP_CORE_SURFACE_TRUE_FIELDS:
+        broken = dict(fixture)
+        broken[field] = False
+        evidence_path.write_text(json.dumps(broken), encoding="utf-8")
+        with pytest.raises(ValueError, match="missing mandatory|passing"):
+            require_wo017_mcp_evidence(
+                WO017_WORK_ORDER,
+                {"mcp_surface": mcp_surface_evidence()},
+                "0006_memory_lifecycle_provenance",
+            )
+    for field in MCP_CORE_SURFACE_FALSE_FIELDS:
+        broken = dict(fixture)
+        broken[field] = True
+        evidence_path.write_text(json.dumps(broken), encoding="utf-8")
+        with pytest.raises(ValueError, match="negative|passing"):
+            require_wo017_mcp_evidence(
+                WO017_WORK_ORDER,
+                {"mcp_surface": mcp_surface_evidence()},
+                "0006_memory_lifecycle_provenance",
+            )
+    for field, value in (
+        ("mcp_evidence_version", "mcp-core-surface-v0"),
+        ("evidence_file", "wrong.json"),
+        ("observed_migration_head", "0005_semantic_retrieval"),
+        ("tool_list_exact", [*MCP_CORE_SURFACE_TOOLS, "memory.write"]),
+        ("mcp_llm_calls", 1),
+        ("mcp_provider_calls", 1),
+        ("secret_leaks", 1),
+        ("filesystem_path_leaks", 1),
+    ):
+        broken = dict(fixture)
+        broken[field] = value
+        evidence_path.write_text(json.dumps(broken), encoding="utf-8")
+        with pytest.raises(ValueError, match="versioned|bounded|requires|exact|observed"):
+            require_wo017_mcp_evidence(
+                WO017_WORK_ORDER,
+                {"mcp_surface": mcp_surface_evidence()},
+                "0006_memory_lifecycle_provenance",
+            )
+    with pytest.raises(ValueError, match="migration head"):
+        evidence_path.write_text(json.dumps(fixture), encoding="utf-8")
+        require_wo017_mcp_evidence(
+            WO017_WORK_ORDER,
+            {"mcp_surface": mcp_surface_evidence()},
+            "0005_semantic_retrieval",
+        )
+
+    evidence_path.write_text(json.dumps({**fixture, "unexpected": True}), encoding="utf-8")
+    assert mcp_surface_evidence()["status"] == "FAIL"
+    evidence_path.write_text("not-json", encoding="utf-8")
+    assert mcp_surface_evidence()["status"] == "FAIL"
+
+
+def test_wo017_governance_contracts_are_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    g1 = verify_wo017_g1_governance_contract(
+        WO017_G1_WORK_ORDER,
+        WO017_G1_BASE_SHA,
+        sorted(WO017_G1_ALLOWED_PATHS),
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {},
+        "0006_memory_lifecycle_provenance",
+    )
+    assert g1 is not None
+    assert "future_WO-017_registered=PASS" in g1
+    assert "mcp-core-surface-v1" in g1
+    assert "mcp_implementation=False" in g1
+    with pytest.raises(ValueError, match="auto-merge"):
+        verify_wo017_g1_governance_contract(
+            WO017_G1_WORK_ORDER,
+            WO017_G1_BASE_SHA,
+            sorted(WO017_G1_ALLOWED_PATHS),
+            {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": True}},
+            {},
+            "0006_memory_lifecycle_provenance",
+        )
+
+    future = verify_wo017_governance_contract(
+        WO017_WORK_ORDER,
+        "a" * 40,
+        ["backend/app/mcp_server.py"],
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"mcp_surface": mcp_surface_evidence_fixture()},
+        "0006_memory_lifecycle_provenance",
+    )
+    assert future is not None
+    assert "tool_list_exact=project.list,project.status" in future
+    assert "canonical_write_tools=False" in future
+
+
+def test_wo017_manifests_validate_with_g1_optional_and_future_required_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+
+    g1 = evidence_fixture()
+    g1["work_order"] = WO017_G1_WORK_ORDER
+    g1["base"] = {"branch": "main", "sha": WO017_G1_BASE_SHA}
+    g1["changed_files"] = {
+        "count": len(WO017_G1_ALLOWED_PATHS),
+        "paths": sorted(WO017_G1_ALLOWED_PATHS),
+    }
+    cast(dict[str, Any], g1["migrations"])["head"] = "0006_memory_lifecycle_provenance"
+    governance = cast(dict[str, Any], g1["governance"])
+    governance["ruleset_unchanged"] = True
+    cast(dict[str, Any], governance["pull_request"])["auto_merge_armed"] = False
+    g1["negative_scope"] = [
+        "No merge or release was performed.",
+        canonical_change_statement(
+            canonical_change_evidence(sorted(WO017_G1_ALLOWED_PATHS), WO017_G1_WORK_ORDER)
+        ),
+        "No implementation outside the approved work-order scope was added.",
+        "WO-017-G1 governance evidence: "
+        + cast(
+            str,
+            verify_wo017_g1_governance_contract(
+                WO017_G1_WORK_ORDER,
+                WO017_G1_BASE_SHA,
+                sorted(WO017_G1_ALLOWED_PATHS),
+                canonical_change_evidence(sorted(WO017_G1_ALLOWED_PATHS), WO017_G1_WORK_ORDER),
+                governance,
+                cast(dict[str, Any], cast(dict[str, Any], g1["evidence"])["integration"]),
+                "0006_memory_lifecycle_provenance",
+            ),
+        ),
+    ]
+    validate_manifest(g1)
+
+    future_base = "a" * 40
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": (
+            future_base if args == ("rev-parse", "origin/main") else fallback
+        ),
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda *_args: b"WO-017-G1 merged support",
+    )
+    future = evidence_fixture()
+    future["work_order"] = WO017_WORK_ORDER
+    future["base"] = {"branch": "main", "sha": future_base}
+    future["changed_files"] = {"count": 1, "paths": ["backend/app/mcp_server.py"]}
+    cast(dict[str, Any], future["migrations"])["head"] = "0006_memory_lifecycle_provenance"
+    future_integration = cast(
+        dict[str, Any], cast(dict[str, Any], future["evidence"])["integration"]
+    )
+    future_integration["mcp_surface"] = mcp_surface_evidence_fixture()
+    future_governance = cast(dict[str, Any], future["governance"])
+    future_governance["ruleset_unchanged"] = True
+    cast(dict[str, Any], future_governance["pull_request"])["auto_merge_armed"] = False
+    future_canonical = canonical_change_evidence(["backend/app/mcp_server.py"], WO017_WORK_ORDER)
+    future_evidence = verify_wo017_governance_contract(
+        WO017_WORK_ORDER,
+        future_base,
+        ["backend/app/mcp_server.py"],
+        future_canonical,
+        future_governance,
+        future_integration,
+        "0006_memory_lifecycle_provenance",
+    )
+    future["negative_scope"] = [
+        "No merge or release was performed.",
+        canonical_change_statement(future_canonical),
+        "No implementation outside the approved work-order scope was added.",
+        "WO-017 governance evidence: " + cast(str, future_evidence),
+    ]
+    validate_manifest(future)
 
 
 def test_wo016_storage_evidence_is_versioned_and_fails_closed(
@@ -1258,6 +1574,38 @@ def test_wo016_renderers_are_dedicated_and_explicit() -> None:
         abbreviated = {**common, "head_sha": "ae0a3e6"}
         with pytest.raises(ValueError, match="40-hex exact HEAD"):
             render_body(work_order=work_order, **abbreviated)
+        exact = render_body(work_order=work_order, **{**common, "head_sha": "a" * 40})
+        assert "a" * 40 in exact
+
+
+def test_wo017_renderers_are_dedicated_and_explicit() -> None:
+    common: dict[str, Any] = {
+        "pr_number": 70,
+        "branch": "governance/wo017-mcp-review-evidence-support",
+        "base_sha": WO017_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "hive-review-evidence-WO-017-G1-b",
+        "ruleset_before": "unchanged",
+        "ruleset_after": "unchanged",
+        "merge_before": "unarmed",
+        "merge_after": "unarmed",
+    }
+    g1 = render_body(work_order=WO017_G1_WORK_ORDER, **common)
+    future = render_body(work_order=WO017_WORK_ORDER, **common)
+    assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-017-G1 -->")
+    assert "não implementa MCP" in g1
+    assert "mcp-core-surface-v1" in g1
+    assert "checkpoint.read" in g1
+    assert "WO-017-G1 READY FOR SOL AUDIT" in g1
+    assert future.startswith("<!-- HIVE-WORK-ORDER: WO-017 -->")
+    assert "initialize" in future
+    assert "REST loopback" in future
+    assert "PostgreSQL" in future
+    assert "mcp_llm_calls=0" in future
+    assert "WO-017 READY FOR SOL AUDIT" in future
+    for work_order in (WO017_G1_WORK_ORDER, WO017_WORK_ORDER):
+        with pytest.raises(ValueError, match="40-hex exact HEAD"):
+            render_body(work_order=work_order, **{**common, "head_sha": "ae0a3e6"})
         exact = render_body(work_order=work_order, **{**common, "head_sha": "a" * 40})
         assert "a" * 40 in exact
 

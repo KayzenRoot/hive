@@ -10,9 +10,14 @@ EXACT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _require_exact_head(work_order: str, head_sha: str) -> None:
-    if work_order in {"WO-016-G1", "WO-016", "WO-016-P-G1", "WO-016-P"} and not (
-        EXACT_SHA.fullmatch(head_sha)
-    ):
+    if work_order in {
+        "WO-016-G1",
+        "WO-016",
+        "WO-016-P-G1",
+        "WO-016-P",
+        "WO-017-G1",
+        "WO-017",
+    } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
         )
@@ -1588,6 +1593,180 @@ WO-016 READY FOR SOL AUDIT
 """
 
 
+def _render_wo017_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita exclusivamente o suporte determinístico de Review Evidence e
+renderer necessário ao futuro `WO-017` — MCP Server product surface. Esta G1
+não implementa MCP, não inicia servidor, não executa transporte e não adiciona
+qualquer comportamento de produto.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base protegida autorizada exata: `bb7db2cc8b4850c472e7e567e1991c6cbf36dd4c`.
+- Base informada: `{base_sha}`.
+- HEAD exato desta revisão: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+
+## 3. Escopo G1 fechado
+
+Os únicos quatro arquivos permitidos são `backend/tests/test_review_evidence.py`,
+`schemas/review-evidence-v1.schema.json`, `scripts/review_evidence.py` e
+`scripts/review_pr_body.py`. Project Brain, checkpoint, migrations, produto MCP,
+`requirements.txt`, Docker, CI, `.env.example` e atlas permanecem intocados.
+O migration head observado e exigido é `0006_memory_lifecycle_provenance`.
+
+## 4. Registro explícito do futuro WO-017
+
+`WO-017` fica registrado como a próxima superfície de produto limitada. Seu
+limite superior de arquivos é `requirements.txt`,
+`backend/app/mcp_server.py`, `backend/tests/test_mcp_server.py`,
+`backend/app/config.py` somente para binding local, `backend/app/main.py`
+somente para transporte MCP padrão montado na API, `docker-compose.yml`
+somente se um serviço MCP local separado for necessário, `.env.example`
+somente para configuração MCP local bounded, `scripts/mcp_integration.py`,
+`.github/workflows/ci.yml` somente para evidência MCP real,
+`docs/atlas/code-atlas.md` e `docs/atlas/test-map.md`.
+
+O primeiro catálogo read-only exato é `project.list`, `project.status`,
+`context.build`, `context.search`, `memory.search`, `memory.get` e
+`checkpoint.read`. Nenhum tool de escrita canônica, mutation, run, validation,
+telemetria, execução autônoma, tool gating ou Control Center é registrado.
+
+## 5. Contrato de evidência versionado
+
+O contrato futuro usa exatamente `mcp-core-surface-v1` em
+`mcp-surface.json`. O schema continua fechado com `additionalProperties: false`
+e exige esse bloco somente para `WO-017`; evidência ausente, forjada,
+incompleta, com versão errada, tool faltante/excedente ou escrita exposta falha
+closed. O bundle futuro deverá provar handshake `initialize`, listagem e
+invocação de cada tool pelo transporte MCP padrão local em serviços reais;
+handler direto, REST loopback, teste unitário isolado ou narrativa não contam.
+
+## 6. Guardas arquiteturais e de segurança
+
+O adapter futuro deverá chamar o Core diretamente, sem persistência duplicada,
+com PostgreSQL como verdade canônica e Redis não canônico. Isolamento por
+projeto, checkpoint primeiro, contexto/search/memory/checkpoint corretos,
+argumentos inválidos e tool desconhecido fail-closed, saída bounded, erros
+estruturados sem segredos/caminhos absolutos, restart e Redis loss recovery
+serão obrigatórios. Migration permanece inalterada e chamadas MCP a LLM/provider
+devem ser `0/0`.
+
+## 7. Governança e estado
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. O auto-merge permanece UNARMED;
+nenhum merge, release, promoção canônica ou início de `WO-017` é executado.
+
+Há testes negativos para base/branch/escopo, Project Brain, migration, produto,
+CI/dependência e contrato MCP, além das regressões históricas de Review Evidence.
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-017-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo017_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Escopo de produto MCP fechado
+
+Esta PR futura implementa somente o primeiro MCP Server read-only sobre o Core
+existente. O catálogo exato é: `project.list`, `project.status`, `context.build`,
+`context.search`, `memory.search`, `memory.get` e `checkpoint.read`. Não inclui
+tools de escrita, mutation, run/validation, telemetry, execução autônoma, tool
+gating, Control Center ou claims de conclusão V0.1.
+
+## 2. Identidade e limites
+
+- PR: #{pr_number}, aberta como Ready for review.
+- Branch: `{branch}`.
+- Base protegida exata: `{base_sha}`.
+- HEAD exato desta revisão: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+- Migration head: `0006_memory_lifecycle_provenance`, sem migration alterada.
+
+Os arquivos ficam limitados a `requirements.txt`,
+`backend/app/mcp_server.py`, `backend/tests/test_mcp_server.py`,
+`backend/app/config.py` somente para binding local, `backend/app/main.py`
+somente para transporte padrão montado na API, `docker-compose.yml` somente
+para serviço MCP local genuinamente necessário, `.env.example` somente para
+configuração local, `scripts/mcp_integration.py`, CI somente para evidência
+MCP real e os dois mapas Atlas.
+
+## 3. Protocolo e evidência observada
+
+O contrato `mcp-core-surface-v1` é gravado em `mcp-surface.json`. PASS exige
+serviços reais, transporte local padrão, `initialize`/handshake, list tools e
+invocação MCP de cada uma das sete tools, com verificação da verdade do Core.
+Também exige casos reais de argumentos inválidos, tool desconhecido,
+isolamento entre projetos, restart e Redis loss. Handler direto, REST loopback,
+teste unitário único ou lista declarada não são evidência suficiente.
+
+## 4. Reuso do Core e segurança
+
+O adapter chama Registry, Context Manager, Retrieval e Memory diretamente, sem
+duplicar persistência ou regra de negócio; PostgreSQL continua canônico e Redis
+continua não canônico. `project.list`/`project.status` respeitam identidade do
+Registry; `context.build` mantém checkpoint primeiro; search e Memory permanecem
+project-scoped; `checkpoint.read` só lê o checkpoint do projeto correto.
+Argumentos inválidos e tools desconhecidas falham closed. Outputs e erros são
+bounded, estruturados, sem segredos, sem caminhos absolutos e sem acesso a
+filesystem arbitrário.
+
+## 5. Controles e recuperação
+
+O bundle exige isolamento positivo e rejeição cross-project, repetição
+determinística, restart recovery e Redis loss recovery. Não há tools de escrita
+canônica; `canonical_write_tools_exposed=false`, `mcp_llm_calls=0`,
+`mcp_provider_calls=0`, `secret_leaks=0` e `filesystem_path_leaks=0`.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED;
+nenhum merge, release ou promoção de checkpoint é executado nesta etapa.
+
+A PR permanece aberta, Ready e não mesclada para auditoria do HEAD exato.
+Sol Review State: AWAITING_SOL.
+
+WO-017 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_g1_body(
     *,
     work_order: str,
@@ -2219,6 +2398,32 @@ def render_body(
         )
     if work_order == "WO-016":
         return _render_wo016_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-017-G1":
+        return _render_wo017_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-017":
+        return _render_wo017_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
