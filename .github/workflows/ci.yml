@@ -92,6 +92,11 @@ jobs:
           set -o pipefail
           mkdir -p tmp/integration-logs
           python scripts/memory_lifecycle_integration.py 2>&1 | tee tmp/integration-logs/memory-lifecycle.log
+      - name: Run MCP read-only core surface integration test
+        run: |
+          set -o pipefail
+          mkdir -p tmp/integration-logs
+          python scripts/mcp_integration.py 2>&1 | tee tmp/integration-logs/mcp-surface.log
       - name: Run Adaptive Token Budget benchmark
         run: python scripts/adaptive_token_budget_benchmark.py --output tmp/integration-logs/adaptive-token-budget-benchmark.json
       - name: Collect bounded service logs
