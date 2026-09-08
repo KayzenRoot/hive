@@ -49,7 +49,6 @@ GOVERNANCE_RELATIVE_PATHS = (
     "docs/project-brain/16-DECISIONS-LEDGER.md",
 )
 SAFE_SHA = re.compile(r"^[0-9a-f]{40}$")
-AUTHORIZED_BASE_SHA = "0733699b4c682e8b639c5e2236d45324ca2ad6c0"
 MCP_INSTRUMENTATION_CONTAINER_PATH = "/workspace/projects/.mcp-instrumentation"
 MCP_PROVIDER_COUNTER_CONTAINER_PATH = "/var/lib/hive/tmp/mcp-provider-calls.json"
 MCP_PROVIDER_COUNTER_FIELDS = frozenset({"trap_installed", "mcp_llm_calls", "mcp_provider_calls"})
@@ -784,28 +783,62 @@ def _static_surface_checks() -> dict[str, bool]:
     }
 
 
-def _observe_migration_changed(environment: dict[str, str]) -> bool:
-    origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
-    if origin_main != AUTHORIZED_BASE_SHA:
-        raise AssertionError("protected main moved from the authorized base")
-    if (
-        git(ROOT, ["merge-base", AUTHORIZED_BASE_SHA, "HEAD"], env=environment)
-        != AUTHORIZED_BASE_SHA
-    ):
-        raise AssertionError("candidate is not based on the authorized protected-main base")
+def _git_paths(environment: dict[str, str], arguments: list[str]) -> set[str]:
+    try:
+        output = git(ROOT, arguments, env=environment)
+    except RuntimeError as exc:
+        raise AssertionError("unable to determine the current validation delta") from exc
+    return {path for path in output.splitlines() if path}
 
-    committed_paths = set(
-        git(
-            ROOT, ["diff", "--name-only", f"{AUTHORIZED_BASE_SHA}...HEAD"], env=environment
-        ).splitlines()
+
+def _current_validation_paths(environment: dict[str, str]) -> set[str]:
+    """Resolve the exact committed and local delta for the current validation mode."""
+
+    try:
+        head = git(ROOT, ["rev-parse", "HEAD"], env=environment)
+        origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
+    except RuntimeError as exc:
+        raise AssertionError("unable to resolve HEAD and origin/main") from exc
+    if not SAFE_SHA.fullmatch(head) or not SAFE_SHA.fullmatch(origin_main):
+        raise AssertionError("validation boundary contains an invalid Git SHA")
+
+    if head != origin_main:
+        try:
+            merge_base = git(ROOT, ["merge-base", "origin/main", "HEAD"], env=environment)
+        except RuntimeError as exc:
+            raise AssertionError(
+                "candidate is stale or divergent from current protected-main base"
+            ) from exc
+        if merge_base != origin_main:
+            raise AssertionError("candidate is stale or divergent from current protected-main base")
+        committed_paths = _git_paths(
+            environment, ["diff", "--name-only", "--no-renames", "origin/main", "HEAD", "--"]
+        )
+    else:
+        try:
+            parents = git(
+                ROOT, ["rev-list", "--parents", "-n", "1", "HEAD"], env=environment
+            ).split()
+        except RuntimeError as exc:
+            raise AssertionError("unable to resolve the current protected-main lineage") from exc
+        if len(parents) != 2 or not SAFE_SHA.fullmatch(parents[1]):
+            raise AssertionError("current protected-main HEAD must have exactly one parent")
+        committed_paths = _git_paths(
+            environment, ["diff", "--name-only", "--no-renames", parents[1], "HEAD", "--"]
+        )
+
+    unresolved_paths = _git_paths(
+        environment, ["diff", "--name-only", "--diff-filter=U", "HEAD", "--"]
     )
-    working_tree_paths = set(
-        git(ROOT, ["diff", "--name-only", AUTHORIZED_BASE_SHA, "--"], env=environment).splitlines()
-    )
-    untracked_paths = set(
-        git(ROOT, ["ls-files", "--others", "--exclude-standard"], env=environment).splitlines()
-    )
-    changed_paths = committed_paths | working_tree_paths | untracked_paths
+    if unresolved_paths:
+        raise AssertionError("working tree has unresolved merge state")
+    working_tree_paths = _git_paths(environment, ["diff", "--name-only", "HEAD", "--"])
+    untracked_paths = _git_paths(environment, ["ls-files", "--others", "--exclude-standard", "--"])
+    return committed_paths | working_tree_paths | untracked_paths
+
+
+def _observe_migration_changed(environment: dict[str, str]) -> bool:
+    changed_paths = _current_validation_paths(environment)
     return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
 
 
