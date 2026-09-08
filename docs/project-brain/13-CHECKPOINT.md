@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-MEMORY LIFECYCLE AND PROVENANCE FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+ACCE STORAGE TIER AND COMPRESSION POLICY FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -195,6 +195,11 @@ See `03-SCOPE.md`.
 - canonical promotion requires a deterministic qualified source or decision basis; immutable git byte/source identity and source/adr/head races fail closed; cross-project rejection remains mandatory.
 - memory evidence for pr #51, audited head 95c3bafbd9be2b76b308097f7568b215bb055fa0, sol review 5131840941, squash merge 2c701d221e481913d2cbe9c0b8f3504632042306, post-merge ci 34120545634, backend 382 and dashboard 7 is pass.
 - memory llm/provider calls are 0/0; ruleset 21934284 is unchanged; auto-merge is unarmed; validated_evidence remains fail-closed; no mcp memory surface, autonomous dispatch, full telemetry, full control center or v0.1 completion is claimed.
+- acce storage tier and compression policy foundation is approved with policy acce-policy-v1 and evidence acce-storage-policy-v1; hot/warm/cold is system-managed over sha-256 + lossless zstandard cas; migration remains 0006_memory_lifecycle_provenance.
+- the bounded representative benchmark measures six rows with two candidates per tier, measures compression/decompression throughput, enforces supported zstd levels, rejects tiny/oversized benchmark corpora, and selects same-tier profiles deterministically from measured results rather than a universal hard-coded selected level.
+- exact logical sha-256 and one canonical cas identity are preserved across tier transitions; dedup remains valid; physical replacement/metadata ordering is safe; postgresql physical metadata and logical/physical/compression accounting remain truthful; corruption/truncation fail closed.
+- retry/recovery integrity is proven, including pre-publication durable metadata guard, orphan/missing-physical fail-closed behavior, pre-commit rollback, post-commit cleanup safety, restart and redis-loss recovery; canonical source loss is zero and acce storage llm/provider calls are 0/0.
+- evidence lineage records pr #55, audited head 0de6dc345262fc77fdda99c2f2dca6be88f9552c, sol review 5135618100, squash merge 54c32e939c7be6d505727df24d3ce2ad48af5518, post-merge ci 34168038154, backend 418, dashboard 7; ruleset 21934284 is unchanged, auto-merge was unarmed, and no mcp, autonomous execution, full telemetry, full control center or v0.1 completion is claimed.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -202,10 +207,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary ACCE increment beyond current intake/storage/context foundations.
+- Preparing the smallest necessary MCP server product surface increment.
 
 ## PENDING
-- ACCE beyond current intake/storage/context foundations.
 - MCP server product surface.
 - autonomous execution beyond the Local Verified Runner foundation.
 - telemetry.
@@ -220,13 +224,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after Memory Lifecycle and Provenance Foundation approval and post-merge validation.
+None known after ACCE Storage Tier and Compression Policy Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary ACCE increment beyond current intake/storage/context foundations.
+Prepare the smallest necessary MCP server product surface increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
