@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -48,6 +49,88 @@ GOVERNANCE_RELATIVE_PATHS = (
     "docs/project-brain/16-DECISIONS-LEDGER.md",
 )
 SAFE_SHA = re.compile(r"^[0-9a-f]{40}$")
+AUTHORIZED_BASE_SHA = "0733699b4c682e8b639c5e2236d45324ca2ad6c0"
+MCP_INSTRUMENTATION_CONTAINER_PATH = "/workspace/projects/.mcp-instrumentation"
+MCP_PROVIDER_COUNTER_CONTAINER_PATH = "/var/lib/hive/tmp/mcp-provider-calls.json"
+MCP_PROVIDER_COUNTER_FIELDS = frozenset({"trap_installed", "mcp_llm_calls", "mcp_provider_calls"})
+
+
+class _PayloadCapture:
+    """Keep bounded normalized protocol payloads in memory for objective scans."""
+
+    def __init__(self) -> None:
+        self._payloads: list[str] = []
+
+    def add(self, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        self._payloads.append(encoded)
+
+    def count_payloads_containing(self, tokens: tuple[str, ...]) -> int:
+        return sum(1 for payload in self._payloads if any(token in payload for token in tokens))
+
+
+def _install_provider_call_trap(instrumentation_root: Path) -> None:
+    instrumentation_root.mkdir(parents=True, exist_ok=True)
+    (instrumentation_root / "sitecustomize.py").write_text(
+        '''"""Deterministic MCP-only provider/LLM call observation trap."""
+import json
+import os
+from pathlib import Path
+
+_COUNTER_PATH = Path(os.environ["MCP_PROVIDER_CALL_COUNTER"])
+_COUNTER_FIELDS = {"trap_installed", "mcp_llm_calls", "mcp_provider_calls"}
+
+
+def _write_counter(data):
+    _COUNTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _COUNTER_PATH.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+
+
+def _record_and_fail(*_args, **_kwargs):
+    try:
+        data = json.loads(_COUNTER_PATH.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        data = {}
+    if set(data) != _COUNTER_FIELDS:
+        data = {"trap_installed": True, "mcp_llm_calls": 0, "mcp_provider_calls": 0}
+    data["mcp_llm_calls"] += 1
+    data["mcp_provider_calls"] += 1
+    _write_counter(data)
+    raise RuntimeError("mcp provider call trap")
+
+
+_write_counter({"trap_installed": True, "mcp_llm_calls": 0, "mcp_provider_calls": 0})
+
+import urllib.request
+
+urllib.request.urlopen = _record_and_fail
+''',
+        encoding="utf-8",
+    )
+
+
+def _provider_call_counts(counter_path: Path) -> dict[str, int]:
+    try:
+        data = json.loads(counter_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError) as exc:
+        raise AssertionError("MCP provider-call trap did not produce an observation") from exc
+    if set(data) != MCP_PROVIDER_COUNTER_FIELDS or data.get("trap_installed") is not True:
+        raise AssertionError("MCP provider-call trap was not installed")
+    counts: dict[str, int] = {}
+    for field in ("mcp_llm_calls", "mcp_provider_calls"):
+        value = data.get(field)
+        if type(value) is not int or value < 0:
+            raise AssertionError("MCP provider-call trap produced an invalid count")
+        counts[field] = value
+    return counts
+
+
+def _absolute_path_variants(paths: tuple[Path, ...], probes: tuple[str, ...]) -> tuple[str, ...]:
+    variants: set[str] = set(probes)
+    for path in paths:
+        text = str(path)
+        variants.update({text, text.replace("\\", "/"), text.replace("/", "\\")})
+    return tuple(sorted((value for value in variants if value), key=len, reverse=True))
 
 
 def _dict(value: object, label: str) -> dict[str, Any]:
@@ -225,6 +308,10 @@ async def _mcp_session(
             project_name,
             "exec",
             "-T",
+            "-e",
+            f"PYTHONPATH={MCP_INSTRUMENTATION_CONTAINER_PATH}:/app/backend",
+            "-e",
+            f"MCP_PROVIDER_CALL_COUNTER={MCP_PROVIDER_COUNTER_CONTAINER_PATH}",
             "api",
             "python",
             "-m",
@@ -246,23 +333,39 @@ async def _mcp_session(
 
 
 def _result_payload(result: CallToolResult, label: str) -> dict[str, Any]:
-    structured = result.structuredContent
-    if isinstance(structured, dict):
-        return structured
     for content in result.content:
         if isinstance(content, TextContent):
-            decoded = json.loads(content.text)
+            try:
+                decoded = json.loads(content.text)
+            except (TypeError, ValueError) as exc:
+                raise AssertionError(f"{label} did not return JSON text") from exc
             if isinstance(decoded, dict):
                 return cast(dict[str, Any], decoded)
+    structured = result.structuredContent
+    if isinstance(structured, dict):
+        return cast(dict[str, Any], structured)
     raise AssertionError(f"{label} did not return a structured object")
 
 
-async def _success(session: ClientSession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def _captured_payload(
+    result: CallToolResult, label: str, capture: _PayloadCapture
+) -> dict[str, Any]:
+    payload = _result_payload(result, label)
+    capture.add(payload)
+    return payload
+
+
+async def _success(
+    session: ClientSession,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    capture: _PayloadCapture,
+) -> dict[str, Any]:
     result = await session.call_tool(name, arguments)
+    payload = _captured_payload(result, name, capture)
     if result.isError is True:
-        payload = _result_payload(result, name)
         raise AssertionError(f"{name} unexpectedly failed: {payload}")
-    payload = _result_payload(result, name)
     if not isinstance(payload.get("version"), str):
         raise AssertionError(f"{name} returned no versioned payload")
     return payload
@@ -273,12 +376,13 @@ async def _failure(
     name: str,
     arguments: dict[str, Any],
     *,
+    capture: _PayloadCapture,
     forbidden: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     result = await session.call_tool(name, arguments)
+    payload = _captured_payload(result, name, capture)
     if result.isError is not True:
-        raise AssertionError(f"{name} unexpectedly succeeded: {_result_payload(result, name)}")
-    payload = _result_payload(result, name)
+        raise AssertionError(f"{name} unexpectedly succeeded: {payload}")
     if set(payload) != {"version", "error"}:
         raise AssertionError(f"{name} returned an open error shape: {payload}")
     error = _dict(payload["error"], f"{name} error")
@@ -318,7 +422,8 @@ async def _protocol_checks(
     project_name: str,
     environment: dict[str, str],
     fixtures: list[dict[str, Any]],
-) -> dict[str, bool | int]:
+    capture: _PayloadCapture,
+) -> dict[str, object]:
     first, second = fixtures
     first_id = _fixture_value(first, "project_id")
     second_id = _fixture_value(second, "project_id")
@@ -328,16 +433,36 @@ async def _protocol_checks(
     async with _mcp_session(project_name, environment) as session:
         tool_result = await session.list_tools()
         tool_names = [tool.name for tool in tool_result.tools]
+        write_capable_tools = [
+            tool.name
+            for tool in tool_result.tools
+            if tool.annotations is None
+            or tool.annotations.readOnlyHint is not True
+            or tool.annotations.destructiveHint is not False
+        ]
+        capture.add({"tool_names": tool_names})
+        canonical_write_tools_exposed = bool(write_capable_tools)
+        if canonical_write_tools_exposed:
+            raise AssertionError("MCP tool catalog exposed a write-capable tool")
         if tool_names != list(MCP_CORE_SURFACE_TOOLS):
             raise AssertionError(f"MCP tool catalog mismatch: {tool_names}")
 
-        listed = await _success(session, "project.list", {"limit": 32})
+        listed = await _success(session, "project.list", {"limit": 32}, capture=capture)
+        listed_projects = listed.get("projects")
+        if not isinstance(listed_projects, list):
+            raise AssertionError("project.list did not return a project list")
         if _project_ids(listed) != {first_id, second_id}:
             raise AssertionError("project.list did not expose exactly the two fixtures")
-        if listed.get("returned_count") != 2:
+        if (
+            listed.get("returned_count") != len(listed_projects)
+            or listed.get("truncated") is not False
+        ):
             raise AssertionError("project.list returned an unexpected count")
+        registered_project_count = len(listed_projects)
 
-        status = await _success(session, "project.status", {"project_id": first_id})
+        status = await _success(
+            session, "project.status", {"project_id": first_id}, capture=capture
+        )
         status_project = _dict(status.get("project"), "project.status project")
         if status_project.get("git_head_sha") != first["head"]:
             raise AssertionError("project.status did not preserve the registered HEAD")
@@ -348,6 +473,7 @@ async def _protocol_checks(
             session,
             "context.build",
             {"project_id": first_id, "task_id": first_task_id, "top_k": 5},
+            capture=capture,
         )
         context = _dict(built.get("context"), "context.build context")
         governance = context.get("governance")
@@ -363,6 +489,7 @@ async def _protocol_checks(
             session,
             "context.search",
             {"project_id": first_id, "query": first["search_sentinel"], "top_k": 5},
+            capture=capture,
         )
         first_results = _assert_project_scoped_results(searched, first_id)
         if len(first_results) > 5 or not first_results:
@@ -383,6 +510,7 @@ async def _protocol_checks(
             session,
             "memory.search",
             {"project_id": first_id, "status": "CONFIRMED", "limit": 32},
+            capture=capture,
         )
         memory_items = memories.get("memories")
         if not isinstance(memory_items, list) or not memory_items:
@@ -407,6 +535,7 @@ async def _protocol_checks(
             session,
             "memory.get",
             {"project_id": first_id, "memory_id": first_memory_id},
+            capture=capture,
         )
         fetched_memory_body = _dict(fetched_memory.get("memory"), "memory.get memory")
         if fetched_memory_body.get("memory_id") != first_memory_id:
@@ -414,8 +543,12 @@ async def _protocol_checks(
         if fetched_memory_body.get("project_id") != first_id:
             raise AssertionError("memory.get lost project binding")
 
-        first_checkpoint = await _success(session, "checkpoint.read", {"project_id": first_id})
-        second_checkpoint = await _success(session, "checkpoint.read", {"project_id": second_id})
+        first_checkpoint = await _success(
+            session, "checkpoint.read", {"project_id": first_id}, capture=capture
+        )
+        second_checkpoint = await _success(
+            session, "checkpoint.read", {"project_id": second_id}, capture=capture
+        )
         first_checkpoint_body = _dict(first_checkpoint.get("checkpoint"), "first checkpoint")
         second_checkpoint_body = _dict(second_checkpoint.get("checkpoint"), "second checkpoint")
         if first["checkpoint_sentinel"] not in _string(
@@ -454,23 +587,26 @@ async def _protocol_checks(
             ),
         ]
         for tool_name, arguments, forbidden in invalid_arguments:
-            await _failure(session, tool_name, arguments, forbidden=forbidden)
-        await _failure(session, "missing.tool", {})
+            await _failure(session, tool_name, arguments, capture=capture, forbidden=forbidden)
+        await _failure(session, "missing.tool", {}, capture=capture)
 
         await _failure(
             session,
             "memory.get",
             {"project_id": second_id, "memory_id": first_memory_id},
+            capture=capture,
         )
         await _failure(
             session,
             "context.build",
             {"project_id": first_id, "task_id": _fixture_value(second, "task_id")},
+            capture=capture,
         )
         isolated_search = await _success(
             session,
             "context.search",
             {"project_id": first_id, "query": second["search_sentinel"], "top_k": 5},
+            capture=capture,
         )
         isolated_results = _assert_project_scoped_results(isolated_search, first_id)
         if any(second["search_sentinel"] in str(item) for item in isolated_results):
@@ -480,20 +616,25 @@ async def _protocol_checks(
             session,
             "context.search",
             {"project_id": first_id, "query": first["search_sentinel"], "top_k": 5},
+            capture=capture,
         )
         repeated_b = await _success(
             session,
             "context.search",
             {"project_id": first_id, "query": first["search_sentinel"], "top_k": 5},
+            capture=capture,
         )
         if json.dumps(repeated_a, sort_keys=True) != json.dumps(repeated_b, sort_keys=True):
             raise AssertionError("repeated context.search was not deterministic")
 
     async with _mcp_session(project_name, environment) as session:
-        await _success(session, "project.status", {"project_id": first_id})
-        await _success(session, "checkpoint.read", {"project_id": first_id})
+        await _success(session, "project.status", {"project_id": first_id}, capture=capture)
+        await _success(session, "checkpoint.read", {"project_id": first_id}, capture=capture)
 
     return {
+        "registered_project_count": registered_project_count,
+        "canonical_write_tools_exposed": canonical_write_tools_exposed,
+        "tool_list_exact": tool_names,
         "protocol_handshake_passed": True,
         "protocol_tool_list_passed": True,
         "real_transport_exercised": True,
@@ -536,6 +677,7 @@ async def _checkpoint_negative_checks(
     project_name: str,
     environment: dict[str, str],
     fixture: dict[str, Any],
+    capture: _PayloadCapture,
 ) -> dict[str, bool]:
     checkpoint_path = cast(Path, fixture["path"]) / Path(*CHECKPOINT_RELATIVE_PATH.split("/"))
     missing_path = checkpoint_path.with_name("13-CHECKPOINT.md.mcp-missing")
@@ -546,14 +688,24 @@ async def _checkpoint_negative_checks(
     async with _mcp_session(project_name, environment) as session:
         checkpoint_path.rename(missing_path)
         try:
-            await _failure(session, "checkpoint.read", {"project_id": fixture["project_id"]})
+            await _failure(
+                session,
+                "checkpoint.read",
+                {"project_id": fixture["project_id"]},
+                capture=capture,
+            )
             missing_passed = True
         finally:
             missing_path.rename(checkpoint_path)
 
         checkpoint_path.write_bytes(original + b"\nMCP_STALE_WORKTREE_BYTES\n")
         try:
-            await _failure(session, "checkpoint.read", {"project_id": fixture["project_id"]})
+            await _failure(
+                session,
+                "checkpoint.read",
+                {"project_id": fixture["project_id"]},
+                capture=capture,
+            )
             stale_passed = True
         finally:
             checkpoint_path.write_bytes(original)
@@ -562,7 +714,12 @@ async def _checkpoint_negative_checks(
             ["git", "-C", str(fixture["path"]), "rm", "--cached", "--", CHECKPOINT_RELATIVE_PATH],
             env=environment,
         )
-        await _failure(session, "checkpoint.read", {"project_id": fixture["project_id"]})
+        await _failure(
+            session,
+            "checkpoint.read",
+            {"project_id": fixture["project_id"]},
+            capture=capture,
+        )
         untracked_passed = True
 
     return {
@@ -586,9 +743,21 @@ def _static_surface_checks() -> dict[str, bool]:
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module is not None
     }
-    if imported_modules & {"fastapi", "httpx", "requests", "urllib", "sqlalchemy"}:
-        raise AssertionError("MCP adapter imports a REST/provider/persistence transport")
-    if imported_from & {"fastapi", "httpx", "requests", "urllib", "sqlalchemy"}:
+    forbidden_transport_imports = {
+        "anthropic",
+        "boto3",
+        "cohere",
+        "fastapi",
+        "httpx",
+        "openai",
+        "requests",
+        "sqlalchemy",
+        "urllib",
+    }
+    rest_loopback_absent = not bool(imported_modules & forbidden_transport_imports) and not bool(
+        imported_from & forbidden_transport_imports
+    )
+    if not rest_loopback_absent:
         raise AssertionError("MCP adapter imports a REST/provider/persistence transport")
     required_core_symbols = (
         "list_projects",
@@ -600,34 +769,97 @@ def _static_surface_checks() -> dict[str, bool]:
         "_collect_inventory",
         "_assert_snapshot_stable",
     )
-    if any(symbol not in source for symbol in required_core_symbols):
+    direct_core_reuse = all(symbol in source for symbol in required_core_symbols)
+    if not direct_core_reuse:
         raise AssertionError("MCP adapter does not expose every direct Core seam")
-    if any(token in source for token in ("database_connection", "INSERT INTO", "UPDATE ")):
+    duplicate_persistence_absent = not any(
+        token in source for token in ("database_connection", "INSERT INTO", "UPDATE ")
+    )
+    if not duplicate_persistence_absent:
         raise AssertionError("MCP adapter contains a duplicate persistence surface")
     return {
-        "direct_core_reuse": True,
-        "rest_loopback_absent": True,
-        "duplicate_persistence_absent": True,
+        "direct_core_reuse": direct_core_reuse,
+        "rest_loopback_absent": rest_loopback_absent,
+        "duplicate_persistence_absent": duplicate_persistence_absent,
     }
 
 
-def _write_evidence(flags: dict[str, bool | int]) -> None:
-    EVIDENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _observe_migration_changed(environment: dict[str, str]) -> bool:
+    origin_main = git(ROOT, ["rev-parse", "origin/main"], env=environment)
+    if origin_main != AUTHORIZED_BASE_SHA:
+        raise AssertionError("protected main moved from the authorized base")
+    if (
+        git(ROOT, ["merge-base", AUTHORIZED_BASE_SHA, "HEAD"], env=environment)
+        != AUTHORIZED_BASE_SHA
+    ):
+        raise AssertionError("candidate is not based on the authorized protected-main base")
+
+    committed_paths = set(
+        git(
+            ROOT, ["diff", "--name-only", f"{AUTHORIZED_BASE_SHA}...HEAD"], env=environment
+        ).splitlines()
+    )
+    working_tree_paths = set(
+        git(ROOT, ["diff", "--name-only", AUTHORIZED_BASE_SHA, "--"], env=environment).splitlines()
+    )
+    untracked_paths = set(
+        git(ROOT, ["ls-files", "--others", "--exclude-standard"], env=environment).splitlines()
+    )
+    changed_paths = committed_paths | working_tree_paths | untracked_paths
+    return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
+
+
+def _write_evidence(flags: dict[str, object]) -> None:
+    observed_fields = (
+        "registered_project_count",
+        "tool_list_exact",
+        "observed_migration_head",
+        *MCP_CORE_SURFACE_TRUE_FIELDS,
+        *MCP_CORE_SURFACE_FALSE_FIELDS,
+        *MCP_CORE_SURFACE_INTEGER_FIELDS,
+    )
+    missing = [field for field in observed_fields if field not in flags]
+    if missing:
+        raise AssertionError("missing observed MCP evidence: " + ", ".join(sorted(missing)))
+
+    tool_list = flags["tool_list_exact"]
+    if not isinstance(tool_list, list) or any(not isinstance(item, str) for item in tool_list):
+        raise AssertionError("tool list observation has the wrong type")
+    if tool_list != list(MCP_CORE_SURFACE_TOOLS):
+        raise AssertionError("tool list observation does not match the closed catalog")
+
+    registered_project_count = flags["registered_project_count"]
+    if type(registered_project_count) is not int or not 2 <= registered_project_count <= 32:
+        raise AssertionError("registered project count observation is invalid")
+
+    observed_migration_head = flags["observed_migration_head"]
+    if observed_migration_head != SCHEMA_REVISION:
+        raise AssertionError("migration head observation is invalid")
+
+    for field in MCP_CORE_SURFACE_TRUE_FIELDS:
+        if type(flags[field]) is not bool or flags[field] is not True:
+            raise AssertionError(f"true MCP observation failed: {field}")
+    for field in MCP_CORE_SURFACE_FALSE_FIELDS:
+        if type(flags[field]) is not bool or flags[field] is not False:
+            raise AssertionError(f"false MCP observation failed: {field}")
+    for field in MCP_CORE_SURFACE_INTEGER_FIELDS:
+        value = flags[field]
+        if type(value) is not int or value < 0 or value != 0:
+            raise AssertionError(f"zero MCP observation failed: {field}")
+
     evidence: dict[str, Any] = {
         "status": "PASS",
         "evidence_file": MCP_CORE_SURFACE_EVIDENCE_FILE,
         "mcp_evidence_version": MCP_CORE_SURFACE_EVIDENCE_VERSION,
-        "tool_list_exact": list(MCP_CORE_SURFACE_TOOLS),
-        "registered_project_count": 2,
-        "migration_changed": False,
-        "canonical_write_tools_exposed": False,
-        "observed_migration_head": SCHEMA_REVISION,
+        "tool_list_exact": tool_list,
+        "registered_project_count": registered_project_count,
+        "migration_changed": flags["migration_changed"],
+        "canonical_write_tools_exposed": flags["canonical_write_tools_exposed"],
+        "observed_migration_head": observed_migration_head,
     }
-    evidence.update(
-        {field: bool(flags.get(field, False)) for field in MCP_CORE_SURFACE_TRUE_FIELDS}
-    )
-    evidence.update({field: False for field in MCP_CORE_SURFACE_FALSE_FIELDS})
-    evidence.update({field: 0 for field in MCP_CORE_SURFACE_INTEGER_FIELDS})
+    evidence.update({field: flags[field] for field in MCP_CORE_SURFACE_TRUE_FIELDS})
+    evidence.update({field: flags[field] for field in MCP_CORE_SURFACE_FALSE_FIELDS})
+    evidence.update({field: flags[field] for field in MCP_CORE_SURFACE_INTEGER_FIELDS})
     if set(evidence) != {
         "status",
         "evidence_file",
@@ -641,6 +873,7 @@ def _write_evidence(flags: dict[str, bool | int]) -> None:
         *MCP_CORE_SURFACE_INTEGER_FIELDS,
     }:
         raise AssertionError("MCP evidence shape is not closed")
+    EVIDENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
     EVIDENCE_PATH.write_text(
         json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -651,6 +884,7 @@ def main() -> int:
     api_port = free_port()
     dashboard_port = free_port()
     project_name = f"hive-mcp-{os.getpid()}"
+    secret_sentinel = f"mcp-secret-sentinel-{os.getpid()}-{uuid4().hex}"
     temporary_parent = ROOT / "tmp"
     temporary_parent.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
@@ -665,18 +899,24 @@ def main() -> int:
             "POSTGRES_PASSWORD": "hive",
             "HIVE_EMBEDDING_ENABLED": "false",
             "HIVE_RERANK_ENABLED": "false",
-            "HIVE_EMBEDDING_API_KEY": "",
-            "HIVE_RERANK_API_KEY": "",
+            "HIVE_EMBEDDING_API_KEY": secret_sentinel,
+            "HIVE_RERANK_API_KEY": secret_sentinel,
         }
     )
     temporary_root = Path(tempfile.mkdtemp(prefix="mcp-surface-", dir=temporary_parent))
-    flags: dict[str, bool | int] = {}
+    flags: dict[str, object] = {}
+    capture = _PayloadCapture()
     succeeded = False
     try:
         projects_root = temporary_root / "projects"
         data_root = temporary_root / "data"
         projects_root.mkdir()
         data_root.mkdir()
+        instrumentation_root = projects_root / ".mcp-instrumentation"
+        _install_provider_call_trap(instrumentation_root)
+        provider_counter_path = data_root / "tmp" / "mcp-provider-calls.json"
+        provider_counter_path.parent.mkdir(parents=True, exist_ok=True)
+        provider_counter_path.unlink(missing_ok=True)
         environment["HIVE_PROJECTS_ROOT"] = projects_root.as_posix()
         environment["HIVE_DATA_ROOT"] = data_root.as_posix()
 
@@ -702,12 +942,13 @@ def main() -> int:
             raise AssertionError(f"unexpected migration head: {migration_version}")
         if not migration_version:
             raise AssertionError("migration head was empty")
+        flags["observed_migration_head"] = migration_version
         base_url = f"http://127.0.0.1:{api_port}"
         wait_for_health(base_url)
         fixtures = _register_and_prepare_projects(
             base_url, projects_root, git_environment=environment
         )
-        flags.update(asyncio.run(_protocol_checks(project_name, environment, fixtures)))
+        flags.update(asyncio.run(_protocol_checks(project_name, environment, fixtures, capture)))
 
         compose(project_name, ["exec", "-T", "redis", "redis-cli", "FLUSHALL"], env=environment)
         compose(project_name, ["restart", "redis"], env=environment)
@@ -717,31 +958,48 @@ def main() -> int:
 
         async def redis_recovery() -> None:
             async with _mcp_session(project_name, environment) as session:
-                await _success(session, "project.status", {"project_id": fixtures[0]["project_id"]})
                 await _success(
-                    session, "checkpoint.read", {"project_id": fixtures[0]["project_id"]}
+                    session,
+                    "project.status",
+                    {"project_id": fixtures[0]["project_id"]},
+                    capture=capture,
+                )
+                await _success(
+                    session,
+                    "checkpoint.read",
+                    {"project_id": fixtures[0]["project_id"]},
+                    capture=capture,
                 )
 
         asyncio.run(redis_recovery())
         flags["redis_loss_recovery"] = True
         flags.update(
-            asyncio.run(_checkpoint_negative_checks(project_name, environment, fixtures[0]))
+            asyncio.run(
+                _checkpoint_negative_checks(project_name, environment, fixtures[0], capture)
+            )
         )
         flags.update(_static_surface_checks())
         flags["checkpoint_hive_substitution_absent"] = True
-        flags["mcp_llm_calls"] = 0
-        flags["mcp_provider_calls"] = 0
+        flags.update(_provider_call_counts(provider_counter_path))
+        flags["migration_changed"] = _observe_migration_changed(environment)
+        flags["secret_leaks"] = capture.count_payloads_containing((secret_sentinel,))
+        flags["filesystem_path_leaks"] = capture.count_payloads_containing(
+            _absolute_path_variants(
+                (temporary_root, projects_root, data_root),
+                ("C:/Windows", r"C:\Windows", "/etc"),
+            )
+        )
         _write_evidence(flags)
         succeeded = True
         print("MCP read-only core surface integration passed.")
-        print(f"tool_list={','.join(MCP_CORE_SURFACE_TOOLS)}")
-        print("registered_project_count=2")
+        print(f"tool_list={','.join(cast(list[str], flags['tool_list_exact']))}")
+        print(f"registered_project_count={flags['registered_project_count']}")
         print(f"migration_head={migration_version}")
         print("real_stdio_transport=passed")
         print("restart_recovery=passed")
         print("redis_loss_recovery=passed")
         print("checkpoint_negative_guards=passed")
-        print("provider_calls=0/0")
+        print(f"provider_calls={flags['mcp_llm_calls']}/{flags['mcp_provider_calls']}")
         return 0
     finally:
         compose(project_name, ["down", "--remove-orphans"], env=environment, check=False)

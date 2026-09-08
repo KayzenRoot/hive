@@ -1,6 +1,8 @@
 import ast
 import asyncio
+import importlib
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ from mcp.types import TextContent
 
 from app import mcp_server
 from app.config import Settings
+from app.context_manager import ContextBoundsError
 from app.memory import MemoryOrigin, MemoryResponse, MemoryStatus, MemoryType
 from app.registry import ProjectResponse, ProjectState
 from app.reranking import RerankCandidate, RerankResponse, RerankState
@@ -22,6 +25,24 @@ MEMORY_ID = UUID("00000000-0000-0000-0000-000000000002")
 TASK_ID = UUID("00000000-0000-0000-0000-000000000003")
 HEAD = "a" * 40
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def _mcp_integration_module() -> Any:
+    scripts_path = str(Path(__file__).parents[2] / "scripts")
+    if scripts_path not in sys.path:
+        sys.path.insert(0, scripts_path)
+    return importlib.import_module("mcp_integration")
+
+
+def _complete_evidence_observations(integration: Any) -> dict[str, object]:
+    return {
+        **{field: True for field in integration.MCP_CORE_SURFACE_TRUE_FIELDS},
+        **{field: False for field in integration.MCP_CORE_SURFACE_FALSE_FIELDS},
+        **{field: 0 for field in integration.MCP_CORE_SURFACE_INTEGER_FIELDS},
+        "registered_project_count": 3,
+        "tool_list_exact": list(integration.MCP_CORE_SURFACE_TOOLS),
+        "observed_migration_head": "0006_memory_lifecycle_provenance",
+    }
 
 
 def project_response(
@@ -137,6 +158,106 @@ def test_project_list_delegates_to_registry_and_is_bounded(monkeypatch: pytest.M
     ]
 
 
+def test_project_status_delegates_to_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get_project(_settings: Settings, project_id: UUID) -> ProjectResponse:
+        captured["project_id"] = project_id
+        return project_response(project_id=project_id)
+
+    monkeypatch.setattr(mcp_server, "get_project", fake_get_project)
+
+    result = mcp_server.dispatch_tool(
+        Settings(projects_root=Path.cwd()),
+        "project.status",
+        {"project_id": str(PROJECT_ID)},
+    )
+
+    assert captured["project_id"] == PROJECT_ID
+    projection = result["project"]
+    assert isinstance(projection, dict)
+    assert projection["project_id"] == str(PROJECT_ID)
+    assert projection["git_head_sha"] == HEAD
+    assert projection["state"] == "READY"
+
+
+def test_context_build_delegates_with_exact_bounded_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_context(
+        _settings: Settings,
+        project_id: UUID,
+        task_id: UUID,
+        *,
+        top_k: int,
+        disclosure_level: str | None,
+    ) -> Any:
+        captured.update(
+            {
+                "project_id": project_id,
+                "task_id": task_id,
+                "top_k": top_k,
+                "disclosure_level": disclosure_level,
+            }
+        )
+        return SimpleNamespace(
+            project=project_response(project_id=project_id),
+            task=SimpleNamespace(task_id=task_id),
+            model_dump=lambda mode: {"governance": [{"kind": "CHECKPOINT"}]},
+        )
+
+    monkeypatch.setattr(mcp_server, "build_context", fake_build_context)
+
+    result = mcp_server.dispatch_tool(
+        Settings(projects_root=Path.cwd()),
+        "context.build",
+        {
+            "project_id": str(PROJECT_ID),
+            "task_id": str(TASK_ID),
+            "top_k": 7,
+            "disclosure_level": "L2",
+        },
+    )
+
+    assert captured == {
+        "project_id": PROJECT_ID,
+        "task_id": TASK_ID,
+        "top_k": 7,
+        "disclosure_level": "L2",
+    }
+    assert result["project_id"] == str(PROJECT_ID)
+    assert result["task_id"] == str(TASK_ID)
+    assert result["checkpoint_first"] is True
+
+
+def test_memory_get_delegates_and_preserves_project_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get_memory(_settings: Settings, project_id: UUID, memory_id: UUID) -> MemoryResponse:
+        captured.update({"project_id": project_id, "memory_id": memory_id})
+        return memory_response(project_id=project_id)
+
+    monkeypatch.setattr(mcp_server, "get_memory", fake_get_memory)
+
+    result = mcp_server.dispatch_tool(
+        Settings(projects_root=Path.cwd()),
+        "memory.get",
+        {"project_id": str(PROJECT_ID), "memory_id": str(MEMORY_ID)},
+    )
+
+    assert captured == {"project_id": PROJECT_ID, "memory_id": MEMORY_ID}
+    memory = result["memory"]
+    assert isinstance(memory, dict)
+    assert memory["project_id"] == str(PROJECT_ID)
+    assert memory["status"] == "CONFIRMED"
+    assert memory["source"] == "docs/project-brain/04-ARCHITECTURE.md"
+    assert memory["source_commit"] == HEAD
+
+
 def test_context_search_delegates_to_current_reranking_seam(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,6 +351,72 @@ def test_memory_search_preserves_status_and_provenance(monkeypatch: pytest.Monke
     assert item["content_truncated"] is True
     assert len(item["content"]) == mcp_server.MAX_MEMORY_CONTENT_CHARS
     json.dumps(result)
+
+
+def test_memory_search_fails_closed_when_core_exceeds_requested_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "list_memories",
+        lambda *_args: [memory_response(), memory_response(content="second")],
+    )
+
+    with pytest.raises(mcp_server.MCPDispatchError) as error:
+        mcp_server.dispatch_tool(
+            Settings(projects_root=Path.cwd()),
+            "memory.search",
+            {"project_id": str(PROJECT_ID), "limit": 1},
+        )
+
+    assert error.value.code == "output_bound_exceeded"
+
+
+def test_project_list_fails_closed_when_inventory_exceeds_hard_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects = [
+        project_response(project_id=UUID(int=index + 1), relative_path=f"project-{index}")
+        for index in range(mcp_server.MAX_PROJECTS + 1)
+    ]
+    monkeypatch.setattr(mcp_server, "list_projects", lambda _settings: projects)
+
+    with pytest.raises(mcp_server.MCPDispatchError) as error:
+        mcp_server.dispatch_tool(Settings(projects_root=Path.cwd()), "project.list", {"limit": 1})
+
+    assert error.value.code == "output_bound_exceeded"
+
+
+def test_success_payload_bound_fails_closed() -> None:
+    with pytest.raises(mcp_server.MCPDispatchError) as error:
+        mcp_server._encode_payload(
+            {"version": "test", "content": "x" * mcp_server.MAX_TOOL_OUTPUT_BYTES}
+        )
+
+    assert error.value.code == "output_bound_exceeded"
+
+
+def test_checkpoint_read_rejects_oversized_content_without_partial_result(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = Settings(projects_root=tmp_path)
+    entry = SimpleNamespace(
+        path="docs/project-brain/13-CHECKPOINT.md",
+        source=b"x" * (mcp_server.MAX_CHECKPOINT_BYTES + 1),
+        git_status="CLEAN",
+        git_blob_sha="d" * 40,
+        content_sha256="e" * 64,
+    )
+    snapshot = SimpleNamespace(repository_head_sha=HEAD, files=[entry])
+    monkeypatch.setattr(mcp_server, "get_project", lambda *_args: project_response())
+    monkeypatch.setattr(mcp_server, "_collect_inventory", lambda *_args: snapshot)
+    monkeypatch.setattr(mcp_server, "_tracked_governance_file", lambda *_args: entry)
+    monkeypatch.setattr(mcp_server, "_assert_snapshot_stable", lambda *_args: None)
+
+    with pytest.raises(ContextBoundsError) as error:
+        mcp_server.dispatch_tool(settings, "checkpoint.read", {"project_id": str(PROJECT_ID)})
+
+    assert str(error.value) == "checkpoint_response_bound_exceeded"
 
 
 def test_checkpoint_read_returns_tracked_project_bound_content(
@@ -333,3 +520,64 @@ def test_adapter_has_no_rest_provider_or_persistence_surface() -> None:
     ):
         assert symbol in source
     assert "database_connection" not in source
+
+
+def test_evidence_writer_fails_closed_on_missing_observation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    output_path = tmp_path / "mcp-surface.json"
+    monkeypatch.setattr(integration, "EVIDENCE_PATH", output_path)
+    observations = _complete_evidence_observations(integration)
+    observations.pop("secret_leaks")
+
+    with pytest.raises(AssertionError, match="missing observed MCP evidence"):
+        integration._write_evidence(observations)
+
+    assert not output_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("migration_changed", True), ("mcp_provider_calls", 1)],
+)
+def test_evidence_writer_rejects_wrong_false_or_zero_observation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    integration = _mcp_integration_module()
+    output_path = tmp_path / f"{field}.json"
+    monkeypatch.setattr(integration, "EVIDENCE_PATH", output_path)
+    observations = _complete_evidence_observations(integration)
+    observations[field] = value
+
+    with pytest.raises(AssertionError):
+        integration._write_evidence(observations)
+
+    assert not output_path.exists()
+
+
+def test_evidence_writer_serializes_only_observed_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    integration = _mcp_integration_module()
+    output_path = tmp_path / "mcp-surface.json"
+    monkeypatch.setattr(integration, "EVIDENCE_PATH", output_path)
+    observations = _complete_evidence_observations(integration)
+
+    integration._write_evidence(observations)
+    written = json.loads(output_path.read_text(encoding="utf-8"))
+
+    for field in (
+        "registered_project_count",
+        "tool_list_exact",
+        "migration_changed",
+        "canonical_write_tools_exposed",
+        "observed_migration_head",
+        *integration.MCP_CORE_SURFACE_TRUE_FIELDS,
+        *integration.MCP_CORE_SURFACE_FALSE_FIELDS,
+        *integration.MCP_CORE_SURFACE_INTEGER_FIELDS,
+    ):
+        assert written[field] == observations[field]
