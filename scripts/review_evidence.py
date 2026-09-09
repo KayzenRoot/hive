@@ -1964,10 +1964,14 @@ def require_wo018p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
     expected_pending = list(base_pending)
     for item in EXPECTED_WO018P_PENDING_ITEMS:
         if expected_pending.count(item) != 1:
-            raise ValueError(f"WO-018-P promotion base must contain exactly one pending item: {item}")
+            raise ValueError(
+                f"WO-018-P promotion base must contain exactly one pending item: {item}"
+            )
         expected_pending.remove(item)
     if candidate_pending != expected_pending:
-        raise ValueError("WO-018-P must remove only autonomous execution and end-to-end tool gating")
+        raise ValueError(
+            "WO-018-P must remove only autonomous execution and end-to-end tool gating"
+        )
     if normalized_checkpoint_value(candidate, "IN PROGRESS") != f"- {EXPECTED_WO018P_IN_PROGRESS}":
         raise ValueError("WO-018-P candidate has an unexpected IN PROGRESS intent")
     if normalized_checkpoint_value(candidate, "BLOCKERS") != EXPECTED_WO018P_BLOCKERS:
@@ -2592,7 +2596,7 @@ def require_wo018_autonomous_evidence(
     integration: Mapping[str, object],
     migration_head_value: str,
 ) -> None:
-    if work_order != WO018_WORK_ORDER:
+    if work_order not in {WO018_WORK_ORDER, WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER}:
         return
     evidence = integration.get("autonomous_execution")
     if not isinstance(evidence, Mapping):
