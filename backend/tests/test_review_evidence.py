@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -5059,3 +5060,20 @@ def test_generic_bundle_zip_is_byte_deterministic(tmp_path: Path) -> None:
     second = tmp_path / "second.zip"
     assert deterministic_zip(first, files) == deterministic_zip(second, files)
     assert first.read_bytes() == second.read_bytes()
+
+
+def test__temporary_wo018_ruff_format_probe() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "format",
+            "--diff",
+            "scripts/review_evidence.py",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    raise AssertionError(result.stdout + result.stderr)
