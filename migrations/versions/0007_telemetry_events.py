@@ -68,7 +68,17 @@ def upgrade() -> None:
             "envelope_version = 'telemetry-event-bus-v1'",
             name="ck_telemetry_events_envelope_version",
         ),
-        sa.CheckConstraint("length(btrim(event_type)) > 0", name="ck_telemetry_events_type"),
+        sa.CheckConstraint(
+            "event_type IN ("
+            "'project.discovered', 'project.indexing', 'task.ingested', "
+            "'context.started', 'context.retrieved', 'context.built', "
+            "'cache.hit', 'cache.miss', 'executor.started', 'tool.called', "
+            "'file.changed', 'test.started', 'test.finished', "
+            "'validation.failed', 'validation.passed', 'memory.staged', "
+            "'memory.promoted', 'run.completed', 'run.failed'"
+            ")",
+            name="ck_telemetry_events_type",
+        ),
         sa.CheckConstraint("length(btrim(emission_key)) > 0", name="ck_telemetry_events_key"),
         sa.CheckConstraint("jsonb_typeof(payload) = 'object'", name="ck_telemetry_events_payload"),
         sa.CheckConstraint(
