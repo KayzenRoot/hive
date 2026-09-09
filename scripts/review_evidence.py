@@ -1632,14 +1632,14 @@ def require_wo016p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
 
 
 def _require_wo017p_strict_raw_checkpoint_grammar(
-    base_text: str, candidate_text: str
+    base_text: str,
+    candidate_text: str,
 ) -> None:
     base_preamble, base_ordered_sections, base_sections = _raw_checkpoint_structure(
         base_text, "base"
     )
-    candidate_preamble, candidate_ordered_sections, candidate_sections = (
-        _raw_checkpoint_structure(candidate_text, "candidate")
-    )
+    candidate_structure = _raw_checkpoint_structure(candidate_text, "candidate")
+    candidate_preamble, candidate_ordered_sections, candidate_sections = candidate_structure
     if base_preamble != candidate_preamble:
         raise ValueError("WO-017-P candidate preamble changed byte-for-byte")
     base_names = tuple(section.name for section in base_ordered_sections)
@@ -1651,8 +1651,7 @@ def _require_wo017p_strict_raw_checkpoint_grammar(
     ):
         if base_section.heading.encode("utf-8") != candidate_section.heading.encode("utf-8"):
             raise ValueError(
-                "WO-017-P section heading changed byte-for-byte at position "
-                f"{position}"
+                f"WO-017-P heading changed byte-for-byte at position {position}"
             )
     required_sections = set(_WO016P_RAW_CONTROLLED_SECTIONS)
     if not required_sections.issubset(base_sections):
@@ -1724,10 +1723,8 @@ def require_wo017p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
     expected_pending.remove(EXPECTED_WO017P_PENDING_ITEM)
     if candidate_pending != expected_pending:
         raise ValueError("WO-017-P must remove only MCP server product surface. from PENDING")
-    if (
-        normalized_checkpoint_value(candidate, "IN PROGRESS")
-        != f"- {EXPECTED_WO017P_IN_PROGRESS}"
-    ):
+    candidate_in_progress = normalized_checkpoint_value(candidate, "IN PROGRESS")
+    if candidate_in_progress != f"- {EXPECTED_WO017P_IN_PROGRESS}":
         raise ValueError("WO-017-P candidate has an unexpected IN PROGRESS intent")
     if normalized_checkpoint_value(candidate, "BLOCKERS") != EXPECTED_WO017P_BLOCKERS:
         raise ValueError("WO-017-P candidate has an unexpected BLOCKERS intent")
@@ -2341,10 +2338,7 @@ def require_wo017p_g1_scope(
     if any(path == "migrations" or path.startswith("migrations/") for path in paths):
         raise ValueError(f"{WO017P_G1_WORK_ORDER} cannot change migrations")
     if migration_head() != "0006_memory_lifecycle_provenance":
-        raise ValueError(
-            f"{WO017P_G1_WORK_ORDER} requires migration head "
-            "0006_memory_lifecycle_provenance"
-        )
+        raise ValueError(f"{WO017P_G1_WORK_ORDER} requires migration head 0006")
 
 
 def require_wo015_scope(
@@ -2415,9 +2409,7 @@ def require_wo015p_scope(
                 f"observed {base_sha}"
             )
 
-    base_review_evidence = git_blob_bytes(
-        base_sha, "scripts/review_evidence.py"
-    ).decode("utf-8")
+    base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode("utf-8")
     if WO015P_G1_WORK_ORDER not in base_review_evidence:
         raise ValueError(
             f"{WO015P_WORK_ORDER} requires merged {WO015P_G1_WORK_ORDER} support in its base"
@@ -2528,9 +2520,7 @@ def require_wo017p_scope(
         if authorized_base_sha is None:
             raise ValueError(f"{WO017P_WORK_ORDER} requires exactly one authorized-base marker")
         if HEX_SHA.fullmatch(authorized_base_sha) is None:
-            raise ValueError(
-                f"{WO017P_WORK_ORDER} authorized-base marker must be lowercase 40-hex"
-            )
+            raise ValueError("WO-017-P authorized-base marker must be lowercase 40-hex")
         if authorized_base_sha != base_sha:
             raise ValueError(
                 f"{WO017P_WORK_ORDER} authorized-base marker must match the pull request base SHA"
@@ -2542,7 +2532,8 @@ def require_wo017p_scope(
                 f"{WO017P_WORK_ORDER} must target current protected main "
                 f"{current_main}, observed {base_sha}"
             )
-    base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode("utf-8")
+    evidence_path = "scripts/review_evidence.py"
+    base_review_evidence = git_blob_bytes(base_sha, evidence_path).decode("utf-8")
     if WO017P_G1_WORK_ORDER not in base_review_evidence:
         raise ValueError(
             f"{WO017P_WORK_ORDER} requires merged {WO017P_G1_WORK_ORDER} support in its base"
@@ -2551,11 +2542,12 @@ def require_wo017p_scope(
     base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
     candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
     candidate_manifest = (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
-    require_wo017p_checkpoint_semantics(
-        base_checkpoint, candidate_checkpoint_bytes.decode("utf-8")
-    )
+    candidate_checkpoint = candidate_checkpoint_bytes.decode("utf-8")
+    require_wo017p_checkpoint_semantics(base_checkpoint, candidate_checkpoint)
     require_wo017p_manifest_contract(
-        base_manifest, candidate_manifest, candidate_checkpoint_bytes
+        base_manifest,
+        candidate_manifest,
+        candidate_checkpoint_bytes,
     )
 
 
@@ -2890,9 +2882,7 @@ def verify_wo017p_g1_governance_contract(
     if frozenset({WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER}) != (
         ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
-        raise ValueError(
-            f"{WO017P_G1_WORK_ORDER} requires the WO-017 promotion pair to be active"
-        )
+        raise ValueError(f"{WO017P_G1_WORK_ORDER} requires active promotion pair")
     for stale in (
         WO014P_G1_WORK_ORDER,
         WO014P_WORK_ORDER,
@@ -2921,18 +2911,11 @@ def verify_wo017p_g1_governance_contract(
         "checkpoint_changed": False,
         "authorized_paths": [],
     }:
-        raise ValueError(
-            f"{WO017P_G1_WORK_ORDER} requires no canonical Project Brain changes"
-        )
+        raise ValueError(f"{WO017P_G1_WORK_ORDER} forbids canonical changes")
     if migration_head_value != "0006_memory_lifecycle_provenance":
-        raise ValueError(
-            f"{WO017P_G1_WORK_ORDER} requires migration head "
-            "0006_memory_lifecycle_provenance"
-        )
+        raise ValueError(f"{WO017P_G1_WORK_ORDER} requires migration head 0006")
     if governance.get("ruleset_unchanged") is not True:
-        raise ValueError(
-            f"{WO017P_G1_WORK_ORDER} requires the protected ruleset to be unchanged"
-        )
+        raise ValueError(f"{WO017P_G1_WORK_ORDER} requires unchanged ruleset")
     pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
     if pull_request.get("auto_merge_armed") is not False:
         raise ValueError(f"{WO017P_G1_WORK_ORDER} requires auto-merge to remain unarmed")
