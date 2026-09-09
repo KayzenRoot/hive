@@ -14,6 +14,7 @@ import time
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import unquote
 from uuid import UUID, uuid4
 
 import psycopg
@@ -59,23 +60,27 @@ CANONICAL_EVENT_TYPES = (
 
 _CANONICAL_EVENT_SET = frozenset(CANONICAL_EVENT_TYPES)
 _SECRET_KEY = re.compile(
-    r"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)"
+    r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
+    r"authorization|password|secret|token)\b"
 )
 _SECRET_VALUE = re.compile(
     r"(?ix)(?:"
     r"\bgh[pousr]_[A-Za-z0-9_]+\b"
+    r"|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"
     r"|\bsk-[A-Za-z0-9_-]+\b"
     r"|\bWO\d+_[A-Za-z0-9_-]*SECRET[A-Za-z0-9_-]*"
-    r"|\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)"
+    r"|\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
+    r"authorization|password|secret|token)"
     r"\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"
-    r"|\bbearer\s+[A-Za-z0-9._~+/=-]{8,}\b"
+    r"|\bbearer\s+\S+"
+    r"|\bauthorization\s*/\s*bearer\b"
+    r"|\b[a-z][a-z0-9+.-]*://[^/\s?#]+@"
     r")"
 )
-_WINDOWS_ABSOLUTE = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\)")
+_WINDOWS_ABSOLUTE = re.compile(r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)")
 _POSIX_ABSOLUTE = re.compile(
-    r"(?<![\w/])/(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+"
-    r"|(?<![\w/])/(?:home|root|tmp|var|etc|usr|opt|srv|mnt|workspace|app|run|private|Users|Volumes)"
-    r"(?=$|[/\s,;)}\]])"
+    r"(?<![A-Za-z0-9_/:])/(?:[A-Za-z0-9._+%~-]+(?:/[A-Za-z0-9._+%~-]*)*)"
+    r"(?=$|[\s,;:!?.)}\]])"
 )
 _CURSOR = re.compile(r"^[1-9][0-9]*$")
 _MAX_DEPTH = 6
@@ -87,13 +92,25 @@ class TelemetryValidationError(ValueError):
     """Input cannot be accepted into the canonical event stream."""
 
 
+def _percent_decode_variants(value: str) -> tuple[str, ...]:
+    variants = [value]
+    current = value
+    while "%" in current:
+        decoded = unquote(current)
+        if decoded == current:
+            break
+        variants.append(decoded)
+        current = decoded
+    return tuple(variants)
+
+
 def _validate_safe_string(value: str, *, field_name: str) -> str:
     if not value or len(value) > _MAX_STRING_CHARS or any(ord(char) < 32 for char in value):
         raise TelemetryValidationError(f"{field_name} is outside its bound")
-    if (
-        _SECRET_VALUE.search(value)
-        or _WINDOWS_ABSOLUTE.search(value)
-        or _POSIX_ABSOLUTE.search(value)
+    if value.strip() == "/" or any(
+        pattern.search(candidate)
+        for candidate in _percent_decode_variants(value)
+        for pattern in (_SECRET_VALUE, _WINDOWS_ABSOLUTE, _POSIX_ABSOLUTE)
     ):
         raise TelemetryValidationError(f"{field_name} contains forbidden secret or path data")
     return value
@@ -121,7 +138,8 @@ def _sanitize_value(value: object, *, depth: int = 0) -> object:
         for raw_key, raw_value in value.items():
             if not isinstance(raw_key, str) or not raw_key or len(raw_key) > 128:
                 raise TelemetryValidationError("event object key is outside its bound")
-            if _SECRET_KEY.search(raw_key):
+            _validate_safe_string(raw_key, field_name="event object key")
+            if any(_SECRET_KEY.search(candidate) for candidate in _percent_decode_variants(raw_key)):
                 raise TelemetryValidationError("event object contains a forbidden secret key")
             sanitized[raw_key] = _sanitize_value(raw_value, depth=depth + 1)
         return sanitized
@@ -261,9 +279,27 @@ def _same_immutable_content(
         and existing.event_type == event_type
         and existing.task_id == task_id
         and existing.run_id == run_id
-        and existing.payload == payload
-        and existing.provenance == provenance
+        and _json_values_equal(existing.payload, payload)
+        and _json_values_equal(existing.provenance, provenance)
     )
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    """Compare sanitized JSON values without Python's bool/int coercion."""
+
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        if left.keys() != cast(dict[str, object], right).keys():
+            return False
+        right_dict = cast(dict[str, object], right)
+        return all(_json_values_equal(left[key], right_dict[key]) for key in left)
+    if isinstance(left, list):
+        right_list = cast(list[object], right)
+        return len(left) == len(right_list) and all(
+            _json_values_equal(item, other) for item, other in zip(left, right_list, strict=True)
+        )
+    return left == right
 
 
 def emit_event(
@@ -388,12 +424,15 @@ def stream_events(
     last_heartbeat = time.monotonic()
     sent = 0
     while sent < max_events and time.monotonic() < deadline:
-        page = list_events(
-            settings,
-            project_id,
-            after=cursor,
-            limit=min(EVENT_PAGE_MAX_SIZE, max_events - sent),
-        )
+        try:
+            page = list_events(
+                settings,
+                project_id,
+                after=cursor,
+                limit=min(EVENT_PAGE_MAX_SIZE, max_events - sent),
+            )
+        except psycopg.Error:
+            return
         if page.events:
             for event in page.events:
                 yield _sse_event(event)

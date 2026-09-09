@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
 
+import psycopg
 import pytest
 from pydantic import ValidationError
 
@@ -120,14 +121,54 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
         telemetry.sanitize_payload({"password": "do-not-store"})
     with pytest.raises(telemetry.TelemetryValidationError):
         telemetry.sanitize_payload({"path": "C:\\Users\\csn19\\secret.txt"})
+    for key in (
+        "/secret.txt",
+        r"C:\Users\csn19\secret.txt",
+        r"\\server\share\secret.txt",
+        "api_key",
+        "api%5Fkey",
+    ):
+        with pytest.raises(telemetry.TelemetryValidationError):
+            telemetry.sanitize_payload({key: "safe"})
     for value in (
+        "/",
+        "/secret.txt",
+        "/secret.txt/",
+        "message before /secret.txt",
+        "message before /safe+name.txt",
+        "message before /safe%20name.txt",
         "message before C:\\Users\\csn19\\secret.txt",
+        r"message before \\server\share\secret.txt",
         "message before /home/csn19/secret.txt",
         "message Authorization: Bearer abc.def.ghi",
         "message api_key=embedded-secret",
+        "message client_secret=embedded-secret",
         "message password: embedded-secret",
+        "message token=embedded-secret",
         "message secret=embedded-secret",
+        "message " + "AK" + "IA1234567890ABCDEF",
         "message WO018_TEST_SECRET_DO_NOT_LEAK_integration",
+        "message Bearer x",
+        "message https://user:pass@example.com/path",
+        "message https://user%3Apass%40example.com/path",
+        "message postgres://user:pass@host/db",
+        "message redis://:secret@redis:6379/0",
+        "%252Fsecret.txt",
+        "message %252Fhome%252Fuser%252Fsecret.txt",
+    ):
+        with pytest.raises(telemetry.TelemetryValidationError):
+            telemetry.sanitize_payload({"message": value})
+    for value in (
+        "https://example.com/path",
+        "ordinary prose with a slash / between words",
+    ):
+        assert telemetry.sanitize_payload({"message": value}) == {"message": value}
+    for value in (
+        "https://example.com/path?api_key=embedded-secret",
+        "https://example.com/path#client_secret=embedded-secret",
+        "https://example.com/path?api%5Fkey=embedded-secret",
+        "https://example.com/path?api%5Fkey%3Dembedded-secret",
+        "Authorization/Bearer",
     ):
         with pytest.raises(telemetry.TelemetryValidationError):
             telemetry.sanitize_payload({"message": value})
@@ -193,6 +234,40 @@ def test_emit_event_enforces_task_project_and_suppresses_duplicate(
         )
 
 
+def test_immutable_content_comparison_preserves_nested_json_types() -> None:
+    existing = envelope(
+        payload={"nested": {"flag": True}, "items": [False, {"count": 1}]},
+        provenance={"attempt": 1, "metadata": {"enabled": False}},
+    )
+
+    def same(payload: dict[str, object], provenance: dict[str, object]) -> bool:
+        return telemetry._same_immutable_content(
+            existing,
+            existing.event_type,
+            existing.task_id,
+            existing.run_id,
+            payload,
+            provenance,
+        )
+
+    assert same(
+        {"nested": {"flag": True}, "items": [False, {"count": 1}]},
+        {"attempt": 1, "metadata": {"enabled": False}},
+    )
+    assert not same(
+        {"nested": {"flag": 1}, "items": [False, {"count": 1}]},
+        {"attempt": 1, "metadata": {"enabled": False}},
+    )
+    assert not same(
+        {"nested": {"flag": True}, "items": [0, {"count": 1}]},
+        {"attempt": 1, "metadata": {"enabled": False}},
+    )
+    assert not same(
+        {"nested": {"flag": True}, "items": [False, {"count": 1}]},
+        {"attempt": 1, "metadata": {"enabled": 0}},
+    )
+
+
 def test_project_scoped_ordered_pagination_and_sse(monkeypatch: pytest.MonkeyPatch) -> None:
     events = [
         envelope(ordering_id=1, cursor="1"),
@@ -221,6 +296,21 @@ def test_project_scoped_ordered_pagination_and_sse(monkeypatch: pytest.MonkeyPat
     assert "id: 2" in stream
     assert "event: run.completed" in stream
     assert calls == [(PROJECT_ID, "1", 1)]
+
+
+def test_stream_ends_without_fabricating_data_when_database_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable(
+        _settings: Settings, _project_id: UUID, *, after: str | None, limit: int
+    ) -> telemetry.EventPage:
+        del after, limit
+        raise psycopg.Error("database unavailable")
+
+    monkeypatch.setattr(telemetry, "list_events", unavailable)
+    assert (
+        list(telemetry.stream_events(Settings(), PROJECT_ID, max_events=1, timeout_seconds=1)) == []
+    )
 
 
 def test_event_page_is_project_scoped_by_query(monkeypatch: pytest.MonkeyPatch) -> None:
