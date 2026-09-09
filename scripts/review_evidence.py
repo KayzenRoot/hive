@@ -3019,7 +3019,7 @@ def verify_wo015p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-017-P", "WO-999-P"):
+    for rejected in ("WO-999-P",):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -3053,7 +3053,7 @@ def verify_wo015p_g1_governance_contract(
         f"work_order={WO015P_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO015P_G1_WORK_ORDER},{WO015P_WORK_ORDER}; "
-        "historical_WO-014-P_G1_WO-014-P=REJECTED; unknown_WO-017-P_WO-999-P=REJECTED; "
+        "historical_WO-014-P_G1_WO-014-P=REJECTED; current_WO-017-P=SUPPORTED; unknown_WO-999-P=REJECTED; "
         "authorized_base_parser=PASS; future_two_file_scope=PASS; "
         "checkpoint_semantics=PASS; manifest_contract=PASS; memory_evidence=PASS; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
@@ -4760,7 +4760,7 @@ def verify_wo014p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-017-P", "WO-999-P"):
+    for rejected in ("WO-999-P",):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -4793,7 +4793,7 @@ def verify_wo014p_g1_governance_contract(
         "project_brain_changed=False; migration_changed=False; "
         "active_promotions=WO-014-P-G1,WO-014-P; "
         "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED; "
-        "unknown_WO-017-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
+        "current_WO-017-P=SUPPORTED; unknown_WO-999-P=REJECTED; authorized_base_parser=PASS; "
         "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
         "renderer_markers=PASS; ruleset_unchanged=PASS; auto_merge=UNARMED; "
         "product_change=False; memory_implementation=False; checkpoint_promotion=False"
