@@ -671,7 +671,8 @@ def test_autonomous_execution_evidence_parser_fails_closed(
 
 def test_wo018_schema_and_renderers_are_explicit() -> None:
     manifest = evidence_fixture()
-    integration = cast(dict[str, object], cast(dict[str, object], manifest["evidence"])["integration"])
+    evidence = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence["integration"])
     integration["autonomous_execution"] = autonomous_execution_evidence_fixture()
     validate_manifest(manifest)
 
