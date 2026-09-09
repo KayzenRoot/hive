@@ -2556,7 +2556,7 @@ def require_wo018_scope(
     base_branch: str = "main",
     enforce_current_main: bool = False,
 ) -> None:
-    if work_order not in {WO018_WORK_ORDER, WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER}:
+    if work_order != WO018_WORK_ORDER:
         return
     if base_branch != "main":
         raise ValueError(f"{WO018_WORK_ORDER} requires the protected main base branch")
