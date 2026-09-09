@@ -429,6 +429,24 @@ def mcp_surface_evidence_fixture() -> dict[str, object]:
     }
 
 
+def autonomous_execution_evidence_fixture() -> dict[str, object]:
+    return {
+        "status": "PASS",
+        "evidence_file": review_evidence.AUTONOMOUS_EXECUTION_EVIDENCE_FILE,
+        "autonomous_evidence_version": review_evidence.AUTONOMOUS_EXECUTION_EVIDENCE_VERSION,
+        "executor_adapter_name": "deterministic-fixture-v1",
+        "observed_migration_head": "0006_memory_lifecycle_provenance",
+        **{field: True for field in review_evidence.AUTONOMOUS_EXECUTION_TRUE_FIELDS},
+        **{field: False for field in review_evidence.AUTONOMOUS_EXECUTION_FALSE_FIELDS},
+        "tool_subset_count": 2,
+        "validation_commands_count": 1,
+        "executor_llm_calls": 0,
+        "executor_provider_calls": 0,
+        "secret_leaks": 0,
+        "filesystem_path_leaks": 0,
+    }
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
@@ -520,6 +538,291 @@ def test_wo016_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
         )
     with pytest.raises(ValueError, match="outside"):
         require_wo016_scope(WO016_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
+
+
+def test_wo018_registration_and_bounded_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_evidence.require_supported_work_order(review_evidence.WO018_G1_WORK_ORDER)
+    review_evidence.require_supported_work_order(review_evidence.WO018_WORK_ORDER)
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    review_evidence.require_wo018_g1_scope(
+        review_evidence.WO018_G1_WORK_ORDER,
+        review_evidence.WO018_G1_BASE_SHA,
+        sorted(review_evidence.WO018_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo018_g1_scope(
+            review_evidence.WO018_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(review_evidence.WO018_G1_ALLOWED_PATHS),
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        review_evidence.require_wo018_g1_scope(
+            review_evidence.WO018_G1_WORK_ORDER,
+            review_evidence.WO018_G1_BASE_SHA,
+            sorted(review_evidence.WO018_G1_ALLOWED_PATHS),
+            base_branch="release",
+        )
+    for forbidden in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "migrations/versions/0007_autonomous.py",
+        "backend/app/execution_orchestrator.py",
+        ".github/workflows/ci.yml",
+    ):
+        with pytest.raises(ValueError, match="exactly the four|canonical Project Brain|migrations"):
+            review_evidence.require_wo018_g1_scope(
+                review_evidence.WO018_G1_WORK_ORDER,
+                review_evidence.WO018_G1_BASE_SHA,
+                ["scripts/review_evidence.py", forbidden],
+            )
+
+    review_evidence.require_wo018_scope(
+        review_evidence.WO018_WORK_ORDER,
+        "b" * 40,
+        ["backend/app/execution_orchestrator.py"],
+    )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            "b" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+    with pytest.raises(ValueError, match="migrations"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            "b" * 40,
+            ["migrations/versions/0007_autonomous.py"],
+        )
+    with pytest.raises(ValueError, match="outside"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            "b" * 40,
+            ["backend/app/unrelated.py"],
+        )
+
+
+def test_wo018_autonomous_evidence_contract_is_closed() -> None:
+    evidence = autonomous_execution_evidence_fixture()
+    integration = {"autonomous_execution": evidence}
+    review_evidence.require_wo018_autonomous_evidence(
+        review_evidence.WO018_WORK_ORDER,
+        integration,
+        "0006_memory_lifecycle_provenance",
+    )
+    for field in review_evidence.AUTONOMOUS_EXECUTION_TRUE_FIELDS:
+        broken = {**evidence, field: False}
+        with pytest.raises(ValueError, match=field):
+            review_evidence.require_wo018_autonomous_evidence(
+                review_evidence.WO018_WORK_ORDER,
+                {"autonomous_execution": broken},
+                "0006_memory_lifecycle_provenance",
+            )
+    for field in review_evidence.AUTONOMOUS_EXECUTION_FALSE_FIELDS:
+        broken = {**evidence, field: True}
+        with pytest.raises(ValueError, match=field):
+            review_evidence.require_wo018_autonomous_evidence(
+                review_evidence.WO018_WORK_ORDER,
+                {"autonomous_execution": broken},
+                "0006_memory_lifecycle_provenance",
+            )
+    missing = dict(evidence)
+    missing.pop("diff_captured")
+    with pytest.raises(ValueError, match="shape"):
+        review_evidence.require_wo018_autonomous_evidence(
+            review_evidence.WO018_WORK_ORDER,
+            {"autonomous_execution": missing},
+            "0006_memory_lifecycle_provenance",
+        )
+    extra = {**evidence, "invented": True}
+    with pytest.raises(ValueError, match="shape"):
+        review_evidence.require_wo018_autonomous_evidence(
+            review_evidence.WO018_WORK_ORDER,
+            {"autonomous_execution": extra},
+            "0006_memory_lifecycle_provenance",
+        )
+
+
+def test_wo018_future_product_requires_current_main_and_merged_g1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = "c" * 40
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": current if args == ("rev-parse", "origin/main") else fallback,
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"merged WO-018-G1 governance support",
+    )
+    review_evidence.require_wo018_scope(
+        review_evidence.WO018_WORK_ORDER,
+        current,
+        ["backend/app/execution_orchestrator.py"],
+        enforce_current_main=True,
+    )
+
+    with pytest.raises(ValueError, match="current protected main"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            "d" * 40,
+            ["backend/app/execution_orchestrator.py"],
+            enforce_current_main=True,
+        )
+
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"governance support missing",
+    )
+    with pytest.raises(ValueError, match="requires merged WO-018-G1 support"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            current,
+            ["backend/app/execution_orchestrator.py"],
+            enforce_current_main=True,
+        )
+
+
+def test_wo018_autonomous_evidence_rejects_identity_version_and_count_mutations() -> None:
+    evidence = autonomous_execution_evidence_fixture()
+
+    invalid_cases: tuple[tuple[str, object, str], ...] = (
+        ("status", "FAIL", "must PASS"),
+        ("evidence_file", "wrong.json", "file is invalid"),
+        ("autonomous_evidence_version", "autonomous-execution-v0", "version is invalid"),
+        ("executor_adapter_name", "UNKNOWN", "executor adapter identity"),
+        ("observed_migration_head", "0005_semantic_retrieval", "migration head mismatch"),
+        ("tool_subset_count", 0, "tool subset count"),
+        ("validation_commands_count", 0, "validation command count"),
+        ("executor_llm_calls", -1, "bounded integer"),
+        ("executor_provider_calls", -1, "bounded integer"),
+        ("secret_leaks", 1, "zero secret"),
+        ("filesystem_path_leaks", 1, "zero secret"),
+    )
+    for field, value, message in invalid_cases:
+        broken = {**evidence, field: value}
+        with pytest.raises(ValueError, match=message):
+            review_evidence.require_wo018_autonomous_evidence(
+                review_evidence.WO018_WORK_ORDER,
+                {"autonomous_execution": broken},
+                "0006_memory_lifecycle_provenance",
+            )
+
+
+def test_wo018_autonomous_schema_rejects_extra_field() -> None:
+    manifest = evidence_fixture()
+    evidence_container = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence_container["integration"])
+    integration["autonomous_execution"] = {
+        **autonomous_execution_evidence_fixture(),
+        "invented": True,
+    }
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        validate_manifest(manifest)
+
+
+def test_autonomous_execution_evidence_parser_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = autonomous_execution_evidence_fixture()
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda name: json.dumps(evidence)
+        if name == review_evidence.AUTONOMOUS_EXECUTION_EVIDENCE_FILE
+        else "",
+    )
+    assert review_evidence.autonomous_execution_evidence() == evidence
+
+    broken = {**evidence, "unauthorized_tool_rejected": False}
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda name: json.dumps(broken)
+        if name == review_evidence.AUTONOMOUS_EXECUTION_EVIDENCE_FILE
+        else "",
+    )
+    assert review_evidence.autonomous_execution_evidence()["status"] == "FAIL"
+
+
+def test_wo018_schema_and_renderers_are_explicit() -> None:
+    manifest = evidence_fixture()
+    evidence = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence["integration"])
+    integration["autonomous_execution"] = autonomous_execution_evidence_fixture()
+    validate_manifest(manifest)
+
+    g1 = render_body(
+        work_order="WO-018-G1",
+        pr_number=63,
+        branch="governance/wo018-autonomous-evidence",
+        base_sha=review_evidence.WO018_G1_BASE_SHA,
+        head_sha="b" * 40,
+        artifact_name="artifact",
+        ruleset_before="before",
+        ruleset_after="after",
+        merge_before="before",
+        merge_after="after",
+    )
+    assert "WO-018-G1 READY FOR SOL AUDIT" in g1
+    product = render_body(
+        work_order="WO-018",
+        pr_number=64,
+        branch="feature/wo018-autonomous-execution",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        artifact_name="artifact",
+        ruleset_before="before",
+        ruleset_after="after",
+        merge_before="before",
+        merge_after="after",
+    )
+    assert "WO-018 READY FOR SOL AUDIT" in product
+
+
+def test_wo018_g1_governance_contract_rejects_product_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    governance = {
+        "ruleset_unchanged": True,
+        "pull_request": {"auto_merge_armed": False},
+    }
+    result = review_evidence.verify_wo018_g1_governance_contract(
+        review_evidence.WO018_G1_WORK_ORDER,
+        review_evidence.WO018_G1_BASE_SHA,
+        sorted(review_evidence.WO018_G1_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        governance,
+        {},
+        "0006_memory_lifecycle_provenance",
+    )
+    assert result is not None
+    with pytest.raises(ValueError, match="must not claim"):
+        review_evidence.verify_wo018_g1_governance_contract(
+            review_evidence.WO018_G1_WORK_ORDER,
+            review_evidence.WO018_G1_BASE_SHA,
+            sorted(review_evidence.WO018_G1_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            governance,
+            {"autonomous_execution": autonomous_execution_evidence_fixture()},
+            "0006_memory_lifecycle_provenance",
+        )
 
 
 def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:

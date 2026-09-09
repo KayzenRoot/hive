@@ -19,6 +19,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-017",
         "WO-017-P-G1",
         "WO-017-P",
+        "WO-018-G1",
+        "WO-018",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -1782,6 +1784,126 @@ WO-017 READY FOR SOL AUDIT
 """
 
 
+def _render_wo018_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita exclusivamente Review Evidence e renderer para o futuro
+WO-018 Autonomous Execution Foundation. Esta G1 nao implementa orquestrador,
+nao despacha executor e nao altera produto.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base autorizada exata: 5e699f1315638a4e767a94bcf6536cd52988ee3b.
+- Base informada: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo G1 fechado
+
+Exatamente quatro arquivos: backend/tests/test_review_evidence.py,
+schemas/review-evidence-v1.schema.json, scripts/review_evidence.py e
+scripts/review_pr_body.py. Project Brain, checkpoint, migrations, produto,
+CI de produto, runner, Context Manager, MCP, dashboard e telemetria permanecem
+intocados. Migration head: 0006_memory_lifecycle_provenance.
+
+## 4. Contrato futuro WO-018
+
+WO-018 fica registrado explicitamente com escopo bounded para uma fundacao
+provider-independent de Execution Orchestrator sobre Context Manager e Local
+Verified Runner existentes. O verifier exige autonomous-execution-v1 em
+autonomous-execution.json.
+
+PASS futuro exige reuso do Context Manager, checkpoint-first, Local Verified
+Runner e ToolPolicy, tool subset gating, rejeicao de tool nao autorizada e
+shell bypass, saida estruturada/staged nao canonica, captura de files/diff/
+tests/validation/review, isolamento project/task, rejeicao de escrita Project
+Brain, rejeicao de HEAD race, uma tarefa coding end-to-end, zero secret/path
+leaks e nenhuma acao commit/push/merge/checkpoint.
+
+## 5. Governanca
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Nenhum merge, release, checkpoint ou inicio de WO-018 e executado.
+
+A PR permanece aberta, Ready e nao mesclada. Sol Review State: AWAITING_SOL.
+
+WO-018-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo018_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Escopo de produto Autonomous Execution fechado
+
+Esta PR futura implementa somente a menor fundacao necessaria de execucao
+autonoma provider-independent sobre capacidades HIVE existentes. Nao inclui
+telemetria ampla, Control Center, migrations, checkpoint promotion, backup,
+release ou claims de conclusao V0.1.
+
+## 2. Identidade
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Migration head: 0006_memory_lifecycle_provenance.
+
+## 3. Evidencia obrigatoria
+
+O contrato autonomous-execution-v1 prova Execution Orchestrator real,
+ExecutorAdapter provider-independent, identidade project/task scoped, Context
+Manager e Local Verified Runner reutilizados, ToolPolicy e tool gating,
+rejeicoes fail-closed, saida staged/noncanonical, captura de diff/tests/
+validation/review e uma pequena tarefa coding end-to-end.
+
+A fundacao nao executa commit, push, merge ou promocao de checkpoint.
+Secret/path leaks permanecem 0.
+
+## 4. Governanca
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Sol audita o HEAD exato antes de qualquer merge.
+
+WO-018 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_g1_body(
     *,
     work_order: str,
@@ -2529,6 +2651,32 @@ def render_body(
         )
     if work_order == "WO-016":
         return _render_wo016_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-018-G1":
+        return _render_wo018_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-018":
+        return _render_wo018_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
