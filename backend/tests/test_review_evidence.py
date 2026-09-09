@@ -1454,7 +1454,10 @@ def test_wo018p_g1_scope_is_exact_and_noncanonical(
         "backend/app/execution_orchestrator.py",
         ".github/workflows/ci.yml",
     ):
-        with pytest.raises(ValueError, match="exactly the three|canonical Project Brain|migrations"):
+        with pytest.raises(
+            ValueError,
+            match="exactly the three|canonical Project Brain|migrations",
+        ):
             review_evidence.require_wo018p_g1_scope(
                 review_evidence.WO018P_G1_WORK_ORDER,
                 review_evidence.WO018P_G1_BASE_SHA,
