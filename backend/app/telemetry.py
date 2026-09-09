@@ -139,7 +139,9 @@ def _sanitize_value(value: object, *, depth: int = 0) -> object:
             if not isinstance(raw_key, str) or not raw_key or len(raw_key) > 128:
                 raise TelemetryValidationError("event object key is outside its bound")
             _validate_safe_string(raw_key, field_name="event object key")
-            if any(_SECRET_KEY.search(candidate) for candidate in _percent_decode_variants(raw_key)):
+            if any(
+                _SECRET_KEY.search(candidate) for candidate in _percent_decode_variants(raw_key)
+            ):
                 raise TelemetryValidationError("event object contains a forbidden secret key")
             sanitized[raw_key] = _sanitize_value(raw_value, depth=depth + 1)
         return sanitized
