@@ -17,6 +17,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-016-P",
         "WO-017-G1",
         "WO-017",
+        "WO-017-P-G1",
+        "WO-017-P",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2112,6 +2114,122 @@ WO-016-P READY FOR SOL AUDIT
 """
 
 
+def _render_wo017p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Objetivo e limite
+
+Esta PR habilita exclusivamente o suporte determinístico de Review Evidence e
+renderer para a futura promoção do checkpoint MCP Read-Only Core Surface.
+Não promove o checkpoint e não executa `WO-017-P`.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base autorizada exata: `0d9240f3a18530fae3e9f65751dbc11491c485c0`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+
+## 3. Escopo G1 fechado
+
+Arquivos permitidos: `backend/tests/test_review_evidence.py`,
+`scripts/review_evidence.py` e `scripts/review_pr_body.py`.
+Project Brain, manifest canônico, migrations, produto MCP, telemetria,
+Control Center e execução autônoma permanecem intocados.
+
+O futuro `WO-017-P` é registrado explicitamente e permitirá somente
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`, com base protegida atual,
+marcador autorizado e contrato fechado de checkpoint/manifest.
+
+## 4. Contrato MCP
+
+A promoção futura exige `mcp-core-surface-v1` PASS, catálogo exato de sete
+tools read-only, transporte local real, reutilização direta do Core, isolamento
+por projeto, checkpoint-first, erros bounded, restart/Redis-loss recovery,
+zero leaks e zero chamadas MCP LLM/provider. A linhagem validada inclui PR #59
+e a correção PR #60 com CI pós-merge 34285893606.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED;
+nenhum merge, release ou promoção canônica é executado nesta etapa.
+
+## 6. Estado de Sol
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-017-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo017p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor — {work_order}
+
+## 1. Promoção MCP fechada
+
+Esta PR futura promove somente o checkpoint MCP Read-Only Core Surface já
+aprovado, merged e validado no pós-merge. Exige exatamente
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`.
+
+## 2. Contrato semântico
+
+O STATUS, o prefixo histórico de COMPLETED, as cinco bullets MCP, a remoção
+única de `MCP server product surface.` em PENDING e o próximo passo
+Autonomous Execution são contratos fechados. O manifest preserva comentários,
+ordem, paths e todas as hashes exceto a hash exata do checkpoint.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: `{branch}`.
+- Base protegida exata: `{base_sha}`.
+- HEAD exato: `{head_sha}`.
+- Evidence Bundle: `{artifact_name}`.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Auto-merge permanece UNARMED. A PR permanece aberta e não mesclada para
+auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-017-P READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_body(
     *,
     work_order: str,
@@ -2437,6 +2555,32 @@ def render_body(
         )
     if work_order == "WO-017":
         return _render_wo017_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-017-P-G1":
+        return _render_wo017p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-017-P":
+        return _render_wo017p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
