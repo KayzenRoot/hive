@@ -14,19 +14,6 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     jsonb = postgresql.JSONB(astext_type=sa.Text())
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint WHERE conname = 'uq_tasks_project_task'
-            ) THEN
-                ALTER TABLE tasks ADD CONSTRAINT uq_tasks_project_task
-                    UNIQUE (project_id, task_id);
-            END IF;
-        END $$;
-        """
-    )
     op.create_table(
         "telemetry_events",
         sa.Column("event_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -101,4 +88,3 @@ def downgrade() -> None:
     op.drop_index("ix_telemetry_events_project_occurred", table_name="telemetry_events")
     op.drop_index("ix_telemetry_events_project_ordering", table_name="telemetry_events")
     op.drop_table("telemetry_events")
-    op.execute("ALTER TABLE tasks DROP CONSTRAINT IF EXISTS uq_tasks_project_task")
