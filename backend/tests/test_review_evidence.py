@@ -615,6 +615,84 @@ def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
         require_wo017_scope(WO017_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
 
 
+def test_wo017_promotion_integration_evidence_carries_mcp_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    benchmark: dict[str, object] = {
+        "status": "PASS",
+        "redis_restart": True,
+        "api_restart": True,
+        "rerank": {"status": "PASS"},
+        "query_count": 1,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "critical_context_misses": 0,
+        "two_run_reproducibility": True,
+        "cross_project_isolation": True,
+        "semantic": {"status": "PASS"},
+        "hybrid": {"status": "PASS"},
+        "hybrid_recall_at_5_gte_extended_lexical": True,
+        "semantic_challenge_recovered": True,
+        "semantic_integrity": {},
+        "fallback": {},
+    }
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda _name: "retrieval corpus/lexical integration passed",
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "context_manager_evidence",
+        lambda: {"status": "PASS"},
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "memory_lifecycle_evidence",
+        lambda: {"status": "PASS"},
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "acce_storage_policy_evidence",
+        lambda: {"status": "PASS"},
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "retrieval_integrity",
+        lambda _retrieval: {},
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_result",
+        lambda _name, _needles: {"status": "PASS"},
+    )
+    mcp = mcp_surface_evidence_fixture()
+    monkeypatch.setattr(review_evidence, "mcp_surface_evidence", lambda: mcp)
+
+    for work_order in (
+        WO017_WORK_ORDER,
+        review_evidence.WO017P_G1_WORK_ORDER,
+        review_evidence.WO017P_WORK_ORDER,
+    ):
+        observed = review_evidence.integration_evidence(
+            benchmark,
+            work_order=work_order,
+        )
+        assert observed["mcp_surface"] == mcp
+
+    monkeypatch.setattr(
+        review_evidence,
+        "mcp_surface_evidence",
+        lambda: {**mcp, "status": "FAIL"},
+    )
+    failed = review_evidence.integration_evidence(
+        benchmark,
+        work_order=review_evidence.WO017P_G1_WORK_ORDER,
+    )
+    assert failed["status"] == "FAIL"
+
+
 def test_wo017_mcp_evidence_is_versioned_exact_and_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
