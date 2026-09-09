@@ -120,6 +120,20 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
         telemetry.sanitize_payload({"password": "do-not-store"})
     with pytest.raises(telemetry.TelemetryValidationError):
         telemetry.sanitize_payload({"path": "C:\\Users\\csn19\\secret.txt"})
+    for value in (
+        "message before C:\\Users\\csn19\\secret.txt",
+        "message before /home/csn19/secret.txt",
+        "message Authorization: Bearer abc.def.ghi",
+        "message api_key=embedded-secret",
+        "message password: embedded-secret",
+        "message secret=embedded-secret",
+        "message WO018_TEST_SECRET_DO_NOT_LEAK_integration",
+    ):
+        with pytest.raises(telemetry.TelemetryValidationError):
+            telemetry.sanitize_payload({"message": value})
+    assert telemetry.sanitize_payload(
+        {"path": "src/module.py", "message": "ordinary prose remains safe"}
+    ) == {"path": "src/module.py", "message": "ordinary prose remains safe"}
     with pytest.raises(telemetry.TelemetryValidationError):
         telemetry.sanitize_payload({"blob": "x" * telemetry.EVENT_PAYLOAD_MAX_BYTES})
     with pytest.raises(telemetry.TelemetryValidationError):
@@ -155,6 +169,17 @@ def test_emit_event_enforces_task_project_and_suppresses_duplicate(
     assert first.event_id == second.event_id
     assert first.ordering_id == second.ordering_id == 1
     assert len(cursor.events) == 1
+
+    with pytest.raises(telemetry.TelemetryValidationError, match="collision"):
+        telemetry.emit_event(
+            settings,
+            PROJECT_ID,
+            "run.completed",
+            {"adapter": "fixture"},
+            task_id=TASK_ID,
+            run_id=RUN_ID,
+            emission_key="same-emission",
+        )
 
     with pytest.raises(telemetry.TelemetryValidationError, match="does not belong"):
         telemetry.emit_event(

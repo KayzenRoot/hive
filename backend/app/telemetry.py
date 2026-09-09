@@ -62,9 +62,21 @@ _SECRET_KEY = re.compile(
     r"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)"
 )
 _SECRET_VALUE = re.compile(
-    r"(?ix)(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|WO\d+_[A-Z0-9_-]*SECRET[A-Z0-9_-]*)"
+    r"(?ix)(?:"
+    r"\bgh[pousr]_[A-Za-z0-9_]+\b"
+    r"|\bsk-[A-Za-z0-9_-]+\b"
+    r"|\bWO\d+_[A-Za-z0-9_-]*SECRET[A-Za-z0-9_-]*"
+    r"|\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)"
+    r"\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"
+    r"|\bbearer\s+[A-Za-z0-9._~+/=-]{8,}\b"
+    r")"
 )
-_WINDOWS_ABSOLUTE = re.compile(r"^[A-Za-z]:[\\/]|^\\\\")
+_WINDOWS_ABSOLUTE = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\)")
+_POSIX_ABSOLUTE = re.compile(
+    r"(?<![\w/])/(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+"
+    r"|(?<![\w/])/(?:home|root|tmp|var|etc|usr|opt|srv|mnt|workspace|app|run|private|Users|Volumes)"
+    r"(?=$|[/\s,;)}\]])"
+)
 _CURSOR = re.compile(r"^[1-9][0-9]*$")
 _MAX_DEPTH = 6
 _MAX_STRING_CHARS = 1_024
@@ -78,7 +90,11 @@ class TelemetryValidationError(ValueError):
 def _validate_safe_string(value: str, *, field_name: str) -> str:
     if not value or len(value) > _MAX_STRING_CHARS or any(ord(char) < 32 for char in value):
         raise TelemetryValidationError(f"{field_name} is outside its bound")
-    if _SECRET_VALUE.search(value) or value.startswith("/") or _WINDOWS_ABSOLUTE.match(value):
+    if (
+        _SECRET_VALUE.search(value)
+        or _WINDOWS_ABSOLUTE.search(value)
+        or _POSIX_ABSOLUTE.search(value)
+    ):
         raise TelemetryValidationError(f"{field_name} contains forbidden secret or path data")
     return value
 
@@ -232,6 +248,24 @@ def _fetch_by_emission_key(
     return _event_from_row(row)
 
 
+def _same_immutable_content(
+    existing: EventEnvelope,
+    event_type: str,
+    task_id: UUID | None,
+    run_id: UUID | None,
+    payload: dict[str, object],
+    provenance: dict[str, object],
+) -> bool:
+    return (
+        existing.envelope_version == EVENT_ENVELOPE_VERSION
+        and existing.event_type == event_type
+        and existing.task_id == task_id
+        and existing.run_id == run_id
+        and existing.payload == payload
+        and existing.provenance == provenance
+    )
+
+
 def emit_event(
     settings: Settings,
     project_id: UUID,
@@ -279,7 +313,19 @@ def emit_event(
         )
         row = cursor.fetchone()
         if row is None:
-            return _fetch_by_emission_key(cursor, project_id, emission_key)
+            existing = _fetch_by_emission_key(cursor, project_id, emission_key)
+            if not _same_immutable_content(
+                existing,
+                event_type,
+                task_id,
+                run_id,
+                clean_payload,
+                clean_provenance,
+            ):
+                raise TelemetryValidationError(
+                    "event emission key collision has different immutable content"
+                )
+            return existing
         return _event_from_row(row)
 
 
