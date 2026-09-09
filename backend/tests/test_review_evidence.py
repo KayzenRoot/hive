@@ -576,6 +576,16 @@ def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
         "a" * 40,
         sorted(WO017_PRODUCT_ALLOWED_PATHS),
     )
+    require_wo017_scope(
+        review_evidence.WO017P_G1_WORK_ORDER,
+        "a" * 40,
+        ["scripts/review_evidence.py"],
+    )
+    require_wo017_scope(
+        review_evidence.WO017P_WORK_ORDER,
+        "a" * 40,
+        ["docs/project-brain/13-CHECKPOINT.md"],
+    )
     with pytest.raises(ValueError, match="base branch"):
         require_wo017_scope(
             WO017_WORK_ORDER,
@@ -639,6 +649,16 @@ def test_wo017_mcp_evidence_is_versioned_exact_and_fail_closed(
             {},
             "0006_memory_lifecycle_provenance",
         )
+    for promotion_work_order in (
+        review_evidence.WO017P_G1_WORK_ORDER,
+        review_evidence.WO017P_WORK_ORDER,
+    ):
+        with pytest.raises(ValueError, match="missing mandatory"):
+            require_wo017_mcp_evidence(
+                promotion_work_order,
+                {},
+                "0006_memory_lifecycle_provenance",
+            )
     for field in MCP_CORE_SURFACE_TRUE_FIELDS:
         broken_true_field: dict[str, object] = dict(fixture)
         broken_true_field[field] = False
