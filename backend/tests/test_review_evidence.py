@@ -1015,13 +1015,16 @@ def wo017p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
             "COMPLETED",
             "\n".join(
                 f"- {item}"
-                for item in completed + list(review_evidence.WO017P_CANONICAL_COMPLETION_BULLETS)
+                for item in completed
+                + list(review_evidence.WO017P_CANONICAL_COMPLETION_BULLETS)
             ),
         )
     return base, candidate
 
 
-def test_wo017p_g1_scope_is_exact_and_noncanonical(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wo017p_g1_scope_is_exact_and_noncanonical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
     )
@@ -1043,7 +1046,9 @@ def test_wo017p_g1_scope_is_exact_and_noncanonical(monkeypatch: pytest.MonkeyPat
         "backend/app/mcp_server.py",
         ".github/workflows/ci.yml",
     ):
-        with pytest.raises(ValueError, match="outside|canonical Project Brain|migrations"):
+        with pytest.raises(
+            ValueError, match="outside|canonical Project Brain|migrations"
+        ):
             review_evidence.require_wo017p_g1_scope(
                 review_evidence.WO017P_G1_WORK_ORDER,
                 review_evidence.WO017P_G1_BASE_SHA,
@@ -1086,9 +1091,12 @@ def test_wo017p_manifest_contract_only_changes_checkpoint_hash() -> None:
     changed = 0
     for line in lines:
         stripped = line.strip().split(maxsplit=1)
-        if len(stripped) == 2 and stripped[1] == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME:
+        if (
+            len(stripped) == 2
+            and stripped[1] == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
+        ):
             prefix = line.index(stripped[0])
-            line = line[:prefix] + digest + line[prefix + len(stripped[0]):]
+            line = line[:prefix] + digest + line[prefix + len(stripped[0]) :]
             changed += 1
         candidate_lines.append(line)
     assert changed == 1
