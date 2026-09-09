@@ -2216,7 +2216,7 @@ def require_wo017_scope(
     base_branch: str = "main",
     enforce_current_main: bool = False,
 ) -> None:
-    if work_order not in {WO017_WORK_ORDER, WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER}:
+    if work_order != WO017_WORK_ORDER:
         return
     if base_branch != "main":
         raise ValueError(f"{WO017_WORK_ORDER} requires the protected main base branch")
@@ -2725,7 +2725,7 @@ def require_wo017_mcp_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order != WO017_WORK_ORDER:
+    if work_order not in {WO017_WORK_ORDER, WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER}:
         return
     surface = integration.get("mcp_surface")
     if not isinstance(surface, Mapping):
