@@ -21,6 +21,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-017-P",
         "WO-018-G1",
         "WO-018",
+        "WO-018-P-G1",
+        "WO-018-P",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2352,6 +2354,118 @@ WO-017-P READY FOR SOL AUDIT
 """
 
 
+def _render_wo018p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita somente o Review Evidence para a promoção canônica do
+WO-018 Autonomous Execution Foundation. Não altera Project Brain, checkpoint,
+manifesto canônico, migrations ou produto.
+
+## 2. Identidade
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base autorizada exata: ed534965136a36eff66276d5b073dc034a7fc96f.
+- Base informada: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo
+
+Exatamente três arquivos de governança: backend/tests/test_review_evidence.py,
+scripts/review_evidence.py e scripts/review_pr_body.py.
+
+O futuro WO-018-P permitirá somente docs/project-brain/13-CHECKPOINT.md e
+docs/project-brain/CANONICAL-SHA256SUMS.txt, com marcador de base autorizado,
+gramática de checkpoint fechada e contrato exato do manifesto.
+
+## 4. Contrato futuro
+
+A promoção exige autonomous-execution-v1 PASS e registra como concluídos:
+Execution Orchestrator provider-independent, Context Manager/Runner/ToolPolicy
+reutilizados, tool gating end-to-end, staged output e captura de
+files/diff/tests/validation/review. O próximo passo canônico será a menor
+fundação Telemetry/Event Bus necessária.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Nenhum merge, release ou promoção canônica é executado nesta etapa.
+
+Sol Review State: AWAITING_SOL.
+
+WO-018-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo018p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção Autonomous Execution fechada
+
+Esta PR promove somente o checkpoint do WO-018 já aprovado, merged e validado
+no pós-merge. Exige exatamente docs/project-brain/13-CHECKPOINT.md e
+docs/project-brain/CANONICAL-SHA256SUMS.txt.
+
+## 2. Contrato semântico
+
+STATUS muda para AUTONOMOUS EXECUTION FOUNDATION APPROVED / V0.1 IMPLEMENTATION
+ACTIVE. O prefixo histórico de COMPLETED é preservado, cinco bullets de evidência
+WO-018 são anexadas, e somente os itens pending de autonomous execution e tool
+gating end-to-end são removidos. IN PROGRESS e NEXT STEP passam para a menor
+fundação Telemetry/Event Bus necessária.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Auto-merge permanece UNARMED. A PR permanece aberta e não mesclada para
+auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-018-P READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_body(
     *,
     work_order: str,
@@ -2703,6 +2817,32 @@ def render_body(
         )
     if work_order == "WO-017":
         return _render_wo017_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-018-P-G1":
+        return _render_wo018p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-018-P":
+        return _render_wo018p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
