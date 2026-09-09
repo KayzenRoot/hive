@@ -7373,6 +7373,36 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-017-P evidence must record the explicit promotion governance contract"
             )
+    wo018p_g1_evidence = verify_wo018p_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO018P_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-018-P-G1 governance evidence: {wo018p_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-018-P-G1 evidence must record the explicit promotion governance contract"
+            )
+    wo018p_evidence = verify_wo018p_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO018P_WORK_ORDER:
+        expected_p_entry = f"WO-018-P governance evidence: {wo018p_evidence}"
+        if expected_p_entry not in negative_scope:
+            raise ValueError(
+                "WO-018-P evidence must record the explicit promotion governance contract"
+            )
     errors = sorted(
         jsonschema.Draft202012Validator(
             json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
