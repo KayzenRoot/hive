@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -1417,8 +1416,7 @@ def wo018p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
             "COMPLETED",
             "\n".join(
                 f"- {item}"
-                for item in completed
-                + list(review_evidence.WO018P_CANONICAL_COMPLETION_BULLETS)
+                for item in completed + list(review_evidence.WO018P_CANONICAL_COMPLETION_BULLETS)
             ),
         )
     return base, candidate
@@ -1495,8 +1493,7 @@ def test_wo018p_checkpoint_semantics_are_closed_and_exact() -> None:
         )
     missing_pending_removal = candidate.replace(
         "## PENDING\n",
-        "## PENDING\n"
-        f"- {review_evidence.EXPECTED_WO018P_PENDING_ITEMS[0]}\n",
+        f"## PENDING\n- {review_evidence.EXPECTED_WO018P_PENDING_ITEMS[0]}\n",
         1,
     )
     with pytest.raises(ValueError):
@@ -1513,10 +1510,7 @@ def test_wo018p_manifest_contract_only_changes_checkpoint_hash() -> None:
     changed = 0
     for line in base_manifest.splitlines(keepends=True):
         stripped = line.strip().split(maxsplit=1)
-        if (
-            len(stripped) == 2
-            and stripped[1] == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
-        ):
+        if len(stripped) == 2 and stripped[1] == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME:
             prefix = line.index(stripped[0])
             line = line[:prefix] + digest + line[prefix + len(stripped[0]) :]
             changed += 1
@@ -5386,20 +5380,3 @@ def test_generic_bundle_zip_is_byte_deterministic(tmp_path: Path) -> None:
     second = tmp_path / "second.zip"
     assert deterministic_zip(first, files) == deterministic_zip(second, files)
     assert first.read_bytes() == second.read_bytes()
-
-
-def test__temporary_wo018p_ruff_format_probe() -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "ruff",
-            "format",
-            "--diff",
-            "backend/tests/test_review_evidence.py",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    raise AssertionError(result.stdout + result.stderr)
