@@ -1070,7 +1070,7 @@ def test_wo017p_checkpoint_semantics_are_closed_and_exact() -> None:
     with pytest.raises(ValueError):
         review_evidence.require_wo017p_checkpoint_semantics(
             base,
-            candidate.replace("PR #59", "PR #58", 1),
+            candidate.replace("pr #59", "pr #58", 1),
         )
 
 
@@ -2413,7 +2413,7 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
     require_supported_work_order(WO016P_G1_WORK_ORDER)
     require_supported_work_order(WO016P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-017-P")
+        require_supported_work_order("WO-018-P")
 
 
 def test_current_checkpoint_promotion_authorization_separates_history() -> None:
@@ -3166,7 +3166,7 @@ def test_wo014p_g1_governance_contract_is_self_validating() -> None:
     assert evidence is not None
     assert "active_promotions=WO-014-P-G1,WO-014-P" in evidence
     assert "stale_WO-011-P_WO-012-P_WO-013-P=REJECTED" in evidence
-    assert "unknown_WO-017-P_WO-999-P=REJECTED" in evidence
+    assert "current_WO-017-P=SUPPORTED; unknown_WO-999-P=REJECTED" in evidence
     assert "auto_merge=UNARMED" in evidence
 
     with pytest.raises(ValueError, match="ruleset"):
