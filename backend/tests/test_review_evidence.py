@@ -999,6 +999,7 @@ def test_wo019_schema_and_renderers_are_explicit() -> None:
     product = render_body(work_order=review_evidence.WO019_WORK_ORDER, **common)
     assert "WO-019 READY FOR SOL AUDIT" in product
     assert "C:\\Users" not in product
+    assert "D:\\Projeto Codexx" not in product
 
 
 def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
