@@ -2432,7 +2432,9 @@ def require_wo018_autonomous_evidence(
     if evidence.get("observed_migration_head") != migration_head_value:
         raise ValueError(f"{WO018_WORK_ORDER} autonomous evidence migration head mismatch")
     if migration_head_value != "0006_memory_lifecycle_provenance":
-        raise ValueError(f"{WO018_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance")
+        raise ValueError(
+            f"{WO018_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance"
+        )
     for field in AUTONOMOUS_EXECUTION_TRUE_FIELDS:
         if evidence.get(field) is not True:
             raise ValueError(f"{WO018_WORK_ORDER} requires {field}=true")
