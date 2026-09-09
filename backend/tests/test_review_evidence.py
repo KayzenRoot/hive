@@ -645,6 +645,87 @@ def test_wo018_autonomous_evidence_contract_is_closed() -> None:
         )
 
 
+def test_wo018_future_product_requires_current_main_and_merged_g1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = "c" * 40
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": current if args == ("rev-parse", "origin/main") else fallback,
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"merged WO-018-G1 governance support",
+    )
+    review_evidence.require_wo018_scope(
+        review_evidence.WO018_WORK_ORDER,
+        current,
+        ["backend/app/execution_orchestrator.py"],
+        enforce_current_main=True,
+    )
+
+    with pytest.raises(ValueError, match="current protected main"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            "d" * 40,
+            ["backend/app/execution_orchestrator.py"],
+            enforce_current_main=True,
+        )
+
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"governance support missing",
+    )
+    with pytest.raises(ValueError, match="requires merged WO-018-G1 support"):
+        review_evidence.require_wo018_scope(
+            review_evidence.WO018_WORK_ORDER,
+            current,
+            ["backend/app/execution_orchestrator.py"],
+            enforce_current_main=True,
+        )
+
+
+def test_wo018_autonomous_evidence_rejects_identity_version_and_count_mutations() -> None:
+    evidence = autonomous_execution_evidence_fixture()
+
+    invalid_cases: tuple[tuple[str, object, str], ...] = (
+        ("status", "FAIL", "must PASS"),
+        ("evidence_file", "wrong.json", "file is invalid"),
+        ("autonomous_evidence_version", "autonomous-execution-v0", "version is invalid"),
+        ("executor_adapter_name", "UNKNOWN", "executor adapter identity"),
+        ("observed_migration_head", "0005_semantic_retrieval", "migration head mismatch"),
+        ("tool_subset_count", 0, "tool subset count"),
+        ("validation_commands_count", 0, "validation command count"),
+        ("executor_llm_calls", -1, "bounded integer"),
+        ("executor_provider_calls", -1, "bounded integer"),
+        ("secret_leaks", 1, "zero secret"),
+        ("filesystem_path_leaks", 1, "zero secret"),
+    )
+    for field, value, message in invalid_cases:
+        broken = {**evidence, field: value}
+        with pytest.raises(ValueError, match=message):
+            review_evidence.require_wo018_autonomous_evidence(
+                review_evidence.WO018_WORK_ORDER,
+                {"autonomous_execution": broken},
+                "0006_memory_lifecycle_provenance",
+            )
+
+
+def test_wo018_autonomous_schema_rejects_extra_field() -> None:
+    manifest = evidence_fixture()
+    evidence_container = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence_container["integration"])
+    integration["autonomous_execution"] = {
+        **autonomous_execution_evidence_fixture(),
+        "invented": True,
+    }
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        validate_manifest(manifest)
+
+
 def test_autonomous_execution_evidence_parser_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
