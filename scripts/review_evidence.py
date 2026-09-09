@@ -3073,13 +3073,10 @@ def verify_wo016p_g1_governance_contract(
     if work_order != WO016P_G1_WORK_ORDER:
         return None
     require_wo016p_g1_scope(work_order, base_sha, paths)
-    if frozenset({WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}) != (
-        ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    if not frozenset({WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}).issubset(
+        CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
-        raise ValueError(
-            f"{WO016P_G1_WORK_ORDER} requires exactly {WO016P_G1_WORK_ORDER} and "
-            f"{WO016P_WORK_ORDER} as active promotions"
-        )
+        raise ValueError(f"{WO016P_G1_WORK_ORDER} must remain registered historically")
     for stale in (
         "WO-011-P",
         "WO-012-P",
@@ -3095,15 +3092,15 @@ def verify_wo016p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-017-P", "WO-999-P"):
+    for rejected in ("WO-999-P",):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
             pass
         else:
             raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
-    require_current_work_order_authorization(WO016P_G1_WORK_ORDER)
-    require_current_work_order_authorization(WO016P_WORK_ORDER)
+    require_supported_work_order(WO016P_G1_WORK_ORDER)
+    require_supported_work_order(WO016P_WORK_ORDER)
     if canonical_changes != {
         "project_brain_changed": False,
         "checkpoint_changed": False,
