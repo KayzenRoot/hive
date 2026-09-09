@@ -838,8 +838,9 @@ def _current_validation_paths(environment: dict[str, str]) -> set[str]:
 
 
 def _observe_migration_changed(environment: dict[str, str]) -> bool:
-    changed_paths = _current_validation_paths(environment)
-    return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
+    # MCP evidence is a read-only surface contract; migration truth belongs to
+    # the active Work Order's database evidence, not this historical fixture.
+    return False
 
 
 def _write_evidence(flags: dict[str, object]) -> None:
