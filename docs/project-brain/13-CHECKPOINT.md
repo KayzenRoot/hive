@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-MCP READ-ONLY CORE SURFACE APPROVED / V0.1 IMPLEMENTATION ACTIVE
+AUTONOMOUS EXECUTION FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -205,6 +205,11 @@ See `03-SCOPE.md`.
 - restart and redis-loss recovery pass; arbitrary filesystem access, missing/untracked/stale checkpoint substitution and hive checkpoint substitution fail closed; secret leaks, filesystem path leaks, mcp llm calls and mcp provider calls are all 0.
 - evidence lineage records pr #59 with audited head e46b45ff0ec08024b2f83a418b90b7b84095f172 and squash merge 7400f948fa72f9d8f41e8035ff4441b1a5ad4d26, plus correction pr #60 with audited head 8fbd89357e2d37de7b6b68316e8a25cc59e996f2, squash merge 0d9240f3a18530fae3e9f65751dbc11491c485c0 and post-merge ci 34285893606; backend 465 and dashboard 7 passed.
 - ruleset 21934284 remains unchanged and auto-merge is unarmed; autonomous execution beyond the local verified runner, full telemetry, full control center and v0.1 completion are not claimed.
+- autonomous execution foundation is approved with evidence autonomous-execution-v1; the provider-independent execution orchestrator reuses durable project/task identity, the existing checkpoint-first context manager, local verified runner and tool policy; migration remains 0006_memory_lifecycle_provenance.
+- bounded tool gating is verified before execution; unauthorized tools, shell bypass, cross-project task mismatch, project brain mutation and git head/source races fail closed.
+- structured executor output remains staged and noncanonical; exact changed files, bounded diffs, tests, validation results and executor review are captured; the deterministic end-to-end coding fixture passes with zero secret and filesystem-path leaks.
+- evidence lineage records pr #65 with audited head ac2782299e8f2bddd723f536a8e54013af135d34, sol review 5154496929, squash merge ed534965136a36eff66276d5b073dc034a7fc96f and post-merge ci 34353690177; backend 488 and dashboard 7 passed.
+- ruleset 21934284 remains unchanged and auto-merge is unarmed; the product pipeline performs no git commit, push, merge or checkpoint promotion; full telemetry, full control center and v0.1 completion are not claimed.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -212,10 +217,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary autonomous execution pipeline increment.
+- Preparing the smallest necessary Telemetry/Event Bus foundation increment.
 
 ## PENDING
-- autonomous execution beyond the Local Verified Runner foundation.
 - telemetry.
 - full Control Center.
 - comprehensive retrieval/token/storage benchmarks.
@@ -225,17 +229,15 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - final documentation.
 - final V0.1 review.
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
-- tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after MCP read-only core surface approval and post-merge validation.
+None known after Autonomous Execution Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary autonomous execution pipeline increment.
-
+Prepare the smallest necessary Telemetry/Event Bus foundation increment.
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
 
