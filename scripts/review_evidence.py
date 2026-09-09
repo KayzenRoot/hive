@@ -572,6 +572,9 @@ WO016P_WORK_ORDER = "WO-016-P"
 WO017P_G1_BASE_SHA = "0d9240f3a18530fae3e9f65751dbc11491c485c0"
 WO017P_G1_WORK_ORDER = "WO-017-P-G1"
 WO017P_WORK_ORDER = "WO-017-P"
+WO018P_G1_BASE_SHA = "ed534965136a36eff66276d5b073dc034a7fc96f"
+WO018P_G1_WORK_ORDER = "WO-018-P-G1"
+WO018P_WORK_ORDER = "WO-018-P"
 WO016_G1_BASE_SHA = "5121316c1a577557039f03770ff7031be74d3e0b"
 WO016_G1_WORK_ORDER = "WO-016-G1"
 WO016_WORK_ORDER = "WO-016"
@@ -629,6 +632,14 @@ WO017P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO017P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO018P_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO018P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
 WO016_G1_ALLOWED_PATHS = frozenset(
     {
         "backend/tests/test_review_evidence.py",
@@ -769,9 +780,11 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         WO015P_WORK_ORDER,
         WO016P_G1_WORK_ORDER,
         WO016P_WORK_ORDER,
+        WO017P_G1_WORK_ORDER,
+        WO017P_WORK_ORDER,
     }
 )
-ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER})
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -803,6 +816,7 @@ WO014P_PROMOTION_REGISTRY = {WO014P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
 WO015P_PROMOTION_REGISTRY = {WO015P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
 WO016P_PROMOTION_REGISTRY = {WO016P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
 WO017P_PROMOTION_REGISTRY = {WO017P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
+WO018P_PROMOTION_REGISTRY = {WO018P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
 EXPECTED_WO013P_STATUS = "DELTA CONTEXT FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
 EXPECTED_WO013P_PREVIOUS_STATUS = (
     "CONTEXT FINGERPRINTS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
@@ -1012,6 +1026,40 @@ WO017P_CANONICAL_COMPLETION_BULLETS = (
     "completion are not claimed.",
 )
 
+EXPECTED_WO018P_STATUS = "AUTONOMOUS EXECUTION FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
+EXPECTED_WO018P_PREVIOUS_STATUS = EXPECTED_WO017P_STATUS
+EXPECTED_WO018P_IN_PROGRESS = (
+    "Preparing the smallest necessary Telemetry/Event Bus foundation increment."
+)
+EXPECTED_WO018P_BLOCKERS = (
+    "None known after Autonomous Execution Foundation approval and post-merge validation."
+)
+EXPECTED_WO018P_NEXT_STEP = (
+    "Prepare the smallest necessary Telemetry/Event Bus foundation increment."
+)
+EXPECTED_WO018P_PENDING_ITEMS = (
+    "autonomous execution beyond the Local Verified Runner foundation.",
+    "tool gating integration where not yet end-to-end.",
+)
+WO018P_CANONICAL_COMPLETION_BULLETS = (
+    "autonomous execution foundation is approved with evidence autonomous-execution-v1; "
+    "the provider-independent execution orchestrator reuses durable project/task identity, "
+    "the existing checkpoint-first context manager, local verified runner and tool policy; "
+    "migration remains 0006_memory_lifecycle_provenance.",
+    "bounded tool gating is verified before execution; unauthorized tools, shell bypass, "
+    "cross-project task mismatch, project brain mutation and git head/source races fail closed.",
+    "structured executor output remains staged and noncanonical; exact changed files, bounded "
+    "diffs, tests, validation results and executor review are captured; the deterministic "
+    "end-to-end coding fixture passes with zero secret and filesystem-path leaks.",
+    "evidence lineage records pr #65 with audited head "
+    "ac2782299e8f2bddd723f536a8e54013af135d34, sol review 5154496929, squash merge "
+    "ed534965136a36eff66276d5b073dc034a7fc96f and post-merge ci 34353690177; "
+    "backend 488 and dashboard 7 passed.",
+    "ruleset 21934284 remains unchanged and auto-merge is unarmed; the product pipeline "
+    "performs no git commit, push, merge or checkpoint promotion; full telemetry, full "
+    "control center and v0.1 completion are not claimed.",
+)
+
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -1138,6 +1186,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO016P_WORK_ORDER,
         WO017P_G1_WORK_ORDER,
         WO017P_WORK_ORDER,
+        WO018P_G1_WORK_ORDER,
+        WO018P_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
         WO017_G1_WORK_ORDER,
@@ -1972,6 +2022,16 @@ def require_wo017p_manifest_contract(
     )
 
 
+def require_wo018p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    require_checkpoint_manifest_contract(
+        base_manifest_text, candidate_manifest_text, candidate_checkpoint_bytes, WO018P_WORK_ORDER
+    )
+
+
 def registered_promotion_base_sha(work_order: str) -> str:
     base_ref = (
         WO012P_PROMOTION_REGISTRY
@@ -1980,6 +2040,7 @@ def registered_promotion_base_sha(work_order: str) -> str:
         | WO015P_PROMOTION_REGISTRY
         | WO016P_PROMOTION_REGISTRY
         | WO017P_PROMOTION_REGISTRY
+        | WO018P_PROMOTION_REGISTRY
     ).get(work_order)
     if base_ref is None:
         raise ValueError(f"no registered promotion base for {work_order}")
@@ -2375,7 +2436,7 @@ def require_wo018_scope(
     base_branch: str = "main",
     enforce_current_main: bool = False,
 ) -> None:
-    if work_order != WO018_WORK_ORDER:
+    if work_order not in {WO018_WORK_ORDER, WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER}:
         return
     if base_branch != "main":
         raise ValueError(f"{WO018_WORK_ORDER} requires the protected main base branch")
@@ -2538,6 +2599,36 @@ def require_wo017p_g1_scope(
         raise ValueError(f"{WO017P_G1_WORK_ORDER} cannot change migrations")
     if migration_head() != "0006_memory_lifecycle_provenance":
         raise ValueError(f"{WO017P_G1_WORK_ORDER} requires migration head 0006")
+
+
+def require_wo018p_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+) -> None:
+    if work_order != WO018P_G1_WORK_ORDER:
+        return
+    if base_sha != WO018P_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO018P_G1_WORK_ORDER} requires exact base {WO018P_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO018P_G1_WORK_ORDER} requires the protected main base branch")
+    if sorted(set(paths)) != sorted(WO018P_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO018P_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(f"{WO018P_G1_WORK_ORDER} requires exactly the three governance files")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO018P_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO018P_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO018P_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance"
+        )
 
 
 def require_wo015_scope(
@@ -4775,7 +4866,10 @@ def integration_evidence(
     ):
         status = "FAIL"
     autonomous_execution = autonomous_execution_evidence()
-    if work_order == WO018_WORK_ORDER and autonomous_execution["status"] == "FAIL":
+    if (
+        work_order in {WO018_WORK_ORDER, WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER}
+        and autonomous_execution["status"] == "FAIL"
+    ):
         status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
@@ -4831,7 +4925,7 @@ def integration_evidence(
         evidence["acce_storage"] = acce_storage
     if work_order in {WO017_WORK_ORDER, WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER}:
         evidence["mcp_surface"] = mcp_surface
-    if work_order == WO018_WORK_ORDER:
+    if work_order in {WO018_WORK_ORDER, WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER}:
         evidence["autonomous_execution"] = autonomous_execution
     return evidence
 
