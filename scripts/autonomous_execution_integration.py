@@ -295,7 +295,13 @@ def remove_unreferenced_cas_files(digests: set[str]) -> None:
     cas_root = data_root.resolve() / "cas" / "sha256"
     for digest in digests:
         path = cas_root / digest[:2] / f"{digest[2:]}.zst"
-        path.unlink(missing_ok=True)
+        if not path.exists():
+            continue
+        try:
+            path.unlink()
+        except PermissionError:
+            os.chmod(path, stat.S_IWRITE)
+            path.unlink()
         if path.exists():
             raise AssertionError(f"CAS fixture artifact remains: {path}")
 
