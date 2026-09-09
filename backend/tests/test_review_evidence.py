@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -1011,14 +1010,11 @@ def wo017p_checkpoint_fixture(*, include_evidence: bool = True) -> tuple[str, st
         completed = review_evidence.checkpoint_bullets(
             review_evidence.checkpoint_sections(base), "COMPLETED"
         )
+        completion_bullets = list(review_evidence.WO017P_CANONICAL_COMPLETION_BULLETS)
         candidate = replace_checkpoint_section(
             candidate,
             "COMPLETED",
-            "\n".join(
-                f"- {item}"
-                for item in completed
-                + list(review_evidence.WO017P_CANONICAL_COMPLETION_BULLETS)
-            ),
+            "\n".join(f"- {item}" for item in completed + completion_bullets),
         )
     return base, candidate
 
@@ -1047,9 +1043,8 @@ def test_wo017p_g1_scope_is_exact_and_noncanonical(
         "backend/app/mcp_server.py",
         ".github/workflows/ci.yml",
     ):
-        with pytest.raises(
-            ValueError, match="outside|canonical Project Brain|migrations"
-        ):
+        scope_error = "outside|canonical Project Brain|migrations"
+        with pytest.raises(ValueError, match=scope_error):
             review_evidence.require_wo017p_g1_scope(
                 review_evidence.WO017P_G1_WORK_ORDER,
                 review_evidence.WO017P_G1_BASE_SHA,
@@ -1081,9 +1076,8 @@ def test_wo017p_checkpoint_semantics_are_closed_and_exact() -> None:
 
 
 def test_wo017p_manifest_contract_only_changes_checkpoint_hash() -> None:
-    base_manifest = (
-        review_evidence.ROOT / review_evidence.CANONICAL_MANIFEST_PATH
-    ).read_text(encoding="utf-8")
+    manifest_path = review_evidence.ROOT / review_evidence.CANONICAL_MANIFEST_PATH
+    base_manifest = manifest_path.read_text(encoding="utf-8")
     _, candidate_checkpoint = wo017p_checkpoint_fixture()
     candidate_bytes = candidate_checkpoint.encode("utf-8")
     digest = hashlib.sha256(candidate_bytes).hexdigest()
@@ -1092,10 +1086,8 @@ def test_wo017p_manifest_contract_only_changes_checkpoint_hash() -> None:
     changed = 0
     for line in lines:
         stripped = line.strip().split(maxsplit=1)
-        if (
-            len(stripped) == 2
-            and stripped[1] == review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
-        ):
+        checkpoint_name = review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
+        if len(stripped) == 2 and stripped[1] == checkpoint_name:
             prefix = line.index(stripped[0])
             line = line[:prefix] + digest + line[prefix + len(stripped[0]) :]
             changed += 1
@@ -4747,21 +4739,3 @@ def test_generic_bundle_zip_is_byte_deterministic(tmp_path: Path) -> None:
     second = tmp_path / "second.zip"
     assert deterministic_zip(first, files) == deterministic_zip(second, files)
     assert first.read_bytes() == second.read_bytes()
-
-
-def test__temporary_ruff_format_diff_probe() -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "ruff",
-            "format",
-            "--diff",
-            "backend/tests/test_review_evidence.py",
-            "scripts/review_evidence.py",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    raise AssertionError(result.stdout + result.stderr)
