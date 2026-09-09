@@ -24,7 +24,7 @@ from project_registry_integration import (
     wait_for_health,
 )
 
-SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
+SCHEMA_REVISION = "0007_telemetry_events"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "acce-storage-policy.json"
 
 

@@ -2256,7 +2256,16 @@ def test_wo016p_scope_binds_future_base_manifest_and_merged_g1(
         )
 
 
-def test_wo016p_governance_requires_six_row_acce_lineage() -> None:
+def test_wo016p_governance_requires_six_row_acce_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # This historical promotion gate is intentionally tested against its
+    # pre-telemetry schema, independent of the current product migration.
+    monkeypatch.setattr(
+        review_evidence,
+        "migration_head",
+        lambda: "0006_memory_lifecycle_provenance",
+    )
     common = {
         "project_brain_changed": False,
         "checkpoint_changed": False,

@@ -43,7 +43,7 @@ def _complete_evidence_observations(integration: Any) -> dict[str, object]:
         **{field: 0 for field in integration.MCP_CORE_SURFACE_INTEGER_FIELDS},
         "registered_project_count": 3,
         "tool_list_exact": list(integration.MCP_CORE_SURFACE_TOOLS),
-        "observed_migration_head": "0006_memory_lifecycle_provenance",
+        "observed_migration_head": integration.SCHEMA_REVISION,
     }
 
 

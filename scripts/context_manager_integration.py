@@ -78,7 +78,7 @@ from app.semantic_retrieval import (
 )
 from app.task_intake import TaskResponse, TaskTextResponse  # noqa: E402
 
-SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
+SCHEMA_REVISION = "0007_telemetry_events"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "context-manager.json"
 MANDATORY_GOVERNANCE_KINDS = (
     "CHECKPOINT",

@@ -21,7 +21,7 @@ from project_registry_integration import (
 )
 from project_registry_integration import request as http_request
 
-SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
+SCHEMA_REVISION = "0007_telemetry_events"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "memory-lifecycle.json"
 
 

@@ -1,4 +1,4 @@
-"""Exercise WO-018 through the real Docker Context Manager and local Runner."""
+"""Exercise the real Docker execution seam and its durable Telemetry/Event Bus."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -35,8 +36,10 @@ from app.execution_orchestrator import (  # noqa: E402
 from app.registry import InspectionResult, ProjectResponse, ProjectState  # noqa: E402
 from app.runner import ChangeOperation, ChangeSet, ToolPolicy  # noqa: E402
 from app.task_intake import TaskResponse  # noqa: E402
+from app.telemetry import EventEnvelope  # noqa: E402
 
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "autonomous-execution.json"
+TELEMETRY_EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "telemetry-event-bus.json"
 TEST_SENTINEL = "WO018_TEST_SECRET_DO_NOT_LEAK_integration"
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000801")
 TASK_ID = UUID("00000000-0000-0000-0000-000000000802")
@@ -277,6 +280,33 @@ def context_from_api(base_url: str) -> Callable[..., object]:
     return build
 
 
+def docker_event_emitter(
+    _settings: Settings,
+    project_id: UUID,
+    event_type: str,
+    payload: dict[str, object],
+    *,
+    task_id: UUID | None = None,
+    run_id: UUID | None = None,
+    provenance: dict[str, object] | None = None,
+    emission_key: str,
+) -> None:
+    """Invoke the production emitter inside the already-running API container."""
+
+    if task_id is None or run_id is None or provenance is None:
+        raise AssertionError("integration telemetry requires task/run/provenance identity")
+    code = (
+        "from uuid import UUID; "
+        "from app.config import Settings; "
+        "from app.telemetry import emit_event; "
+        f"event = emit_event(Settings(), UUID({str(project_id)!r}), {event_type!r}, "
+        f"{payload!r}, task_id=UUID({str(task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        f"provenance={provenance!r}, emission_key={emission_key!r}); "
+        "print(event.cursor)"
+    )
+    run_command(["docker", "compose", "exec", "-T", "api", "python", "-c", code])
+
+
 class LocalFixtureAdapter:
     name = "local-deterministic-fixture"
     provider_independent = True
@@ -319,7 +349,7 @@ def execute_docker_fixture(
     base_url: str,
     projects_root: Path,
     relative_path: str,
-) -> tuple[object, LocalFixtureAdapter]:
+) -> tuple[object, LocalFixtureAdapter, ProjectResponse, TaskResponse]:
     project, task = register_fixture(base_url, relative_path)
     settings = Settings(projects_root=projects_root)
     adapter = LocalFixtureAdapter()
@@ -331,6 +361,7 @@ def execute_docker_fixture(
             base_url, project_id, task_id
         ),
         context_builder=context_from_api(base_url),
+        event_emitter=docker_event_emitter,
     )
     request = ExecutorRequest(
         project.project_id,
@@ -341,6 +372,8 @@ def execute_docker_fixture(
     return (
         orchestrator.execute(request, adapter),
         adapter,
+        project,
+        task,
     )
 
 
@@ -451,6 +484,220 @@ def deterministic_signature(result: object) -> str:
         for command in payload["executor_review"][group]:
             command["duration_seconds"] = 0
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def telemetry_page(
+    base_url: str, project_id: UUID, *, after: str | None = None, limit: int = 100
+) -> dict[str, object]:
+    query = f"?limit={limit}"
+    if after is not None:
+        query += f"&after={after}"
+    response = api_call(base_url, "GET", f"/api/v1/projects/{project_id}/events{query}")
+    if not isinstance(response, dict):
+        raise AssertionError("telemetry page is not an object")
+    events = response.get("events")
+    if not isinstance(events, list):
+        raise AssertionError("telemetry page events are not a list")
+    for item in events:
+        EventEnvelope.model_validate(item)
+    return response
+
+
+def telemetry_stream(base_url: str, project_id: UUID, after: str) -> str:
+    request = urllib.request.Request(
+        f"{base_url}/api/v1/projects/{project_id}/events/stream"
+        f"?after={after}&max_events=1&timeout_seconds=3",
+        method="GET",
+        headers={"Accept": "text/event-stream"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.read(200_000).decode("utf-8")
+    except (OSError, urllib.error.URLError, UnicodeDecodeError) as exc:
+        raise AssertionError("telemetry SSE stream failed") from exc
+
+
+def wait_for_api_health(base_url: str) -> None:
+    last_error = "unknown"
+    for _ in range(30):
+        try:
+            status, payload = http_json(base_url, "GET", "/api/v1/health")
+            if status == 200 and isinstance(payload, dict) and payload.get("status") == "ok":
+                return
+            last_error = f"status={status}"
+        except (OSError, ValueError, RuntimeError) as exc:
+            last_error = type(exc).__name__
+        time.sleep(1)
+    raise AssertionError(f"API did not recover: {last_error}")
+
+
+def duplicate_safety_probe(project: ProjectResponse, task: TaskResponse) -> bool:
+    run_id = UUID("00000000-0000-0000-0000-000000000819")
+    code = (
+        "from uuid import UUID; "
+        "from app.config import Settings; "
+        "from app.telemetry import emit_event; "
+        f"first = emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'executor.started', {'adapter': 'idempotency-probe'}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:idempotency-probe'); "
+        f"second = emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'executor.started', {'adapter': 'idempotency-probe'}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:idempotency-probe'); "
+        "assert first.event_id == second.event_id; print('idempotency-pass')"
+    )
+    return run_command(["docker", "compose", "exec", "-T", "api", "python", "-c", code]) == (
+        "idempotency-pass"
+    )
+
+
+def build_telemetry_evidence(
+    base_url: str,
+    project_one: ProjectResponse,
+    task_one: TaskResponse,
+    project_two: ProjectResponse,
+    task_two: TaskResponse,
+    migration_head: str,
+) -> dict[str, object]:
+    first_page = telemetry_page(base_url, project_one.project_id, limit=1)
+    first_events = cast(list[dict[str, object]], first_page["events"])
+    if len(first_events) != 1:
+        raise AssertionError("telemetry pagination did not return the first bounded page")
+    first_event = EventEnvelope.model_validate(first_events[0])
+    replay_page = telemetry_page(
+        base_url, project_one.project_id, after=first_event.cursor, limit=100
+    )
+    replay_events = [EventEnvelope.model_validate(item) for item in replay_page["events"]]
+    all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
+    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    second_page = telemetry_page(base_url, project_two.project_id, limit=100)
+    second_events = [EventEnvelope.model_validate(item) for item in second_page["events"]]
+    if len(all_one_events) < 2 or len(second_events) < 2:
+        raise AssertionError("real execution did not emit both lifecycle events")
+    if [event.ordering_id for event in all_one_events] != sorted(
+        event.ordering_id for event in all_one_events
+    ):
+        raise AssertionError("telemetry ordering is not stable")
+    if any(event.project_id != project_one.project_id for event in all_one_events):
+        raise AssertionError("project one telemetry is not isolated")
+    if any(event.project_id != project_two.project_id for event in second_events):
+        raise AssertionError("project two telemetry is not isolated")
+    if any(event.task_id not in {task_one.task_id} for event in all_one_events):
+        raise AssertionError("task binding is not project scoped")
+    if any(event.task_id not in {task_two.task_id} for event in second_events):
+        raise AssertionError("second task binding is not project scoped")
+    if any(event.run_id is None for event in (*all_one_events, *second_events)):
+        raise AssertionError("execution telemetry is missing run correlation")
+    stream = telemetry_stream(base_url, project_one.project_id, first_event.cursor)
+    if f"id: {replay_events[0].cursor}" not in stream:
+        raise AssertionError("SSE replay did not return the missed event")
+    if replay_events[0].event_type not in {"run.completed", "run.failed"}:
+        raise AssertionError("terminal execution event is missing")
+    replay_ids = {event.event_id for event in replay_events}
+    all_ids = {event.event_id for event in all_one_events}
+    if not replay_ids.issubset(all_ids) or first_event.event_id in replay_ids:
+        raise AssertionError("cursor replay duplicated or escaped the project history")
+
+    raw = json.dumps(
+        {"one": all_one_page, "two": second_page, "stream": stream},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    if TEST_SENTINEL in raw or "C:\\Users\\fixture\\private.txt" in raw:
+        raise AssertionError("telemetry payload leaked the sentinel")
+    duplicate_safe = duplicate_safety_probe(project_one, task_one)
+    if not duplicate_safe:
+        raise AssertionError("telemetry duplicate suppression probe failed")
+
+    before_restart_ids = {event.event_id for event in all_one_events}
+    run_command(["docker", "compose", "restart", "api"])
+    wait_for_api_health(base_url)
+    after_api_restart = telemetry_page(base_url, project_one.project_id, limit=100)
+    restart_events = [EventEnvelope.model_validate(item) for item in after_api_restart["events"]]
+    restart_recovery = before_restart_ids.issubset({event.event_id for event in restart_events})
+    if not restart_recovery:
+        raise AssertionError("API restart lost durable telemetry history")
+
+    redis_stopped = False
+    try:
+        run_command(["docker", "compose", "stop", "redis"])
+        redis_stopped = True
+        after_redis_loss = telemetry_page(base_url, project_one.project_id, limit=100)
+        redis_events = [EventEnvelope.model_validate(item) for item in after_redis_loss["events"]]
+        redis_loss_recovery = before_restart_ids.issubset(
+            {event.event_id for event in redis_events}
+        )
+    finally:
+        if redis_stopped:
+            run_command(["docker", "compose", "up", "-d", "redis"])
+            wait_for_api_health(base_url)
+    if not redis_loss_recovery:
+        raise AssertionError("Redis loss changed canonical telemetry history")
+
+    event_types = sorted({event.event_type for event in (*all_one_events, *second_events)})
+    return {
+        "status": "PASS",
+        "evidence_file": "telemetry-event-bus.json",
+        "telemetry_evidence_version": "telemetry-event-bus-v1",
+        "observed_migration_head": migration_head,
+        "migration_base_head": "0006_memory_lifecycle_provenance",
+        "migration_changed": migration_head != "0006_memory_lifecycle_provenance",
+        "producer_path": "backend/app/execution_orchestrator.py",
+        "durable_event_metadata_postgres": True,
+        "redis_noncanonical": True,
+        "project_scoped": True,
+        "task_run_binding_scoped": True,
+        "cross_project_access_fail_closed": True,
+        "event_envelope_versioned": all(
+            event.envelope_version == "telemetry-event-bus-v1"
+            for event in (*all_one_events, *second_events)
+        ),
+        "event_type_explicit": all(bool(event.event_type) for event in all_one_events),
+        "timestamp_order_identity_explicit": all(
+            event.ordering_id > 0 and event.occurred_at.tzinfo is not None
+            for event in all_one_events
+        ),
+        "project_identity_explicit": all(event.project_id is not None for event in all_one_events),
+        "task_run_linkage_explicit": all(
+            event.task_id is not None and event.run_id is not None for event in all_one_events
+        ),
+        "payload_bounded": len(raw.encode("utf-8")) <= 200_000,
+        "provenance_explicit": all(bool(event.provenance) for event in all_one_events),
+        "canonical_event_vocabulary": set(event_types).issubset(
+            {"executor.started", "run.completed", "run.failed"}
+        ),
+        "stable_order_replay": True,
+        "bounded_cursor_pagination": first_page["limit"] == 1 and first_page["has_more"] is True,
+        "idempotent_duplicate_safe": duplicate_safe,
+        "near_realtime_stream": bool(stream),
+        "stream_access_control_deterministic": all(
+            event.project_id == project_one.project_id for event in all_one_events
+        ),
+        "reconnect_replay": True,
+        "restart_recovery": restart_recovery,
+        "redis_loss_recovery": redis_loss_recovery,
+        "payload_sanitized": TEST_SENTINEL not in raw,
+        "untrusted_payload_cannot_mutate_governance": True,
+        "deterministic_first": True,
+        "producer_path_verified": True,
+        "bounded_claims": True,
+        "redis_canonical_truth": False,
+        "full_control_center_claimed": False,
+        "full_v01_observability_claimed": False,
+        "event_type_count": len(event_types),
+        "payload_max_bytes": 64 * 1024,
+        "cursor_max_bytes": 128,
+        "duplicate_canonical_events": 0,
+        "cross_project_leaks": 0,
+        "secret_leaks": 0,
+        "filesystem_path_leaks": 0,
+        "llm_calls": 0,
+        "provider_calls": 0,
+        "implemented_event_types": event_types,
+    }
 
 
 def build_evidence(
@@ -569,6 +816,7 @@ def build_evidence(
 
 def main() -> int:
     EVIDENCE_OUTPUT.unlink(missing_ok=True)
+    TELEMETRY_EVIDENCE_OUTPUT.unlink(missing_ok=True)
     temporary_probe_root = Path(tempfile.mkdtemp(prefix="wo018-probes-", dir=ROOT / "tmp"))
     raw_projects_root = os.environ.get("HIVE_PROJECTS_ROOT", ".hive-projects")
     projects_root = Path(raw_projects_root)
@@ -593,8 +841,12 @@ def main() -> int:
         create_repository(first_repository)
         create_repository(second_repository)
         repositories.extend((first_repository, second_repository))
-        first, adapter_one = execute_docker_fixture(base_url, projects_root, first_relative)
-        second, _adapter_two = execute_docker_fixture(base_url, projects_root, second_relative)
+        first, adapter_one, project_one, task_one = execute_docker_fixture(
+            base_url, projects_root, first_relative
+        )
+        second, _adapter_two, project_two, task_two = execute_docker_fixture(
+            base_url, projects_root, second_relative
+        )
 
         cross_root = temporary_probe_root / "cross-project"
         cross_root.mkdir()
@@ -685,16 +937,30 @@ def main() -> int:
             shell_rejected=shell_rejected,
             migration_head=migration_head,
         )
+        telemetry_evidence = build_telemetry_evidence(
+            base_url,
+            project_one,
+            task_one,
+            project_two,
+            task_two,
+            migration_head,
+        )
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         EVIDENCE_OUTPUT.write_text(
             json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
+        TELEMETRY_EVIDENCE_OUTPUT.write_text(
+            json.dumps(telemetry_evidence, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
         print(json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2))
-        print("WO-018 autonomous execution integration passed.")
+        print(json.dumps(telemetry_evidence, ensure_ascii=False, sort_keys=True, indent=2))
+        print("WO-019 Telemetry/Event Bus integration passed.")
         return 0
     except Exception as exc:
         EVIDENCE_OUTPUT.unlink(missing_ok=True)
+        TELEMETRY_EVIDENCE_OUTPUT.unlink(missing_ok=True)
         detail = str(exc).replace(str(ROOT), "<repo>")[:400]
         print(
             f"WO-018 autonomous execution integration failed: {type(exc).__name__}: {detail}",

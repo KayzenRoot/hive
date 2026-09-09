@@ -129,6 +129,7 @@ def make_orchestrator(
     task_project_id: UUID = PROJECT_ID,
     context: object | None = None,
     inspector: Callable[[Path], InspectionResult] | None = None,
+    event_emitter: Callable[..., object] | None = None,
 ) -> ExecutionOrchestrator:
     workspace = root / "target"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -140,6 +141,7 @@ def make_orchestrator(
         task_loader=lambda _settings, _project_id, _task_id: task_response(task_project_id),
         context_builder=lambda *_args, **_kwargs: context or context_capsule(),
         repository_inspector=inspector or (lambda _path: inspection()),
+        event_emitter=event_emitter,
     )
 
 
@@ -201,6 +203,29 @@ def test_happy_path_reuses_context_and_runner_and_captures_evidence(tmp_path: Pa
     assert payload["sanitized_path_evidence"] is True
     assert payload["secret_leaks"] == 0
     assert payload["filesystem_path_leaks"] == 0
+
+
+def test_execution_emits_started_and_terminal_telemetry(tmp_path: Path) -> None:
+    events: list[tuple[str, dict[str, object], dict[str, object]]] = []
+
+    def capture(
+        _settings: Settings,
+        project_id: UUID,
+        event_type: str,
+        payload: dict[str, object],
+        **kwargs: object,
+    ) -> None:
+        assert project_id == PROJECT_ID
+        events.append((event_type, payload, kwargs))
+
+    result = make_orchestrator(tmp_path, event_emitter=capture).execute(
+        request(), FixtureAdapter(coding_result())
+    )
+
+    assert result.status == "STAGED"
+    assert [event[0] for event in events] == ["executor.started", "run.completed"]
+    assert all(event[2]["task_id"] == TASK_ID for event in events)
+    assert events[0][2]["run_id"] == events[1][2]["run_id"]
 
 
 def test_context_must_be_checkpoint_first_and_complete(tmp_path: Path) -> None:

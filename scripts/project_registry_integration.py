@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_REVISION = "0006_memory_lifecycle_provenance"
+SCHEMA_REVISION = "0007_telemetry_events"
 
 
 def free_port() -> int:

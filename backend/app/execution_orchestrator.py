@@ -16,7 +16,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Protocol, cast, runtime_checkable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from . import context_manager
 from .config import Settings, get_settings
@@ -42,6 +42,7 @@ from .runner import (
     verify_changed_files,
 )
 from .task_intake import TaskResponse, get_task
+from .telemetry import emit_event
 
 EXECUTION_EVIDENCE_VERSION = "execution-evidence-v1"
 DEFAULT_TOOL_SUBSET = ("python",)
@@ -56,7 +57,7 @@ MAX_CHANGED_FILE_BYTES = 1_048_576
 MAX_DIFF_CHARS = 16_000
 MAX_PROCESS_EVIDENCE_CHARS = 8_000
 MAX_RESULT_CHARS = 100_000
-MIGRATION_HEAD = "0006_memory_lifecycle_provenance"
+MIGRATION_HEAD = "0007_telemetry_events"
 MANDATORY_GOVERNANCE_KINDS = (
     "CHECKPOINT",
     "SCOPE",
@@ -392,6 +393,7 @@ ProjectLoader = Callable[[Settings, UUID], ProjectResponse | None]
 TaskLoader = Callable[[Settings, UUID, UUID], TaskResponse]
 ContextBuilder = Callable[..., object]
 RepositoryInspector = Callable[[Path], InspectionResult]
+EventEmitter = Callable[..., object]
 
 
 class ExecutionOrchestrator:
@@ -408,6 +410,7 @@ class ExecutionOrchestrator:
         task_loader: TaskLoader | None = None,
         context_builder: ContextBuilder | None = None,
         repository_inspector: RepositoryInspector | None = None,
+        event_emitter: EventEmitter | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.tool_policy = tool_policy or ToolPolicy(DEFAULT_TOOL_SUBSET)
@@ -417,8 +420,76 @@ class ExecutionOrchestrator:
         self.task_loader = task_loader or get_task
         self.context_builder = context_builder or context_manager.build_context
         self.repository_inspector = repository_inspector or inspect_project
+        default_seams = all(
+            seam is None
+            for seam in (
+                project_loader,
+                task_loader,
+                context_builder,
+                repository_inspector,
+            )
+        )
+        self.event_emitter = event_emitter or (emit_event if default_seams else None)
 
     def execute(self, request: ExecutorRequest, adapter: ExecutorAdapter) -> ExecutionResult:
+        """Run one execution and emit bounded durable lifecycle events."""
+
+        run_id = uuid4()
+        identity, _project = self._resolve_identity(request)
+        self._emit_event(
+            request,
+            run_id,
+            "executor.started",
+            {"adapter": type(adapter).__name__},
+            "executor.started",
+        )
+        try:
+            result = self._execute(request, adapter)
+        except Exception as exc:
+            self._emit_event(
+                request,
+                run_id,
+                "run.failed",
+                {"status": "failed", "error_type": type(exc).__name__},
+                "run.failed",
+            )
+            raise
+        terminal_type = "run.completed" if result.status == "STAGED" else "run.failed"
+        self._emit_event(
+            request,
+            run_id,
+            terminal_type,
+            {
+                "status": result.status,
+                "validation_passed": result.validation_passed,
+                "changed_file_count": len(result.changed_files),
+            },
+            terminal_type,
+        )
+        return result
+
+    def _emit_event(
+        self,
+        request: ExecutorRequest,
+        run_id: UUID,
+        event_type: str,
+        payload: dict[str, object],
+        emission_suffix: str,
+    ) -> None:
+        if self.event_emitter is None:
+            return
+        self.event_emitter(
+            self.settings,
+            request.project_id,
+            event_type,
+            payload,
+            task_id=request.task_id,
+            run_id=run_id,
+            provenance={"producer": "execution_orchestrator", "deterministic": True},
+            emission_key=f"execution:{run_id}:{emission_suffix}",
+        )
+
+    def _execute(self, request: ExecutorRequest, adapter: ExecutorAdapter) -> ExecutionResult:
         """Run one adapter result through identity, context, Runner and evidence gates."""
 
         identity, project = self._resolve_identity(request)
