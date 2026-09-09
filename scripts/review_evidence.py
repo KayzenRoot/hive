@@ -6412,6 +6412,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             WO015P_WORK_ORDER,
             WO016P_WORK_ORDER,
             WO017P_WORK_ORDER,
+            WO018P_WORK_ORDER,
         }
         else None
     )
@@ -6426,6 +6427,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_branch=args.base_branch,
     )
     require_wo017p_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+    )
+    require_wo018p_g1_scope(
         work_order,
         base_sha,
         paths,
@@ -6493,6 +6500,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo018p_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
     require_wo016_scope(
         work_order,
         base_sha,
@@ -6548,6 +6563,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo015_memory_evidence(work_order, integration, migration_head())
     require_wo016_storage_evidence(work_order, integration, migration_head())
     require_wo017_mcp_evidence(work_order, integration, migration_head())
+    require_wo018_autonomous_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -6678,6 +6694,24 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo017p_governance_evidence = verify_wo017p_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo018p_g1_governance_evidence = verify_wo018p_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo018p_governance_evidence = verify_wo018p_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -6829,6 +6863,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             [f"WO-017-P governance evidence: {wo017p_governance_evidence}"]
             if wo017p_governance_evidence
             else []
+        )
+        + (
+            [f"WO-018-P-G1 governance evidence: {wo018p_g1_governance_evidence}"]
+            if wo018p_g1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-018-P governance evidence: {wo018p_governance_evidence}"]
+            if wo018p_governance_evidence
+            else []
         ),
     }
 
@@ -6882,6 +6926,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
     )
     require_wo017p_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+    )
+    require_wo018p_g1_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -6959,6 +7011,16 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_authorized_base=False,
     )
     require_wo017p_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
+        enforce_authorized_base=False,
+    )
+    require_wo018p_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
