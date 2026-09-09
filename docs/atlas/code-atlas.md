@@ -29,6 +29,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/tasks_api.py: Python source or test module.
 - backend/app/telemetry.py: Python source or test module.
 - backend/tests/__init__.py: Python source or test module.
+- backend/tests/conftest.py: Python source or test module.
 - backend/tests/test_adaptive_token_budget.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
