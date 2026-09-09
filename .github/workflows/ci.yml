@@ -55,6 +55,8 @@ jobs:
           python-version: "3.12"
       - name: Install integration test dependencies
         run: python -m pip install -r requirements-dev.txt
+      - name: Prepare host project workspace
+        run: mkdir -p .hive-projects
       - name: Start HIVE services
         run: docker compose up -d --build
       - name: Run container smoke test
