@@ -534,6 +534,119 @@ AUTONOMOUS_EXECUTION_REQUIRED_FIELDS = (
 )
 AUTONOMOUS_EXECUTION_ALLOWED_FIELDS = frozenset(AUTONOMOUS_EXECUTION_REQUIRED_FIELDS)
 
+TELEMETRY_EVENT_BUS_EVIDENCE_VERSION = "telemetry-event-bus-v1"
+TELEMETRY_EVENT_BUS_EVIDENCE_FILE = "telemetry-event-bus.json"
+TELEMETRY_EVENT_BUS_CANONICAL_EVENT_TYPES = (
+    "project.discovered",
+    "project.indexing",
+    "task.ingested",
+    "context.started",
+    "context.retrieved",
+    "context.built",
+    "cache.hit",
+    "cache.miss",
+    "executor.started",
+    "tool.called",
+    "file.changed",
+    "test.started",
+    "test.finished",
+    "validation.failed",
+    "validation.passed",
+    "memory.staged",
+    "memory.promoted",
+    "run.completed",
+    "run.failed",
+)
+TELEMETRY_EVENT_BUS_TRUE_FIELDS = (
+    "durable_event_metadata_postgres",
+    "redis_noncanonical",
+    "project_scoped",
+    "task_run_binding_scoped",
+    "cross_project_access_fail_closed",
+    "event_envelope_versioned",
+    "event_type_explicit",
+    "timestamp_order_identity_explicit",
+    "project_identity_explicit",
+    "task_run_linkage_explicit",
+    "payload_bounded",
+    "provenance_explicit",
+    "canonical_event_vocabulary",
+    "stable_order_replay",
+    "bounded_cursor_pagination",
+    "idempotent_duplicate_safe",
+    "near_realtime_stream",
+    "stream_access_control_deterministic",
+    "reconnect_replay",
+    "restart_recovery",
+    "redis_loss_recovery",
+    "payload_sanitized",
+    "untrusted_payload_cannot_mutate_governance",
+    "deterministic_first",
+    "producer_path_verified",
+    "bounded_claims",
+)
+TELEMETRY_EVENT_BUS_FALSE_FIELDS = (
+    "redis_canonical_truth",
+    "full_control_center_claimed",
+    "full_v01_observability_claimed",
+)
+TELEMETRY_EVENT_BUS_INTEGER_FIELDS = (
+    "event_type_count",
+    "payload_max_bytes",
+    "cursor_max_bytes",
+    "duplicate_canonical_events",
+    "cross_project_leaks",
+    "secret_leaks",
+    "filesystem_path_leaks",
+    "llm_calls",
+    "provider_calls",
+)
+TELEMETRY_EVENT_BUS_LIST_FIELDS = ("implemented_event_types",)
+TELEMETRY_EVENT_BUS_STRING_FIELDS = (
+    "telemetry_evidence_version",
+    "observed_migration_head",
+    "migration_base_head",
+    "producer_path",
+)
+TELEMETRY_EVENT_BUS_REQUIRED_FIELDS = (
+    "status",
+    "evidence_file",
+    *TELEMETRY_EVENT_BUS_STRING_FIELDS,
+    "migration_changed",
+    *TELEMETRY_EVENT_BUS_TRUE_FIELDS,
+    *TELEMETRY_EVENT_BUS_FALSE_FIELDS,
+    *TELEMETRY_EVENT_BUS_INTEGER_FIELDS,
+    *TELEMETRY_EVENT_BUS_LIST_FIELDS,
+)
+TELEMETRY_EVENT_BUS_ALLOWED_FIELDS = frozenset(TELEMETRY_EVENT_BUS_REQUIRED_FIELDS)
+TELEMETRY_EVENT_BUS_MAX_PAYLOAD_BYTES = 1_048_576
+TELEMETRY_EVENT_BUS_MAX_CURSOR_BYTES = 65_536
+TELEMETRY_EVENT_BUS_MAX_EVENT_TYPES = len(TELEMETRY_EVENT_BUS_CANONICAL_EVENT_TYPES)
+TELEMETRY_EVENT_BUS_PATH = re.compile(r"^[^\\/:*?\"<>|\r\n]+(?:/[^\\/:*?\"<>|\r\n]+)*$")
+
+WO019_G1_BASE_SHA = "62c51d982afe47d93aa40dee3d55b479e6d756e5"
+WO019_G1_WORK_ORDER = "WO-019-G1"
+WO019_WORK_ORDER = "WO-019"
+WO019_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO019_PRODUCT_ALLOWED_PREFIXES = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "docs/atlas/",
+    "migrations/versions/",
+    "scripts/",
+)
+WO019_PRODUCT_FORBIDDEN_PATHS = frozenset(WO019_G1_ALLOWED_PATHS)
+WO019_PRODUCT_MIGRATION_PATH = re.compile(r"^migrations/versions/0007_[a-z0-9_]+\.py$")
+
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -1194,6 +1307,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO017_WORK_ORDER,
         WO018_G1_WORK_ORDER,
         WO018_WORK_ORDER,
+        WO019_G1_WORK_ORDER,
+        WO019_WORK_ORDER,
     }:
         return
     if work_order == WO014_C2_WORK_ORDER:
@@ -2591,6 +2706,90 @@ def require_wo018_scope(
         )
 
 
+def require_wo019_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+) -> None:
+    if work_order != WO019_G1_WORK_ORDER:
+        return
+    if base_sha != WO019_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO019_G1_WORK_ORDER} requires exact base {WO019_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO019_G1_WORK_ORDER} requires the protected main base branch")
+    if sorted(set(paths)) != sorted(WO019_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO019_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(f"{WO019_G1_WORK_ORDER} requires exactly the four governance files")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO019_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO019_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != "0006_memory_lifecycle_provenance":
+        raise ValueError(
+            f"{WO019_G1_WORK_ORDER} requires migration head 0006_memory_lifecycle_provenance"
+        )
+
+
+def require_wo019_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO019_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO019_WORK_ORDER} requires the protected main base branch")
+    if HEX_SHA.fullmatch(base_sha) is None or base_sha == "0" * 40:
+        raise ValueError(f"{WO019_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) is None:
+            raise ValueError(f"{WO019_WORK_ORDER} requires a resolved current protected main SHA")
+        if base_sha != current_main:
+            raise ValueError(
+                f"{WO019_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+        base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode(
+            "utf-8"
+        )
+        if WO019_G1_WORK_ORDER not in base_review_evidence:
+            raise ValueError(
+                f"{WO019_WORK_ORDER} requires merged {WO019_G1_WORK_ORDER} support in its base"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO019_WORK_ORDER} cannot change canonical Project Brain")
+    unauthorized = sorted(
+        path
+        for path in set(paths)
+        if path in WO019_PRODUCT_FORBIDDEN_PATHS
+        or not any(path.startswith(prefix) for prefix in WO019_PRODUCT_ALLOWED_PREFIXES)
+    )
+    if unauthorized:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} changed files outside the bounded "
+            "Telemetry/Event Bus product scope: " + ", ".join(unauthorized)
+        )
+    migration_paths = [path for path in paths if path.startswith("migrations/")]
+    invalid_migrations = [
+        path for path in migration_paths if not WO019_PRODUCT_MIGRATION_PATH.fullmatch(path)
+    ]
+    if invalid_migrations or len(migration_paths) > 1:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} permits at most one additive 0007 Telemetry/Event Bus migration"
+        )
+
+
 def require_wo018_autonomous_evidence(
     work_order: str,
     integration: Mapping[str, object],
@@ -3248,6 +3447,183 @@ def require_wo017_mcp_evidence(
             raise ValueError(f"WO-017 requires bounded integer evidence for {field}")
         if value != 0:
             raise ValueError(f"WO-017 requires {field}=0")
+
+
+def require_wo019_telemetry_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order == WO019_G1_WORK_ORDER:
+        if "telemetry_event_bus" in integration:
+            raise ValueError(
+                f"{WO019_G1_WORK_ORDER} must not claim future Telemetry/Event Bus product evidence"
+            )
+        return
+    if work_order != WO019_WORK_ORDER:
+        return
+    telemetry = integration.get("telemetry_event_bus")
+    if not isinstance(telemetry, Mapping):
+        raise ValueError(f"{WO019_WORK_ORDER} missing mandatory Telemetry/Event Bus evidence")
+    if set(telemetry) != TELEMETRY_EVENT_BUS_ALLOWED_FIELDS:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} Telemetry/Event Bus evidence must match "
+            "the closed contract exactly"
+        )
+    if telemetry.get("status") != "PASS":
+        raise ValueError(f"{WO019_WORK_ORDER} requires passing Telemetry/Event Bus evidence")
+    if telemetry.get("evidence_file") != TELEMETRY_EVENT_BUS_EVIDENCE_FILE:
+        raise ValueError(f"{WO019_WORK_ORDER} requires {TELEMETRY_EVENT_BUS_EVIDENCE_FILE}")
+    if telemetry.get("telemetry_evidence_version") != TELEMETRY_EVENT_BUS_EVIDENCE_VERSION:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} requires evidence version {TELEMETRY_EVENT_BUS_EVIDENCE_VERSION}"
+        )
+    missing = [
+        field for field in TELEMETRY_EVENT_BUS_TRUE_FIELDS if telemetry.get(field) is not True
+    ]
+    if missing:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} missing mandatory Telemetry/Event Bus evidence: "
+            + ", ".join(sorted(missing))
+        )
+    invalid_false = [
+        field for field in TELEMETRY_EVENT_BUS_FALSE_FIELDS if telemetry.get(field) is not False
+    ]
+    if invalid_false:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} requires bounded negative claims: "
+            + ", ".join(sorted(invalid_false))
+        )
+    for field in TELEMETRY_EVENT_BUS_INTEGER_FIELDS:
+        value = telemetry.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{WO019_WORK_ORDER} requires bounded integer evidence for {field}")
+    event_types = telemetry.get("implemented_event_types")
+    if (
+        not isinstance(event_types, list)
+        or not 1 <= len(event_types) <= TELEMETRY_EVENT_BUS_MAX_EVENT_TYPES
+        or any(
+            not isinstance(event_type, str)
+            or event_type not in TELEMETRY_EVENT_BUS_CANONICAL_EVENT_TYPES
+            for event_type in event_types
+        )
+        or len(set(event_types)) != len(event_types)
+    ):
+        raise ValueError(f"{WO019_WORK_ORDER} requires a non-empty explicit canonical event subset")
+    if telemetry.get("event_type_count") != len(event_types):
+        raise ValueError(f"{WO019_WORK_ORDER} requires truthful event_type_count")
+    if not 1 <= cast(int, telemetry["payload_max_bytes"]) <= TELEMETRY_EVENT_BUS_MAX_PAYLOAD_BYTES:
+        raise ValueError(f"{WO019_WORK_ORDER} requires bounded payload_max_bytes")
+    if not 1 <= cast(int, telemetry["cursor_max_bytes"]) <= TELEMETRY_EVENT_BUS_MAX_CURSOR_BYTES:
+        raise ValueError(f"{WO019_WORK_ORDER} requires bounded cursor_max_bytes")
+    for field in (
+        "duplicate_canonical_events",
+        "cross_project_leaks",
+        "secret_leaks",
+        "filesystem_path_leaks",
+        "llm_calls",
+        "provider_calls",
+    ):
+        if telemetry.get(field) != 0:
+            raise ValueError(f"{WO019_WORK_ORDER} requires {field}=0")
+    producer_path = telemetry.get("producer_path")
+    if (
+        not isinstance(producer_path, str)
+        or not TELEMETRY_EVENT_BUS_PATH.fullmatch(producer_path)
+        or Path(producer_path).is_absolute()
+    ):
+        raise ValueError(f"{WO019_WORK_ORDER} requires a sanitized relative producer_path")
+    observed_head = telemetry.get("observed_migration_head")
+    if not isinstance(observed_head, str) or not observed_head:
+        raise ValueError(f"{WO019_WORK_ORDER} requires observed migration head evidence")
+    if migration_head_value is None or observed_head != migration_head_value:
+        raise ValueError(
+            f"{WO019_WORK_ORDER} requires evidence to match the observed migration head"
+        )
+    if telemetry.get("migration_base_head") != "0006_memory_lifecycle_provenance":
+        raise ValueError(f"{WO019_WORK_ORDER} requires the G1 migration base head")
+    expected_changed = observed_head != "0006_memory_lifecycle_provenance"
+    if telemetry.get("migration_changed") is not expected_changed:
+        raise ValueError(f"{WO019_WORK_ORDER} requires truthful migration_changed evidence")
+
+
+def verify_wo019_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO019_G1_WORK_ORDER:
+        return None
+    require_wo019_g1_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO019_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != "0006_memory_lifecycle_provenance":
+        raise ValueError(f"{WO019_G1_WORK_ORDER} requires migration head 0006")
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO019_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO019_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo019_telemetry_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO019_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO019_WORK_ORDER)
+    return (
+        f"work_order={WO019_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        "migration_head=0006_memory_lifecycle_provenance; migration_changed=False; "
+        f"future_{WO019_WORK_ORDER}_registered=PASS; "
+        f"future_{TELEMETRY_EVENT_BUS_EVIDENCE_VERSION}_fail_closed=PASS; "
+        "telemetry_implementation=False; ruleset_unchanged=PASS; "
+        "auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo019_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO019_WORK_ORDER:
+        return None
+    require_wo019_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO019_WORK_ORDER} cannot change canonical Project Brain")
+    require_wo019_telemetry_evidence(work_order, integration, migration_head_value)
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO019_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO019_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_current_work_order_authorization(WO019_WORK_ORDER)
+    telemetry = cast(Mapping[str, object], integration["telemetry_event_bus"])
+    implemented_event_types = ",".join(cast(list[str], telemetry["implemented_event_types"]))
+    return (
+        f"work_order={WO019_WORK_ORDER}; product_scope=PASS; "
+        f"evidence_version={TELEMETRY_EVENT_BUS_EVIDENCE_VERSION}; "
+        f"implemented_event_types={implemented_event_types}; "
+        "durable_postgres_truth=PASS; redis_canonical_truth=False; "
+        "project_isolation=PASS; replay_order=PASS; stream=PASS; reconnect=PASS; "
+        "restart/redis_loss=PASS/PASS; secret_path_leaks=0/0; llm_provider_calls=0/0; "
+        f"migration_head={migration_head_value}; "
+        f"migration_changed={telemetry['migration_changed']}; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
 
 
 def verify_wo018_g1_governance_contract(
@@ -4624,6 +5000,111 @@ def autonomous_execution_evidence() -> dict[str, object]:
     }
 
 
+def telemetry_event_bus_evidence() -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "evidence_file": TELEMETRY_EVENT_BUS_EVIDENCE_FILE,
+        "telemetry_evidence_version": TELEMETRY_EVENT_BUS_EVIDENCE_VERSION,
+        "observed_migration_head": "UNKNOWN",
+        "migration_base_head": "UNKNOWN",
+        "producer_path": "UNKNOWN",
+        "migration_changed": False,
+        **{field: False for field in TELEMETRY_EVENT_BUS_TRUE_FIELDS},
+        **{field: False for field in TELEMETRY_EVENT_BUS_FALSE_FIELDS},
+        **{field: 0 for field in TELEMETRY_EVENT_BUS_INTEGER_FIELDS},
+        "implemented_event_types": [],
+    }
+    text = integration_file(TELEMETRY_EVENT_BUS_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+
+    extra_fields = set(data) - TELEMETRY_EVENT_BUS_ALLOWED_FIELDS
+    true_values = {field: data.get(field) is True for field in TELEMETRY_EVENT_BUS_TRUE_FIELDS}
+    false_checks = {field: data.get(field) is False for field in TELEMETRY_EVENT_BUS_FALSE_FIELDS}
+    false_values = {field: data.get(field) is True for field in TELEMETRY_EVENT_BUS_FALSE_FIELDS}
+    strings = {
+        field: data.get(field) if isinstance(data.get(field), str) else "UNKNOWN"
+        for field in TELEMETRY_EVENT_BUS_STRING_FIELDS
+    }
+    migration_changed = data.get("migration_changed") is True
+    integers: dict[str, int] = {}
+    integer_fields_valid = True
+    for field in TELEMETRY_EVENT_BUS_INTEGER_FIELDS:
+        value = data.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            integer_fields_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    raw_event_types = data.get("implemented_event_types")
+    event_types_valid = (
+        isinstance(raw_event_types, list)
+        and 1 <= len(raw_event_types) <= TELEMETRY_EVENT_BUS_MAX_EVENT_TYPES
+        and all(
+            isinstance(event_type, str) and event_type in TELEMETRY_EVENT_BUS_CANONICAL_EVENT_TYPES
+            for event_type in cast(list[object], raw_event_types)
+        )
+        and len(set(cast(list[object], raw_event_types))) == len(raw_event_types)
+    )
+    implemented_event_types = list(cast(list[str], raw_event_types)) if event_types_valid else []
+    path_valid = bool(
+        isinstance(strings["producer_path"], str)
+        and strings["producer_path"] != "UNKNOWN"
+        and TELEMETRY_EVENT_BUS_PATH.fullmatch(strings["producer_path"])
+        and not Path(strings["producer_path"]).is_absolute()
+    )
+    bounds_valid = (
+        integer_fields_valid
+        and integers["event_type_count"] == len(implemented_event_types)
+        and 1 <= integers["payload_max_bytes"] <= TELEMETRY_EVENT_BUS_MAX_PAYLOAD_BYTES
+        and 1 <= integers["cursor_max_bytes"] <= TELEMETRY_EVENT_BUS_MAX_CURSOR_BYTES
+        and all(value >= 0 for value in integers.values())
+    )
+    status = (
+        "PASS"
+        if data.get("status") == "PASS"
+        and not extra_fields
+        and data.get("evidence_file") == TELEMETRY_EVENT_BUS_EVIDENCE_FILE
+        and strings["telemetry_evidence_version"] == TELEMETRY_EVENT_BUS_EVIDENCE_VERSION
+        and strings["migration_base_head"] == "0006_memory_lifecycle_provenance"
+        and strings["observed_migration_head"] != "UNKNOWN"
+        and migration_changed
+        == (strings["observed_migration_head"] != "0006_memory_lifecycle_provenance")
+        and all(true_values.values())
+        and all(false_checks.values())
+        and event_types_valid
+        and path_valid
+        and bounds_valid
+        and integers["duplicate_canonical_events"] == 0
+        and integers["cross_project_leaks"] == 0
+        and integers["secret_leaks"] == 0
+        and integers["filesystem_path_leaks"] == 0
+        and integers["llm_calls"] == 0
+        and integers["provider_calls"] == 0
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        "evidence_file": (
+            data.get("evidence_file")
+            if isinstance(data.get("evidence_file"), str)
+            else TELEMETRY_EVENT_BUS_EVIDENCE_FILE
+        ),
+        **strings,
+        "migration_changed": migration_changed,
+        **true_values,
+        **false_values,
+        **integers,
+        "implemented_event_types": implemented_event_types,
+    }
+
+
 def acce_storage_policy_evidence() -> dict[str, object]:
     unknown: dict[str, object] = {
         "status": "UNKNOWN",
@@ -5155,6 +5636,9 @@ def integration_evidence(
         and autonomous_execution["status"] == "FAIL"
     ):
         status = "FAIL"
+    telemetry_event_bus = telemetry_event_bus_evidence()
+    if work_order == WO019_WORK_ORDER and telemetry_event_bus["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
         "status": status,
@@ -5211,6 +5695,8 @@ def integration_evidence(
         evidence["mcp_surface"] = mcp_surface
     if work_order in {WO018_WORK_ORDER, WO018P_G1_WORK_ORDER, WO018P_WORK_ORDER}:
         evidence["autonomous_execution"] = autonomous_execution
+    if work_order == WO019_WORK_ORDER:
+        evidence["telemetry_event_bus"] = telemetry_event_bus
     return evidence
 
 
@@ -6442,6 +6928,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         paths,
         base_branch=args.base_branch,
     )
+    require_wo019_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+    )
     require_wo012p_scope(
         work_order,
         base_sha,
@@ -6532,6 +7024,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_branch=args.base_branch,
         enforce_current_main=True,
     )
+    require_wo019_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
     github_evidence = github_review_text(repository, args.pr_number)
@@ -6568,6 +7067,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo016_storage_evidence(work_order, integration, migration_head())
     require_wo017_mcp_evidence(work_order, integration, migration_head())
     require_wo018_autonomous_evidence(work_order, integration, migration_head())
+    require_wo019_telemetry_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -6662,6 +7162,24 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo018_governance_evidence = verify_wo018_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo019_g1_governance_evidence = verify_wo019_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo019_governance_evidence = verify_wo019_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -6859,6 +7377,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             else []
         )
         + (
+            [f"WO-019-G1 governance evidence: {wo019_g1_governance_evidence}"]
+            if wo019_g1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-019 governance evidence: {wo019_governance_evidence}"]
+            if wo019_governance_evidence
+            else []
+        )
+        + (
             [f"WO-017-P-G1 governance evidence: {wo017p_g1_governance_evidence}"]
             if wo017p_g1_governance_evidence
             else []
@@ -6938,6 +7466,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
     )
     require_wo018p_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+    )
+    require_wo019_g1_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -7053,6 +7589,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_current_main=True,
     )
     require_wo018_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
+    )
+    require_wo019_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -7317,6 +7862,36 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-018 evidence must record the explicit autonomous execution governance contract"
             )
+    wo019_g1_evidence = verify_wo019_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO019_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-019-G1 governance evidence: {wo019_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-019-G1 evidence must record the explicit governance enablement contract"
+            )
+    wo019_evidence = verify_wo019_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO019_WORK_ORDER:
+        expected_entry = f"WO-019 governance evidence: {wo019_evidence}"
+        if expected_entry not in negative_scope:
+            raise ValueError(
+                "WO-019 evidence must record the explicit Telemetry/Event Bus governance contract"
+            )
     wo017_g1_evidence = verify_wo017_g1_governance_contract(
         work_order,
         cast(str, base["sha"]),
@@ -7461,6 +8036,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo018_autonomous_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo019_telemetry_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -8012,6 +8592,28 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{mcp_surface_evidence.get('structured_errors_enforced', False)}/"
         f"{mcp_surface_evidence.get('bounded_errors_enforced', False)}`"
     )
+    telemetry_event_bus_evidence_value = cast(
+        dict[str, Any], integration.get("telemetry_event_bus", {})
+    )
+    telemetry_event_bus_text = (
+        f"`{telemetry_event_bus_evidence_value.get('status', 'NOT_REQUIRED')}`; version `"
+        f"{telemetry_event_bus_evidence_value.get('telemetry_evidence_version', 'NOT_REQUIRED')}`, "
+        f"events `{telemetry_event_bus_evidence_value.get('implemented_event_types', [])}`, "
+        f"PostgreSQL durable/Redis noncanonical `"
+        f"{telemetry_event_bus_evidence_value.get('durable_event_metadata_postgres', False)}/"
+        f"{telemetry_event_bus_evidence_value.get('redis_noncanonical', False)}`, "
+        f"replay/stream/reconnect `"
+        f"{telemetry_event_bus_evidence_value.get('stable_order_replay', False)}/"
+        f"{telemetry_event_bus_evidence_value.get('near_realtime_stream', False)}/"
+        f"{telemetry_event_bus_evidence_value.get('reconnect_replay', False)}`, "
+        f"leaks secret/path/cross-project `"
+        f"{telemetry_event_bus_evidence_value.get('secret_leaks', 'UNKNOWN')}/"
+        f"{telemetry_event_bus_evidence_value.get('filesystem_path_leaks', 'UNKNOWN')}/"
+        f"{telemetry_event_bus_evidence_value.get('cross_project_leaks', 'UNKNOWN')}`, "
+        f"LLM/provider calls `"
+        f"{telemetry_event_bus_evidence_value.get('llm_calls', 'UNKNOWN')}/"
+        f"{telemetry_event_bus_evidence_value.get('provider_calls', 'UNKNOWN')}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -8025,6 +8627,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("context_manager", "Context Manager"),
             ("acce_storage", "ACCE Storage Policy"),
             ("mcp_surface", "MCP Core Surface"),
+            ("telemetry_event_bus", "Telemetry/Event Bus"),
         )
         if key in integration
     )
@@ -8067,6 +8670,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Memory Lifecycle evidence: {memory_text}
 - ACCE Storage Policy evidence: {acce_storage_text}
 - MCP Core Surface evidence: {mcp_surface_text}
+- Telemetry/Event Bus evidence: {telemetry_event_bus_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
 - WO-015-G1 governance evidence: {wo015_g1_governance_text}
