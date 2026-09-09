@@ -297,11 +297,15 @@ def remove_unreferenced_cas_files(digests: set[str]) -> None:
         path = cas_root / digest[:2] / f"{digest[2:]}.zst"
         if not path.exists():
             continue
+        container_path = f"/var/lib/hive/cas/sha256/{digest[:2]}/{digest[2:]}.zst"
         try:
             path.unlink()
-        except PermissionError:
-            os.chmod(path, stat.S_IWRITE)
-            path.unlink()
+        except (PermissionError, OSError):
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                path.unlink()
+            except (PermissionError, OSError):
+                run_command(["docker", "compose", "exec", "-T", "api", "rm", "-f", container_path])
         if path.exists():
             raise AssertionError(f"CAS fixture artifact remains: {path}")
 
