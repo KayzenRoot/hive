@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -613,7 +613,11 @@ def _delete_file(path: Path) -> None:
         raise ApplicationError(f"cannot delete file: {path}") from exc
 
 
-def apply_admitted(admission: Admission) -> ApplyResult:
+def apply_admitted(
+    admission: Admission,
+    *,
+    before_apply: Callable[[], None] | None = None,
+) -> ApplyResult:
     """Apply an admitted set, then verify its deterministic result."""
     operations = admission.change_set.operations
     targets = [
@@ -626,6 +630,13 @@ def apply_admitted(admission: Admission) -> ApplyResult:
     ]
     for operation, target in targets:
         _check_operation_state(operation, target)
+
+    # The callback runs after all file preconditions have been rechecked and
+    # immediately before the first write.  Orchestrators use it to revalidate
+    # an external execution basis such as Git HEAD without weakening the
+    # runner's own file-level checks.
+    if before_apply is not None:
+        before_apply()
 
     applied: list[str] = []
     for operation, relative_path in zip(operations, admission.normalized_paths, strict=True):

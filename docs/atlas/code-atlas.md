@@ -12,6 +12,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/context_manager.py: Python source or test module.
 - backend/app/db.py: Python source or test module.
 - backend/app/delta_context.py: Python source or test module.
+- backend/app/execution_orchestrator.py: Python source or test module.
 - backend/app/health.py: Python source or test module.
 - backend/app/main.py: Python source or test module.
 - backend/app/mcp_server.py: Python source or test module.
@@ -33,6 +34,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_context_fingerprints.py: Python source or test module.
 - backend/tests/test_context_manager.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
+- backend/tests/test_execution_orchestrator.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_mcp_server.py: Python source or test module.
 - backend/tests/test_memory.py: Python source or test module.
@@ -73,6 +75,7 @@ Generated deterministically by scripts/generate_maps.py.
 ## Operational scripts
 
 - scripts/adaptive_token_budget_benchmark.py: deterministic maintenance or validation script.
+- scripts/autonomous_execution_integration.py: deterministic maintenance or validation script.
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
 - scripts/context_manager_integration.py: deterministic maintenance or validation script.
