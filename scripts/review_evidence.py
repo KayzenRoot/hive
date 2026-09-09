@@ -1650,9 +1650,7 @@ def _require_wo017p_strict_raw_checkpoint_grammar(
         zip(base_ordered_sections, candidate_ordered_sections, strict=True), 1
     ):
         if base_section.heading.encode("utf-8") != candidate_section.heading.encode("utf-8"):
-            raise ValueError(
-                f"WO-017-P heading changed byte-for-byte at position {position}"
-            )
+            raise ValueError(f"WO-017-P heading changed byte-for-byte at position {position}")
     required_sections = set(_WO016P_RAW_CONTROLLED_SECTIONS)
     if not required_sections.issubset(base_sections):
         raise ValueError("WO-017-P base is missing a required canonical checkpoint section")
