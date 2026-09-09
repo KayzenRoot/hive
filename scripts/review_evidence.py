@@ -4398,11 +4398,10 @@ def integration_evidence(
     if acce_storage["status"] == "FAIL":
         status = "FAIL"
     mcp_surface = mcp_surface_evidence()
-    if work_order in {
-        WO017_WORK_ORDER,
-        WO017P_G1_WORK_ORDER,
-        WO017P_WORK_ORDER,
-    } and mcp_surface["status"] == "FAIL":
+    if (
+        work_order in {WO017_WORK_ORDER, WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER}
+        and mcp_surface["status"] == "FAIL"
+    ):
         status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
@@ -4456,11 +4455,7 @@ def integration_evidence(
     }
     if work_order in {WO016_WORK_ORDER, WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}:
         evidence["acce_storage"] = acce_storage
-    if work_order in {
-        WO017_WORK_ORDER,
-        WO017P_G1_WORK_ORDER,
-        WO017P_WORK_ORDER,
-    }:
+    if work_order in {WO017_WORK_ORDER, WO017P_G1_WORK_ORDER, WO017P_WORK_ORDER}:
         evidence["mcp_surface"] = mcp_surface
     return evidence
 
