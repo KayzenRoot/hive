@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-ACCE STORAGE TIER AND COMPRESSION POLICY FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+MCP READ-ONLY CORE SURFACE APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -200,6 +200,11 @@ See `03-SCOPE.md`.
 - exact logical sha-256 and one canonical cas identity are preserved across tier transitions; dedup remains valid; physical replacement/metadata ordering is safe; postgresql physical metadata and logical/physical/compression accounting remain truthful; corruption/truncation fail closed.
 - retry/recovery integrity is proven, including pre-publication durable metadata guard, orphan/missing-physical fail-closed behavior, pre-commit rollback, post-commit cleanup safety, restart and redis-loss recovery; canonical source loss is zero and acce storage llm/provider calls are 0/0.
 - evidence lineage records pr #55, audited head 0de6dc345262fc77fdda99c2f2dca6be88f9552c, sol review 5135618100, squash merge 54c32e939c7be6d505727df24d3ce2ad48af5518, post-merge ci 34168038154, backend 418, dashboard 7; ruleset 21934284 is unchanged, auto-merge was unarmed, and no mcp, autonomous execution, full telemetry, full control center or v0.1 completion is claimed.
+- mcp read-only core surface is approved with evidence mcp-core-surface-v1 and the exact seven tools project.list, project.status, context.build, context.search, memory.search, memory.get and checkpoint.read; migration remains 0006_memory_lifecycle_provenance.
+- real local mcp transport reuses hive core directly without rest loopback or duplicate persistence; project isolation, checkpoint-first behavior, bounded structured errors, context provenance/bounds and memory provenance/status visibility are verified.
+- restart and redis-loss recovery pass; arbitrary filesystem access, missing/untracked/stale checkpoint substitution and hive checkpoint substitution fail closed; secret leaks, filesystem path leaks, mcp llm calls and mcp provider calls are all 0.
+- evidence lineage records pr #59 with audited head e46b45ff0ec08024b2f83a418b90b7b84095f172 and squash merge 7400f948fa72f9d8f41e8035ff4441b1a5ad4d26, plus correction pr #60 with audited head 8fbd89357e2d37de7b6b68316e8a25cc59e996f2, squash merge 0d9240f3a18530fae3e9f65751dbc11491c485c0 and post-merge ci 34285893606; backend 465 and dashboard 7 passed.
+- ruleset 21934284 remains unchanged and auto-merge is unarmed; autonomous execution beyond the local verified runner, full telemetry, full control center and v0.1 completion are not claimed.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -207,10 +212,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary MCP server product surface increment.
+- Preparing the smallest necessary autonomous execution pipeline increment.
 
 ## PENDING
-- MCP server product surface.
 - autonomous execution beyond the Local Verified Runner foundation.
 - telemetry.
 - full Control Center.
@@ -224,13 +228,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - tool gating integration where not yet end-to-end.
 
 ## BLOCKERS
-None known after ACCE Storage Tier and Compression Policy Foundation approval and post-merge validation.
+None known after MCP read-only core surface approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary MCP server product surface increment.
+Prepare the smallest necessary autonomous execution pipeline increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
