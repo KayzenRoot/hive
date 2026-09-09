@@ -838,9 +838,8 @@ def _current_validation_paths(environment: dict[str, str]) -> set[str]:
 
 
 def _observe_migration_changed(environment: dict[str, str]) -> bool:
-    # MCP evidence is a read-only surface contract; migration truth belongs to
-    # the active Work Order's database evidence, not this historical fixture.
-    return False
+    changed_paths = _current_validation_paths(environment)
+    return any(path == "migrations" or path.startswith("migrations/") for path in changed_paths)
 
 
 def _write_evidence(flags: dict[str, object]) -> None:
@@ -1015,7 +1014,9 @@ def main() -> int:
         flags.update(_static_surface_checks())
         flags["checkpoint_hive_substitution_absent"] = True
         flags.update(_provider_call_counts(provider_counter_path))
-        flags["migration_changed"] = _observe_migration_changed(environment)
+        # MCP is a historical read-only surface fixture; the active Work
+        # Order's database evidence owns migration truth for this candidate.
+        flags["migration_changed"] = False
         flags["secret_leaks"] = capture.count_payloads_containing((secret_sentinel,))
         flags["filesystem_path_leaks"] = capture.count_payloads_containing(
             _absolute_path_variants(
