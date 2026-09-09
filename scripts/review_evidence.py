@@ -4182,15 +4182,9 @@ def autonomous_execution_evidence() -> dict[str, object]:
         return {**unknown, "status": "FAIL"}
 
     extra_fields = set(data) - AUTONOMOUS_EXECUTION_ALLOWED_FIELDS
-    true_values = {
-        field: data.get(field) is True for field in AUTONOMOUS_EXECUTION_TRUE_FIELDS
-    }
-    false_checks = {
-        field: data.get(field) is False for field in AUTONOMOUS_EXECUTION_FALSE_FIELDS
-    }
-    false_values = {
-        field: data.get(field) is True for field in AUTONOMOUS_EXECUTION_FALSE_FIELDS
-    }
+    true_values = {field: data.get(field) is True for field in AUTONOMOUS_EXECUTION_TRUE_FIELDS}
+    false_checks = {field: data.get(field) is False for field in AUTONOMOUS_EXECUTION_FALSE_FIELDS}
+    false_values = {field: data.get(field) is True for field in AUTONOMOUS_EXECUTION_FALSE_FIELDS}
     evidence_file = (
         data.get("evidence_file")
         if isinstance(data.get("evidence_file"), str)
