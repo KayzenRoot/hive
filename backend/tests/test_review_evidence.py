@@ -447,6 +447,32 @@ def autonomous_execution_evidence_fixture() -> dict[str, object]:
     }
 
 
+def telemetry_event_bus_evidence_fixture(
+    *, observed_migration_head: str = "0006_memory_lifecycle_provenance"
+) -> dict[str, object]:
+    return {
+        "status": "PASS",
+        "evidence_file": review_evidence.TELEMETRY_EVENT_BUS_EVIDENCE_FILE,
+        "telemetry_evidence_version": review_evidence.TELEMETRY_EVENT_BUS_EVIDENCE_VERSION,
+        "observed_migration_head": observed_migration_head,
+        "migration_base_head": "0006_memory_lifecycle_provenance",
+        "producer_path": "backend/app/telemetry.py",
+        "migration_changed": observed_migration_head != "0006_memory_lifecycle_provenance",
+        **{field: True for field in review_evidence.TELEMETRY_EVENT_BUS_TRUE_FIELDS},
+        **{field: False for field in review_evidence.TELEMETRY_EVENT_BUS_FALSE_FIELDS},
+        "event_type_count": 2,
+        "payload_max_bytes": 65536,
+        "cursor_max_bytes": 4096,
+        "duplicate_canonical_events": 0,
+        "cross_project_leaks": 0,
+        "secret_leaks": 0,
+        "filesystem_path_leaks": 0,
+        "llm_calls": 0,
+        "provider_calls": 0,
+        "implemented_event_types": ["executor.started", "run.completed"],
+    }
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
@@ -825,6 +851,154 @@ def test_wo018_g1_governance_contract_rejects_product_evidence(
             {"autonomous_execution": autonomous_execution_evidence_fixture()},
             "0006_memory_lifecycle_provenance",
         )
+
+
+def test_wo019_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    review_evidence.require_supported_work_order(review_evidence.WO019_G1_WORK_ORDER)
+    review_evidence.require_supported_work_order(review_evidence.WO019_WORK_ORDER)
+    monkeypatch.setattr(
+        review_evidence, "migration_head", lambda: "0006_memory_lifecycle_provenance"
+    )
+    review_evidence.require_wo019_g1_scope(
+        review_evidence.WO019_G1_WORK_ORDER,
+        review_evidence.WO019_G1_BASE_SHA,
+        sorted(review_evidence.WO019_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo019_g1_scope(
+            review_evidence.WO019_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(review_evidence.WO019_G1_ALLOWED_PATHS),
+        )
+    with pytest.raises(ValueError, match="exactly the four|canonical Project Brain|migrations"):
+        review_evidence.require_wo019_g1_scope(
+            review_evidence.WO019_G1_WORK_ORDER,
+            review_evidence.WO019_G1_BASE_SHA,
+            ["scripts/review_evidence.py", "backend/app/telemetry.py"],
+        )
+    review_evidence.require_wo019_scope(
+        review_evidence.WO019_WORK_ORDER,
+        "b" * 40,
+        ["backend/app/telemetry.py", "backend/tests/test_telemetry.py"],
+    )
+    with pytest.raises(ValueError, match="outside"):
+        review_evidence.require_wo019_scope(
+            review_evidence.WO019_WORK_ORDER,
+            "b" * 40,
+            [".github/workflows/ci.yml"],
+        )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        review_evidence.require_wo019_scope(
+            review_evidence.WO019_WORK_ORDER,
+            "b" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+
+
+def test_wo019_future_product_requires_current_main_and_merged_g1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = "c" * 40
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": current if args == ("rev-parse", "origin/main") else fallback,
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"merged WO-019-G1 governance support",
+    )
+    review_evidence.require_wo019_scope(
+        review_evidence.WO019_WORK_ORDER,
+        current,
+        ["backend/app/telemetry.py"],
+        enforce_current_main=True,
+    )
+    with pytest.raises(ValueError, match="current protected main"):
+        review_evidence.require_wo019_scope(
+            review_evidence.WO019_WORK_ORDER,
+            "d" * 40,
+            ["backend/app/telemetry.py"],
+            enforce_current_main=True,
+        )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda _revision, _path: b"missing")
+    with pytest.raises(ValueError, match="requires merged WO-019-G1 support"):
+        review_evidence.require_wo019_scope(
+            review_evidence.WO019_WORK_ORDER,
+            current,
+            ["backend/app/telemetry.py"],
+            enforce_current_main=True,
+        )
+
+
+def test_wo019_telemetry_contract_is_versioned_bounded_and_fail_closed() -> None:
+    evidence = telemetry_event_bus_evidence_fixture()
+    review_evidence.require_wo019_telemetry_evidence(
+        review_evidence.WO019_WORK_ORDER,
+        {"telemetry_event_bus": evidence},
+        "0006_memory_lifecycle_provenance",
+    )
+    with pytest.raises(ValueError, match="closed contract"):
+        review_evidence.require_wo019_telemetry_evidence(
+            review_evidence.WO019_WORK_ORDER,
+            {"telemetry_event_bus": {**evidence, "invented": True}},
+            "0006_memory_lifecycle_provenance",
+        )
+    invalid_cases: tuple[tuple[str, object, str], ...] = (
+        ("telemetry_evidence_version", "telemetry-event-bus-v0", "version"),
+        ("project_scoped", False, "missing mandatory"),
+        ("implemented_event_types", ["unsupported.event"], "non-empty explicit"),
+        ("payload_max_bytes", 0, "payload_max_bytes"),
+        ("cross_project_leaks", 1, "cross_project_leaks=0"),
+        ("llm_calls", 1, "llm_calls=0"),
+        ("migration_changed", True, "truthful migration_changed"),
+        ("producer_path", "C:/Users/private/telemetry.py", "sanitized relative"),
+    )
+    for field, value, message in invalid_cases:
+        broken = {**evidence, field: value}
+        with pytest.raises(ValueError, match=message):
+            review_evidence.require_wo019_telemetry_evidence(
+                review_evidence.WO019_WORK_ORDER,
+                {"telemetry_event_bus": broken},
+                "0006_memory_lifecycle_provenance",
+            )
+    with pytest.raises(ValueError, match="must not claim"):
+        review_evidence.require_wo019_telemetry_evidence(
+            review_evidence.WO019_G1_WORK_ORDER,
+            {"telemetry_event_bus": evidence},
+            "0006_memory_lifecycle_provenance",
+        )
+
+
+def test_wo019_schema_and_renderers_are_explicit() -> None:
+    manifest = evidence_fixture()
+    evidence = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence["integration"])
+    integration["telemetry_event_bus"] = {
+        **telemetry_event_bus_evidence_fixture(),
+        "invented": True,
+    }
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        validate_manifest(manifest)
+
+    common: dict[str, Any] = {
+        "pr_number": 70,
+        "branch": "governance/wo019-telemetry-evidence",
+        "base_sha": review_evidence.WO019_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "artifact",
+        "ruleset_before": "before",
+        "ruleset_after": "after",
+        "merge_before": "before",
+        "merge_after": "after",
+    }
+    g1 = render_body(work_order=review_evidence.WO019_G1_WORK_ORDER, **common)
+    assert "telemetry-event-bus-v1" in g1
+    assert "WO-019-G1 READY FOR SOL AUDIT" in g1
+    product = render_body(work_order=review_evidence.WO019_WORK_ORDER, **common)
+    assert "WO-019 READY FOR SOL AUDIT" in product
+    assert "C:\\Users" not in product
 
 
 def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:

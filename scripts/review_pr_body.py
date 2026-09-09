@@ -23,6 +23,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-018",
         "WO-018-P-G1",
         "WO-018-P",
+        "WO-019-G1",
+        "WO-019",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -1906,6 +1908,136 @@ WO-018 READY FOR SOL AUDIT
 """
 
 
+def _render_wo019_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita exclusivamente o Review Evidence necessário para o futuro
+WO-019 Telemetry/Event Bus Foundation. Não implementa código de telemetria,
+event table, stream, dashboard, instrumentação ou produto WO-019.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: 62c51d982afe47d93aa40dee3d55b479e6d756e5.
+- Base informada: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo G1 fechado
+
+Exatamente quatro arquivos de governança: o verificador Review Evidence, o
+renderer do corpo da PR, o schema de evidência e seus testes determinísticos.
+Project Brain, checkpoint, migrations, backend product modules, dashboard,
+dependências e CI permanecem intocados. A migration head permanece
+`0006_memory_lifecycle_provenance`.
+
+## 4. Contrato futuro separado
+
+O produto futuro é registrado como `WO-019`, separado de `WO-019-G1`, com o
+contrato versionado `telemetry-event-bus-v1`. A validação exige PostgreSQL
+como verdade durável, Redis não canônico, isolamento por projeto, envelope e
+proveniência explícitos, replay ordenado bounded, stream near-real-time,
+reconnect/replay, resiliência, payload sanitizado, zero leaks e zero chamadas
+LLM/provider. O subconjunto de eventos implementado deve ser explícito e
+pertencer ao vocabulário canônico; G1 não satisfaz evidência de produto.
+
+## 5. Fail closed e bounds
+
+Campos ausentes, extras, versão/tipo incorretos, payload ou cursor sem bounds,
+eventos fora do vocabulário, claims de observabilidade completa, cross-project
+leaks, secret/path leaks, migration truth inconsistente ou chamadas LLM/provider
+não passam. O renderer não inclui segredos nem caminhos locais absolutos.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Não houve merge, release, promoção de checkpoint ou início do WO-019.
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-019-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo019_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Escopo de produto
+
+Esta PR futura implementa somente a menor fundação Telemetry/Event Bus
+necessária para HIVE. A verdade durável permanece em PostgreSQL; Redis é
+apenas hot/streaming não canônico. Eventos são project-scoped, vinculados a
+task/run quando disponível, bounded, versionados, sanitizados e provenance-
+preserving.
+
+## 2. Evidência obrigatória
+
+O contrato `telemetry-event-bus-v1` exige um subconjunto não vazio e explícito
+do vocabulário canônico, replay determinístico com cursor bounded, stream
+server near-real-time com acesso fail-closed, reconnect/replay, recuperação
+após restart e Redis loss, producer slice real, zero duplicação canônica,
+zero cross-project/secret/path leaks e zero chamadas LLM/provider. Claims de
+Control Center completo, charts/alerts completos e observabilidade V0.1 total
+não são aceitos por esta fundação.
+
+## 3. Identidade
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 4. Migration truth e governança
+
+`observed_migration_head` deve corresponder à execução e
+`migration_changed` deve refletir exatamente o delta a partir de
+`0006_memory_lifecycle_provenance`. Não há checkpoint promotion neste Work
+Order. Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge
+antes: {merge_before}. Merge depois: {merge_after}. Auto-merge permanece
+UNARMED antes da auditoria de Sol.
+
+## 5. Estado para revisão
+
+A PR permanece aberta, Ready e não mesclada. O executor não faz merge, não
+arma auto-merge e não trata a evidência G1 como evidência do produto.
+
+WO-019 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_g1_body(
     *,
     work_order: str,
@@ -2791,6 +2923,32 @@ def render_body(
         )
     if work_order == "WO-018":
         return _render_wo018_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-019-G1":
+        return _render_wo019_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-019":
+        return _render_wo019_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
