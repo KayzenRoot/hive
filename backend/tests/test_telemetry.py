@@ -175,6 +175,58 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
     assert telemetry.sanitize_payload(
         {"path": "src/module.py", "message": "ordinary prose remains safe"}
     ) == {"path": "src/module.py", "message": "ordinary prose remains safe"}
+    for key in (
+        "OPENAI_API_KEY",
+        "openai_api_key",
+        "GITHUB_TOKEN",
+        "AUTH_TOKEN",
+        "ID_TOKEN",
+        "SESSION_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "SECRET_KEY",
+        "PRIVATE_KEY",
+        "CLIENT_SECRET",
+        "ACCESS_TOKEN",
+        "REFRESH_TOKEN",
+        "PASSWORD",
+        "AUTHORIZATION",
+        "OPENAI%5FAPI%5FKEY",
+    ):
+        with pytest.raises(telemetry.TelemetryValidationError):
+            telemetry.sanitize_payload({key: "safe"})
+    for key in ("DATABASE_PASSWORD", "MY_API_KEY", "HIVE_OPENAI_API_KEY"):
+        with pytest.raises(telemetry.TelemetryValidationError):
+            telemetry.sanitize_payload({key: "safe"})
+    for value in (
+        "OPENAI_API_KEY=embedded-secret",
+        "GITHUB_TOKEN: embedded-secret",
+        "AUTH_TOKEN%3Dembedded-secret",
+        "file:///home/user/secret.txt",
+        "file:///secret.txt",
+        "file:/etc/passwd",
+        "embedded file:///home/user/secret.txt",
+        "/segredo-ç.txt",
+        "/home/usuário/segredo.txt",
+        "prefix /segredo-ç.txt suffix",
+        "prefix /home/usuário/segredo.txt suffix",
+    ):
+        with pytest.raises(telemetry.TelemetryValidationError):
+            telemetry.sanitize_payload({"message": value})
+    for key, value in (
+        ("input_tokens", 12),
+        ("output_tokens", 34),
+        ("cached_tokens", 5),
+        ("fresh_tokens", 6),
+        ("token_count", 100),
+        ("token_budget", 4096),
+        ("token_savings", 128),
+    ):
+        assert telemetry.sanitize_payload({key: value}) == {key: value}
+    assert telemetry.sanitize_payload(
+        {"url": "https://example.com/documentação", "path": "src/module.py"}
+    ) == {"url": "https://example.com/documentação", "path": "src/module.py"}
+    with pytest.raises(telemetry.TelemetryValidationError):
+        telemetry.sanitize_payload({"nested": {"GITHUB_TOKEN": "safe"}})
     with pytest.raises(telemetry.TelemetryValidationError):
         telemetry.sanitize_payload({"blob": "x" * telemetry.EVENT_PAYLOAD_MAX_BYTES})
     with pytest.raises(telemetry.TelemetryValidationError):

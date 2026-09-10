@@ -59,6 +59,41 @@ CANONICAL_EVENT_TYPES = (
 )
 
 _CANONICAL_EVENT_SET = frozenset(CANONICAL_EVENT_TYPES)
+_TOKEN_METRIC_KEYS = frozenset(
+    {
+        "input_tokens",
+        "output_tokens",
+        "cached_tokens",
+        "fresh_tokens",
+        "token_count",
+        "token_budget",
+        "token_savings",
+    }
+)
+_COMPOUND_SECRET_IDENTIFIERS = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "GITHUB_TOKEN",
+        "AUTH_TOKEN",
+        "ID_TOKEN",
+        "SESSION_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "SECRET_KEY",
+        "PRIVATE_KEY",
+        "CLIENT_SECRET",
+        "ACCESS_TOKEN",
+        "REFRESH_TOKEN",
+        "PASSWORD",
+        "AUTHORIZATION",
+    }
+)
+_COMPOUND_SECRET_ASSIGNMENT = "|".join(sorted(_COMPOUND_SECRET_IDENTIFIERS, key=len, reverse=True))
+_COMPOUND_SECRET_SUFFIXES = frozenset(
+    {
+        *(identifier[identifier.find("_") :] for identifier in _COMPOUND_SECRET_IDENTIFIERS if "_" in identifier),
+        *(identifier for identifier in _COMPOUND_SECRET_IDENTIFIERS if "_" not in identifier),
+    }
+)
 _SECRET_KEY = re.compile(
     r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
     r"authorization|password|secret|token)\b"
@@ -72,16 +107,19 @@ _SECRET_VALUE = re.compile(
     r"|\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
     r"authorization|password|secret|token)"
     r"\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"
+    rf"|\b(?:{_COMPOUND_SECRET_ASSIGNMENT})\s*[:=]\s*[^\s,;]+"
     r"|\bbearer\s+\S+"
     r"|\bauthorization\s*/\s*bearer\b"
     r"|\b[a-z][a-z0-9+.-]*://[^/\s?#]+@"
     r")"
 )
+_FILE_URI = re.compile(r"(?i)(?<![A-Za-z0-9])file:/")
 _WINDOWS_ABSOLUTE = re.compile(r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)")
 _POSIX_ABSOLUTE = re.compile(
-    r"(?<![A-Za-z0-9_/:])/(?:[A-Za-z0-9._+%~-]+(?:/[A-Za-z0-9._+%~-]*)*)"
+    r"(?<![A-Za-z0-9_/:])/(?:[\w._+%~-]+(?:/[\w._+%~-]*)*)"
     r"(?=$|[\s,;:!?.)}\]])"
 )
+_PATH_PATTERNS = (_SECRET_VALUE, _FILE_URI, _WINDOWS_ABSOLUTE, _POSIX_ABSOLUTE)
 _CURSOR = re.compile(r"^[1-9][0-9]*$")
 _MAX_DEPTH = 6
 _MAX_STRING_CHARS = 1_024
@@ -104,13 +142,40 @@ def _percent_decode_variants(value: str) -> tuple[str, ...]:
     return tuple(variants)
 
 
+def _normalized_secret_identifier(value: str) -> str:
+    return unquote(value).strip().replace("-", "_").upper()
+
+
+def _is_token_metric_key(key: str) -> bool:
+    return key.lower() in _TOKEN_METRIC_KEYS
+
+
+def _matches_compound_secret_identifier(normalized: str) -> bool:
+    if normalized in _COMPOUND_SECRET_IDENTIFIERS:
+        return True
+    if any(normalized.endswith(f"_{identifier}") for identifier in _COMPOUND_SECRET_IDENTIFIERS):
+        return True
+    return any(normalized.endswith(suffix) for suffix in _COMPOUND_SECRET_SUFFIXES)
+
+
+def _is_forbidden_secret_key(key: str) -> bool:
+    if _is_token_metric_key(key):
+        return False
+    for candidate in _percent_decode_variants(key):
+        if _matches_compound_secret_identifier(_normalized_secret_identifier(candidate)):
+            return True
+        if _SECRET_KEY.search(candidate):
+            return True
+    return False
+
+
 def _validate_safe_string(value: str, *, field_name: str) -> str:
     if not value or len(value) > _MAX_STRING_CHARS or any(ord(char) < 32 for char in value):
         raise TelemetryValidationError(f"{field_name} is outside its bound")
     if value.strip() == "/" or any(
         pattern.search(candidate)
         for candidate in _percent_decode_variants(value)
-        for pattern in (_SECRET_VALUE, _WINDOWS_ABSOLUTE, _POSIX_ABSOLUTE)
+        for pattern in _PATH_PATTERNS
     ):
         raise TelemetryValidationError(f"{field_name} contains forbidden secret or path data")
     return value
@@ -139,9 +204,7 @@ def _sanitize_value(value: object, *, depth: int = 0) -> object:
             if not isinstance(raw_key, str) or not raw_key or len(raw_key) > 128:
                 raise TelemetryValidationError("event object key is outside its bound")
             _validate_safe_string(raw_key, field_name="event object key")
-            if any(
-                _SECRET_KEY.search(candidate) for candidate in _percent_decode_variants(raw_key)
-            ):
+            if _is_forbidden_secret_key(raw_key):
                 raise TelemetryValidationError("event object contains a forbidden secret key")
             sanitized[raw_key] = _sanitize_value(raw_value, depth=depth + 1)
         return sanitized
