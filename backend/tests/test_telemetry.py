@@ -160,6 +160,8 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
             telemetry.sanitize_payload({"message": value})
     for value in (
         "https://example.com/path",
+        "https://example.com?a=1&b=2",
+        "https://example.com/path?tracking=abc&page=2",
         "ordinary prose with a slash / between words",
     ):
         assert telemetry.sanitize_payload({"message": value}) == {"message": value}
@@ -208,6 +210,10 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
         "MY_REFRESH_TOKEN=foo",
         "APP_AUTH_TOKEN=foo",
         "prefix MY_API_KEY%3Dfoo suffix",
+        "https://example.com?MY_API_KEY=foo",
+        "https://example.com/path#DATABASE_PASSWORD=foo",
+        "https://example.com?a=1&AWS_ACCESS_TOKEN=foo",
+        "https://example.com?HIVE_CLIENT_SECRET%3Dfoo",
         "file:///home/user/secret.txt",
         "file:///secret.txt",
         "file:/etc/passwd",
@@ -224,6 +230,8 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
             telemetry.sanitize_payload({"message": value})
     with pytest.raises(telemetry.TelemetryValidationError):
         telemetry.sanitize_payload({"nested": {"message": "MY_API_KEY=foo"}})
+    with pytest.raises(telemetry.TelemetryValidationError):
+        telemetry.sanitize_payload({"nested": {"message": "https://example.com?MY_API_KEY=foo"}})
     for metric_key, metric_value in (
         ("input_tokens", 12),
         ("output_tokens", 34),

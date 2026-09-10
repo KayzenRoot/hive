@@ -124,7 +124,7 @@ _POSIX_ABSOLUTE = re.compile(
     rf"(?<![A-Za-z0-9_/:])/(?:{_POSIX_PATH_SEGMENT}(?:/{_POSIX_PATH_SEGMENT})*)"
     r"(?=$|[\s,;:!?.)}\]])"
 )
-_SECRET_ASSIGNMENT = re.compile(r"(?i)(?:^|(?<=[\s,;({\"'\[]))([A-Za-z0-9_-]+)\s*[:=]\s*\S")
+_SECRET_ASSIGNMENT = re.compile(r"(?i)(?:^|(?<=[\s,;({\"'?&#\[]))([A-Za-z0-9_-]+)\s*[:=]\s*\S")
 _PATH_PATTERNS = (_SECRET_VALUE, _FILE_URI, _WINDOWS_ABSOLUTE, _POSIX_ABSOLUTE)
 _CURSOR = re.compile(r"^[1-9][0-9]*$")
 _MAX_DEPTH = 6
