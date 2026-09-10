@@ -221,9 +221,7 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
         ("token_budget", 4096),
         ("token_savings", 128),
     ):
-        assert telemetry.sanitize_payload({metric_key: metric_value}) == {
-            metric_key: metric_value
-        }
+        assert telemetry.sanitize_payload({metric_key: metric_value}) == {metric_key: metric_value}
     assert telemetry.sanitize_payload(
         {"url": "https://example.com/documentação", "path": "src/module.py"}
     ) == {"url": "https://example.com/documentação", "path": "src/module.py"}
