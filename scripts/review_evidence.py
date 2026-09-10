@@ -4024,8 +4024,7 @@ def require_wo020_control_center_evidence(
     evidence_version = control_center.get("control_center_evidence_version")
     if evidence_version != CONTROL_CENTER_CORE_EVIDENCE_VERSION:
         raise ValueError(
-            f"{WO020_WORK_ORDER} requires evidence version "
-            f"{CONTROL_CENTER_CORE_EVIDENCE_VERSION}"
+            f"{WO020_WORK_ORDER} requires evidence version {CONTROL_CENTER_CORE_EVIDENCE_VERSION}"
         )
     missing = [
         field for field in CONTROL_CENTER_CORE_TRUE_FIELDS if control_center.get(field) is not True
