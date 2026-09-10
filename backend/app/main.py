@@ -26,6 +26,7 @@ from .reranking import router as reranking_router
 from .retrieval import router as retrieval_router
 from .semantic_retrieval import router as semantic_retrieval_router
 from .tasks_api import router as task_router
+from .telemetry import router as telemetry_router
 
 settings = get_settings()
 
@@ -56,6 +57,7 @@ app.include_router(semantic_retrieval_router)
 app.include_router(reranking_router)
 app.include_router(context_manager_router)
 app.include_router(memory_router)
+app.include_router(telemetry_router)
 
 
 @app.get("/", tags=["meta"])

@@ -27,7 +27,9 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/semantic_retrieval.py: Python source or test module.
 - backend/app/task_intake.py: Python source or test module.
 - backend/app/tasks_api.py: Python source or test module.
+- backend/app/telemetry.py: Python source or test module.
 - backend/tests/__init__.py: Python source or test module.
+- backend/tests/conftest.py: Python source or test module.
 - backend/tests/test_adaptive_token_budget.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
@@ -50,6 +52,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_semantic_retrieval.py: Python source or test module.
 - backend/tests/test_task_intake.py: Python source or test module.
 - backend/tests/test_tasks_api.py: Python source or test module.
+- backend/tests/test_telemetry.py: Python source or test module.
 
 ## Dashboard
 
@@ -70,6 +73,7 @@ Generated deterministically by scripts/generate_maps.py.
 - migrations/versions/0004_retrieval_lexical.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0005_semantic_retrieval.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/0006_memory_lifecycle_provenance.py: Ordered PostgreSQL business-schema revision.
+- migrations/versions/0007_telemetry_events.py: Ordered PostgreSQL business-schema revision.
 - migrations/versions/__init__.py: Ordered PostgreSQL business-schema revision.
 
 ## Operational scripts

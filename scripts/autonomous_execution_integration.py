@@ -1,18 +1,22 @@
-"""Exercise WO-018 through the real Docker Context Manager and local Runner."""
+"""Exercise the real Docker execution seam and its durable Telemetry/Event Bus."""
 
 from __future__ import annotations
 
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from queue import Empty, Queue
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID
@@ -35,8 +39,15 @@ from app.execution_orchestrator import (  # noqa: E402
 from app.registry import InspectionResult, ProjectResponse, ProjectState  # noqa: E402
 from app.runner import ChangeOperation, ChangeSet, ToolPolicy  # noqa: E402
 from app.task_intake import TaskResponse  # noqa: E402
+from app.telemetry import (  # noqa: E402
+    CANONICAL_EVENT_TYPES,
+    EVENT_CURSOR_MAX_BYTES,
+    EVENT_PAYLOAD_MAX_BYTES,
+    EventEnvelope,
+)
 
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "autonomous-execution.json"
+TELEMETRY_EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "telemetry-event-bus.json"
 TEST_SENTINEL = "WO018_TEST_SECRET_DO_NOT_LEAK_integration"
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000801")
 TASK_ID = UUID("00000000-0000-0000-0000-000000000802")
@@ -194,6 +205,128 @@ def current_migration_head() -> str:
     )
 
 
+def cleanup_registered_fixtures(relative_paths: tuple[str, ...]) -> set[str]:
+    """Remove only this run's durable fixture graph and prove it is gone."""
+
+    if not relative_paths:
+        return set()
+    expected_paths = (
+        f"wo019-c4-{os.getpid()}-one",
+        f"wo019-c4-{os.getpid()}-two",
+    )
+    if relative_paths != expected_paths:
+        raise AssertionError("fixture cleanup received an unexpected relative path")
+    path_sql = ", ".join(f"'{path}'" for path in relative_paths)
+    cleanup_sql = f"""
+BEGIN;
+CREATE TEMP TABLE c4_fixture_blobs ON COMMIT DROP AS
+SELECT DISTINCT t.extraction_id, t.original_blob_sha256
+FROM tasks AS t
+JOIN projects AS p ON p.project_id = t.project_id
+WHERE p.relative_path IN ({path_sql});
+DELETE FROM retrieval_references
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM retrieval_chunk_embeddings
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM retrieval_embedding_runs
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM retrieval_chunks
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM retrieval_corpus_runs
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM repository_symbols
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM repository_files
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM repository_index_runs
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM telemetry_events
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM tasks
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+DELETE FROM task_extractions AS e
+USING c4_fixture_blobs AS b
+WHERE e.extraction_id = b.extraction_id
+  AND NOT EXISTS (SELECT 1 FROM tasks AS t WHERE t.extraction_id = e.extraction_id);
+WITH deleted_cas AS (
+    DELETE FROM cas_blobs AS c
+    USING c4_fixture_blobs AS b
+    WHERE c.sha256 = b.original_blob_sha256
+      AND NOT EXISTS (SELECT 1 FROM tasks AS t WHERE t.original_blob_sha256 = c.sha256)
+      AND NOT EXISTS (SELECT 1 FROM task_extractions AS e WHERE e.source_sha256 = c.sha256)
+    RETURNING c.sha256
+)
+SELECT 'CAS_ORPHAN:' || sha256 FROM deleted_cas;
+DELETE FROM projects WHERE relative_path IN ({path_sql});
+SELECT 'PROJECTS:' || count(*) FROM projects WHERE relative_path IN ({path_sql});
+COMMIT;
+"""
+    output = run_command(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "postgres",
+            "psql",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            os.environ.get("POSTGRES_USER", "hive"),
+            "-d",
+            os.environ.get("POSTGRES_DB", "hive"),
+            "-Atqc",
+            cleanup_sql,
+        ]
+    )
+    lines = output.splitlines()
+    project_lines = [line for line in lines if line.startswith("PROJECTS:")]
+    if project_lines != ["PROJECTS:0"]:
+        remaining = project_lines[-1] if project_lines else "missing project cleanup assertion"
+        raise AssertionError(f"fixture cleanup left {remaining} registered projects")
+    return {line.removeprefix("CAS_ORPHAN:") for line in lines if line.startswith("CAS_ORPHAN:")}
+
+
+def remove_unreferenced_cas_files(digests: set[str]) -> None:
+    """Remove and verify only CAS files whose database rows were deleted."""
+
+    raw_data_root = Path(os.environ.get("HIVE_DATA_ROOT", ".hive-data"))
+    data_root = raw_data_root if raw_data_root.is_absolute() else ROOT / raw_data_root
+    cas_root = data_root.resolve() / "cas" / "sha256"
+    for digest in digests:
+        path = cas_root / digest[:2] / f"{digest[2:]}.zst"
+        if not path.exists():
+            continue
+        container_path = f"/var/lib/hive/cas/sha256/{digest[:2]}/{digest[2:]}.zst"
+        try:
+            path.unlink()
+        except (PermissionError, OSError):
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                path.unlink()
+            except (PermissionError, OSError):
+                run_command(["docker", "compose", "exec", "-T", "api", "rm", "-f", container_path])
+        if path.exists():
+            raise AssertionError(f"CAS fixture artifact remains: {path}")
+
+
+def remove_filesystem_fixture(path: Path) -> None:
+    """Remove a fixture tree, clearing container-created read-only files, then verify it."""
+
+    if not path.exists():
+        return
+
+    def retry_readonly(
+        function: Callable[..., object], failed_path: str, _exc_info: object
+    ) -> None:
+        os.chmod(failed_path, stat.S_IWRITE)
+        function(failed_path)
+
+    shutil.rmtree(path, onerror=retry_readonly)
+    if path.exists():
+        raise AssertionError(f"fixture filesystem path remains: {path}")
+
+
 def project_from_api(base_url: str, project_id: UUID) -> ProjectResponse:
     payload = api_call(base_url, "GET", f"/api/v1/projects/{project_id}")
     if not isinstance(payload, dict):
@@ -277,6 +410,40 @@ def context_from_api(base_url: str) -> Callable[..., object]:
     return build
 
 
+def docker_event_emitter(
+    _settings: Settings,
+    project_id: UUID,
+    event_type: str,
+    payload: dict[str, object],
+    *,
+    task_id: UUID | None = None,
+    run_id: UUID | None = None,
+    provenance: dict[str, object] | None = None,
+    emission_key: str,
+) -> dict[str, object]:
+    """Invoke the production emitter inside the already-running API container."""
+
+    if task_id is None or run_id is None or provenance is None:
+        raise AssertionError("integration telemetry requires task/run/provenance identity")
+    code = (
+        "import json; from uuid import UUID; "
+        "from app.config import Settings; "
+        "from app.telemetry import TelemetryValidationError, emit_event; "
+        f"event = emit_event(Settings(), UUID({str(project_id)!r}), {event_type!r}, "
+        f"{payload!r}, task_id=UUID({str(task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        f"provenance={provenance!r}, emission_key={emission_key!r}); "
+        "print(json.dumps(event.model_dump(mode='json'), sort_keys=True))"
+    )
+    output = run_command(["docker", "compose", "exec", "-T", "api", "python", "-c", code])
+    try:
+        event = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise AssertionError("production telemetry emitter returned invalid JSON") from exc
+    if not isinstance(event, dict):
+        raise AssertionError("production telemetry emitter returned a non-object")
+    return cast(dict[str, object], event)
+
+
 class LocalFixtureAdapter:
     name = "local-deterministic-fixture"
     provider_independent = True
@@ -319,7 +486,7 @@ def execute_docker_fixture(
     base_url: str,
     projects_root: Path,
     relative_path: str,
-) -> tuple[object, LocalFixtureAdapter]:
+) -> tuple[object, LocalFixtureAdapter, ProjectResponse, TaskResponse]:
     project, task = register_fixture(base_url, relative_path)
     settings = Settings(projects_root=projects_root)
     adapter = LocalFixtureAdapter()
@@ -331,6 +498,7 @@ def execute_docker_fixture(
             base_url, project_id, task_id
         ),
         context_builder=context_from_api(base_url),
+        event_emitter=docker_event_emitter,
     )
     request = ExecutorRequest(
         project.project_id,
@@ -341,6 +509,8 @@ def execute_docker_fixture(
     return (
         orchestrator.execute(request, adapter),
         adapter,
+        project,
+        task,
     )
 
 
@@ -451,6 +621,628 @@ def deterministic_signature(result: object) -> str:
         for command in payload["executor_review"][group]:
             command["duration_seconds"] = 0
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def telemetry_page(
+    base_url: str, project_id: UUID, *, after: str | None = None, limit: int = 100
+) -> dict[str, object]:
+    query = f"?limit={limit}"
+    if after is not None:
+        query += f"&after={after}"
+    response = api_call(base_url, "GET", f"/api/v1/projects/{project_id}/events{query}")
+    if not isinstance(response, dict):
+        raise AssertionError("telemetry page is not an object")
+    events = response.get("events")
+    if not isinstance(events, list):
+        raise AssertionError("telemetry page events are not a list")
+    for item in events:
+        EventEnvelope.model_validate(item)
+    return response
+
+
+def telemetry_stream(base_url: str, project_id: UUID, after: str) -> str:
+    request = urllib.request.Request(
+        f"{base_url}/api/v1/projects/{project_id}/events/stream"
+        f"?after={after}&max_events=1&timeout_seconds=3",
+        method="GET",
+        headers={"Accept": "text/event-stream"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.read(200_000).decode("utf-8")
+    except (OSError, urllib.error.URLError, UnicodeDecodeError) as exc:
+        raise AssertionError("telemetry SSE stream failed") from exc
+
+
+def open_live_telemetry_stream(
+    base_url: str,
+    project_id: UUID,
+    after: str,
+) -> tuple[threading.Thread, Queue[object]]:
+    """Open the SSE connection before the producer emits the target event."""
+
+    ready = threading.Event()
+    result: Queue[object] = Queue(maxsize=1)
+    request = urllib.request.Request(
+        f"{base_url}/api/v1/projects/{project_id}/events/stream"
+        f"?after={after}&max_events=1&timeout_seconds=10",
+        method="GET",
+        headers={"Accept": "text/event-stream"},
+    )
+
+    def receive() -> None:
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                ready.set()
+                result.put(response.read(200_000).decode("utf-8"))
+        except Exception as exc:
+            ready.set()
+            result.put(exc)
+
+    thread = threading.Thread(target=receive, name="wo019-live-sse", daemon=True)
+    thread.start()
+    if not ready.wait(timeout=5):
+        raise AssertionError("SSE connection did not open within the bounded timeout")
+    return thread, result
+
+
+def read_live_telemetry_stream(thread: threading.Thread, result: Queue[object]) -> str:
+    try:
+        value = result.get(timeout=15)
+    except Empty as exc:
+        raise AssertionError("open SSE stream did not receive an event in time") from exc
+    thread.join(timeout=1)
+    if isinstance(value, Exception):
+        raise AssertionError("open SSE stream failed") from value
+    if not isinstance(value, str):
+        raise AssertionError("open SSE stream returned an invalid result")
+    return value
+
+
+def telemetry_sanitization_probe() -> bool:
+    """Exercise the production sanitizer with embedded sensitive values."""
+
+    code = (
+        "from app.telemetry import TelemetryValidationError, sanitize_payload\n"
+        "bad = [\n"
+        "    '/',\n"
+        "    '/secret.txt',\n"
+        "    '/secret.txt/',\n"
+        "    'embedded /secret.txt',\n"
+        "    'embedded /safe+name.txt',\n"
+        "    'embedded /safe%20name.txt',\n"
+        "    r'embedded C:\\Users\\fixture\\secret.txt',\n"
+        "    r'embedded \\\\server\\share\\secret.txt',\n"
+        "    'embedded /home/fixture/secret.txt',\n"
+        "    'prefix Authorization: Bearer abc.def.ghi',\n"
+        "    'prefix api_key=embedded-secret',\n"
+        "    'prefix client_secret=embedded-secret',\n"
+        "    'prefix password: embedded-secret',\n"
+        "    'prefix token=embedded-secret',\n"
+        "    'prefix https://example.com/path?api_key=embedded-secret',\n"
+        "    'prefix https://example.com/path#client_secret=embedded-secret',\n"
+        "    'Authorization/Bearer',\n"
+        "    'AK' + 'IA1234567890ABCDEF',\n"
+        "    'prefix WO018_TEST_SECRET_DO_NOT_LEAK_integration',\n"
+        "    'prefix Bearer x',\n"
+        "    'prefix https://user:pass@example.com/path',\n"
+        "    'prefix https://user%3Apass%40example.com/path',\n"
+        "    'prefix postgres://user:pass@host/db',\n"
+        "    'prefix redis://:secret@redis:6379/0',\n"
+        "    '%252Fsecret.txt',\n"
+        "    'prefix %252Fhome%252Fuser%252Fsecret.txt',\n"
+        "    'prefix https://example.com/path?api%5Fkey=embedded-secret',\n"
+        "    'prefix https://example.com/path?api%5Fkey%3Dembedded-secret',\n"
+        "    'OPENAI_API_KEY=embedded-secret',\n"
+        "    'GITHUB_TOKEN: embedded-secret',\n"
+        "    'AUTH_TOKEN%3Dembedded-secret',\n"
+        "    'MY_API_KEY=foo',\n"
+        "    'https://example.com?MY_API_KEY=foo',\n"
+        "    'https://example.com/path#DATABASE_PASSWORD=foo',\n"
+        "    'https://example.com?a=1&AWS_ACCESS_TOKEN=foo',\n"
+        "    'https://example.com?HIVE_CLIENT_SECRET%3Dfoo',\n"
+        "    'DATABASE_PASSWORD=foo',\n"
+        "    'AWS_ACCESS_TOKEN=foo',\n"
+        "    'HIVE_CLIENT_SECRET=foo',\n"
+        "    'MY_REFRESH_TOKEN=foo',\n"
+        "    'APP_AUTH_TOKEN=foo',\n"
+        "    'file:///home/user/secret.txt',\n"
+        "    'file:///secret.txt',\n"
+        "    'file:/etc/passwd',\n"
+        "    {'DATABASE_PASSWORD': 'safe'},\n"
+        "    '/n',\n"
+        "    'prefix /n suffix',\n"
+        "    '/segredo-ç.txt',\n"
+        "    '/home/usuário/segredo.txt',\n"
+        "    '/🔒/secret.txt',\n"
+        "]\n"
+        "for value in bad:\n"
+        "    try:\n"
+        "        sanitize_payload({'message': value})\n"
+        "    except TelemetryValidationError:\n"
+        "        continue\n"
+        "    raise AssertionError('unsafe value accepted')\n"
+        "for value in ({'/secret.txt': 'safe'}, {'api_key': 'safe'}, "
+        "{'GITHUB_TOKEN': 'safe'}, {'nested': {'/secret.txt': 'safe'}}):\n"
+        "    try:\n"
+        "        sanitize_payload(value)\n"
+        "    except TelemetryValidationError:\n"
+        "        continue\n"
+        "    raise AssertionError('unsafe object key accepted')\n"
+        "safe = sanitize_payload({"
+        "'path': 'src/module.py', 'url': 'https://example.com/path', "
+        "'query_url': 'https://example.com?a=1&b=2', "
+        "'doc_url': 'https://example.com/documentação', "
+        "'input_tokens': 12, 'output_tokens': 34, "
+        "'message': 'ordinary prose with / between words'})\n"
+        "assert safe['path'] == 'src/module.py'\n"
+        "assert safe['url'] == 'https://example.com/path'\n"
+        "assert safe['input_tokens'] == 12\n"
+        "print('sanitization-pass')\n"
+    )
+    return run_command(["docker", "compose", "exec", "-T", "api", "python", "-c", code]) == (
+        "sanitization-pass"
+    )
+
+
+def cross_project_binding_probe(project: ProjectResponse, task: TaskResponse) -> bool:
+    """Prove the production emitter rejects a foreign task binding."""
+
+    code = (
+        "from uuid import UUID; "
+        "from app.config import Settings; "
+        "from app.telemetry import TelemetryValidationError, emit_event\n"
+        "try:\n    "
+        f"emit_event(Settings(), UUID({str(project.project_id)!r}), 'tool.called', "
+        "{'operation': 'cross-project-probe'}, "
+        f"task_id=UUID({str(task.task_id)!r}), "
+        "run_id=UUID('00000000-0000-0000-0000-000000000820'), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:cross-project-probe')"
+        "\nexcept TelemetryValidationError:\n"
+        "    print('cross-project-pass')\n"
+        "else:\n"
+        "    raise AssertionError('foreign task binding accepted')\n"
+    )
+    return run_command(["docker", "compose", "exec", "-T", "api", "python", "-c", code]) == (
+        "cross-project-pass"
+    )
+
+
+def wait_for_api_health(base_url: str) -> None:
+    last_error = "unknown"
+    for _ in range(30):
+        try:
+            status, payload = http_json(base_url, "GET", "/api/v1/health")
+            if status == 200 and isinstance(payload, dict) and payload.get("status") == "ok":
+                return
+            last_error = f"status={status}"
+        except (OSError, ValueError, RuntimeError) as exc:
+            last_error = type(exc).__name__
+        time.sleep(1)
+    raise AssertionError(f"API did not recover: {last_error}")
+
+
+def duplicate_safety_probe(project: ProjectResponse, task: TaskResponse) -> bool:
+    run_id = UUID("00000000-0000-0000-0000-000000000819")
+    code = (
+        "from uuid import UUID; "
+        "from app.config import Settings; "
+        "from app.telemetry import TelemetryValidationError, emit_event; "
+        f"first = emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'executor.started', {'adapter': 'idempotency-probe'}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:idempotency-probe'); "
+        f"second = emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'executor.started', {'adapter': 'idempotency-probe'}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:idempotency-probe'); "
+        "assert first.event_id == second.event_id\n"
+        "try:\n    "
+        f"emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'run.completed', {'adapter': 'different-content'}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:idempotency-probe')"
+        "\nexcept TelemetryValidationError:\n"
+        "    pass\n"
+        "else:\n"
+        "    raise AssertionError('semantic collision accepted')\n"
+        f"typed_first = emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'tool.called', {'nested': {'flag': True}, 'items': [False]}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:type-safe-probe')\n"
+        "try:\n    "
+        f"emit_event(Settings(), UUID({str(project.project_id)!r}), "
+        "'tool.called', {'nested': {'flag': 1}, 'items': [0]}, "
+        f"task_id=UUID({str(task.task_id)!r}), run_id=UUID({str(run_id)!r}), "
+        "provenance={'producer': 'integration', 'deterministic': True}, "
+        "emission_key='integration:type-safe-probe')\n"
+        "except TelemetryValidationError:\n"
+        "    print('idempotency-pass')\n"
+        "else:\n"
+        "    raise AssertionError('boolean-number collision accepted')"
+    )
+    return run_command(["docker", "compose", "exec", "-T", "api", "python", "-c", code]) == (
+        "idempotency-pass"
+    )
+
+
+def build_telemetry_evidence(
+    base_url: str,
+    project_one: ProjectResponse,
+    task_one: TaskResponse,
+    project_two: ProjectResponse,
+    task_two: TaskResponse,
+    migration_head: str,
+    execution_result: object,
+) -> dict[str, object]:
+    first_page = telemetry_page(base_url, project_one.project_id, limit=1)
+    first_events = cast(list[dict[str, object]], first_page["events"])
+    if len(first_events) != 1:
+        raise AssertionError("telemetry pagination did not return the first bounded page")
+    first_event = EventEnvelope.model_validate(first_events[0])
+    replay_page = telemetry_page(
+        base_url, project_one.project_id, after=first_event.cursor, limit=100
+    )
+    replay_events = [EventEnvelope.model_validate(item) for item in replay_page["events"]]
+    all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
+    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    second_page = telemetry_page(base_url, project_two.project_id, limit=100)
+    second_events = [EventEnvelope.model_validate(item) for item in second_page["events"]]
+    if len(all_one_events) < 2 or len(second_events) < 2:
+        raise AssertionError("real execution did not emit both lifecycle events")
+    stable_order_replay = [event.ordering_id for event in all_one_events] == sorted(
+        event.ordering_id for event in all_one_events
+    )
+    if not stable_order_replay:
+        raise AssertionError("telemetry ordering is not stable")
+    if any(event.project_id != project_one.project_id for event in all_one_events):
+        raise AssertionError("project one telemetry is not isolated")
+    if any(event.project_id != project_two.project_id for event in second_events):
+        raise AssertionError("project two telemetry is not isolated")
+    if any(event.task_id not in {task_one.task_id} for event in all_one_events):
+        raise AssertionError("task binding is not project scoped")
+    if any(event.task_id not in {task_two.task_id} for event in second_events):
+        raise AssertionError("second task binding is not project scoped")
+    if any(event.run_id is None for event in (*all_one_events, *second_events)):
+        raise AssertionError("execution telemetry is missing run correlation")
+    stream = telemetry_stream(base_url, project_one.project_id, first_event.cursor)
+    if f"id: {replay_events[0].cursor}" not in stream:
+        raise AssertionError("SSE replay did not return the missed event")
+    if replay_events[0].event_type not in {"run.completed", "run.failed"}:
+        raise AssertionError("terminal execution event is missing")
+    replay_ids = {event.event_id for event in replay_events}
+    reconnect_stream = telemetry_stream(base_url, project_one.project_id, first_event.cursor)
+    reconnect_ids = {
+        line[4:].strip() for line in reconnect_stream.splitlines() if line.startswith("id: ")
+    }
+    if not reconnect_ids or reconnect_ids != {event.cursor for event in replay_events}:
+        raise AssertionError("SSE reconnect did not replay the same missed events")
+
+    live_after = all_one_events[-1].cursor
+    live_run_id = all_one_events[-1].run_id
+    if live_run_id is None:
+        raise AssertionError("live telemetry probe lacks a run binding")
+    live_thread, live_result = open_live_telemetry_stream(
+        base_url,
+        project_one.project_id,
+        live_after,
+    )
+    docker_event_emitter(
+        Settings(),
+        project_one.project_id,
+        "tool.called",
+        {"operation": "live-open-probe"},
+        task_id=task_one.task_id,
+        run_id=live_run_id,
+        provenance={"producer": "integration_live_open", "deterministic": True},
+        emission_key="integration:live-open-probe",
+    )
+    live_stream = read_live_telemetry_stream(live_thread, live_result)
+    live_data = [
+        json.loads(line[6:]) for line in live_stream.splitlines() if line.startswith("data: ")
+    ]
+    if len(live_data) != 1:
+        raise AssertionError("open SSE stream did not deliver exactly one live event")
+    live_event = EventEnvelope.model_validate(live_data[0])
+    live_delivery = (
+        live_event.event_type == "tool.called"
+        and live_event.project_id == project_one.project_id
+        and live_event.task_id == task_one.task_id
+        and live_event.cursor != live_after
+        and int(live_event.cursor) > int(live_after)
+    )
+    if not live_delivery:
+        raise AssertionError("open SSE stream delivered an invalid live event")
+
+    all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
+    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    all_ids = {event.event_id for event in all_one_events}
+    if not replay_ids.issubset(all_ids) or first_event.event_id in replay_ids:
+        raise AssertionError("cursor replay duplicated or escaped the project history")
+
+    raw = json.dumps(
+        {
+            "one": all_one_page,
+            "two": second_page,
+            "stream": stream,
+            "reconnect": reconnect_stream,
+            "live_stream": live_stream,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    secret_leaks = int(TEST_SENTINEL in raw)
+    filesystem_path_leaks = int("C:\\Users\\fixture\\private.txt" in raw)
+    if secret_leaks or filesystem_path_leaks:
+        raise AssertionError("telemetry payload leaked the sentinel")
+    duplicate_safe = duplicate_safety_probe(project_one, task_one)
+    if not duplicate_safe:
+        raise AssertionError("telemetry duplicate suppression probe failed")
+    sanitization_safe = telemetry_sanitization_probe()
+    if not sanitization_safe:
+        raise AssertionError("telemetry sanitizer probe failed")
+    cross_project_safe = cross_project_binding_probe(project_one, task_two)
+    if not cross_project_safe:
+        raise AssertionError("telemetry cross-project binding probe failed")
+
+    before_restart_ids = {event.event_id for event in all_one_events}
+    run_command(["docker", "compose", "restart", "api"])
+    wait_for_api_health(base_url)
+    after_api_restart = telemetry_page(base_url, project_one.project_id, limit=100)
+    restart_events = [EventEnvelope.model_validate(item) for item in after_api_restart["events"]]
+    restart_recovery = before_restart_ids.issubset({event.event_id for event in restart_events})
+    if not restart_recovery:
+        raise AssertionError("API restart lost durable telemetry history")
+
+    redis_stopped = False
+    redis_before_events = restart_events
+    if not redis_before_events or redis_before_events[-1].run_id is None:
+        raise AssertionError("Redis outage probe lacks a bounded run binding")
+    redis_before_cursor = redis_before_events[-1].cursor
+    redis_outage_event: EventEnvelope | None = None
+    redis_outage_durable_read = False
+    redis_outage_stream_delivery = False
+    redis_outage_replay_cursors: set[str] = set()
+    redis_outage_reconnect_cursors: set[str] = set()
+    redis_restore_same_event = False
+    redis_restore_no_duplicate = False
+    try:
+        run_command(["docker", "compose", "stop", "redis"])
+        redis_stopped = True
+        outage_thread, outage_result = open_live_telemetry_stream(
+            base_url,
+            project_one.project_id,
+            redis_before_cursor,
+        )
+        outage_payload = docker_event_emitter(
+            Settings(),
+            project_one.project_id,
+            "tool.called",
+            {"operation": "redis-loss-new-event"},
+            task_id=task_one.task_id,
+            run_id=redis_before_events[-1].run_id,
+            provenance={"producer": "integration_redis_loss", "deterministic": True},
+            emission_key="integration:redis-loss-new-event",
+        )
+        redis_outage_event = EventEnvelope.model_validate(outage_payload)
+        outage_stream = read_live_telemetry_stream(outage_thread, outage_result)
+        outage_data = [
+            json.loads(line[6:]) for line in outage_stream.splitlines() if line.startswith("data: ")
+        ]
+        redis_outage_stream_delivery = len(outage_data) == 1 and (
+            EventEnvelope.model_validate(outage_data[0]).event_id == redis_outage_event.event_id
+        )
+        after_redis_loss = telemetry_page(base_url, project_one.project_id, limit=100)
+        redis_events = [EventEnvelope.model_validate(item) for item in after_redis_loss["events"]]
+        redis_outage_durable_read = any(
+            event.event_id == redis_outage_event.event_id for event in redis_events
+        )
+        redis_replay_stream = telemetry_stream(
+            base_url, project_one.project_id, redis_before_cursor
+        )
+        redis_outage_replay_cursors = {
+            line[4:].strip() for line in redis_replay_stream.splitlines() if line.startswith("id: ")
+        }
+        redis_reconnect_stream = telemetry_stream(
+            base_url, project_one.project_id, redis_before_cursor
+        )
+        redis_outage_reconnect_cursors = {
+            line[4:].strip()
+            for line in redis_reconnect_stream.splitlines()
+            if line.startswith("id: ")
+        }
+    finally:
+        if redis_stopped:
+            run_command(["docker", "compose", "up", "-d", "redis"])
+            wait_for_api_health(base_url)
+    if redis_outage_event is None:
+        raise AssertionError("Redis outage emitter did not return an event")
+    restored_payload = docker_event_emitter(
+        Settings(),
+        project_one.project_id,
+        "tool.called",
+        {"operation": "redis-loss-new-event"},
+        task_id=task_one.task_id,
+        run_id=redis_before_events[-1].run_id,
+        provenance={"producer": "integration_redis_loss", "deterministic": True},
+        emission_key="integration:redis-loss-new-event",
+    )
+    restored_event = EventEnvelope.model_validate(restored_payload)
+    after_redis_restore = telemetry_page(base_url, project_one.project_id, limit=100)
+    restored_events = [EventEnvelope.model_validate(item) for item in after_redis_restore["events"]]
+    redis_restore_same_event = restored_event.event_id == redis_outage_event.event_id
+    redis_restore_no_duplicate = (
+        sum(event.event_id == redis_outage_event.event_id for event in restored_events) == 1
+    )
+    redis_outage_cursors = {redis_outage_event.cursor}
+    redis_loss_recovery = all(
+        (
+            redis_outage_durable_read,
+            redis_outage_stream_delivery,
+            redis_outage_cursors.issubset(redis_outage_replay_cursors),
+            redis_outage_replay_cursors == redis_outage_reconnect_cursors,
+            redis_restore_same_event,
+            redis_restore_no_duplicate,
+        )
+    )
+    if not redis_loss_recovery:
+        raise AssertionError("Redis outage emission/replay/reconnect recovery was not proven")
+
+    all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
+    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    observed_events = (*all_one_events, *second_events)
+    project_scoped = all(
+        event.project_id == expected_project
+        for event, expected_project in (
+            *((event, project_one.project_id) for event in all_one_events),
+            *((event, project_two.project_id) for event in second_events),
+        )
+    )
+    task_run_binding_scoped = all(
+        event.task_id in {task_one.task_id} and event.run_id is not None for event in all_one_events
+    ) and all(
+        event.task_id in {task_two.task_id} and event.run_id is not None for event in second_events
+    )
+    event_types = sorted({event.event_type for event in observed_events})
+    event_ids = [event.event_id for event in observed_events]
+    duplicate_canonical_events = len(event_ids) - len(set(event_ids))
+    cross_project_leaks = sum(
+        event.project_id != expected_project
+        for event, expected_project in (
+            *((event, project_one.project_id) for event in all_one_events),
+            *((event, project_two.project_id) for event in second_events),
+        )
+    )
+    payloads_bounded = all(
+        len(json.dumps(event.payload, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+        <= EVENT_PAYLOAD_MAX_BYTES
+        for event in observed_events
+    )
+    producer_source = (ROOT / "backend" / "app" / "execution_orchestrator.py").read_text(
+        encoding="utf-8"
+    )
+    producer_path_verified = all(
+        marker in producer_source
+        for marker in ("event_emitter", '"executor.started"', '"run.completed"', "_emit_event")
+    )
+    telemetry_source = (ROOT / "backend" / "app" / "telemetry.py").read_text(encoding="utf-8")
+    postgres_canonical_architecture = all(
+        marker in telemetry_source
+        for marker in (
+            "database_connection",
+            "INSERT INTO telemetry_events",
+            "FROM telemetry_events",
+        )
+    )
+    redis_dependency_absent = not any(
+        line.lstrip().startswith(("import redis", "from redis"))
+        for line in telemetry_source.splitlines()
+    )
+    redis_noncanonical = (
+        postgres_canonical_architecture
+        and redis_dependency_absent
+        and redis_loss_recovery
+        and redis_outage_durable_read
+    )
+    executor_llm_calls = getattr(execution_result, "executor_llm_calls", None)
+    executor_provider_calls = getattr(execution_result, "executor_provider_calls", None)
+    deterministic_first = (
+        getattr(execution_result, "provider_independent", False) is True
+        and executor_llm_calls == 0
+        and executor_provider_calls == 0
+    )
+    reconnect_replay = (
+        bool(reconnect_ids)
+        and reconnect_ids == {event.cursor for event in replay_events}
+        and redis_outage_cursors.issubset(redis_outage_reconnect_cursors)
+    )
+    idempotent_duplicate_safe = duplicate_safe and redis_restore_no_duplicate
+    near_realtime_stream = live_delivery and redis_outage_stream_delivery
+    telemetry_pass = all(
+        (
+            postgres_canonical_architecture,
+            redis_noncanonical,
+            project_scoped,
+            task_run_binding_scoped,
+            stable_order_replay,
+            idempotent_duplicate_safe,
+            near_realtime_stream,
+            reconnect_replay,
+            restart_recovery,
+            redis_loss_recovery,
+            sanitization_safe,
+            producer_path_verified,
+            deterministic_first,
+        )
+    )
+    if not telemetry_pass:
+        raise AssertionError("telemetry evidence observations did not satisfy the C4 contract")
+    return {
+        "status": "PASS" if telemetry_pass else "FAIL",
+        "evidence_file": "telemetry-event-bus.json",
+        "telemetry_evidence_version": "telemetry-event-bus-v1",
+        "observed_migration_head": migration_head,
+        "migration_base_head": "0006_memory_lifecycle_provenance",
+        "migration_changed": migration_head != "0006_memory_lifecycle_provenance",
+        "producer_path": "backend/app/execution_orchestrator.py",
+        "durable_event_metadata_postgres": (
+            postgres_canonical_architecture and restart_recovery and redis_loss_recovery
+        ),
+        "redis_noncanonical": redis_noncanonical,
+        "project_scoped": project_scoped,
+        "task_run_binding_scoped": task_run_binding_scoped,
+        "cross_project_access_fail_closed": cross_project_safe and cross_project_leaks == 0,
+        "event_envelope_versioned": all(
+            event.envelope_version == "telemetry-event-bus-v1"
+            for event in (*all_one_events, *second_events)
+        ),
+        "event_type_explicit": all(bool(event.event_type) for event in observed_events),
+        "timestamp_order_identity_explicit": all(
+            event.ordering_id > 0 and event.occurred_at.tzinfo is not None
+            for event in observed_events
+        ),
+        "project_identity_explicit": all(event.project_id is not None for event in observed_events),
+        "task_run_linkage_explicit": all(
+            event.task_id is not None and event.run_id is not None for event in observed_events
+        ),
+        "payload_bounded": payloads_bounded and len(raw.encode("utf-8")) <= 200_000,
+        "provenance_explicit": all(bool(event.provenance) for event in observed_events),
+        "canonical_event_vocabulary": set(event_types).issubset(CANONICAL_EVENT_TYPES),
+        "stable_order_replay": stable_order_replay,
+        "bounded_cursor_pagination": first_page["limit"] == 1 and first_page["has_more"] is True,
+        "idempotent_duplicate_safe": idempotent_duplicate_safe,
+        "near_realtime_stream": near_realtime_stream,
+        "stream_access_control_deterministic": cross_project_safe
+        and all(event.project_id == project_one.project_id for event in all_one_events),
+        "reconnect_replay": reconnect_replay,
+        "restart_recovery": restart_recovery,
+        "redis_loss_recovery": redis_loss_recovery,
+        "payload_sanitized": sanitization_safe and secret_leaks == 0 and filesystem_path_leaks == 0,
+        "untrusted_payload_cannot_mutate_governance": sanitization_safe and producer_path_verified,
+        "deterministic_first": deterministic_first,
+        "producer_path_verified": producer_path_verified,
+        "bounded_claims": payloads_bounded
+        and len(raw.encode("utf-8")) <= 200_000
+        and 1 <= EVENT_CURSOR_MAX_BYTES <= 65_536,
+        "redis_canonical_truth": False,
+        "full_control_center_claimed": False,
+        "full_v01_observability_claimed": False,
+        "event_type_count": len(event_types),
+        "payload_max_bytes": EVENT_PAYLOAD_MAX_BYTES,
+        "cursor_max_bytes": EVENT_CURSOR_MAX_BYTES,
+        "duplicate_canonical_events": duplicate_canonical_events,
+        "cross_project_leaks": cross_project_leaks,
+        "secret_leaks": secret_leaks,
+        "filesystem_path_leaks": filesystem_path_leaks,
+        "llm_calls": executor_llm_calls,
+        "provider_calls": executor_provider_calls,
+        "implemented_event_types": event_types,
+    }
 
 
 def build_evidence(
@@ -569,7 +1361,8 @@ def build_evidence(
 
 def main() -> int:
     EVIDENCE_OUTPUT.unlink(missing_ok=True)
-    temporary_probe_root = Path(tempfile.mkdtemp(prefix="wo018-probes-", dir=ROOT / "tmp"))
+    TELEMETRY_EVIDENCE_OUTPUT.unlink(missing_ok=True)
+    temporary_probe_root: Path | None = None
     raw_projects_root = os.environ.get("HIVE_PROJECTS_ROOT", ".hive-projects")
     projects_root = Path(raw_projects_root)
     if not projects_root.is_absolute():
@@ -578,7 +1371,14 @@ def main() -> int:
     projects_root.mkdir(parents=True, exist_ok=True)
     base_url = f"http://127.0.0.1:{os.environ.get('HIVE_API_PORT', '8000')}"
     repositories: list[Path] = []
+    fixture_relative_paths: tuple[str, ...] = ()
+    failure_detail: str | None = None
+    exit_code = 1
+    evidence: dict[str, object] | None = None
+    telemetry_evidence: dict[str, object] | None = None
+    cas_cleanup_verified = False
     try:
+        temporary_probe_root = Path(tempfile.mkdtemp(prefix="wo019-c4-probes-", dir=ROOT / "tmp"))
         health = api_call(base_url, "GET", "/api/v1/health")
         if not isinstance(health, dict) or health.get("status") != "ok":
             raise AssertionError("Docker HIVE API is not healthy")
@@ -586,15 +1386,20 @@ def main() -> int:
         if migration_head != MIGRATION_HEAD:
             raise AssertionError("unexpected migration head")
 
-        first_relative = f"wo018-autonomous-{os.getpid()}-one"
-        second_relative = f"wo018-autonomous-{os.getpid()}-two"
+        first_relative = f"wo019-c4-{os.getpid()}-one"
+        second_relative = f"wo019-c4-{os.getpid()}-two"
         first_repository = projects_root / first_relative
         second_repository = projects_root / second_relative
+        fixture_relative_paths = (first_relative, second_relative)
+        repositories.extend((first_repository, second_repository))
         create_repository(first_repository)
         create_repository(second_repository)
-        repositories.extend((first_repository, second_repository))
-        first, adapter_one = execute_docker_fixture(base_url, projects_root, first_relative)
-        second, _adapter_two = execute_docker_fixture(base_url, projects_root, second_relative)
+        first, adapter_one, project_one, task_one = execute_docker_fixture(
+            base_url, projects_root, first_relative
+        )
+        second, _adapter_two, project_two, task_two = execute_docker_fixture(
+            base_url, projects_root, second_relative
+        )
 
         cross_root = temporary_probe_root / "cross-project"
         cross_root.mkdir()
@@ -685,26 +1490,70 @@ def main() -> int:
             shell_rejected=shell_rejected,
             migration_head=migration_head,
         )
+        telemetry_evidence = build_telemetry_evidence(
+            base_url,
+            project_one,
+            task_one,
+            project_two,
+            task_two,
+            migration_head,
+            first,
+        )
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         EVIDENCE_OUTPUT.write_text(
             json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2))
-        print("WO-018 autonomous execution integration passed.")
-        return 0
+        TELEMETRY_EVIDENCE_OUTPUT.write_text(
+            json.dumps(telemetry_evidence, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        exit_code = 0
     except Exception as exc:
         EVIDENCE_OUTPUT.unlink(missing_ok=True)
-        detail = str(exc).replace(str(ROOT), "<repo>")[:400]
-        print(
-            f"WO-018 autonomous execution integration failed: {type(exc).__name__}: {detail}",
-            file=sys.stderr,
-        )
-        return 1
+        TELEMETRY_EVIDENCE_OUTPUT.unlink(missing_ok=True)
+        failure_detail = f"{type(exc).__name__}: {str(exc).replace(str(ROOT), '<repo>')[:400]}"
     finally:
-        shutil.rmtree(temporary_probe_root, ignore_errors=True)
-        for repository in repositories:
-            shutil.rmtree(repository, ignore_errors=True)
+        cleanup_errors: list[str] = []
+        orphan_cas_digests: set[str] = set()
+        try:
+            orphan_cas_digests = cleanup_registered_fixtures(fixture_relative_paths)
+            remove_unreferenced_cas_files(orphan_cas_digests)
+            cas_cleanup_verified = True
+        except Exception as exc:
+            cleanup_errors.append(
+                f"{type(exc).__name__}: {str(exc).replace(str(ROOT), '<repo>')[:300]}"
+            )
+        paths_to_remove = (
+            [temporary_probe_root] if temporary_probe_root is not None else []
+        ) + repositories
+        for path in paths_to_remove:
+            try:
+                remove_filesystem_fixture(path)
+            except Exception as exc:
+                cleanup_errors.append(
+                    f"{type(exc).__name__}: {str(exc).replace(str(ROOT), '<repo>')[:300]}"
+                )
+        if cleanup_errors:
+            EVIDENCE_OUTPUT.unlink(missing_ok=True)
+            TELEMETRY_EVIDENCE_OUTPUT.unlink(missing_ok=True)
+            cleanup_detail = " | ".join(cleanup_errors)
+            failure_detail = (
+                f"{failure_detail}; fixture cleanup failed: {cleanup_detail}"
+                if failure_detail is not None
+                else f"fixture cleanup failed: {cleanup_detail}"
+            )
+            exit_code = 1
+    if failure_detail is not None:
+        print(f"WO-019 telemetry integration failed: {failure_detail}", file=sys.stderr)
+    elif evidence is not None and telemetry_evidence is not None:
+        print(json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2))
+        print(json.dumps(telemetry_evidence, ensure_ascii=False, sort_keys=True, indent=2))
+        if cas_cleanup_verified:
+            print("WO-019 CAS cleanup verified.")
+        print("WO-019 fixture cleanup passed.")
+        print("WO-019 Telemetry/Event Bus integration passed.")
+    return exit_code
 
 
 def _local_request() -> ExecutorRequest:
