@@ -5908,12 +5908,17 @@ def control_center_core_evidence() -> dict[str, object]:
         and len(set(cast(list[object], raw_surfaces))) == len(raw_surfaces)
     )
     implemented_surfaces = list(cast(list[str], raw_surfaces)) if surfaces_valid else []
-    paths_valid = all(
-        isinstance(strings[path_field], str)
-        and strings[path_field] != "UNKNOWN"
-        and CONTROL_CENTER_CORE_PATH.fullmatch(strings[path_field])
-        and not Path(strings[path_field]).is_absolute()
-        for path_field in ("api_path", "dashboard_path")
+    api_path = strings["api_path"]
+    dashboard_path = strings["dashboard_path"]
+    paths_valid = bool(
+        isinstance(api_path, str)
+        and api_path != "UNKNOWN"
+        and CONTROL_CENTER_CORE_PATH.fullmatch(api_path)
+        and not Path(api_path).is_absolute()
+        and isinstance(dashboard_path, str)
+        and dashboard_path != "UNKNOWN"
+        and CONTROL_CENTER_CORE_PATH.fullmatch(dashboard_path)
+        and not Path(dashboard_path).is_absolute()
     )
     transport_valid = strings["stream_transport"] in CONTROL_CENTER_CORE_STREAM_TRANSPORTS
     bounds_valid = (
@@ -6497,6 +6502,9 @@ def integration_evidence(
         and telemetry_event_bus["status"] == "FAIL"
     ):
         status = "FAIL"
+    control_center_core = control_center_core_evidence()
+    if work_order == WO020_WORK_ORDER and control_center_core["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
         "status": status,
@@ -6555,9 +6563,6 @@ def integration_evidence(
         evidence["autonomous_execution"] = autonomous_execution
     if work_order in {WO019_WORK_ORDER, WO019P_G1_WORK_ORDER, WO019P_WORK_ORDER}:
         evidence["telemetry_event_bus"] = telemetry_event_bus
-    control_center_core = control_center_core_evidence()
-    if work_order == WO020_WORK_ORDER and control_center_core["status"] == "FAIL":
-        status = "FAIL"
     if work_order == WO020_WORK_ORDER:
         evidence["control_center_core"] = control_center_core
     return evidence
