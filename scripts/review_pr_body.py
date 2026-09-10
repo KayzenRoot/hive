@@ -7,6 +7,14 @@ import re
 from pathlib import Path
 
 EXACT_SHA = re.compile(r"^[0-9a-f]{40}$")
+ZERO_SHA = "0" * 40
+
+# Work orders whose generated body must pin the protected base. The
+# authorized-base marker is always rendered from the validated ``base_sha``
+# argument; this table only supplies the fail-closed validation target.
+AUTHORIZED_BASE_BY_WORK_ORDER = {
+    "WO-020-G1": "ab2c6eac4eedac460871cf00d613a9b478ec533d",
+}
 
 
 def _require_exact_head(work_order: str, head_sha: str) -> None:
@@ -32,6 +40,23 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
+        )
+
+
+def _require_authorized_base(work_order: str, base_sha: str) -> None:
+    expected = AUTHORIZED_BASE_BY_WORK_ORDER.get(work_order)
+    if expected is None:
+        return
+    if EXACT_SHA.fullmatch(base_sha) is None:
+        raise ValueError(
+            f"{work_order} dedicated renderer requires a lowercase 40-hex exact base SHA"
+        )
+    if base_sha == ZERO_SHA:
+        raise ValueError(f"{work_order} dedicated renderer rejects the zero base SHA")
+    if base_sha != expected:
+        raise ValueError(
+            f"{work_order} dedicated renderer requires authorized base {expected}, "
+            f"observed {base_sha}"
         )
 
 
@@ -2056,6 +2081,7 @@ def _render_wo020_g1_body(
     merge_after: str,
 ) -> str:
     return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
 
 # Revisão do executor - {work_order}
 
@@ -2070,8 +2096,9 @@ WO-020.
 
 - PR: #{pr_number}, Ready for review.
 - Branch: {branch}.
-- Base protegida exata: ab2c6eac4eedac460871cf00d613a9b478ec533d.
-- Base informada: {base_sha}.
+- Base protegida exata: {base_sha}. O renderer exige a base autorizada exata,
+  lowercase 40-hex e diferente de zero; divergência falha fechado antes da
+  emissão do marcador.
 - HEAD exato: {head_sha}.
 - Evidence Bundle: {artifact_name}.
 
@@ -2939,6 +2966,7 @@ def render_body(
     auto_merge_owner_type: str = "",
 ) -> str:
     _require_exact_head(work_order, head_sha)
+    _require_authorized_base(work_order, base_sha)
     if work_order == "WO-008":
         return _render_wo008_body(
             work_order=work_order,

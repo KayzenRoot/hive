@@ -159,7 +159,7 @@ from scripts.review_evidence import (
     warnings_evidence,
     write_consolidated_artifact,
 )
-from scripts.review_pr_body import render_body
+from scripts.review_pr_body import AUTHORIZED_BASE_BY_WORK_ORDER, render_body
 
 
 def evidence_fixture() -> dict[str, object]:
@@ -1199,6 +1199,64 @@ def test_wo020_schema_and_renderers_are_explicit() -> None:
     assert "WO-020 READY FOR SOL AUDIT" in product
     assert "C:\\Users" not in product
     assert "D:\\Projeto Codexx" not in product
+
+
+def test_wo020_g1_renderer_pins_validated_authorized_base_marker() -> None:
+    base = review_evidence.WO020_G1_BASE_SHA
+    assert AUTHORIZED_BASE_BY_WORK_ORDER[review_evidence.WO020_G1_WORK_ORDER] == base
+
+    common: dict[str, Any] = {
+        "pr_number": 74,
+        "branch": "governance/wo020-control-center-review-evidence",
+        "base_sha": base,
+        "head_sha": "b" * 40,
+        "artifact_name": "hive-review-evidence-WO-020-G1-b",
+        "ruleset_before": "21934284 unchanged",
+        "ruleset_after": "21934284 unchanged",
+        "merge_before": "unarmed",
+        "merge_after": "unarmed",
+    }
+    body = render_body(work_order=review_evidence.WO020_G1_WORK_ORDER, **common)
+    lines = body.splitlines()
+    assert lines[0] == "<!-- HIVE-WORK-ORDER: WO-020-G1 -->"
+    assert lines[1] == f"<!-- HIVE-AUTHORIZED-BASE: {base} -->"
+    assert sum(line.startswith("<!-- HIVE-WORK-ORDER:") for line in lines) == 1
+    assert sum(line.startswith("<!-- HIVE-AUTHORIZED-BASE:") for line in lines) == 1
+    assert f"- Base protegida exata: {base}." in body
+    assert "WO-020-G1 READY FOR SOL AUDIT" in body
+    assert "Sol Review State: AWAITING_SOL" in body
+    assert "C:\\Users" not in body
+    assert "D:\\Projeto Codexx" not in body
+    assert "/home/" not in body
+    assert "/Users/" not in body
+
+    for rejected, expected in (
+        (base.upper(), "lowercase 40-hex exact base"),
+        ("b" * 39, "lowercase 40-hex exact base"),
+        ("z" * 40, "lowercase 40-hex exact base"),
+        ("0" * 40, "rejects the zero base"),
+        ("b" * 40, "requires authorized base"),
+    ):
+        with pytest.raises(ValueError, match=expected):
+            render_body(
+                work_order=review_evidence.WO020_G1_WORK_ORDER,
+                **{**common, "base_sha": rejected},
+            )
+
+    product = render_body(
+        work_order=review_evidence.WO020_WORK_ORDER,
+        **{**common, "base_sha": "a" * 40},
+    )
+    assert product.startswith("<!-- HIVE-WORK-ORDER: WO-020 -->")
+    assert "WO-020 READY FOR SOL AUDIT" in product
+    assert "<!-- HIVE-AUTHORIZED-BASE:" not in product
+
+    unsupported = render_body(work_order="WO-020-P", **common)
+    assert unsupported.startswith("<!-- HIVE-WORK-ORDER: WO-020-P -->")
+    assert "<!-- HIVE-AUTHORIZED-BASE:" not in unsupported
+    assert "WO-020-G1 READY FOR SOL AUDIT" not in unsupported
+    with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
+        require_supported_work_order("WO-020-P")
 
 
 def test_wo020_g1_governance_contract_is_fail_closed(
