@@ -119,10 +119,12 @@ _SECRET_VALUE = re.compile(
 )
 _FILE_URI = re.compile(r"(?i)(?<![A-Za-z0-9])file:/")
 _WINDOWS_ABSOLUTE = re.compile(r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)")
+_POSIX_PATH_SEGMENT = r"[^/\s,;:!?.)}\]]+"
 _POSIX_ABSOLUTE = re.compile(
-    r"(?<![A-Za-z0-9_/:])/(?:[\w._+%~-]+(?:/[\w._+%~-]*)*)"
+    rf"(?<![A-Za-z0-9_/:])/(?:{_POSIX_PATH_SEGMENT}(?:/{_POSIX_PATH_SEGMENT})*)"
     r"(?=$|[\s,;:!?.)}\]])"
 )
+_SECRET_ASSIGNMENT = re.compile(r"(?i)(?:^|(?<=[\s,;({\"'\[]))([A-Za-z0-9_-]+)\s*[:=]\s*\S")
 _PATH_PATTERNS = (_SECRET_VALUE, _FILE_URI, _WINDOWS_ABSOLUTE, _POSIX_ABSOLUTE)
 _CURSOR = re.compile(r"^[1-9][0-9]*$")
 _MAX_DEPTH = 6
@@ -173,13 +175,34 @@ def _is_forbidden_secret_key(key: str) -> bool:
     return False
 
 
+def _is_forbidden_secret_assignment_identifier(identifier: str) -> bool:
+    if _is_token_metric_key(identifier):
+        return False
+    normalized = _normalized_secret_identifier(identifier)
+    if _matches_compound_secret_identifier(normalized):
+        return True
+    return bool(_SECRET_KEY.search(identifier))
+
+
+def _contains_forbidden_secret_assignment(value: str) -> bool:
+    for candidate in _percent_decode_variants(value):
+        for match in _SECRET_ASSIGNMENT.finditer(candidate):
+            if _is_forbidden_secret_assignment_identifier(match.group(1)):
+                return True
+    return False
+
+
 def _validate_safe_string(value: str, *, field_name: str) -> str:
     if not value or len(value) > _MAX_STRING_CHARS or any(ord(char) < 32 for char in value):
         raise TelemetryValidationError(f"{field_name} is outside its bound")
-    if value.strip() == "/" or any(
-        pattern.search(candidate)
-        for candidate in _percent_decode_variants(value)
-        for pattern in _PATH_PATTERNS
+    if (
+        value.strip() == "/"
+        or _contains_forbidden_secret_assignment(value)
+        or any(
+            pattern.search(candidate)
+            for candidate in _percent_decode_variants(value)
+            for pattern in _PATH_PATTERNS
+        )
     ):
         raise TelemetryValidationError(f"{field_name} contains forbidden secret or path data")
     return value

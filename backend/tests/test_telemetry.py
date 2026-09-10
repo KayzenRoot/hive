@@ -201,17 +201,29 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
         "OPENAI_API_KEY=embedded-secret",
         "GITHUB_TOKEN: embedded-secret",
         "AUTH_TOKEN%3Dembedded-secret",
+        "MY_API_KEY=foo",
+        "database_password=foo",
+        "AWS_ACCESS_TOKEN=foo",
+        "HIVE_CLIENT_SECRET=foo",
+        "MY_REFRESH_TOKEN=foo",
+        "APP_AUTH_TOKEN=foo",
+        "prefix MY_API_KEY%3Dfoo suffix",
         "file:///home/user/secret.txt",
         "file:///secret.txt",
         "file:/etc/passwd",
         "embedded file:///home/user/secret.txt",
+        "/n",
+        "prefix /n suffix",
         "/segredo-ç.txt",
         "/home/usuário/segredo.txt",
+        "/🔒/secret.txt",
         "prefix /segredo-ç.txt suffix",
         "prefix /home/usuário/segredo.txt suffix",
     ):
         with pytest.raises(telemetry.TelemetryValidationError):
             telemetry.sanitize_payload({"message": value})
+    with pytest.raises(telemetry.TelemetryValidationError):
+        telemetry.sanitize_payload({"nested": {"message": "MY_API_KEY=foo"}})
     for metric_key, metric_value in (
         ("input_tokens", 12),
         ("output_tokens", 34),
