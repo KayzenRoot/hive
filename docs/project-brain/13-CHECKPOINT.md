@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-AUTONOMOUS EXECUTION FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+TELEMETRY / EVENT BUS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -210,6 +210,11 @@ See `03-SCOPE.md`.
 - structured executor output remains staged and noncanonical; exact changed files, bounded diffs, tests, validation results and executor review are captured; the deterministic end-to-end coding fixture passes with zero secret and filesystem-path leaks.
 - evidence lineage records pr #65 with audited head ac2782299e8f2bddd723f536a8e54013af135d34, sol review 5154496929, squash merge ed534965136a36eff66276d5b073dc034a7fc96f and post-merge ci 34353690177; backend 488 and dashboard 7 passed.
 - ruleset 21934284 remains unchanged and auto-merge is unarmed; the product pipeline performs no git commit, push, merge or checkpoint promotion; full telemetry, full control center and v0.1 completion are not claimed.
+- telemetry/event bus foundation is approved with evidence telemetry-event-bus-v1; postgresql remains the durable event store and redis remains hot/streaming noncanonical; migration head is 0007_telemetry_events.
+- canonical event vocabulary, deterministic replay, fail-closed stream, redis-loss recovery, project isolation and payload sanitization are verified; secret and filesystem-path leaks remain 0.
+- sanitizer fail-closed coverage includes prefixed secret assignments, general posix absolute paths, file uris and url query/fragment secret delimiters without destroying token metrics or safe urls.
+- evidence lineage records pr #70 with audited head 590eda41c55c1b21f4a04789cf5576a6640f0732, sol review 5162319026, squash merge d800fac8f165146055ad050d6c2f232883dc91b7 and post-merge ci 34433610894; backend 506 and dashboard 7 passed.
+- ruleset 21934284 remains unchanged and auto-merge is unarmed; uads c7 finalized; full control center and v0.1 completion are not claimed.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -217,10 +222,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary Telemetry/Event Bus foundation increment.
+- Preparing the smallest necessary full HIVE Control Center implementation increment.
 
 ## PENDING
-- telemetry.
 - full Control Center.
 - comprehensive retrieval/token/storage benchmarks.
 - stabilization.
@@ -231,13 +235,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 
 ## BLOCKERS
-None known after Autonomous Execution Foundation approval and post-merge validation.
+None known after Telemetry/Event Bus Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary Telemetry/Event Bus foundation increment.
+Prepare the smallest necessary full HIVE Control Center implementation increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
