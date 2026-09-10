@@ -473,6 +473,33 @@ def telemetry_event_bus_evidence_fixture(
     }
 
 
+def control_center_core_evidence_fixture(
+    *, observed_migration_head: str = "0007_telemetry_events"
+) -> dict[str, object]:
+    surfaces = ["fleet", "event-stream", "platform-health"]
+    return {
+        "status": "PASS",
+        "evidence_file": review_evidence.CONTROL_CENTER_CORE_EVIDENCE_FILE,
+        "control_center_evidence_version": review_evidence.CONTROL_CENTER_CORE_EVIDENCE_VERSION,
+        "observed_migration_head": observed_migration_head,
+        "migration_base_head": review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+        "migration_changed": observed_migration_head
+        != review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+        "stream_transport": "sse",
+        "api_path": "backend/app/control_center.py",
+        "dashboard_path": "dashboard/src/control-center",
+        **{field: True for field in review_evidence.CONTROL_CENTER_CORE_TRUE_FIELDS},
+        **{field: False for field in review_evidence.CONTROL_CENTER_CORE_FALSE_FIELDS},
+        "surface_count": len(surfaces),
+        "secret_leaks": 0,
+        "filesystem_path_leaks": 0,
+        "cross_project_leaks": 0,
+        "llm_calls": 0,
+        "provider_calls": 0,
+        "implemented_surfaces": surfaces,
+    }
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
@@ -1002,6 +1029,219 @@ def test_wo019_schema_and_renderers_are_explicit() -> None:
     assert "WO-019 READY FOR SOL AUDIT" in product
     assert "C:\\Users" not in product
     assert "D:\\Projeto Codexx" not in product
+
+
+def test_wo020_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    review_evidence.require_supported_work_order(review_evidence.WO020_G1_WORK_ORDER)
+    review_evidence.require_supported_work_order(review_evidence.WO020_WORK_ORDER)
+    monkeypatch.setattr(
+        review_evidence,
+        "migration_head",
+        lambda: review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+    )
+    review_evidence.require_wo020_g1_scope(
+        review_evidence.WO020_G1_WORK_ORDER,
+        review_evidence.WO020_G1_BASE_SHA,
+        sorted(review_evidence.WO020_G1_ALLOWED_PATHS),
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo020_g1_scope(
+            review_evidence.WO020_G1_WORK_ORDER,
+            "a" * 40,
+            sorted(review_evidence.WO020_G1_ALLOWED_PATHS),
+        )
+    with pytest.raises(ValueError, match="exactly the four|canonical Project Brain|migrations"):
+        review_evidence.require_wo020_g1_scope(
+            review_evidence.WO020_G1_WORK_ORDER,
+            review_evidence.WO020_G1_BASE_SHA,
+            ["scripts/review_evidence.py", "dashboard/src/App.tsx"],
+        )
+    review_evidence.require_wo020_scope(
+        review_evidence.WO020_WORK_ORDER,
+        "b" * 40,
+        ["dashboard/src/control-center/Fleet.tsx", "backend/app/control_center.py"],
+    )
+    with pytest.raises(ValueError, match="outside"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            "b" * 40,
+            ["backend/rogue.py"],
+        )
+    with pytest.raises(ValueError, match="cannot change CI workflows"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            "b" * 40,
+            [".github/workflows/ci.yml"],
+        )
+    with pytest.raises(ValueError, match="cannot change migrations"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            "b" * 40,
+            ["migrations/versions/0008_control_center.py"],
+        )
+    with pytest.raises(ValueError, match="cannot change dependencies"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            "b" * 40,
+            ["dashboard/package.json"],
+        )
+    with pytest.raises(ValueError, match="canonical Project Brain"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            "b" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+
+
+def test_wo020_future_product_requires_current_main_and_merged_g1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = "c" * 40
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": current if args == ("rev-parse", "origin/main") else fallback,
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"merged WO-020-G1 governance support",
+    )
+    review_evidence.require_wo020_scope(
+        review_evidence.WO020_WORK_ORDER,
+        current,
+        ["dashboard/src/control-center/Fleet.tsx"],
+        enforce_current_main=True,
+    )
+    with pytest.raises(ValueError, match="current protected main"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            "d" * 40,
+            ["dashboard/src/control-center/Fleet.tsx"],
+            enforce_current_main=True,
+        )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda _revision, _path: b"missing")
+    with pytest.raises(ValueError, match="requires merged WO-020-G1 support"):
+        review_evidence.require_wo020_scope(
+            review_evidence.WO020_WORK_ORDER,
+            current,
+            ["dashboard/src/control-center/Fleet.tsx"],
+            enforce_current_main=True,
+        )
+
+
+def test_wo020_control_center_contract_is_versioned_bounded_and_fail_closed() -> None:
+    evidence = control_center_core_evidence_fixture()
+    review_evidence.require_wo020_control_center_evidence(
+        review_evidence.WO020_WORK_ORDER,
+        {"control_center_core": evidence},
+        review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+    )
+    with pytest.raises(ValueError, match="closed contract"):
+        review_evidence.require_wo020_control_center_evidence(
+            review_evidence.WO020_WORK_ORDER,
+            {"control_center_core": {**evidence, "invented": True}},
+            review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+        )
+    invalid_cases: tuple[tuple[str, object, str], ...] = (
+        ("control_center_evidence_version", "control-center-core-v0", "version"),
+        ("project_fleet_visible", False, "missing mandatory"),
+        ("implemented_surfaces", ["unsupported-surface"], "non-empty explicit"),
+        ("stream_transport", "grpc", "stream_transport"),
+        ("cross_project_leaks", 1, "cross_project_leaks=0"),
+        ("llm_calls", 1, "llm_calls=0"),
+        ("full_control_center_claimed", True, "bounded negative"),
+        ("migration_changed", True, "truthful migration_changed"),
+        ("api_path", "C:/Users/private/control_center.py", "sanitized relative"),
+    )
+    for field, value, message in invalid_cases:
+        broken = {**evidence, field: value}
+        with pytest.raises(ValueError, match=message):
+            review_evidence.require_wo020_control_center_evidence(
+                review_evidence.WO020_WORK_ORDER,
+                {"control_center_core": broken},
+                review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+            )
+    with pytest.raises(ValueError, match="must not claim"):
+        review_evidence.require_wo020_control_center_evidence(
+            review_evidence.WO020_G1_WORK_ORDER,
+            {"control_center_core": evidence},
+            review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+        )
+
+
+def test_wo020_schema_and_renderers_are_explicit() -> None:
+    manifest = evidence_fixture()
+    evidence = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence["integration"])
+    integration["control_center_core"] = {
+        **control_center_core_evidence_fixture(),
+        "invented": True,
+    }
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        validate_manifest(manifest)
+
+    common: dict[str, Any] = {
+        "pr_number": 74,
+        "branch": "governance/wo020-control-center-review-evidence",
+        "base_sha": review_evidence.WO020_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "artifact",
+        "ruleset_before": "before",
+        "ruleset_after": "after",
+        "merge_before": "before",
+        "merge_after": "after",
+    }
+    g1 = render_body(work_order=review_evidence.WO020_G1_WORK_ORDER, **common)
+    assert "control-center-core-v1" in g1
+    assert "WO-020-G1 READY FOR SOL AUDIT" in g1
+    product = render_body(work_order=review_evidence.WO020_WORK_ORDER, **common)
+    assert "WO-020 READY FOR SOL AUDIT" in product
+    assert "C:\\Users" not in product
+    assert "D:\\Projeto Codexx" not in product
+
+
+def test_wo020_g1_governance_contract_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        review_evidence,
+        "migration_head",
+        lambda: review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+    )
+    governance = {
+        "ruleset_unchanged": True,
+        "pull_request": {"auto_merge_armed": False},
+    }
+    evidence = review_evidence.verify_wo020_g1_governance_contract(
+        review_evidence.WO020_G1_WORK_ORDER,
+        review_evidence.WO020_G1_BASE_SHA,
+        sorted(review_evidence.WO020_G1_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        governance,
+        {},
+        review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+    )
+    assert evidence is not None
+    assert "unknown_WO-020-P_WO-999-P=REJECTED" in evidence
+    with pytest.raises(ValueError, match="exactly the four"):
+        review_evidence.verify_wo020_g1_governance_contract(
+            review_evidence.WO020_G1_WORK_ORDER,
+            review_evidence.WO020_G1_BASE_SHA,
+            ["scripts/review_evidence.py"],
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            governance,
+            {},
+            review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+        )
 
 
 def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
