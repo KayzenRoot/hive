@@ -25,6 +25,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-018-P",
         "WO-019-G1",
         "WO-019",
+        "WO-019-P-G1",
+        "WO-019-P",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2598,6 +2600,116 @@ WO-018-P READY FOR SOL AUDIT
 """
 
 
+def _render_wo019p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita somente o Review Evidence para a promoção canônica do
+WO-019 Telemetry/Event Bus Foundation. Não altera Project Brain, checkpoint,
+manifesto canônico, migrations ou produto.
+
+## 2. Identidade
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base autorizada exata: d800fac8f165146055ad050d6c2f232883dc91b7.
+- Base informada: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo
+
+Exatamente três arquivos de governança: backend/tests/test_review_evidence.py,
+scripts/review_evidence.py e scripts/review_pr_body.py.
+
+O futuro WO-019-P permitirá somente docs/project-brain/13-CHECKPOINT.md e
+docs/project-brain/CANONICAL-SHA256SUMS.txt, com marcador de base autorizado,
+gramática de checkpoint fechada e contrato exato do manifesto.
+
+## 4. Contrato futuro
+
+A promoção exige telemetry-event-bus-v1 PASS e registra o lineage aceito:
+PR #70, HEAD 590eda41c55c1b21f4a04789cf5576a6640f0732, Sol 5162319026,
+squash d800fac8f165146055ad050d6c2f232883dc91b7 e CI 34433610894. O próximo
+passo canônico será a menor implementação full HIVE Control Center necessária.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Nenhum merge, release ou promoção canônica é executado nesta etapa.
+
+Sol Review State: AWAITING_SOL.
+
+WO-019-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo019p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção Telemetry/Event Bus fechada
+
+Esta PR promove somente o checkpoint do WO-019 já aprovado, merged e validado
+no pós-merge. Exige exatamente docs/project-brain/13-CHECKPOINT.md e
+docs/project-brain/CANONICAL-SHA256SUMS.txt.
+
+## 2. Contrato semântico
+
+STATUS muda para TELEMETRY / EVENT BUS FOUNDATION APPROVED / V0.1 IMPLEMENTATION
+ACTIVE. O prefixo histórico de COMPLETED é preservado, cinco bullets de evidência
+WO-019 são anexadas, e somente o item pending `telemetry.` é removido. IN PROGRESS
+e NEXT STEP passam para a menor implementação full HIVE Control Center necessária.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Auto-merge permanece UNARMED. A PR permanece aberta e não mesclada para
+auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-019-P READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_body(
     *,
     work_order: str,
@@ -3001,6 +3113,32 @@ def render_body(
         )
     if work_order == "WO-018-P":
         return _render_wo018p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-019-P-G1":
+        return _render_wo019p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-019-P":
+        return _render_wo019p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
