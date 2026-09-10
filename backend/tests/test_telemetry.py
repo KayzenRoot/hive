@@ -212,7 +212,7 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
     ):
         with pytest.raises(telemetry.TelemetryValidationError):
             telemetry.sanitize_payload({"message": value})
-    for key, value in (
+    for metric_key, metric_value in (
         ("input_tokens", 12),
         ("output_tokens", 34),
         ("cached_tokens", 5),
@@ -221,7 +221,9 @@ def test_payload_and_cursor_bounds_reject_secrets_paths_and_invalid_values() -> 
         ("token_budget", 4096),
         ("token_savings", 128),
     ):
-        assert telemetry.sanitize_payload({key: value}) == {key: value}
+        assert telemetry.sanitize_payload({metric_key: metric_value}) == {
+            metric_key: metric_value
+        }
     assert telemetry.sanitize_payload(
         {"url": "https://example.com/documentação", "path": "src/module.py"}
     ) == {"url": "https://example.com/documentação", "path": "src/module.py"}

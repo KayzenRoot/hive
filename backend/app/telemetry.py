@@ -90,7 +90,11 @@ _COMPOUND_SECRET_IDENTIFIERS = frozenset(
 _COMPOUND_SECRET_ASSIGNMENT = "|".join(sorted(_COMPOUND_SECRET_IDENTIFIERS, key=len, reverse=True))
 _COMPOUND_SECRET_SUFFIXES = frozenset(
     {
-        *(identifier[identifier.find("_") :] for identifier in _COMPOUND_SECRET_IDENTIFIERS if "_" in identifier),
+        *(
+            identifier[identifier.find("_") :]
+            for identifier in _COMPOUND_SECRET_IDENTIFIERS
+            if "_" in identifier
+        ),
         *(identifier for identifier in _COMPOUND_SECRET_IDENTIFIERS if "_" not in identifier),
     }
 )
