@@ -38,6 +38,8 @@ from review_evidence import (
 )
 
 MCP_MODULE_PATH = ROOT / "backend" / "app" / "mcp_server.py"
+LEGACY_MAX_CHECKPOINT_BYTES = 30_000
+WO019P_CANDIDATE_CHECKPOINT_BYTES = 30_812
 EVIDENCE_PATH = ROOT / "tmp" / "integration-logs" / MCP_CORE_SURFACE_EVIDENCE_FILE
 CHECKPOINT_RELATIVE_PATH = "docs/project-brain/13-CHECKPOINT.md"
 SOURCE_RELATIVE_PATH = "docs/project-brain/04-ARCHITECTURE.md"
@@ -157,6 +159,15 @@ def _api_object(
     return _dict(body, label)
 
 
+def _pad_checkpoint_for_legacy_bound_regression(source: bytes, label: str) -> bytes:
+    if not source.endswith(b"\n"):
+        source += b"\n"
+    source += f"\n## MCP Fixture {label}\n\nMCP_CHECKPOINT_PROJECT_{label}\n".encode()
+    if len(source) < WO019P_CANDIDATE_CHECKPOINT_BYTES:
+        source += b"x" * (WO019P_CANDIDATE_CHECKPOINT_BYTES - len(source))
+    return source
+
+
 def _create_fixture_repository(
     repository: Path, label: str, *, git_environment: dict[str, str]
 ) -> dict[str, Any]:
@@ -167,12 +178,12 @@ def _create_fixture_repository(
     git(repository, ["config", "user.email", "hive-mcp@example.invalid"], env=git_environment)
     git(repository, ["config", "user.name", "HIVE MCP Integration"], env=git_environment)
 
+    checkpoint_source = b""
     for relative_path in GOVERNANCE_RELATIVE_PATHS:
         source = (ROOT / relative_path).read_bytes()
         if relative_path == CHECKPOINT_RELATIVE_PATH:
-            if not source.endswith(b"\n"):
-                source += b"\n"
-            source += f"\n## MCP Fixture {label}\n\nMCP_CHECKPOINT_PROJECT_{label}\n".encode()
+            source = _pad_checkpoint_for_legacy_bound_regression(source, label)
+            checkpoint_source = source
         target = repository / Path(*relative_path.split("/"))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source)
@@ -206,6 +217,7 @@ def _create_fixture_repository(
         "relative_path": repository.name,
         "head": head,
         "checkpoint_sentinel": f"MCP_CHECKPOINT_PROJECT_{label}",
+        "checkpoint_source": checkpoint_source,
         "search_sentinel": f"MCP_SEARCH_PROJECT_{label}",
         "memory_sentinel": f"MCP_MEMORY_PROJECT_{label}",
         "task_sentinel": f"MCP_TASK_PROJECT_{label}",
@@ -368,6 +380,29 @@ async def _success(
     if not isinstance(payload.get("version"), str):
         raise AssertionError(f"{name} returned no versioned payload")
     return payload
+
+
+async def _success_with_transport(
+    session: ClientSession,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    capture: _PayloadCapture,
+) -> tuple[dict[str, Any], int]:
+    result = await session.call_tool(name, arguments)
+    payload = _captured_payload(result, name, capture)
+    if result.isError is True:
+        raise AssertionError(f"{name} unexpectedly failed: {payload}")
+    if not isinstance(payload.get("version"), str):
+        raise AssertionError(f"{name} returned no versioned payload")
+    transport_bytes = 0
+    for content in result.content:
+        if isinstance(content, TextContent):
+            transport_bytes = len(content.text.encode("utf-8"))
+            break
+    if transport_bytes <= 0:
+        raise AssertionError(f"{name} returned no encoded transport payload")
+    return payload, transport_bytes
 
 
 async def _failure(
@@ -542,7 +577,7 @@ async def _protocol_checks(
         if fetched_memory_body.get("project_id") != first_id:
             raise AssertionError("memory.get lost project binding")
 
-        first_checkpoint = await _success(
+        first_checkpoint, first_checkpoint_transport_bytes = await _success_with_transport(
             session, "checkpoint.read", {"project_id": first_id}, capture=capture
         )
         second_checkpoint = await _success(
@@ -550,9 +585,24 @@ async def _protocol_checks(
         )
         first_checkpoint_body = _dict(first_checkpoint.get("checkpoint"), "first checkpoint")
         second_checkpoint_body = _dict(second_checkpoint.get("checkpoint"), "second checkpoint")
-        if first["checkpoint_sentinel"] not in _string(
-            first_checkpoint_body.get("content"), "checkpoint content"
-        ):
+        first_content = _string(first_checkpoint_body.get("content"), "checkpoint content")
+        first_content_bytes = first_content.encode("utf-8")
+        expected_first_source = first["checkpoint_source"]
+        if not isinstance(expected_first_source, bytes | bytearray):
+            raise AssertionError("fixture checkpoint source was not recorded")
+        if first_content_bytes != bytes(expected_first_source):
+            raise AssertionError("checkpoint.read truncated or mutated the tracked checkpoint")
+        if len(first_content_bytes) <= LEGACY_MAX_CHECKPOINT_BYTES:
+            raise AssertionError(
+                "MCP fixture checkpoint did not cross the legacy 30000-byte cap: "
+                f"{len(first_content_bytes)}"
+            )
+        if len(first_content_bytes) < WO019P_CANDIDATE_CHECKPOINT_BYTES:
+            raise AssertionError(
+                "MCP fixture checkpoint is smaller than the WO-019-P candidate: "
+                f"{len(first_content_bytes)}"
+            )
+        if first["checkpoint_sentinel"] not in first_content:
             raise AssertionError("checkpoint.read returned the wrong first project content")
         if second["checkpoint_sentinel"] not in _string(
             second_checkpoint_body.get("content"), "checkpoint content"
@@ -564,6 +614,12 @@ async def _protocol_checks(
             raise AssertionError("checkpoint.read returned the wrong second HEAD")
         if first_checkpoint_body.get("path") != CHECKPOINT_RELATIVE_PATH:
             raise AssertionError("checkpoint.read returned a noncanonical path")
+        max_tool_output_bytes = _mcp_int_constant("MAX_TOOL_OUTPUT_BYTES")
+        if first_checkpoint_transport_bytes > max_tool_output_bytes:
+            raise AssertionError(
+                "checkpoint.read serialized response exceeded MAX_TOOL_OUTPUT_BYTES: "
+                f"{first_checkpoint_transport_bytes}"
+            )
 
         invalid_arguments: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
             ("project.status", {"project_id": "not-a-uuid"}, ()),
@@ -669,6 +725,8 @@ async def _protocol_checks(
         "direct_core_reuse": False,
         "rest_loopback_absent": False,
         "duplicate_persistence_absent": False,
+        "observed_checkpoint_content_bytes": len(first_content_bytes),
+        "observed_checkpoint_transport_bytes": first_checkpoint_transport_bytes,
     }
 
 
@@ -728,6 +786,28 @@ async def _checkpoint_negative_checks(
     }
 
 
+def _mcp_int_constant(name: str) -> int:
+    tree = ast.parse(MCP_MODULE_PATH.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or target.id != name:
+            continue
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
+            return node.value.value
+        if (
+            isinstance(node.value, ast.BinOp)
+            and isinstance(node.value.op, ast.Mult)
+            and isinstance(node.value.left, ast.Constant)
+            and isinstance(node.value.right, ast.Constant)
+            and isinstance(node.value.left.value, int)
+            and isinstance(node.value.right.value, int)
+        ):
+            return node.value.left.value * node.value.right.value
+    raise AssertionError(f"MCP constant {name} is missing or not a bounded integer")
+
+
 def _static_surface_checks() -> dict[str, bool]:
     source = MCP_MODULE_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -776,6 +856,22 @@ def _static_surface_checks() -> dict[str, bool]:
     )
     if not duplicate_persistence_absent:
         raise AssertionError("MCP adapter contains a duplicate persistence surface")
+    legacy_bound = _mcp_int_constant("LEGACY_MAX_CHECKPOINT_BYTES")
+    candidate_bytes = _mcp_int_constant("WO019P_CANDIDATE_CHECKPOINT_BYTES")
+    checkpoint_bound = _mcp_int_constant("MAX_CHECKPOINT_BYTES")
+    tool_output_bound = _mcp_int_constant("MAX_TOOL_OUTPUT_BYTES")
+    if legacy_bound != LEGACY_MAX_CHECKPOINT_BYTES:
+        raise AssertionError("legacy checkpoint bound drifted from the documented 30000-byte cap")
+    if candidate_bytes != WO019P_CANDIDATE_CHECKPOINT_BYTES:
+        raise AssertionError("WO-019-P candidate checkpoint size constant drifted")
+    if checkpoint_bound != 48 * 1024:
+        raise AssertionError("checkpoint content bound is not the 48 KiB V0.1 policy")
+    if tool_output_bound != 64 * 1024:
+        raise AssertionError("global MCP success output bound is not 64 KiB")
+    if checkpoint_bound <= legacy_bound or checkpoint_bound < candidate_bytes:
+        raise AssertionError("checkpoint content bound cannot admit the WO-019-P candidate")
+    if tool_output_bound - checkpoint_bound < 16 * 1024:
+        raise AssertionError("checkpoint bound does not leave 16 KiB transport envelope headroom")
     return {
         "direct_core_reuse": direct_core_reuse,
         "rest_loopback_absent": rest_loopback_absent,
@@ -1030,6 +1126,11 @@ def main() -> int:
         print(f"tool_list={','.join(cast(list[str], flags['tool_list_exact']))}")
         print(f"registered_project_count={flags['registered_project_count']}")
         print(f"migration_head={migration_version}")
+        print(f"checkpoint_content_bytes={flags['observed_checkpoint_content_bytes']}")
+        print(f"checkpoint_transport_bytes={flags['observed_checkpoint_transport_bytes']}")
+        print(f"legacy_checkpoint_bound={LEGACY_MAX_CHECKPOINT_BYTES}")
+        print(f"max_checkpoint_bytes={_mcp_int_constant('MAX_CHECKPOINT_BYTES')}")
+        print(f"max_tool_output_bytes={_mcp_int_constant('MAX_TOOL_OUTPUT_BYTES')}")
         print("real_stdio_transport=passed")
         print("restart_recovery=passed")
         print("redis_loss_recovery=passed")

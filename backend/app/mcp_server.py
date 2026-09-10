@@ -84,7 +84,16 @@ MAX_QUERY_CHARS = 512
 MAX_SEARCH_TOP_K = 10
 MAX_MEMORY_LIMIT = 32
 MAX_MEMORY_CONTENT_CHARS = 2_048
-MAX_CHECKPOINT_BYTES = 30_000
+# Historical checkpoint-content cap. It rejected the WO-019-P candidate of
+# 30,812 bytes even though the tool contract is to return the complete
+# tracked checkpoint. Do not restore this as the live admission limit.
+LEGACY_MAX_CHECKPOINT_BYTES = 30_000
+WO019P_CANDIDATE_CHECKPOINT_BYTES = 30_812
+# Checkpoint-specific content bound. 48 KiB admits the WO-019-P candidate and
+# remaining V0.1 COMPLETED growth while leaving at least 16 KiB of envelope
+# headroom under the unchanged 64 KiB transport guard. Oversized success
+# still fails closed in `_encode_payload` before it can escape.
+MAX_CHECKPOINT_BYTES = 48 * 1024
 MAX_CHECKPOINT_SECTIONS = 16
 MAX_TOOL_OUTPUT_BYTES = 64 * 1024
 MAX_ERROR_BYTES = 2_048

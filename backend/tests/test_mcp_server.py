@@ -441,6 +441,93 @@ def test_success_payload_bound_fails_closed() -> None:
     assert error.value.code == "output_bound_exceeded"
 
 
+def _valid_checkpoint_source(*, minimum_bytes: int) -> bytes:
+    prefix = (
+        b"# Status\n\nProject-specific checkpoint.\n\n"
+        b"## Version\n\n1\n\n"
+        b"## Phase\n\nACTIVE\n\n"
+        b"## Objective\n\nRead-only MCP surface.\n\n"
+        b"## In Progress\n\nCore adapter.\n\n"
+        b"## Blockers\n\nNone.\n\n"
+        b"## Next Step\n\nReview.\n"
+    )
+    if len(prefix) >= minimum_bytes:
+        return prefix
+    return prefix + (b"x" * (minimum_bytes - len(prefix)))
+
+
+def _checkpoint_read_result(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, source: bytes
+) -> dict[str, object]:
+    settings = Settings(projects_root=tmp_path)
+    entry = SimpleNamespace(
+        path="docs/project-brain/13-CHECKPOINT.md",
+        source=source,
+        git_status="CLEAN",
+        git_blob_sha="d" * 40,
+        content_sha256="e" * 64,
+    )
+    snapshot = SimpleNamespace(repository_head_sha=HEAD, files=[entry])
+    monkeypatch.setattr(mcp_server, "get_project", lambda *_args: project_response())
+    monkeypatch.setattr(mcp_server, "_collect_inventory", lambda *_args: snapshot)
+    monkeypatch.setattr(mcp_server, "_tracked_governance_file", lambda *_args: entry)
+    monkeypatch.setattr(mcp_server, "_assert_snapshot_stable", lambda *_args: None)
+    result = mcp_server.dispatch_tool(settings, "checkpoint.read", {"project_id": str(PROJECT_ID)})
+    assert isinstance(result, dict)
+    return result
+
+
+def test_checkpoint_bound_policy_leaves_transport_headroom() -> None:
+    assert mcp_server.LEGACY_MAX_CHECKPOINT_BYTES == 30_000
+    assert mcp_server.WO019P_CANDIDATE_CHECKPOINT_BYTES == 30_812
+    assert mcp_server.MAX_CHECKPOINT_BYTES == 48 * 1024
+    assert mcp_server.MAX_TOOL_OUTPUT_BYTES == 64 * 1024
+    assert mcp_server.MAX_ERROR_BYTES == 2_048
+    assert mcp_server.WO019P_CANDIDATE_CHECKPOINT_BYTES > mcp_server.LEGACY_MAX_CHECKPOINT_BYTES
+    assert mcp_server.MAX_CHECKPOINT_BYTES >= mcp_server.WO019P_CANDIDATE_CHECKPOINT_BYTES
+    assert mcp_server.MAX_CHECKPOINT_BYTES < mcp_server.MAX_TOOL_OUTPUT_BYTES
+    assert (mcp_server.MAX_TOOL_OUTPUT_BYTES - mcp_server.MAX_CHECKPOINT_BYTES) >= 16 * 1024
+
+
+def test_legacy_checkpoint_cap_rejects_wo019p_candidate_size(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = _valid_checkpoint_source(minimum_bytes=mcp_server.WO019P_CANDIDATE_CHECKPOINT_BYTES)
+    assert len(source) >= mcp_server.WO019P_CANDIDATE_CHECKPOINT_BYTES
+    assert len(source) > mcp_server.LEGACY_MAX_CHECKPOINT_BYTES
+    monkeypatch.setattr(mcp_server, "MAX_CHECKPOINT_BYTES", mcp_server.LEGACY_MAX_CHECKPOINT_BYTES)
+    with pytest.raises(ContextBoundsError) as error:
+        _checkpoint_read_result(monkeypatch, tmp_path, source)
+    assert str(error.value) == "checkpoint_response_bound_exceeded"
+
+
+def test_checkpoint_read_returns_complete_wo019p_sized_content(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = _valid_checkpoint_source(minimum_bytes=mcp_server.WO019P_CANDIDATE_CHECKPOINT_BYTES)
+    result = _checkpoint_read_result(monkeypatch, tmp_path, source)
+    data = result["checkpoint"]
+    assert isinstance(data, dict)
+    assert data["content"] == source.decode()
+    assert data["content_characters"] == len(source.decode())
+    assert "content_truncated" not in data
+    assert len(source) > mcp_server.LEGACY_MAX_CHECKPOINT_BYTES
+    encoded = mcp_server._encode_payload(result)
+    assert len(encoded.encode("utf-8")) <= mcp_server.MAX_TOOL_OUTPUT_BYTES
+
+
+def test_checkpoint_read_serialized_success_stays_within_tool_output_bound(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = _valid_checkpoint_source(minimum_bytes=mcp_server.MAX_CHECKPOINT_BYTES)
+    result = _checkpoint_read_result(monkeypatch, tmp_path, source)
+    data = result["checkpoint"]
+    assert isinstance(data, dict)
+    assert data["content"] == source.decode()
+    encoded = mcp_server._encode_payload(result)
+    assert len(encoded.encode("utf-8")) <= mcp_server.MAX_TOOL_OUTPUT_BYTES
+
+
 def test_checkpoint_read_rejects_oversized_content_without_partial_result(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
