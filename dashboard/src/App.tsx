@@ -655,7 +655,6 @@ function App() {
       </section>
 
       <ControlCenter
-        projects={projects}
         selectedProjectId={selectedProjectId}
         onSelectProject={selectProject}
       />

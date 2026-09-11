@@ -13,11 +13,6 @@ const TASK_ID = "dddddddd-0000-4000-8000-0000000000c1";
 const EXECUTOR_IDENTITY = "codex/openai/gpt-5.6-luna-xhigh";
 const GENERATED_AT = "2026-09-10T12:00:00.000Z";
 
-const PROJECT_OPTIONS = [
-  { project_id: PROJECT_A_ID, name: "Project Alpha", relative_path: "alpha" },
-  { project_id: PROJECT_B_ID, name: "Project Beta", relative_path: "beta" },
-];
-
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
 
@@ -375,7 +370,6 @@ function renderControlCenter(
   const onSelectProject = vi.fn();
   const utils = render(
     <ControlCenter
-      projects={PROJECT_OPTIONS}
       selectedProjectId={options.selectedProjectId ?? ""}
       onSelectProject={onSelectProject}
     />,
@@ -653,7 +647,6 @@ describe("ControlCenter run detail dedicated timeline", () => {
 
     view.rerender(
       <ControlCenter
-        projects={PROJECT_OPTIONS}
         selectedProjectId={PROJECT_B_ID}
         onSelectProject={vi.fn()}
       />,
@@ -744,6 +737,179 @@ describe("ControlCenter fleet pagination", () => {
     expect(screen.getByRole("heading", { name: "Project Alpha" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Project Gamma" })).toBeNull();
     expect(screen.getByText(/showing projects 1 to 2 of 3/)).toBeInTheDocument();
+  });
+});
+
+describe("ControlCenter bounded operational selector", () => {
+  const GAMMA_ID = "c3c3c3c3-0000-4000-8000-000000000003";
+  const DELTA_ID = "d4d4d4d4-0000-4000-8000-000000000004";
+  const GLOBAL_COUNTS = {
+    offline: 0,
+    stale: 0,
+    indexing: 0,
+    ready: 2,
+    active: 1,
+    degraded: 0,
+    blocked: 1,
+  };
+  const registryPages = () => ({
+    "0": fleetResponse({
+      project_count: 4,
+      state_counts: GLOBAL_COUNTS,
+      projects: [
+        headline(),
+        headline({
+          project_id: PROJECT_B_ID,
+          name: "Project Beta",
+          relative_path: "beta",
+          state: "ACTIVE",
+          working_tree_clean: null,
+        }),
+      ],
+      truncated: true,
+      offset: 0,
+      limit: 2,
+      has_more: true,
+      next_offset: 2,
+    }),
+    "2": fleetResponse({
+      project_count: 4,
+      state_counts: GLOBAL_COUNTS,
+      projects: [
+        headline({
+          project_id: GAMMA_ID,
+          name: "Project Gamma",
+          relative_path: "gamma",
+          state: "BLOCKED",
+          working_tree_clean: null,
+        }),
+        headline({
+          project_id: DELTA_ID,
+          name: "Project Delta",
+          relative_path: "delta",
+        }),
+      ],
+      truncated: true,
+      offset: 2,
+      limit: 2,
+      has_more: false,
+      next_offset: null,
+    }),
+  });
+
+  function selectorLabels(): string[] {
+    return within(screen.getByLabelText("Operational project"))
+      .getAllByRole("option")
+      .map((option) => option.textContent ?? "");
+  }
+
+  it("renders only the visible Fleet page options, never the wider registry", async () => {
+    const api = installApi({ fleetByOffset: registryPages() });
+
+    renderControlCenter(api);
+    await settle();
+
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Alpha · alpha",
+      "Project Beta · beta",
+    ]);
+    expect(screen.getByText(/4 registered projects/)).toBeInTheDocument();
+  });
+
+  it("keeps one off-page selected identity and upgrades it to the real detail identity", async () => {
+    const api = installApi({
+      fleetByOffset: registryPages(),
+      detail: detailResponse({
+        project: headline({
+          project_id: GAMMA_ID,
+          name: "Project Gamma",
+          relative_path: "gamma",
+          state: "BLOCKED",
+          working_tree_clean: null,
+        }),
+      }),
+    });
+
+    renderControlCenter(api, { selectedProjectId: GAMMA_ID });
+    expect(selectorLabels()).toEqual(["Choose a project…", GAMMA_ID]);
+
+    await settle();
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Alpha · alpha",
+      "Project Beta · beta",
+      GAMMA_ID,
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Project detail" }));
+    await settle();
+
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Alpha · alpha",
+      "Project Beta · beta",
+      "Project Gamma · gamma",
+    ]);
+  });
+
+  it("drops prior-page options while paging and keeps global counts unchanged", async () => {
+    const api = installApi({ fleetByOffset: registryPages() });
+
+    renderControlCenter(api, { selectedProjectId: PROJECT_A_ID });
+    await settle();
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Alpha · alpha",
+      "Project Beta · beta",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await settle();
+
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Gamma · gamma",
+      "Project Delta · delta",
+      PROJECT_A_ID,
+    ]);
+    const counts = screen.getByLabelText("Exact project state counts");
+    expect(within(counts).getByText("READY 2")).toBeInTheDocument();
+    expect(within(counts).getByText("BLOCKED 1")).toBeInTheDocument();
+    expect(screen.getByText(/4 registered projects/)).toBeInTheDocument();
+    expect(screen.getByText(/showing projects 3 to 4 of 4/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    await settle();
+
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Alpha · alpha",
+      "Project Beta · beta",
+    ]);
+  });
+
+  it("opens a project from a later page without materializing earlier pages", async () => {
+    const api = installApi({ fleetByOffset: registryPages() });
+
+    const view = renderControlCenter(api);
+    await settle();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await settle();
+    fireEvent.click(within(rowFor("Project Gamma")).getByRole("button", { name: "Open project" }));
+    await settle();
+
+    expect(view.onSelectProject).toHaveBeenCalledWith(GAMMA_ID);
+    expect(screen.getByRole("tab", { name: "Project detail" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(selectorLabels()).toEqual([
+      "Choose a project…",
+      "Project Gamma · gamma",
+      "Project Delta · delta",
+    ]);
   });
 });
 

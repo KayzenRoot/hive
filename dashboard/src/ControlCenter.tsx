@@ -31,12 +31,10 @@ export type ControlViewId =
 
 type ProjectOption = {
   project_id: string;
-  name: string;
-  relative_path: string;
+  label: string;
 };
 
 export type ControlCenterProps = {
-  projects: ProjectOption[];
   selectedProjectId: string;
   onSelectProject: (projectId: string) => void;
 };
@@ -531,7 +529,6 @@ function overrideOnlyRuns(
   return result;
 }
 export default function ControlCenter({
-  projects,
   selectedProjectId,
   onSelectProject,
 }: ControlCenterProps) {
@@ -1099,8 +1096,30 @@ export default function ControlCenter({
     setView(nextId);
     event.currentTarget.querySelector<HTMLButtonElement>("#cc-tab-" + nextId)?.focus();
   };
-  const selectedProject =
-    projects.find((project) => project.project_id === selectedProjectId) ?? null;
+  const boundedProjectOptions = useMemo<ProjectOption[]>(() => {
+    const options: ProjectOption[] = [];
+    const seen = new Set<string>();
+    const addOption = (
+      projectId: string,
+      identity: { name: string; relative_path: string } | null,
+    ) => {
+      if (seen.has(projectId)) return;
+      seen.add(projectId);
+      options.push({
+        project_id: projectId,
+        label: identity === null ? projectId : identity.name + " · " + identity.relative_path,
+      });
+    };
+    for (const project of fleet?.projects ?? []) {
+      addOption(project.project_id, project);
+    }
+    if (selectedProjectId !== "" && !seen.has(selectedProjectId)) {
+      const selectedIdentity =
+        detail !== null && detail.project.project_id === selectedProjectId ? detail.project : null;
+      addOption(selectedProjectId, selectedIdentity);
+    }
+    return options;
+  }, [fleet, detail, selectedProjectId]);
   const detailRuns = detail ? applyRunOverrides(detail.recent_runs, runOverrides) : [];
   const detailActiveRuns = detailRuns.filter((run) => run.status === "ACTIVE");
   const detailRecentRuns = detailRuns.filter((run) => run.status !== "ACTIVE");
@@ -1259,7 +1278,7 @@ export default function ControlCenter({
   );
 
   const renderProject = () => {
-    if (selectedProject === null && !selectedProjectId) {
+    if (!selectedProjectId) {
       return <p className="fleet-message">Select an operational project to open its detail surface.</p>;
     }
     return (
@@ -1818,9 +1837,9 @@ export default function ControlCenter({
             onChange={(event) => handleSelectProject(event.target.value)}
           >
             <option value="">Choose a project…</option>
-            {projects.map((project) => (
+            {boundedProjectOptions.map((project) => (
               <option key={project.project_id} value={project.project_id}>
-                {project.name} · {project.relative_path}
+                {project.label}
               </option>
             ))}
           </select>
