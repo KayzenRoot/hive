@@ -1660,7 +1660,9 @@ def test_wo021_closed_metric_arrays_have_schema_python_permutation_parity() -> N
     schema_validator = jsonschema.Draft202012Validator(metrics_schema)
     evidence = control_center_metrics_evidence_fixture()
 
-    for value in permutations(review_evidence.CONTROL_CENTER_METRICS_FAMILIES):
+    family_permutations = tuple(permutations(review_evidence.CONTROL_CENTER_METRICS_FAMILIES))
+    assert len(family_permutations) == 24
+    for value in family_permutations:
         candidate = {**evidence, "implemented_metric_families": list(value)}
         assert schema_validator.is_valid(candidate)
         review_evidence.require_wo021_control_center_metrics_evidence(
@@ -1669,7 +1671,11 @@ def test_wo021_closed_metric_arrays_have_schema_python_permutation_parity() -> N
             review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
         )
 
-    for value in permutations(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE):
+    provenance_permutations = tuple(
+        permutations(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE)
+    )
+    assert len(provenance_permutations) == 24
+    for value in provenance_permutations:
         candidate = {**evidence, "metric_value_provenance": list(value)}
         assert schema_validator.is_valid(candidate)
         review_evidence.require_wo021_control_center_metrics_evidence(
