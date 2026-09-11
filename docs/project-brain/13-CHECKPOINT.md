@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-TELEMETRY / EVENT BUS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+CONTROL CENTER OPERATIONAL CORE APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -215,6 +215,12 @@ See `03-SCOPE.md`.
 - sanitizer fail-closed coverage includes prefixed secret assignments, general posix absolute paths, file uris and url query/fragment secret delimiters without destroying token metrics or safe urls.
 - evidence lineage records pr #70 with audited head 590eda41c55c1b21f4a04789cf5576a6640f0732, sol review 5162319026, squash merge d800fac8f165146055ad050d6c2f232883dc91b7 and post-merge ci 34433610894; backend 506 and dashboard 7 passed.
 - ruleset 21934284 remains unchanged and auto-merge is unarmed; uads c7 finalized; full control center and v0.1 completion are not claimed.
+- control center operational core is approved under evidence control-center-core-v1 with bounded fleet, selected project detail, active/recent runs, run detail, project event timeline, platform health, tests/validation and errors/warnings surfaces.
+- near-real-time event delivery reuses the existing project-scoped sse stream with durable postgresql replay/reconciliation; postgresql remains canonical and redis remains noncanonical hot/streaming state.
+- fleet is bounded/paginated with complete-registry total/state-count truth; run detail maintains a dedicated bounded/deduplicated selected-run timeline; cross-project leakage and raw host-path/secret leakage remain fail-closed.
+- unsupported metrics are not fabricated: exact live token usage, exact provider cost, cache hit rate and context signal ratio remain unavailable until backed by reliable telemetry; full control center remains pending.
+- lineage records pr #75 with audited head c28715a4fcaac2a062fc0b14e80cdfb4f418726b, sol review 5180295002, squash merge 2e322095936f2a508f36563699e464d301f89ced and post-merge ci 34615046572; backend 547 and dashboard 27 passed.
+- uads final acceptance lineage records c2-r2 workorderid wo_1ce7f88ba20967d7, executionrunid er_66338e817d9fa1f3 and digest e52da09fafb7d4e17671225f09796b4613d18e3c751bff3c27e2e532d280ca10; legal dispatch under hard budget, reviewer approved, finalize completed/stopped and zeroprojectfootprint=true.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -222,7 +228,7 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary full HIVE Control Center implementation increment.
+- Preparing the smallest necessary Control Center metrics and observability increment.
 
 ## PENDING
 - full Control Center.
@@ -235,13 +241,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 
 ## BLOCKERS
-None known after Telemetry/Event Bus Foundation approval and post-merge validation.
+None known after Control Center Operational Core approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary full HIVE Control Center implementation increment.
+Prepare the smallest necessary Control Center metrics and observability increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
