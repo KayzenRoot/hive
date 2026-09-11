@@ -15,13 +15,19 @@ def database_connection(settings: Settings) -> Iterator[psycopg.Connection[Any]]
         yield connection
 
 
-def ensure_schema_current(settings: Settings) -> None:
+def observed_schema_revision(settings: Settings) -> str | None:
     with database_connection(settings) as connection, connection.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
         row = cursor.fetchone()
-    if row is None or row[0] != CURRENT_SCHEMA_REVISION:
-        actual = row[0] if row else "missing"
+    if row is None:
+        return None
+    return str(row[0])
+
+
+def ensure_schema_current(settings: Settings) -> None:
+    actual = observed_schema_revision(settings)
+    if actual != CURRENT_SCHEMA_REVISION:
         raise RuntimeError(
             f"HIVE database schema is not at {CURRENT_SCHEMA_REVISION}; "
-            f"current revision is {actual}"
+            f"current revision is {actual or 'missing'}"
         )

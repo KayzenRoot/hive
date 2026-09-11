@@ -6,6 +6,10 @@ import {
   type FormEvent,
 } from "react";
 
+import ControlCenter from "./ControlCenter";
+import { API_BASE_URL } from "./config";
+import { formatTimestamp } from "./format";
+
 type Check = {
   status: string;
   details: Record<string, boolean | string>;
@@ -185,8 +189,6 @@ type RerankerStatus = {
 };
 
 type RetrievalMode = "lexical" | "semantic" | "hybrid" | "rerank";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 const checkLabels: Record<string, string> = {
   postgres: "PostgreSQL + pgvector",
@@ -380,8 +382,7 @@ function App() {
     }
   }, []);
 
-  const selectIntakeProject = (event: ChangeEvent<HTMLSelectElement>) => {
-    const projectId = event.target.value;
+  const selectProject = (projectId: string) => {
     setSelectedProjectId(projectId);
     setPreviewTaskId(null);
     setPreviewText(null);
@@ -397,6 +398,10 @@ function App() {
       setHybridResults([]);
       setRerankResults([]);
     }
+  };
+
+  const selectIntakeProject = (event: ChangeEvent<HTMLSelectElement>) => {
+    selectProject(event.target.value);
   };
 
   const syncRetrieval = async () => {
@@ -649,11 +654,16 @@ function App() {
         })}
       </section>
 
+      <ControlCenter
+        selectedProjectId={selectedProjectId}
+        onSelectProject={selectProject}
+      />
+
       <section className="fleet-section" aria-labelledby="fleet-title" aria-busy={projectsLoading}>
         <div className="section-heading">
           <div>
             <p className="eyebrow">DURABLE REGISTRY</p>
-            <h2 id="fleet-title">Project Fleet</h2>
+            <h2 id="fleet-title">Project Registry</h2>
           </div>
           <span className="fleet-count" aria-label={`${projects.length} registered projects`}>
             {projects.length} registered
@@ -1074,14 +1084,6 @@ function retrievalScore(result: LexicalResult | SemanticResult | HybridResult | 
     return result.semantic_score;
   }
   return result.lexical_score;
-}
-
-function formatTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("en", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(value));
 }
 
 function formatBytes(value: number): string {

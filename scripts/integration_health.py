@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def fetch(url: str) -> tuple[int, bytes, dict | None]:
@@ -16,6 +20,17 @@ def fetch(url: str) -> tuple[int, bytes, dict | None]:
         except json.JSONDecodeError:
             payload = None
         return response.status, body, payload
+
+
+def run_control_center_integration() -> int:
+    """Run the WO-020 Control Center integration evidence in place."""
+
+    completed = subprocess.run(
+        [sys.executable, "scripts/control_center_integration.py"],
+        cwd=ROOT,
+        check=False,
+    )
+    return completed.returncode
 
 
 def main() -> int:
@@ -35,6 +50,13 @@ def main() -> int:
                 assert dashboard_status == 200
                 assert b"HIVE" in dashboard_body
                 print(json.dumps(payload, indent=2))
+                result = run_control_center_integration()
+                if result != 0:
+                    print(
+                        f"Control Center integration failed with exit code {result}",
+                        file=sys.stderr,
+                    )
+                    return 1
                 print("Integration health passed.")
                 return 0
         except (AssertionError, KeyError, OSError, urllib.error.URLError, ValueError) as exc:

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -261,7 +261,9 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
-    await screen.findByRole("option", { name: /HIVE/ });
+    await within(await screen.findByLabelText("Registered project")).findByRole("option", {
+      name: /HIVE/,
+    });
     fireEvent.change(screen.getByLabelText("Registered project"), {
       target: { value: project.project_id },
     });
@@ -353,7 +355,9 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
-    await screen.findByRole("option", { name: /HIVE/ });
+    await within(await screen.findByLabelText("Registered project")).findByRole("option", {
+      name: /HIVE/,
+    });
     fireEvent.change(await screen.findByLabelText("Registered project"), {
       target: { value: project.project_id },
     });
