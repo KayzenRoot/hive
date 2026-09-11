@@ -60,9 +60,9 @@ Generated deterministically by scripts/generate_maps.py.
 
 - dashboard/src/App.test.tsx: TypeScript/React source or test module.
 - dashboard/src/App.tsx: TypeScript/React source or test module.
-- dashboard/src/config.ts: TypeScript/React source or test module.
 - dashboard/src/ControlCenter.test.tsx: TypeScript/React source or test module.
 - dashboard/src/ControlCenter.tsx: TypeScript/React source or test module.
+- dashboard/src/config.ts: TypeScript/React source or test module.
 - dashboard/src/eventVocabulary.ts: TypeScript/React source or test module.
 - dashboard/src/format.ts: TypeScript/React source or test module.
 - dashboard/src/main.tsx: TypeScript/React source or test module.

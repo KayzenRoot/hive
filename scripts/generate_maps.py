@@ -10,9 +10,12 @@ ATLAS = ROOT / "docs" / "atlas"
 
 def tracked(pattern: str) -> list[Path]:
     return sorted(
-        path.relative_to(ROOT)
-        for path in ROOT.glob(pattern)
-        if path.is_file() and ".git" not in path.parts and "node_modules" not in path.parts
+        (
+            path.relative_to(ROOT)
+            for path in ROOT.glob(pattern)
+            if path.is_file() and ".git" not in path.parts and "node_modules" not in path.parts
+        ),
+        key=lambda path: path.as_posix(),
     )
 
 
