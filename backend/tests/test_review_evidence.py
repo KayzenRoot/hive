@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+import jsonschema
 import pytest
 import scripts.review_evidence as review_evidence
 from scripts.capture_service_logs import DEFAULT_COMMAND, capture_service_logs, redact_service_logs
@@ -1257,6 +1258,109 @@ def test_wo020_g1_renderer_pins_validated_authorized_base_marker() -> None:
     assert "WO-020-G1 READY FOR SOL AUDIT" not in unsupported
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-020-P")
+
+
+def test_wo020_c1_evidence_paths_are_canonical_and_role_bounded() -> None:
+    evidence = control_center_core_evidence_fixture()
+    positive_cases = (
+        ("api_path", "backend/app/control_center.py"),
+        ("api_path", "backend/app/main.py"),
+        ("dashboard_path", "dashboard/src/App.tsx"),
+        ("dashboard_path", "dashboard/src/control-center/Fleet.tsx"),
+    )
+    negative_cases = (
+        ("api_path", "../outside.py"),
+        ("api_path", "backend/app/../outside.py"),
+        ("api_path", "./backend/app/control_center.py"),
+        ("api_path", "backend/app/./control_center.py"),
+        ("api_path", "backend//app/control_center.py"),
+        ("api_path", "/backend/app/control_center.py"),
+        ("api_path", "C:/backend/app/control_center.py"),
+        ("api_path", "C:\\backend\\app\\control_center.py"),
+        ("api_path", "backend\\app\\control_center.py"),
+        ("api_path", "backend/app/."),
+        ("api_path", "backend/app/control_center.py/"),
+        ("api_path", "backend/app/x/../../outside.py"),
+        ("api_path", "backend/app/control_center\u0000.py"),
+        ("api_path", ""),
+        ("api_path", "backend/app/" + "a" * 256),
+        ("api_path", "dashboard/src/App.tsx"),
+        ("api_path", "backend/control_center.py"),
+        ("dashboard_path", "backend/app/control_center.py"),
+        ("dashboard_path", "dashboard/control-center/Fleet.tsx"),
+        ("dashboard_path", "dashboard/src/../../outside.tsx"),
+        ("dashboard_path", "dashboard/src/.."),
+        ("dashboard_path", "./dashboard/src/App.tsx"),
+        ("dashboard_path", "dashboard//src/App.tsx"),
+        ("dashboard_path", "C:\\dashboard\\src\\App.tsx"),
+    )
+    for field, value in positive_cases:
+        manifest = evidence_fixture()
+        evidence_section = cast(dict[str, object], manifest["evidence"])
+        integration = cast(dict[str, object], evidence_section["integration"])
+        integration["control_center_core"] = {**evidence, field: value}
+        validate_manifest(manifest)
+        review_evidence.require_wo020_control_center_evidence(
+            review_evidence.WO020_WORK_ORDER,
+            {"control_center_core": {**evidence, field: value}},
+            review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+        )
+    for field, value in negative_cases:
+        manifest = evidence_fixture()
+        evidence_section = cast(dict[str, object], manifest["evidence"])
+        integration = cast(dict[str, object], evidence_section["integration"])
+        integration["control_center_core"] = {**evidence, field: value}
+        with pytest.raises(ValueError, match="manifest schema validation failed"):
+            validate_manifest(manifest)
+        with pytest.raises(ValueError, match=f"sanitized relative {field}"):
+            review_evidence.require_wo020_control_center_evidence(
+                review_evidence.WO020_WORK_ORDER,
+                {"control_center_core": {**evidence, field: value}},
+                review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
+            )
+
+
+def test_wo020_c1_python_and_schema_path_parity_over_generated_corpus() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    properties = schema["$defs"]["control_center_core_evidence"]["properties"]
+    fragments = (
+        "a",
+        "a/b",
+        "a/./b",
+        "a/../b",
+        "./a",
+        "../a",
+        "a/",
+        "/a",
+        "a//b",
+        ".hidden",
+        "..a",
+        "a.",
+        "a b",
+        "a\\b",
+        "a:b",
+        "a\u0001b",
+        "a" * 256,
+        "",
+    )
+    corpus = (
+        *fragments,
+        *(f"backend/app/{fragment}" for fragment in fragments),
+        *(f"dashboard/src/{fragment}" for fragment in fragments),
+        "backend/app",
+        "dashboard/src",
+        "backend/app/a/b.py",
+        "dashboard/src/a/b.tsx",
+    )
+    api_schema = jsonschema.Draft202012Validator(properties["api_path"])
+    dashboard_schema = jsonschema.Draft202012Validator(properties["dashboard_path"])
+    for value in corpus:
+        assert review_evidence.valid_control_center_core_path("api_path", value) is (
+            api_schema.is_valid(value)
+        ), value
+        assert review_evidence.valid_control_center_core_path("dashboard_path", value) is (
+            dashboard_schema.is_valid(value)
+        ), value
 
 
 def test_wo020_g1_governance_contract_is_fail_closed(

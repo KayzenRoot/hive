@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import math
+import posixpath
 import re
 import subprocess
 import tempfile
@@ -723,7 +724,15 @@ CONTROL_CENTER_CORE_REQUIRED_FIELDS = (
 CONTROL_CENTER_CORE_ALLOWED_FIELDS = frozenset(CONTROL_CENTER_CORE_REQUIRED_FIELDS)
 CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD = "0007_telemetry_events"
 CONTROL_CENTER_CORE_MAX_SURFACES = len(CONTROL_CENTER_CORE_CANONICAL_SURFACES)
-CONTROL_CENTER_CORE_PATH = re.compile(r"^[^\\/:*?\"<>|\r\n]+(?:/[^\\/:*?\"<>|\r\n]+)*$")
+CONTROL_CENTER_CORE_PATH_MAX_LENGTH = 256
+CONTROL_CENTER_CORE_PATH_SEGMENT = r"[^\\/:*?\"<>|\x00-\x1F\x7F]"
+CONTROL_CENTER_CORE_PATH = re.compile(
+    rf"^{CONTROL_CENTER_CORE_PATH_SEGMENT}+(?:/{CONTROL_CENTER_CORE_PATH_SEGMENT}+)*$"
+)
+CONTROL_CENTER_CORE_PATH_ROOTS = {
+    "api_path": "backend/app/",
+    "dashboard_path": "dashboard/src/",
+}
 
 WO020_G1_BASE_SHA = "ab2c6eac4eedac460871cf00d613a9b478ec533d"
 WO020_G1_WORK_ORDER = "WO-020-G1"
@@ -3997,6 +4006,35 @@ def require_wo019_telemetry_evidence(
         raise ValueError(f"{WO019_WORK_ORDER} requires truthful migration_changed evidence")
 
 
+def canonical_repository_relative_path(value: object, *, prefix: str) -> bool:
+    """Return True when value is a normalized repository-relative evidence path.
+
+    One deterministic rule covers the Control Center evidence contract: a valid
+    path is non-empty, bounded, rooted at ``prefix``, POSIX-style and
+    repository-relative, with no backslash, drive/UNC/absolute form, empty or
+    dot segment, control character, Windows-reserved character or normalization
+    that would change its semantic location.
+    """
+
+    if not isinstance(value, str):
+        return False
+    if not value or len(value) > CONTROL_CENTER_CORE_PATH_MAX_LENGTH:
+        return False
+    if not value.startswith(prefix):
+        return False
+    if posixpath.isabs(value) or value != posixpath.normpath(value):
+        return False
+    if CONTROL_CENTER_CORE_PATH.fullmatch(value) is None:
+        return False
+    return all(segment not in {"", ".", ".."} for segment in value.split("/"))
+
+
+def valid_control_center_core_path(field: str, value: object) -> bool:
+    """Apply the canonical path rule plus the control-center-core-v1 role root."""
+
+    return canonical_repository_relative_path(value, prefix=CONTROL_CENTER_CORE_PATH_ROOTS[field])
+
+
 def require_wo020_control_center_evidence(
     work_order: str,
     integration: Mapping[str, object],
@@ -4077,12 +4115,7 @@ def require_wo020_control_center_evidence(
         if control_center.get(field) != 0:
             raise ValueError(f"{WO020_WORK_ORDER} requires {field}=0")
     for path_field in ("api_path", "dashboard_path"):
-        path_value = control_center.get(path_field)
-        if (
-            not isinstance(path_value, str)
-            or not CONTROL_CENTER_CORE_PATH.fullmatch(path_value)
-            or Path(path_value).is_absolute()
-        ):
+        if not valid_control_center_core_path(path_field, control_center.get(path_field)):
             raise ValueError(f"{WO020_WORK_ORDER} requires sanitized relative {path_field}")
     observed_head = control_center.get("observed_migration_head")
     if not isinstance(observed_head, str) or not observed_head:
@@ -5910,14 +5943,8 @@ def control_center_core_evidence() -> dict[str, object]:
     api_path = strings["api_path"]
     dashboard_path = strings["dashboard_path"]
     paths_valid = bool(
-        isinstance(api_path, str)
-        and api_path != "UNKNOWN"
-        and CONTROL_CENTER_CORE_PATH.fullmatch(api_path)
-        and not Path(api_path).is_absolute()
-        and isinstance(dashboard_path, str)
-        and dashboard_path != "UNKNOWN"
-        and CONTROL_CENTER_CORE_PATH.fullmatch(dashboard_path)
-        and not Path(dashboard_path).is_absolute()
+        valid_control_center_core_path("api_path", api_path)
+        and valid_control_center_core_path("dashboard_path", dashboard_path)
     )
     transport_valid = strings["stream_transport"] in CONTROL_CENTER_CORE_STREAM_TRANSPORTS
     bounds_valid = (

@@ -802,13 +802,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "pattern": "^[^\\\\/:*?\\\"<>|\\r\\n]+(?:/[^\\\\/:*?\\\"<>|\\r\\n]+)*$"
+          "pattern": "^backend/app/(?!\\.{1,2}(?:/|$))(?!.*/\\.{1,2}(?:/|$))[^\\\\/:*?\\\"<>|\\x00-\\x1F\\x7F]+(?:/[^\\\\/:*?\\\"<>|\\x00-\\x1F\\x7F]+)*$"
         },
         "dashboard_path": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "pattern": "^[^\\\\/:*?\\\"<>|\\r\\n]+(?:/[^\\\\/:*?\\\"<>|\\r\\n]+)*$"
+          "pattern": "^dashboard/src/(?!\\.{1,2}(?:/|$))(?!.*/\\.{1,2}(?:/|$))[^\\\\/:*?\\\"<>|\\x00-\\x1F\\x7F]+(?:/[^\\\\/:*?\\\"<>|\\x00-\\x1F\\x7F]+)*$"
         },
         "control_center_operational_core_implemented": { "const": true },
         "project_fleet_visible": { "const": true },
