@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from collections.abc import Callable
+from itertools import permutations
 from pathlib import Path
 from typing import Any, cast
 
@@ -501,6 +502,32 @@ def control_center_core_evidence_fixture(
     }
 
 
+def control_center_metrics_evidence_fixture() -> dict[str, object]:
+    return {
+        "status": "PASS",
+        "evidence_file": review_evidence.CONTROL_CENTER_METRICS_EVIDENCE_FILE,
+        "metrics_evidence_version": review_evidence.CONTROL_CENTER_METRICS_EVIDENCE_VERSION,
+        "observed_migration_head": review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        "migration_base_head": review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        "cost_provenance": "UNAVAILABLE",
+        "migration_changed": False,
+        **{field: True for field in review_evidence.CONTROL_CENTER_METRICS_TRUE_FIELDS},
+        **{field: False for field in review_evidence.CONTROL_CENTER_METRICS_FALSE_FIELDS},
+        "historical_series_max_points": 128,
+        "secret_leaks": 0,
+        "filesystem_path_leaks": 0,
+        "cross_project_leaks": 0,
+        "metrics_llm_calls": 0,
+        "metrics_provider_calls": 0,
+        "implemented_metric_families": list(review_evidence.CONTROL_CENTER_METRICS_FAMILIES),
+        "metric_value_provenance": list(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE),
+        "evidence_paths": [
+            "backend/app/control_center_metrics.py",
+            "dashboard/src/control-center/metrics.tsx",
+        ],
+    }
+
+
 def test_review_evidence_schema_is_validated() -> None:
     manifest = evidence_fixture()
     validate_manifest(manifest)
@@ -550,7 +577,7 @@ def test_wo015_g1_scope_is_exact_and_future_scope_stays_noncanonical() -> None:
             ["backend/app/memory.py"],
             base_branch="release",
         )
-    with pytest.raises(ValueError, match="canonical Project Brain"):
+    with pytest.raises(ValueError, match="exactly the four|canonical Project Brain"):
         require_wo015_scope(
             WO015_WORK_ORDER,
             "b" * 40,
@@ -579,7 +606,7 @@ def test_wo016_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
             WO016_G1_BASE_SHA,
             ["docs/project-brain/13-CHECKPOINT.md"],
         )
-    with pytest.raises(ValueError, match="migrations"):
+    with pytest.raises(ValueError, match="exactly the four|migrations"):
         require_wo016_g1_scope(
             WO016_G1_WORK_ORDER,
             WO016_G1_BASE_SHA,
@@ -1421,6 +1448,464 @@ def test_wo020_g1_governance_contract_is_fail_closed(
             {},
             review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
         )
+
+
+def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    require_supported_work_order(review_evidence.WO021_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO021_WORK_ORDER)
+    with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
+        require_supported_work_order("WO-021-P")
+    with pytest.raises(ValueError, match="unsupported future"):
+        require_supported_work_order("WO-022")
+    with pytest.raises(ValueError, match="unsupported future"):
+        require_supported_work_order("WO-999")
+
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
+    review_evidence.require_wo021_g1_scope(
+        review_evidence.WO021_G1_WORK_ORDER,
+        review_evidence.WO021_G1_BASE_SHA,
+        g1_paths,
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo021_g1_scope(
+            review_evidence.WO021_G1_WORK_ORDER,
+            "a" * 40,
+            g1_paths,
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        review_evidence.require_wo021_g1_scope(
+            review_evidence.WO021_G1_WORK_ORDER,
+            review_evidence.WO021_G1_BASE_SHA,
+            g1_paths,
+            base_branch="release",
+        )
+    with pytest.raises(ValueError, match="exactly the four"):
+        review_evidence.require_wo021_g1_scope(
+            review_evidence.WO021_G1_WORK_ORDER,
+            review_evidence.WO021_G1_BASE_SHA,
+            g1_paths[:-1],
+        )
+    with pytest.raises(ValueError, match="exactly the four|canonical Project Brain"):
+        review_evidence.require_wo021_g1_scope(
+            review_evidence.WO021_G1_WORK_ORDER,
+            review_evidence.WO021_G1_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+        )
+    with pytest.raises(ValueError, match="exactly the four|migrations"):
+        review_evidence.require_wo021_g1_scope(
+            review_evidence.WO021_G1_WORK_ORDER,
+            review_evidence.WO021_G1_BASE_SHA,
+            ["migrations/versions/0008_metrics.py"],
+        )
+
+    review_evidence.require_wo021_scope(
+        review_evidence.WO021_WORK_ORDER,
+        "b" * 40,
+        [
+            "backend/app/control_center_metrics.py",
+            "dashboard/src/control-center/metrics.tsx",
+            "docs/atlas/wo021-metrics.md",
+        ],
+    )
+    scoped_failures = (
+        (["docs/project-brain/13-CHECKPOINT.md"], "canonical Project Brain"),
+        (["scripts/review_evidence.py"], "outside"),
+        ([".github/workflows/ci.yml"], "cannot change CI workflows"),
+        (["migrations/versions/0008_metrics.py"], "cannot change migrations"),
+        (["requirements-dev.txt"], "cannot change dependencies"),
+        (["VERSION"], "cannot change release files"),
+        (["backend/unrelated.py"], "outside"),
+    )
+    for paths, message in scoped_failures:
+        with pytest.raises(ValueError, match=message):
+            review_evidence.require_wo021_scope(review_evidence.WO021_WORK_ORDER, "b" * 40, paths)
+
+
+def test_wo021_product_scope_requires_current_main_and_merged_g1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = "c" * 40
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": current if args == ("rev-parse", "origin/main") else fallback,
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"merged WO-021-G1 governance support",
+    )
+    review_evidence.require_wo021_scope(
+        review_evidence.WO021_WORK_ORDER,
+        current,
+        ["backend/app/control_center_metrics.py"],
+        enforce_current_main=True,
+    )
+    with pytest.raises(ValueError, match="current protected main"):
+        review_evidence.require_wo021_scope(
+            review_evidence.WO021_WORK_ORDER,
+            "d" * 40,
+            ["backend/app/control_center_metrics.py"],
+            enforce_current_main=True,
+        )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda _revision, _path: b"missing")
+    with pytest.raises(ValueError, match="requires merged WO-021-G1 support"):
+        review_evidence.require_wo021_scope(
+            review_evidence.WO021_WORK_ORDER,
+            current,
+            ["backend/app/control_center_metrics.py"],
+            enforce_current_main=True,
+        )
+
+
+def test_wo021_control_center_metrics_contract_is_bounded_and_fail_closed() -> None:
+    evidence = control_center_metrics_evidence_fixture()
+    review_evidence.require_wo021_control_center_metrics_evidence(
+        review_evidence.WO021_WORK_ORDER,
+        {"control_center_metrics": evidence},
+        review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+    )
+    with pytest.raises(ValueError, match="closed contract"):
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_WORK_ORDER,
+            {"control_center_metrics": {**evidence, "invented": True}},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+
+    for field in review_evidence.CONTROL_CENTER_METRICS_TRUE_FIELDS:
+        broken = {**evidence, field: False}
+        with pytest.raises(ValueError, match="missing mandatory"):
+            review_evidence.require_wo021_control_center_metrics_evidence(
+                review_evidence.WO021_WORK_ORDER,
+                {"control_center_metrics": broken},
+                review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+            )
+    for field in review_evidence.CONTROL_CENTER_METRICS_FALSE_FIELDS:
+        broken = {**evidence, field: True}
+        with pytest.raises(ValueError, match="bounded negative"):
+            review_evidence.require_wo021_control_center_metrics_evidence(
+                review_evidence.WO021_WORK_ORDER,
+                {"control_center_metrics": broken},
+                review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+            )
+    for field in (
+        "secret_leaks",
+        "filesystem_path_leaks",
+        "cross_project_leaks",
+        "metrics_llm_calls",
+        "metrics_provider_calls",
+    ):
+        broken = {**evidence, field: 1}
+        with pytest.raises(ValueError, match=f"{field}=0"):
+            review_evidence.require_wo021_control_center_metrics_evidence(
+                review_evidence.WO021_WORK_ORDER,
+                {"control_center_metrics": broken},
+                review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+            )
+
+    invalid_cases: tuple[tuple[str, object, str], ...] = (
+        ("status", "UNKNOWN", "passing"),
+        ("evidence_file", "wrong.json", "control-center-metrics.json"),
+        ("metrics_evidence_version", "control-center-metrics-v0", "evidence version"),
+        ("observed_migration_head", "0006_memory_lifecycle_provenance", "observed migration"),
+        ("migration_base_head", "0006_memory_lifecycle_provenance", "migration_base_head"),
+        ("cost_provenance", "EXACT", "cost UNAVAILABLE"),
+        ("migration_changed", True, "migration_changed=false"),
+        ("historical_series_max_points", 0, "historical series"),
+        ("historical_series_max_points", 513, "historical series"),
+        ("implemented_metric_families", ["token", "context", "cache", "cache"], "families"),
+        (
+            "metric_value_provenance",
+            ["EXACT", "ESTIMATED", "UNKNOWN", "UNKNOWN"],
+            "distinct",
+        ),
+        ("metric_value_provenance", ["EXACT", "ESTIMATED", "UNAVAILABLE", "OTHER"], "distinct"),
+        ("evidence_paths", [None], "normalized"),
+        ("evidence_paths", ["C:/Users/private/metrics.py"], "normalized"),
+        ("evidence_paths", ["backend/app/../private.py"], "normalized"),
+    )
+    for field, value, message in invalid_cases:
+        broken = {**evidence, field: value}
+        with pytest.raises(ValueError, match=message):
+            review_evidence.require_wo021_control_center_metrics_evidence(
+                review_evidence.WO021_WORK_ORDER,
+                {"control_center_metrics": broken},
+                review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+            )
+    with pytest.raises(ValueError, match="closed contract|mandatory"):
+        missing = dict(evidence)
+        missing.pop("token_telemetry_visible")
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_WORK_ORDER,
+            {"control_center_metrics": missing},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+    review_evidence.require_wo021_control_center_metrics_evidence(
+        review_evidence.WO021_G1_WORK_ORDER,
+        {},
+        review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+    )
+    with pytest.raises(ValueError, match="must not claim"):
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_G1_WORK_ORDER,
+            {"control_center_metrics": evidence},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+
+
+def test_wo021_closed_metric_arrays_have_schema_python_permutation_parity() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    metrics_schema = schema["$defs"]["control_center_metrics_evidence"]
+    schema_validator = jsonschema.Draft202012Validator(metrics_schema)
+    evidence = control_center_metrics_evidence_fixture()
+
+    family_permutations = tuple(permutations(review_evidence.CONTROL_CENTER_METRICS_FAMILIES))
+    assert len(family_permutations) == 24
+    for value in family_permutations:
+        candidate = {**evidence, "implemented_metric_families": list(value)}
+        assert schema_validator.is_valid(candidate)
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_WORK_ORDER,
+            {"control_center_metrics": candidate},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+
+    provenance_permutations = tuple(
+        permutations(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE)
+    )
+    assert len(provenance_permutations) == 24
+    for value in provenance_permutations:
+        candidate = {**evidence, "metric_value_provenance": list(value)}
+        assert schema_validator.is_valid(candidate)
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_WORK_ORDER,
+            {"control_center_metrics": candidate},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+
+    invalid_values: dict[str, tuple[object, ...]] = {
+        "implemented_metric_families": (
+            ["token", "context", "cache", "cache"],
+            ["token", "context", "cache"],
+            ["token", "context", "cache", "storage", "other"],
+            "token",
+        ),
+        "metric_value_provenance": (
+            ["EXACT", "ESTIMATED", "UNKNOWN", "UNKNOWN"],
+            ["EXACT", "ESTIMATED", "UNKNOWN"],
+            ["EXACT", "ESTIMATED", "UNAVAILABLE", "UNKNOWN", "OTHER"],
+            "EXACT",
+        ),
+    }
+    for field, values in invalid_values.items():
+        for invalid_value in values:
+            candidate = {**evidence, field: invalid_value}
+            assert not schema_validator.is_valid(candidate)
+            with pytest.raises(ValueError):
+                review_evidence.require_wo021_control_center_metrics_evidence(
+                    review_evidence.WO021_WORK_ORDER,
+                    {"control_center_metrics": candidate},
+                    review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+                )
+
+
+def test_wo021_metrics_evidence_status_accepts_noncanonical_permutations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+    evidence = control_center_metrics_evidence_fixture()
+    evidence["implemented_metric_families"] = ["storage", "cache", "context", "token"]
+    evidence["metric_value_provenance"] = ["UNKNOWN", "UNAVAILABLE", "EXACT", "ESTIMATED"]
+    (integration_logs / review_evidence.CONTROL_CENTER_METRICS_EVIDENCE_FILE).write_text(
+        json.dumps(evidence), encoding="utf-8"
+    )
+
+    parsed = review_evidence.control_center_metrics_evidence()
+
+    assert parsed["status"] == "PASS"
+    assert parsed["implemented_metric_families"] == evidence["implemented_metric_families"]
+    assert parsed["metric_value_provenance"] == evidence["metric_value_provenance"]
+
+    for field, values in (
+        (
+            "implemented_metric_families",
+            permutations(review_evidence.CONTROL_CENTER_METRICS_FAMILIES),
+        ),
+        (
+            "metric_value_provenance",
+            permutations(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE),
+        ),
+    ):
+        for value in values:
+            candidate = {**evidence, field: list(value)}
+            (integration_logs / review_evidence.CONTROL_CENTER_METRICS_EVIDENCE_FILE).write_text(
+                json.dumps(candidate), encoding="utf-8"
+            )
+            assert review_evidence.control_center_metrics_evidence()["status"] == "PASS"
+
+
+def test_wo021_schema_and_renderers_are_explicit() -> None:
+    manifest = evidence_fixture()
+    evidence_section = cast(dict[str, object], manifest["evidence"])
+    integration = cast(dict[str, object], evidence_section["integration"])
+    metrics = control_center_metrics_evidence_fixture()
+    integration["control_center_metrics"] = metrics
+    validate_manifest(manifest)
+    integration["control_center_metrics"] = {**metrics, "invented": True}
+    with pytest.raises(ValueError, match="manifest schema validation failed"):
+        validate_manifest(manifest)
+
+    common: dict[str, Any] = {
+        "pr_number": 78,
+        "branch": "governance/wo021-control-center-metrics-review-evidence",
+        "base_sha": review_evidence.WO021_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "hive-review-evidence-WO-021-G1-b",
+        "ruleset_before": "21934284 unchanged",
+        "ruleset_after": "21934284 unchanged",
+        "merge_before": "unarmed",
+        "merge_after": "unarmed",
+    }
+    assert AUTHORIZED_BASE_BY_WORK_ORDER[review_evidence.WO021_G1_WORK_ORDER] == (
+        review_evidence.WO021_G1_BASE_SHA
+    )
+    g1 = render_body(work_order=review_evidence.WO021_G1_WORK_ORDER, **common)
+    assert g1.splitlines()[0] == "<!-- HIVE-WORK-ORDER: WO-021-G1 -->"
+    assert g1.splitlines()[1] == (
+        f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO021_G1_BASE_SHA} -->"
+    )
+    assert "control-center-metrics-v1" in g1
+    assert "WO-021-G1 READY FOR SOL AUDIT" in g1
+    assert "WO-021" in g1
+    assert "C:\\Users" not in g1
+    assert "D:\\Projeto Codexx" not in g1
+    assert "/home/" not in g1
+    for rejected in ("a" * 40, "0" * 40, "z" * 40):
+        with pytest.raises(ValueError):
+            render_body(
+                work_order=review_evidence.WO021_G1_WORK_ORDER,
+                **{**common, "base_sha": rejected},
+            )
+    product = render_body(
+        work_order=review_evidence.WO021_WORK_ORDER,
+        **{**common, "base_sha": "a" * 40, "artifact_name": "artifact"},
+    )
+    assert product.startswith("<!-- HIVE-WORK-ORDER: WO-021 -->")
+    assert "token, context, cache e storage" in product
+    assert "WO-021 READY FOR SOL AUDIT" in product
+    assert "<!-- HIVE-AUTHORIZED-BASE:" not in product
+    assert "C:\\Users" not in product
+    assert "D:\\Projeto Codexx" not in product
+
+
+def test_wo021_metrics_paths_match_schema_over_generated_corpus() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    item_schema = schema["$defs"]["control_center_metrics_evidence"]["properties"][
+        "evidence_paths"
+    ]["items"]
+    fragments = (
+        "a",
+        "a/b",
+        "a/./b",
+        "a/../b",
+        "./a",
+        "../a",
+        "a/",
+        "/a",
+        "a//b",
+        ".hidden",
+        "..a",
+        "a.",
+        "a b",
+        "a\\b",
+        "a:b",
+        "a\u0001b",
+        "a" * 256,
+        "",
+    )
+    roots = review_evidence.CONTROL_CENTER_METRICS_PATH_ROOTS
+    corpus = (*fragments, *(f"{root}{fragment}" for root in roots for fragment in fragments))
+    item_validator = jsonschema.Draft202012Validator(item_schema)
+    for value in corpus:
+        assert review_evidence.valid_control_center_metrics_path(value) is (
+            item_validator.is_valid(value)
+        ), value
+    for root in roots:
+        value = f"{root}valid.py"
+        assert review_evidence.valid_control_center_metrics_path(value)
+        assert item_validator.is_valid(value)
+
+
+def test_wo021_governance_contract_and_manifest_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    governance = {
+        "ruleset_unchanged": True,
+        "pull_request": {"auto_merge_armed": False},
+    }
+    canonical = {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }
+    integration = {"control_center_metrics": control_center_metrics_evidence_fixture()}
+    g1_evidence = review_evidence.verify_wo021_g1_governance_contract(
+        review_evidence.WO021_G1_WORK_ORDER,
+        review_evidence.WO021_G1_BASE_SHA,
+        sorted(review_evidence.WO021_G1_ALLOWED_PATHS),
+        canonical,
+        governance,
+        {},
+        "0007_telemetry_events",
+    )
+    assert g1_evidence is not None
+    assert "future_WO-021_registered=PASS" in g1_evidence
+    assert "control-center-metrics-v1_fail_closed=PASS" in g1_evidence
+    product_evidence = review_evidence.verify_wo021_governance_contract(
+        review_evidence.WO021_WORK_ORDER,
+        "b" * 40,
+        ["backend/app/control_center_metrics.py"],
+        canonical,
+        governance,
+        integration,
+        "0007_telemetry_events",
+    )
+    assert product_evidence is not None
+    assert "full_control_center_claimed=False" in product_evidence
+
+    manifest = evidence_fixture()
+    manifest["work_order"] = review_evidence.WO021_WORK_ORDER
+    cast(dict[str, object], manifest["pull_request"])["number"] = None
+    cast(dict[str, object], manifest["base"])["sha"] = "b" * 40
+    cast(dict[str, object], manifest["changed_files"])["count"] = 1
+    cast(dict[str, object], manifest["changed_files"])["paths"] = [
+        "backend/app/control_center_metrics.py"
+    ]
+    cast(dict[str, object], manifest["migrations"])["head"] = "0007_telemetry_events"
+    manifest_governance = cast(dict[str, object], manifest["governance"])
+    cast(dict[str, object], manifest_governance["pull_request"])["auto_merge_armed"] = False
+    manifest_integration = cast(
+        dict[str, object], cast(dict[str, object], manifest["evidence"])["integration"]
+    )
+    manifest_integration["control_center_metrics"] = control_center_metrics_evidence_fixture()
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, fallback="": "b" * 40 if args == ("rev-parse", "origin/main") else fallback,
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda _revision, _path: b"merged WO-021-G1 governance support",
+    )
+    cast(list[object], manifest["negative_scope"]).append(
+        f"WO-021 governance evidence: {product_evidence}"
+    )
+    validate_manifest(manifest)
 
 
 def test_wo017_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
