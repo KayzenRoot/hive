@@ -1678,7 +1678,7 @@ def test_wo021_closed_metric_arrays_have_schema_python_permutation_parity() -> N
             review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
         )
 
-    invalid_values = {
+    invalid_values: dict[str, tuple[object, ...]] = {
         "implemented_metric_families": (
             ["token", "context", "cache", "cache"],
             ["token", "context", "cache"],
@@ -1693,8 +1693,8 @@ def test_wo021_closed_metric_arrays_have_schema_python_permutation_parity() -> N
         ),
     }
     for field, values in invalid_values.items():
-        for value in values:
-            candidate = {**evidence, field: value}
+        for invalid_value in values:
+            candidate = {**evidence, field: invalid_value}
             assert not schema_validator.is_valid(candidate)
             with pytest.raises(ValueError):
                 review_evidence.require_wo021_control_center_metrics_evidence(
@@ -1722,6 +1722,23 @@ def test_wo021_metrics_evidence_status_accepts_noncanonical_permutations(
     assert parsed["status"] == "PASS"
     assert parsed["implemented_metric_families"] == evidence["implemented_metric_families"]
     assert parsed["metric_value_provenance"] == evidence["metric_value_provenance"]
+
+    for field, values in (
+        (
+            "implemented_metric_families",
+            permutations(review_evidence.CONTROL_CENTER_METRICS_FAMILIES),
+        ),
+        (
+            "metric_value_provenance",
+            permutations(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE),
+        ),
+    ):
+        for value in values:
+            candidate = {**evidence, field: list(value)}
+            (integration_logs / review_evidence.CONTROL_CENTER_METRICS_EVIDENCE_FILE).write_text(
+                json.dumps(candidate), encoding="utf-8"
+            )
+            assert review_evidence.control_center_metrics_evidence()["status"] == "PASS"
 
 
 def test_wo021_schema_and_renderers_are_explicit() -> None:
