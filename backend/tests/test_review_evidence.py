@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from collections.abc import Callable
+from itertools import permutations
 from pathlib import Path
 from typing import Any, cast
 
@@ -1614,7 +1615,6 @@ def test_wo021_control_center_metrics_contract_is_bounded_and_fail_closed() -> N
         ("historical_series_max_points", 0, "historical series"),
         ("historical_series_max_points", 513, "historical series"),
         ("implemented_metric_families", ["token", "context", "cache", "cache"], "families"),
-        ("implemented_metric_families", ["token", "context", "storage", "cache"], "families"),
         (
             "metric_value_provenance",
             ["EXACT", "ESTIMATED", "UNKNOWN", "UNKNOWN"],
@@ -1652,6 +1652,76 @@ def test_wo021_control_center_metrics_contract_is_bounded_and_fail_closed() -> N
             {"control_center_metrics": evidence},
             review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
         )
+
+
+def test_wo021_closed_metric_arrays_have_schema_python_permutation_parity() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    metrics_schema = schema["$defs"]["control_center_metrics_evidence"]
+    schema_validator = jsonschema.Draft202012Validator(metrics_schema)
+    evidence = control_center_metrics_evidence_fixture()
+
+    for value in permutations(review_evidence.CONTROL_CENTER_METRICS_FAMILIES):
+        candidate = {**evidence, "implemented_metric_families": list(value)}
+        assert schema_validator.is_valid(candidate)
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_WORK_ORDER,
+            {"control_center_metrics": candidate},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+
+    for value in permutations(review_evidence.CONTROL_CENTER_METRICS_VALUE_PROVENANCE):
+        candidate = {**evidence, "metric_value_provenance": list(value)}
+        assert schema_validator.is_valid(candidate)
+        review_evidence.require_wo021_control_center_metrics_evidence(
+            review_evidence.WO021_WORK_ORDER,
+            {"control_center_metrics": candidate},
+            review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+        )
+
+    invalid_values = {
+        "implemented_metric_families": (
+            ["token", "context", "cache", "cache"],
+            ["token", "context", "cache"],
+            ["token", "context", "cache", "storage", "other"],
+            "token",
+        ),
+        "metric_value_provenance": (
+            ["EXACT", "ESTIMATED", "UNKNOWN", "UNKNOWN"],
+            ["EXACT", "ESTIMATED", "UNKNOWN"],
+            ["EXACT", "ESTIMATED", "UNAVAILABLE", "UNKNOWN", "OTHER"],
+            "EXACT",
+        ),
+    }
+    for field, values in invalid_values.items():
+        for value in values:
+            candidate = {**evidence, field: value}
+            assert not schema_validator.is_valid(candidate)
+            with pytest.raises(ValueError):
+                review_evidence.require_wo021_control_center_metrics_evidence(
+                    review_evidence.WO021_WORK_ORDER,
+                    {"control_center_metrics": candidate},
+                    review_evidence.CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD,
+                )
+
+
+def test_wo021_metrics_evidence_status_accepts_noncanonical_permutations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    integration_logs = tmp_path / "integration-logs"
+    integration_logs.mkdir()
+    monkeypatch.setattr(review_evidence, "INTEGRATION_LOGS", integration_logs)
+    evidence = control_center_metrics_evidence_fixture()
+    evidence["implemented_metric_families"] = ["storage", "cache", "context", "token"]
+    evidence["metric_value_provenance"] = ["UNKNOWN", "UNAVAILABLE", "EXACT", "ESTIMATED"]
+    (integration_logs / review_evidence.CONTROL_CENTER_METRICS_EVIDENCE_FILE).write_text(
+        json.dumps(evidence), encoding="utf-8"
+    )
+
+    parsed = review_evidence.control_center_metrics_evidence()
+
+    assert parsed["status"] == "PASS"
+    assert parsed["implemented_metric_families"] == evidence["implemented_metric_families"]
+    assert parsed["metric_value_provenance"] == evidence["metric_value_provenance"]
 
 
 def test_wo021_schema_and_renderers_are_explicit() -> None:

@@ -4538,6 +4538,18 @@ def valid_control_center_metrics_path(value: object) -> bool:
     )
 
 
+def _is_closed_string_set(value: object, expected: tuple[str, ...]) -> bool:
+    """Return True when value is exactly one permutation of expected strings."""
+
+    if not isinstance(value, list) or len(value) != len(expected):
+        return False
+    items = cast(list[object], value)
+    if not all(isinstance(item, str) for item in items):
+        return False
+    string_items = cast(list[str], items)
+    return len(set(string_items)) == len(expected) and set(string_items) == set(expected)
+
+
 def require_wo021_control_center_metrics_evidence(
     work_order: str,
     integration: Mapping[str, object],
@@ -4592,20 +4604,12 @@ def require_wo021_control_center_metrics_evidence(
     if not 1 <= history_points <= CONTROL_CENTER_METRICS_MAX_HISTORY_POINTS:
         raise ValueError(f"{WO021_WORK_ORDER} requires bounded historical series points")
     families = metrics.get("implemented_metric_families")
-    if (
-        not isinstance(families, list)
-        or list(cast(list[object], families)) != list(CONTROL_CENTER_METRICS_FAMILIES)
-        or len(set(cast(list[object], families))) != len(families)
-    ):
+    if not _is_closed_string_set(families, CONTROL_CENTER_METRICS_FAMILIES):
         raise ValueError(
             f"{WO021_WORK_ORDER} requires the bounded token/context/cache/storage metric families"
         )
     provenance = metrics.get("metric_value_provenance")
-    if (
-        not isinstance(provenance, list)
-        or list(cast(list[object], provenance)) != list(CONTROL_CENTER_METRICS_VALUE_PROVENANCE)
-        or len(set(cast(list[object], provenance))) != len(provenance)
-    ):
+    if not _is_closed_string_set(provenance, CONTROL_CENTER_METRICS_VALUE_PROVENANCE):
         raise ValueError(
             f"{WO021_WORK_ORDER} requires distinct EXACT/ESTIMATED/UNAVAILABLE/UNKNOWN provenance"
         )
@@ -6859,14 +6863,12 @@ def control_center_metrics_evidence() -> dict[str, object]:
         else:
             integers[field] = value
     raw_families = data.get("implemented_metric_families")
-    families_valid = isinstance(raw_families, list) and list(
-        cast(list[object], raw_families)
-    ) == list(CONTROL_CENTER_METRICS_FAMILIES)
+    families_valid = _is_closed_string_set(raw_families, CONTROL_CENTER_METRICS_FAMILIES)
     implemented_families = list(cast(list[str], raw_families)) if families_valid else []
     raw_provenance = data.get("metric_value_provenance")
-    provenance_valid = isinstance(raw_provenance, list) and list(
-        cast(list[object], raw_provenance)
-    ) == list(CONTROL_CENTER_METRICS_VALUE_PROVENANCE)
+    provenance_valid = _is_closed_string_set(
+        raw_provenance, CONTROL_CENTER_METRICS_VALUE_PROVENANCE
+    )
     metric_value_provenance = list(cast(list[str], raw_provenance)) if provenance_valid else []
     raw_paths = data.get("evidence_paths")
     paths_valid = (
