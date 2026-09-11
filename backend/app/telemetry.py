@@ -35,6 +35,9 @@ EVENT_STREAM_MAX_EVENTS = 100
 EVENT_STREAM_MAX_SECONDS = 30.0
 EVENT_STREAM_POLL_SECONDS = 0.20
 EVENT_STREAM_HEARTBEAT_SECONDS = 5.0
+RUN_SUMMARY_MAX_SIZE = 100
+EXECUTOR_STARTED_EVENT_TYPE = "executor.started"
+RUN_TERMINAL_EVENT_TYPES = ("run.completed", "run.failed")
 
 CANONICAL_EVENT_TYPES = (
     "project.discovered",
@@ -492,6 +495,181 @@ def list_events(
     )
 
 
+class RunAggregate(BaseModel):
+    """Bounded durable aggregate for one project-scoped run identity."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: UUID
+    event_count: int = Field(ge=1)
+    first_occurred_at: datetime
+    last_occurred_at: datetime
+    last_event_type: str
+    executor_started: bool
+    terminal_event_type: str | None = None
+
+    @field_validator("last_event_type")
+    @classmethod
+    def require_canonical_last_type(cls, value: str) -> str:
+        if value not in _CANONICAL_EVENT_SET:
+            raise ValueError("event type is not in the canonical vocabulary")
+        return value
+
+    @field_validator("terminal_event_type")
+    @classmethod
+    def require_terminal_type(cls, value: str | None) -> str | None:
+        if value is not None and value not in RUN_TERMINAL_EVENT_TYPES:
+            raise ValueError("terminal run event type is not canonical")
+        return value
+
+    @field_validator("first_occurred_at", "last_occurred_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+
+def _run_aggregate_from_row(row: tuple[Any, ...]) -> RunAggregate:
+    first_occurred_at = row[2]
+    last_occurred_at = row[3]
+    if not isinstance(first_occurred_at, datetime) or not isinstance(last_occurred_at, datetime):
+        raise RuntimeError("telemetry run aggregate timestamp is invalid")
+    terminal = row[6]
+    if terminal is not None and not isinstance(terminal, str):
+        raise RuntimeError("telemetry run aggregate terminal event is invalid")
+    return RunAggregate(
+        run_id=row[0],
+        event_count=row[1],
+        first_occurred_at=first_occurred_at,
+        last_occurred_at=last_occurred_at,
+        last_event_type=row[4],
+        executor_started=row[5],
+        terminal_event_type=terminal,
+    )
+
+
+def summarize_runs(
+    settings: Settings,
+    project_id: UUID,
+    *,
+    run_id: UUID | None = None,
+    limit: int = RUN_SUMMARY_MAX_SIZE,
+) -> list[RunAggregate]:
+    """Return bounded durable run aggregates ordered by canonical recency.
+
+    Supplying ``run_id`` narrows the aggregate to one project-scoped run
+    identity, which keeps run detail exact even when the run has fallen
+    outside the bounded recency window.
+    """
+
+    if not 1 <= limit <= RUN_SUMMARY_MAX_SIZE:
+        raise TelemetryValidationError("run summary size is outside its bound")
+    with database_connection(settings) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id,
+                   count(*) AS event_count,
+                   (array_agg(occurred_at ORDER BY ordering_id ASC, event_id ASC))[1]
+                       AS first_occurred_at,
+                   (array_agg(occurred_at ORDER BY ordering_id DESC, event_id DESC))[1]
+                       AS last_occurred_at,
+                   (array_agg(event_type ORDER BY ordering_id DESC, event_id DESC))[1]
+                       AS last_event_type,
+                   bool_or(event_type = %(started)s) AS executor_started,
+                   (array_agg(event_type ORDER BY ordering_id DESC, event_id DESC)
+                       FILTER (WHERE event_type = ANY(%(terminal)s)))[1] AS terminal_event_type
+            FROM telemetry_events
+            WHERE project_id = %(project)s AND run_id IS NOT NULL
+              AND (%(run_id)s::uuid IS NULL OR run_id = %(run_id)s)
+            GROUP BY run_id
+            ORDER BY max(ordering_id) DESC, run_id ASC
+            LIMIT %(limit)s
+            """,
+            {
+                "started": EXECUTOR_STARTED_EVENT_TYPE,
+                "terminal": list(RUN_TERMINAL_EVENT_TYPES),
+                "project": project_id,
+                "run_id": run_id,
+                "limit": limit,
+            },
+        )
+        rows = cursor.fetchall()
+    return [_run_aggregate_from_row(row) for row in rows]
+
+
+def list_recent_events(
+    settings: Settings,
+    project_id: UUID,
+    *,
+    limit: int = EVENT_PAGE_MAX_SIZE,
+) -> EventPage:
+    """Return the newest bounded project-scoped events in canonical order.
+
+    The page keeps canonical ascending order so a consumer can append it to a
+    durable timeline, while ``has_more`` reports that older events exist
+    outside the bounded window.
+    """
+
+    if not 1 <= limit <= EVENT_PAGE_MAX_SIZE:
+        raise TelemetryValidationError("event page size is outside its bound")
+    with database_connection(settings) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {_EVENT_COLUMNS} FROM telemetry_events "
+            "WHERE project_id = %s ORDER BY ordering_id DESC, event_id DESC LIMIT %s",
+            (project_id, limit + 1),
+        )
+        rows = cursor.fetchall()
+    has_more = len(rows) > limit
+    envelopes = [_event_from_row(row) for row in rows[:limit]]
+    envelopes.reverse()
+    return EventPage(
+        events=envelopes,
+        next_cursor=envelopes[-1].cursor if envelopes else None,
+        has_more=has_more,
+        limit=limit,
+    )
+
+
+def list_run_events(
+    settings: Settings,
+    project_id: UUID,
+    run_id: UUID,
+    *,
+    after: str | None = None,
+    limit: int = EVENT_PAGE_MAX_SIZE,
+) -> EventPage:
+    """Return one bounded project-scoped run timeline using the canonical cursor."""
+
+    if not 1 <= limit <= EVENT_PAGE_MAX_SIZE:
+        raise TelemetryValidationError("event page size is outside its bound")
+    after_id = validate_cursor(after)
+    with database_connection(settings) as connection, connection.cursor() as cursor:
+        if after_id is None:
+            cursor.execute(
+                f"SELECT {_EVENT_COLUMNS} FROM telemetry_events "
+                "WHERE project_id = %s AND run_id = %s "
+                "ORDER BY ordering_id ASC, event_id ASC LIMIT %s",
+                (project_id, run_id, limit + 1),
+            )
+        else:
+            cursor.execute(
+                f"SELECT {_EVENT_COLUMNS} FROM telemetry_events "
+                "WHERE project_id = %s AND run_id = %s AND ordering_id > %s "
+                "ORDER BY ordering_id ASC, event_id ASC LIMIT %s",
+                (project_id, run_id, after_id, limit + 1),
+            )
+        rows = cursor.fetchall()
+    has_more = len(rows) > limit
+    envelopes = [_event_from_row(row) for row in rows[:limit]]
+    return EventPage(
+        events=envelopes,
+        next_cursor=envelopes[-1].cursor if has_more and envelopes else None,
+        has_more=has_more,
+        limit=limit,
+    )
+
+
 def _sse_event(event: EventEnvelope) -> str:
     payload = event.model_dump(mode="json")
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -605,13 +783,20 @@ __all__ = [
     "EVENT_ENVELOPE_VERSION",
     "EVENT_PAGE_MAX_SIZE",
     "EVENT_PAYLOAD_MAX_BYTES",
+    "EXECUTOR_STARTED_EVENT_TYPE",
     "EventEnvelope",
     "EventPage",
+    "RUN_SUMMARY_MAX_SIZE",
+    "RUN_TERMINAL_EVENT_TYPES",
+    "RunAggregate",
     "TelemetryValidationError",
     "emit_event",
     "list_events",
+    "list_recent_events",
+    "list_run_events",
     "router",
     "sanitize_payload",
     "stream_events",
+    "summarize_runs",
     "validate_cursor",
 ]

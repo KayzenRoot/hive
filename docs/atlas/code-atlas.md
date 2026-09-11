@@ -10,6 +10,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/config.py: Python source or test module.
 - backend/app/context_fingerprints.py: Python source or test module.
 - backend/app/context_manager.py: Python source or test module.
+- backend/app/control_center.py: Python source or test module.
 - backend/app/db.py: Python source or test module.
 - backend/app/delta_context.py: Python source or test module.
 - backend/app/execution_orchestrator.py: Python source or test module.
@@ -35,6 +36,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_config.py: Python source or test module.
 - backend/tests/test_context_fingerprints.py: Python source or test module.
 - backend/tests/test_context_manager.py: Python source or test module.
+- backend/tests/test_control_center.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
 - backend/tests/test_execution_orchestrator.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
@@ -58,6 +60,11 @@ Generated deterministically by scripts/generate_maps.py.
 
 - dashboard/src/App.test.tsx: TypeScript/React source or test module.
 - dashboard/src/App.tsx: TypeScript/React source or test module.
+- dashboard/src/config.ts: TypeScript/React source or test module.
+- dashboard/src/ControlCenter.test.tsx: TypeScript/React source or test module.
+- dashboard/src/ControlCenter.tsx: TypeScript/React source or test module.
+- dashboard/src/eventVocabulary.ts: TypeScript/React source or test module.
+- dashboard/src/format.ts: TypeScript/React source or test module.
 - dashboard/src/main.tsx: TypeScript/React source or test module.
 - dashboard/src/styles.css: TypeScript/React source or test module.
 - dashboard/src/test-setup.ts: TypeScript/React source or test module.
@@ -83,6 +90,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
 - scripts/context_manager_integration.py: deterministic maintenance or validation script.
+- scripts/control_center_integration.py: deterministic maintenance or validation script.
 - scripts/embedding_fixture.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
