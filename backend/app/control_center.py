@@ -98,6 +98,8 @@ class FleetStateCounts(BaseModel):
 
 
 class FleetResponse(BaseModel):
+    """One bounded Fleet page plus the complete-registry truth it belongs to."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     generated_at: datetime
@@ -106,6 +108,10 @@ class FleetResponse(BaseModel):
     projects: list[ProjectHeadline]
     truncated: bool
     max_projects: int = Field(ge=1)
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    has_more: bool
+    next_offset: int | None = Field(default=None, ge=0)
 
 
 class RunStatus(StrEnum):
@@ -575,21 +581,38 @@ router = APIRouter(tags=["control-center"])
 
 
 @router.get("/api/v1/control-center/fleet", response_model=FleetResponse)
-def control_center_fleet() -> FleetResponse:
+def control_center_fleet(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=CONTROL_CENTER_MAX_PROJECTS, ge=1, le=CONTROL_CENTER_MAX_PROJECTS),
+) -> FleetResponse:
+    """Return one deterministic bounded page over the complete registry truth.
+
+    ``project_count`` and ``state_counts`` always describe every registered
+    project; ``projects`` is only the bounded page at ``offset``/``limit`` and
+    ``truncated`` stays true whenever the page omits registry entries, so no
+    project becomes permanently unreachable behind the 200-project bound.
+    """
+
     settings = _router_settings()
     try:
         projects = list_projects(settings)
     except psycopg.Error as exc:
         raise _database_unavailable() from exc
-    truncated = len(projects) > CONTROL_CENTER_MAX_PROJECTS
-    bounded = projects[:CONTROL_CENTER_MAX_PROJECTS]
+    total = len(projects)
+    page = projects[offset : offset + limit]
+    consumed = offset + len(page)
+    next_offset = consumed if consumed < total else None
     return FleetResponse(
         generated_at=_now(),
-        project_count=len(bounded),
-        state_counts=_state_counts(bounded),
-        projects=[_headline(project) for project in bounded],
-        truncated=truncated,
+        project_count=total,
+        state_counts=_state_counts(projects),
+        projects=[_headline(project) for project in page],
+        truncated=len(page) < total,
         max_projects=CONTROL_CENTER_MAX_PROJECTS,
+        offset=offset,
+        limit=limit,
+        has_more=next_offset is not None,
+        next_offset=next_offset,
     )
 
 

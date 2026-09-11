@@ -75,6 +75,10 @@ type FleetResponse = {
   projects: ProjectHeadline[];
   truncated: boolean;
   max_projects: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+  next_offset: number | null;
 };
 
 type RunStatus = "ACTIVE" | "COMPLETED" | "FAILED" | "OBSERVED";
@@ -229,6 +233,8 @@ const CONTROL_VIEWS: { id: ControlViewId; label: string }[] = [
 
 const EVENT_TIMELINE_MAX = 200;
 const STREAM_BATCH_SIZE = 100;
+const RUN_TIMELINE_MAX = STREAM_BATCH_SIZE;
+const FLEET_PAGE_SIZE = 50;
 const STREAM_TIMEOUT_SECONDS = 30;
 const STREAM_RECONNECT_BASE_MS = 1_000;
 const STREAM_RECONNECT_MAX_MS = 8_000;
@@ -281,9 +287,29 @@ function isFleetResponse(value: unknown): value is FleetResponse {
     typeof value.project_count === "number" &&
     typeof value.max_projects === "number" &&
     typeof value.truncated === "boolean" &&
+    typeof value.offset === "number" &&
+    typeof value.limit === "number" &&
+    typeof value.has_more === "boolean" &&
+    (value.next_offset === null || typeof value.next_offset === "number") &&
     Array.isArray(value.projects) &&
     value.projects.every(isProjectHeadline)
   );
+}
+
+function compareCanonicalEvents(left: EventEnvelope, right: EventEnvelope): number {
+  return (
+    left.ordering_id - right.ordering_id || left.event_id.localeCompare(right.event_id)
+  );
+}
+
+function boundedRunTimeline(map: Map<string, EventEnvelope>): {
+  events: EventEnvelope[];
+  dropped: number;
+} {
+  const ordered = Array.from(map.values()).sort(compareCanonicalEvents);
+  const dropped = Math.max(0, ordered.length - RUN_TIMELINE_MAX);
+  for (const event of ordered.slice(0, dropped)) map.delete(event.event_id);
+  return { events: ordered.slice(dropped), dropped };
 }
 
 function isRunSummary(value: unknown): value is RunSummary {
@@ -513,6 +539,7 @@ export default function ControlCenter({
   const [fleet, setFleet] = useState<FleetResponse | null>(null);
   const [fleetLoading, setFleetLoading] = useState(true);
   const [fleetError, setFleetError] = useState<string | null>(null);
+  const [fleetOffset, setFleetOffset] = useState(0);
   const [health, setHealth] = useState<ControlCenterHealth | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -532,6 +559,8 @@ export default function ControlCenter({
   const [runDetail, setRunDetail] = useState<RunDetailResponse | null>(null);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [runDetailError, setRunDetailError] = useState<string | null>(null);
+  const [runTimeline, setRunTimeline] = useState<EventEnvelope[]>([]);
+  const [runTimelineDropped, setRunTimelineDropped] = useState(0);
   const [events, setEvents] = useState<EventEnvelope[]>([]);
   const [droppedEvents, setDroppedEvents] = useState(0);
   const [runOverrides, setRunOverrides] = useState<Record<string, RunOverride>>({});
@@ -541,8 +570,53 @@ export default function ControlCenter({
   const [reconciledAt, setReconciledAt] = useState<string | null>(null);
   const eventsRef = useRef<Map<string, EventEnvelope>>(new Map());
   const cursorRef = useRef<string | null>(null);
+  const runTimelineRef = useRef<Map<string, EventEnvelope>>(new Map());
+  const selectedRunRef = useRef<string | null>(null);
+
+  const mergeRunTimeline = useCallback((incoming: EventEnvelope[]) => {
+    const runId = selectedRunRef.current;
+    if (runId === null) return;
+    const map = runTimelineRef.current;
+    let added = 0;
+    for (const event of incoming) {
+      if (event.run_id !== runId || map.has(event.event_id)) continue;
+      map.set(event.event_id, event);
+      added += 1;
+    }
+    if (added === 0) return;
+    const bounded = boundedRunTimeline(map);
+    setRunTimeline(bounded.events);
+    if (bounded.dropped > 0) {
+      setRunTimelineDropped((previous) => previous + bounded.dropped);
+    }
+  }, []);
+
+  const seedRunTimeline = useCallback((runId: string, seed: EventEnvelope[]) => {
+    const map = new Map<string, EventEnvelope>();
+    for (const event of seed) {
+      if (event.run_id === runId) map.set(event.event_id, event);
+    }
+    for (const event of runTimelineRef.current.values()) {
+      if (event.run_id === runId && !map.has(event.event_id)) {
+        map.set(event.event_id, event);
+      }
+    }
+    runTimelineRef.current = map;
+    selectedRunRef.current = runId;
+    const bounded = boundedRunTimeline(map);
+    setRunTimeline(bounded.events);
+    setRunTimelineDropped(bounded.dropped);
+  }, []);
+
+  const clearRunTimeline = useCallback(() => {
+    selectedRunRef.current = null;
+    runTimelineRef.current = new Map();
+    setRunTimeline([]);
+    setRunTimelineDropped(0);
+  }, []);
 
   const applyEvents = useCallback((incoming: EventEnvelope[]) => {
+    mergeRunTimeline(incoming);
     const terminalUpdates: { runId: string; event: EventEnvelope }[] = [];
     const map = eventsRef.current;
     let added = 0;
@@ -559,10 +633,7 @@ export default function ControlCenter({
       }
     }
     if (added === 0 && terminalUpdates.length === 0) return;
-    const ordered = Array.from(map.values()).sort(
-      (left, right) =>
-        left.ordering_id - right.ordering_id || left.event_id.localeCompare(right.event_id),
-    );
+    const ordered = Array.from(map.values()).sort(compareCanonicalEvents);
     if (ordered.length > EVENT_TIMELINE_MAX) {
       const overflow = ordered.length - EVENT_TIMELINE_MAX;
       for (const event of ordered.slice(0, overflow)) map.delete(event.event_id);
@@ -585,7 +656,7 @@ export default function ControlCenter({
         return next;
       });
     }
-  }, []);
+  }, [mergeRunTimeline]);
 
   const resetOperationalState = useCallback(() => {
     eventsRef.current = new Map();
@@ -608,32 +679,43 @@ export default function ControlCenter({
     setReconciledAt(null);
     setStreamState("idle");
     setStreamError(null);
-  }, []);
+    clearRunTimeline();
+  }, [clearRunTimeline]);
 
-  const loadFleet = useCallback(async () => {
-    setFleetLoading(true);
-    setFleetError(null);
-    try {
-      const response = await fetch(API_BASE_URL + "/api/v1/control-center/fleet", {
-        cache: "no-store",
-      });
-      const payload: unknown = await response.json();
-      if (!response.ok) {
-        throw new Error(apiErrorText(payload, "Control Center fleet is unavailable"));
+  const loadFleet = useCallback(
+    async (offset?: number) => {
+      const targetOffset = offset ?? fleetOffset;
+      setFleetLoading(true);
+      setFleetError(null);
+      try {
+        const response = await fetch(
+          API_BASE_URL +
+            "/api/v1/control-center/fleet?offset=" +
+            targetOffset +
+            "&limit=" +
+            FLEET_PAGE_SIZE,
+          { cache: "no-store" },
+        );
+        const payload: unknown = await response.json();
+        if (!response.ok) {
+          throw new Error(apiErrorText(payload, "Control Center fleet is unavailable"));
+        }
+        if (!isFleetResponse(payload)) {
+          throw new Error("Control Center fleet payload is outside the bounded contract");
+        }
+        setFleetOffset(payload.offset);
+        setFleet(payload);
+      } catch (caught) {
+        setFleet(null);
+        setFleetError(
+          caught instanceof Error ? caught.message : "Control Center fleet is unavailable",
+        );
+      } finally {
+        setFleetLoading(false);
       }
-      if (!isFleetResponse(payload)) {
-        throw new Error("Control Center fleet payload is outside the bounded contract");
-      }
-      setFleet(payload);
-    } catch (caught) {
-      setFleet(null);
-      setFleetError(
-        caught instanceof Error ? caught.message : "Control Center fleet is unavailable",
-      );
-    } finally {
-      setFleetLoading(false);
-    }
-  }, []);
+    },
+    [fleetOffset],
+  );
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -799,6 +881,10 @@ export default function ControlCenter({
     async (runId: string) => {
       if (!selectedProjectId) return;
       setSelectedRunId(runId);
+      selectedRunRef.current = runId;
+      runTimelineRef.current = new Map();
+      setRunTimeline([]);
+      setRunTimelineDropped(0);
       setRunDetailLoading(true);
       setRunDetailError(null);
       try {
@@ -821,6 +907,7 @@ export default function ControlCenter({
         }
         setRunDetail(payload);
         applyEvents(payload.timeline);
+        seedRunTimeline(runId, payload.timeline);
       } catch (caught) {
         setRunDetail(null);
         setRunDetailError(
@@ -830,7 +917,7 @@ export default function ControlCenter({
         setRunDetailLoading(false);
       }
     },
-    [selectedProjectId, applyEvents],
+    [selectedProjectId, applyEvents, seedRunTimeline],
   );
 
   useEffect(() => {
@@ -1031,7 +1118,6 @@ export default function ControlCenter({
         ...overrideOnlyRuns(runs, runOverrides, events),
       ]
     : [];
-  const runTimeline = selectedRunId === null ? [] : events.filter((event) => event.run_id === selectedRunId);
   const replayWindowLabel =
     replayWindow === null
       ? ""
@@ -1047,8 +1133,9 @@ export default function ControlCenter({
   const renderFleet = () => (
     <div className="cc-stack">
       <p className="cc-note">
-        Fleet state counts are exact counts over the durable Project Registry, bounded to the
-        newest {fleet?.max_projects ?? 200} projects. Counts are never estimated.
+        Fleet state counts are exact counts over the complete durable Project Registry, never
+        estimated. Each response stays bounded to at most {fleet?.max_projects ?? 200} projects and
+        the list below renders only the current bounded window.
       </p>
       {fleetLoading && fleet === null ? (
         <p className="fleet-message" role="status">
@@ -1074,14 +1161,59 @@ export default function ControlCenter({
           </div>
           <p className="cc-note">
             {fleet.project_count} registered project{fleet.project_count === 1 ? "" : "s"}
-            {fleet.truncated
-              ? " (bounded snapshot truncated: more projects exist in the registry)"
-              : ""}{" "}
+            {fleet.projects.length === 0
+              ? " (empty bounded window)"
+              : " (showing projects " +
+                (fleet.offset + 1) +
+                " to " +
+                (fleet.offset + fleet.projects.length) +
+                " of " +
+                fleet.project_count +
+                ")"}{" "}
             {"· generated "}
             {formatTimestamp(fleet.generated_at)}
           </p>
-          {fleet.projects.length === 0 ? (
+          <p className="cc-note">
+            {fleet.projects.length === 0
+              ? "This bounded fleet window contains no projects."
+              : "Showing " +
+                fleet.projects.length +
+                " project" +
+                (fleet.projects.length === 1 ? "" : "s") +
+                " on this bounded window (hard maximum " +
+                fleet.max_projects +
+                " per response)."}{" "}
+            {fleet.has_more
+              ? "More registered projects remain reachable through the next bounded page."
+              : fleet.project_count > fleet.projects.length
+                ? "Earlier registered projects remain reachable through the previous bounded page."
+                : "Every registered project is inside the current window."}
+          </p>
+          <div className="cc-pagination" aria-label="Fleet pagination">
+            <button
+              className="secondary-button"
+              disabled={fleet.offset === 0}
+              onClick={() => void loadFleet(Math.max(0, fleet.offset - FLEET_PAGE_SIZE))}
+            >
+              Previous page
+            </button>
+            <button
+              className="secondary-button"
+              disabled={!fleet.has_more || fleet.next_offset === null}
+              onClick={() => {
+                if (fleet.next_offset !== null) void loadFleet(fleet.next_offset);
+              }}
+            >
+              Next page
+            </button>
+          </div>
+          {fleet.project_count === 0 ? (
             <p className="fleet-message">The registry is empty; there is no project state to count.</p>
+          ) : fleet.projects.length === 0 ? (
+            <p className="fleet-message">
+              This bounded window is past the end of the registry; use the previous page control to
+              reach registered projects.
+            </p>
           ) : (
             <ul className="cc-project-list">
               {fleet.projects.map((project) => (
@@ -1375,6 +1507,7 @@ export default function ControlCenter({
           className="secondary-button"
           onClick={() => {
             setSelectedRunId(null);
+            clearRunTimeline();
             setRunDetail(null);
             setRunDetailError(null);
           }}
@@ -1443,12 +1576,13 @@ export default function ControlCenter({
             <EventTimeline
               events={runTimeline}
               emptyLabel="No events recorded for this run inside the bounded window."
-              droppedEvents={0}
+              droppedEvents={runTimelineDropped}
+              bound={RUN_TIMELINE_MAX}
               windowLabel={
                 runDetail.timeline_truncated
-                  ? "Run timeline is truncated at " +
+                  ? "Run timeline is bounded at " +
                     runDetail.max_timeline_events +
-                    " events; older events remain in canonical PostgreSQL order."
+                    " events; additional run events remain in canonical PostgreSQL order."
                   : "Run timeline is complete inside the " +
                     runDetail.max_timeline_events +
                     "-event bound."
@@ -1836,11 +1970,13 @@ function EventTimeline({
   emptyLabel,
   droppedEvents,
   windowLabel,
+  bound = EVENT_TIMELINE_MAX,
 }: {
   events: EventEnvelope[];
   emptyLabel: string;
   droppedEvents: number;
   windowLabel: string;
+  bound?: number;
 }) {
   if (events.length === 0) {
     return <p className="fleet-message">{emptyLabel}</p>;
@@ -1849,7 +1985,7 @@ function EventTimeline({
     <div className="cc-timeline-block">
       <p className="cc-note">
         Showing {events.length} event{events.length === 1 ? "" : "s"} in canonical order, bounded to{" "}
-        {EVENT_TIMELINE_MAX}.
+        {bound}.
         {droppedEvents > 0
           ? " " +
             droppedEvents +

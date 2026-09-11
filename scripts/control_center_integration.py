@@ -754,12 +754,14 @@ def emit_wo020_telemetry(fixtures: list[Fixture]) -> TelemetryRuns:
 def verify_fleet_surface(
     probe: ApiProbe, fixtures: list[Fixture], registrations: list[dict[str, object]]
 ) -> dict[str, object]:
-    """Prove the fleet surface against the durable registry on the same stack."""
+    """Prove the bounded fleet pagination against the durable registry on the same stack."""
 
     payload = probe.request("GET", "/api/v1/control-center/fleet")
     require(isinstance(payload, dict), "fleet response is not an object")
     fleet = dict(payload)
     expect_equal(fleet["max_projects"], FLEET_MAX_PROJECTS, "fleet max_projects")
+    expect_equal(fleet["offset"], 0, "fleet default offset")
+    expect_equal(fleet["limit"], FLEET_MAX_PROJECTS, "fleet default limit")
     projects = fleet["projects"]
     require(isinstance(projects, list), "fleet projects are not a list")
     listing = probe.request("GET", "/api/v1/projects")
@@ -768,8 +770,14 @@ def verify_fleet_surface(
         "registry listing cannot bound the fleet comparison",
     )
     bounded = listing[:FLEET_MAX_PROJECTS]
-    expect_equal(fleet["project_count"], len(bounded), "fleet project_count")
-    expect_equal(fleet["truncated"], len(listing) > FLEET_MAX_PROJECTS, "fleet truncated")
+    expect_equal(fleet["project_count"], len(listing), "fleet global project_count")
+    expect_equal(fleet["truncated"], len(bounded) < len(listing), "fleet truncated")
+    expect_equal(fleet["has_more"], len(listing) > FLEET_MAX_PROJECTS, "fleet has_more")
+    expect_equal(
+        fleet["next_offset"],
+        FLEET_MAX_PROJECTS if len(listing) > FLEET_MAX_PROJECTS else None,
+        "fleet next_offset",
+    )
     expect_equal(
         [str(project["project_id"]) for project in projects],
         [str(project["project_id"]) for project in bounded],
@@ -779,9 +787,9 @@ def verify_fleet_surface(
         state: 0
         for state in ("offline", "stale", "indexing", "ready", "active", "degraded", "blocked")
     }
-    for project in bounded:
+    for project in listing:
         counts[str(project["state"]).lower()] += 1
-    expect_equal(dict(fleet["state_counts"]), counts, "fleet state counts")
+    expect_equal(dict(fleet["state_counts"]), counts, "fleet global state counts")
     headlines = {str(project["project_id"]): project for project in projects}
     for fixture, registration in zip(fixtures, registrations, strict=True):
         headline = headlines.get(str(fixture.project_id))
@@ -802,6 +810,36 @@ def verify_fleet_surface(
                 registration[field_name],
                 f"fleet {field_name} for {fixture.relative_path}",
             )
+    if len(listing) >= 2:
+        first_page = probe.request("GET", "/api/v1/control-center/fleet?offset=0&limit=1")
+        require(isinstance(first_page, dict), "fleet size-one page is not an object")
+        expect_equal(first_page["offset"], 0, "fleet size-one offset")
+        expect_equal(first_page["limit"], 1, "fleet size-one limit")
+        expect_equal(first_page["project_count"], len(listing), "fleet size-one global count")
+        expect_equal(len(first_page["projects"]), 1, "fleet size-one page bound")
+        expect_equal(
+            str(first_page["projects"][0]["project_id"]),
+            str(listing[0]["project_id"]),
+            "fleet size-one first identity",
+        )
+        expect_equal(first_page["has_more"], True, "fleet size-one has_more")
+        expect_equal(first_page["next_offset"], 1, "fleet size-one next_offset")
+        expect_equal(dict(first_page["state_counts"]), counts, "fleet size-one global state counts")
+        second_page = probe.request("GET", "/api/v1/control-center/fleet?offset=1&limit=1")
+        require(isinstance(second_page, dict), "fleet second page is not an object")
+        expect_equal(second_page["offset"], 1, "fleet second page offset")
+        expect_equal(len(second_page["projects"]), 1, "fleet second page bound")
+        expect_equal(
+            str(second_page["projects"][0]["project_id"]),
+            str(listing[1]["project_id"]),
+            "fleet second page reaches the next registry project",
+        )
+        first_ids = {str(project["project_id"]) for project in first_page["projects"]}
+        second_ids = {str(project["project_id"]) for project in second_page["projects"]}
+        require(not (first_ids & second_ids), "fleet pages must not overlap")
+        expect_equal(
+            dict(second_page["state_counts"]), counts, "fleet second page global state counts"
+        )
     return {"project_count": fleet["project_count"], "truncated": fleet["truncated"]}
 
 

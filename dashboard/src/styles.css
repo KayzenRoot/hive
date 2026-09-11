@@ -837,6 +837,13 @@ button:disabled {
   gap: 10px;
 }
 
+.cc-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .cc-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

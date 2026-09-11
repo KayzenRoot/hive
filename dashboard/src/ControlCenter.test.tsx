@@ -145,6 +145,10 @@ function fleetResponse(overrides: Record<string, unknown> = {}) {
     ],
     truncated: false,
     max_projects: 200,
+    offset: 0,
+    limit: 50,
+    has_more: false,
+    next_offset: null,
     ...overrides,
   };
 }
@@ -298,6 +302,7 @@ type ApiState = {
   calls: string[];
   fleetStatus: number;
   fleet: unknown;
+  fleetByOffset: Record<string, unknown>;
   fleetGate: Promise<void> | null;
   health: unknown;
   replay: unknown;
@@ -313,6 +318,7 @@ function installApi(overrides: Partial<ApiState> = {}) {
     calls: [],
     fleetStatus: 200,
     fleet: fleetResponse(),
+    fleetByOffset: {},
     fleetGate: null,
     health: healthResponse(),
     replay: eventPage([]),
@@ -334,10 +340,12 @@ function installApi(overrides: Partial<ApiState> = {}) {
         }),
       );
     if (url.includes("/api/v1/control-center/fleet")) {
+      const offset = new URL(url, "http://localhost").searchParams.get("offset") ?? "0";
+      const payload = state.fleetByOffset[offset] ?? state.fleet;
       if (state.fleetGate !== null) {
-        return state.fleetGate.then(() => json(state.fleet, state.fleetStatus));
+        return state.fleetGate.then(() => json(payload, state.fleetStatus));
       }
-      return json(state.fleet, state.fleetStatus);
+      return json(payload, state.fleetStatus);
     }
     if (url.includes("/api/v1/control-center/health")) return json(state.health);
     if (url.includes("/api/v1/control-center/projects/") && url.includes("/runs/")) {
@@ -427,7 +435,7 @@ describe("ControlCenter operational surfaces", () => {
     expect(screen.getByText(/working tree clean/)).toBeInTheDocument();
     expect(screen.getByText(/working tree: UNAVAILABLE/)).toBeInTheDocument();
     expect(
-      api.state.calls.filter((url) => url.endsWith("/api/v1/control-center/fleet")).length,
+      api.state.calls.filter((url) => url.includes("/api/v1/control-center/fleet")).length,
     ).toBeGreaterThan(0);
   });
 
@@ -534,6 +542,208 @@ describe("ControlCenter operational surfaces", () => {
       "aria-selected",
       "true",
     );
+  });
+});
+
+describe("ControlCenter run detail dedicated timeline", () => {
+  it("keeps an older selected run timeline independent from the saturated project buffer", async () => {
+    const saturated = Array.from({ length: 200 }, (_, index) =>
+      envelope({
+        event_id: "77777777-0000-4000-8000-" + String(index + 1).padStart(12, "0"),
+        ordering_id: 1000 + index,
+        run_id: RUN_RECENT_ID,
+      }),
+    );
+    const api = installApi({ replay: eventPage(saturated) });
+
+    renderControlCenter(api, { selectedProjectId: PROJECT_A_ID });
+    await settle();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
+    await settle();
+    fireEvent.click(
+      within(screen.getByLabelText("Active runs")).getByRole("button", { name: "Open run" }),
+    );
+    await settle();
+
+    let items = screen.getAllByTestId("timeline-event");
+    expect(items).toHaveLength(2);
+    expect(within(items[0] as HTMLElement).getByText("#11")).toBeInTheDocument();
+    expect(within(items[1] as HTMLElement).getByText("#12")).toBeInTheDocument();
+    expect(screen.getByText(/bounded to 100/)).toBeInTheDocument();
+
+    const live = envelope({
+      event_id: "aaaa1111-0000-4000-8000-000000000013",
+      ordering_id: 13,
+      event_type: "executor.started",
+      run_id: RUN_ACTIVE_ID,
+      payload: { adapter: EXECUTOR_IDENTITY },
+    });
+    FakeEventSource.instances[0]?.emit("executor.started", live);
+    await settle();
+
+    items = screen.getAllByTestId("timeline-event");
+    expect(items).toHaveLength(3);
+    expect(within(items[2] as HTMLElement).getByText("#13")).toBeInTheDocument();
+
+    FakeEventSource.instances[0]?.emit("executor.started", live);
+    await settle();
+    expect(screen.getAllByTestId("timeline-event")).toHaveLength(3);
+
+    FakeEventSource.instances[0]?.fail();
+    await settle(1000);
+    const reconnected = FakeEventSource.instances[1];
+    expect(reconnected).toBeDefined();
+    reconnected?.emit("executor.started", live);
+    await settle();
+    expect(screen.getAllByTestId("timeline-event")).toHaveLength(3);
+    expect(
+      screen.getAllByTestId("timeline-event").filter((item) => item.textContent?.includes("#13")),
+    ).toHaveLength(1);
+  });
+
+  it("reseeds the dedicated timeline when the run or the project changes", async () => {
+    const api = installApi();
+
+    const view = renderControlCenter(api, { selectedProjectId: PROJECT_A_ID });
+    await settle();
+    fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
+    await settle();
+    fireEvent.click(
+      within(screen.getByLabelText("Active runs")).getByRole("button", { name: "Open run" }),
+    );
+    await settle();
+
+    FakeEventSource.instances[0]?.emit(
+      "executor.started",
+      envelope({
+        event_id: "aaaa1111-0000-4000-8000-000000000013",
+        ordering_id: 13,
+        event_type: "executor.started",
+        run_id: RUN_ACTIVE_ID,
+      }),
+    );
+    await settle();
+    expect(screen.getAllByTestId("timeline-event")).toHaveLength(3);
+
+    api.state.runDetail = runDetailResponse({
+      run: runSummary({
+        run_id: RUN_RECENT_ID,
+        status: "FAILED",
+        stage: "run.failed",
+        last_event_type: "run.failed",
+      }),
+      timeline: [
+        envelope({
+          event_id: "bbbb2222-0000-4000-8000-000000000021",
+          ordering_id: 21,
+          run_id: RUN_RECENT_ID,
+        }),
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Back to runs" }));
+    await settle();
+    fireEvent.click(within(rowFor("eeff0011")).getByRole("button", { name: "Open run" }));
+    await settle();
+
+    const switched = screen.getAllByTestId("timeline-event");
+    expect(switched).toHaveLength(1);
+    expect(within(switched[0] as HTMLElement).getByText("#21")).toBeInTheDocument();
+    expect(screen.queryByText("#13")).toBeNull();
+
+    view.rerender(
+      <ControlCenter
+        projects={PROJECT_OPTIONS}
+        selectedProjectId={PROJECT_B_ID}
+        onSelectProject={vi.fn()}
+      />,
+    );
+    await settle();
+
+    expect(screen.queryByRole("heading", { name: /Run aabbccdd/ })).toBeNull();
+    expect(screen.queryAllByTestId("timeline-event")).toHaveLength(0);
+  });
+});
+
+describe("ControlCenter fleet pagination", () => {
+  it("navigates bounded pages over more than one window with global counts", async () => {
+    const globalCounts = {
+      offline: 0,
+      stale: 0,
+      indexing: 0,
+      ready: 1,
+      active: 1,
+      degraded: 0,
+      blocked: 1,
+    };
+    const gammaId = "c3c3c3c3-0000-4000-8000-000000000003";
+    const firstPage = fleetResponse({
+      project_count: 3,
+      state_counts: globalCounts,
+      projects: [
+        headline(),
+        headline({
+          project_id: PROJECT_B_ID,
+          name: "Project Beta",
+          relative_path: "beta",
+          state: "ACTIVE",
+          working_tree_clean: null,
+        }),
+      ],
+      truncated: true,
+      offset: 0,
+      limit: 2,
+      has_more: true,
+      next_offset: 2,
+    });
+    const secondPage = fleetResponse({
+      project_count: 3,
+      state_counts: globalCounts,
+      projects: [
+        headline({
+          project_id: gammaId,
+          name: "Project Gamma",
+          relative_path: "gamma",
+          state: "BLOCKED",
+          working_tree_clean: null,
+        }),
+      ],
+      truncated: true,
+      offset: 2,
+      limit: 2,
+      has_more: false,
+      next_offset: null,
+    });
+    const api = installApi({ fleet: firstPage, fleetByOffset: { "2": secondPage } });
+
+    renderControlCenter(api);
+    await settle();
+
+    expect(screen.getByRole("heading", { name: "Project Alpha" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Project Gamma" })).toBeNull();
+    const counts = screen.getByLabelText("Exact project state counts");
+    expect(within(counts).getByText("BLOCKED 1")).toBeInTheDocument();
+    expect(screen.getByText(/3 registered projects/)).toBeInTheDocument();
+    expect(screen.getByText(/showing projects 1 to 2 of 3/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await settle();
+
+    expect(screen.queryByRole("heading", { name: "Project Alpha" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Project Gamma" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Exact project state counts")).getByText("BLOCKED 1")).toBeInTheDocument();
+    expect(screen.getByText(/showing projects 3 to 3 of 3/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(
+      api.state.calls.some((url) => url.includes("/api/v1/control-center/fleet?offset=2&limit=50")),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    await settle();
+
+    expect(screen.getByRole("heading", { name: "Project Alpha" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Project Gamma" })).toBeNull();
+    expect(screen.getByText(/showing projects 1 to 2 of 3/)).toBeInTheDocument();
   });
 });
 

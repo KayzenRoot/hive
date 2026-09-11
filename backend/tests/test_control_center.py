@@ -304,6 +304,10 @@ def test_fleet_reports_exact_state_counts_and_derives_short_head(
     }
     assert body["truncated"] is False
     assert body["max_projects"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert body["offset"] == 0
+    assert body["limit"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert body["has_more"] is False
+    assert body["next_offset"] is None
     assert body["projects"][0]["project_id"] == str(UUID(int=1))
     assert body["projects"][0]["short_head"] == "abcdef1"
     assert body["projects"][0]["git_head_sha"] == HEAD_SHA
@@ -329,24 +333,93 @@ def test_fleet_empty_registry_reports_zeroes_without_fabrication(
     assert set(body["state_counts"].values()) == {0}
     assert body["projects"] == []
     assert body["truncated"] is False
+    assert body["has_more"] is False
+    assert body["next_offset"] is None
 
 
 def test_fleet_truncates_past_the_bounded_project_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    projects = [
-        project(UUID(int=index + 1), relative_path=f"p{index}")
-        for index in range(control_center.CONTROL_CENTER_MAX_PROJECTS + 1)
-    ]
+    total = control_center.CONTROL_CENTER_MAX_PROJECTS + 1
+    projects = [project(UUID(int=index + 1), relative_path=f"p{index}") for index in range(total)]
     wire(monkeypatch, projects=projects)
 
     response = client().get("/api/v1/control-center/fleet")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["project_count"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert body["project_count"] == total
     assert len(body["projects"]) == control_center.CONTROL_CENTER_MAX_PROJECTS
     assert body["truncated"] is True
+    assert body["has_more"] is True
+    assert body["next_offset"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert body["state_counts"]["ready"] == total
+
+
+def test_fleet_pagination_reaches_every_project_with_global_truth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    total = control_center.CONTROL_CENTER_MAX_PROJECTS + 1
+    projects = [project(UUID(int=index + 1), relative_path=f"p{index}") for index in range(total)]
+    projects[-1] = project(
+        UUID(int=total), relative_path=f"p{total - 1}", state=ProjectState.BLOCKED
+    )
+    wire(monkeypatch, projects=projects)
+    api = client()
+
+    first = api.get("/api/v1/control-center/fleet").json()
+    assert first["offset"] == 0
+    assert first["limit"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert first["project_count"] == total
+    assert len(first["projects"]) == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert first["truncated"] is True
+    assert first["has_more"] is True
+    assert first["next_offset"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert first["state_counts"]["ready"] == total - 1
+    assert first["state_counts"]["blocked"] == 1
+
+    second = api.get(
+        "/api/v1/control-center/fleet",
+        params={
+            "offset": first["next_offset"],
+            "limit": control_center.CONTROL_CENTER_MAX_PROJECTS,
+        },
+    ).json()
+    assert second["offset"] == control_center.CONTROL_CENTER_MAX_PROJECTS
+    assert second["project_count"] == total
+    assert [item["project_id"] for item in second["projects"]] == [str(UUID(int=total))]
+    assert second["truncated"] is True
+    assert second["has_more"] is False
+    assert second["next_offset"] is None
+    assert second["state_counts"] == first["state_counts"]
+
+    first_ids = {item["project_id"] for item in first["projects"]}
+    second_ids = {item["project_id"] for item in second["projects"]}
+    assert first_ids.isdisjoint(second_ids)
+    assert len(first_ids | second_ids) == total
+
+    beyond = api.get("/api/v1/control-center/fleet", params={"offset": total + 50}).json()
+    assert beyond["projects"] == []
+    assert beyond["project_count"] == total
+    assert beyond["truncated"] is True
+    assert beyond["has_more"] is False
+    assert beyond["next_offset"] is None
+
+
+def test_fleet_paging_input_fails_closed_with_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wire(monkeypatch, projects=[project()])
+    api = client()
+    route = "/api/v1/control-center/fleet"
+    bound = control_center.CONTROL_CENTER_MAX_PROJECTS
+
+    assert api.get(route, params={"offset": -1}).status_code == 422
+    assert api.get(route, params={"limit": 0}).status_code == 422
+    assert api.get(route, params={"limit": bound + 1}).status_code == 422
+    assert api.get(route, params={"offset": "not-a-number"}).status_code == 422
+    assert api.get(route, params={"limit": "not-a-number"}).status_code == 422
+    assert api.get(route, params={"limit": 1}).status_code == 200
 
 
 def test_runs_classify_active_terminal_and_observed_runs(
