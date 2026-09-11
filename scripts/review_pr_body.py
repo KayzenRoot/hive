@@ -14,6 +14,7 @@ ZERO_SHA = "0" * 40
 # argument; this table only supplies the fail-closed validation target.
 AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-020-G1": "ab2c6eac4eedac460871cf00d613a9b478ec533d",
+    "WO-020-P-G1": "2e322095936f2a508f36563699e464d301f89ced",
 }
 
 
@@ -37,6 +38,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-019-P",
         "WO-020-G1",
         "WO-020",
+        "WO-020-P-G1",
+        "WO-020-P",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2198,6 +2201,137 @@ WO-020 READY FOR SOL AUDIT
 """
 
 
+def _render_wo020p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR é somente governança: habilita o Review Evidence para a promoção
+canônica futura do Control Center operational core já aprovado no WO-020. Não
+edita o Project Brain, não promove o checkpoint, não implementa produto e não
+executa o WO-020-P.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}. O renderer exige a base autorizada exata,
+  lowercase 40-hex e diferente de zero; divergência falha fechado.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo G1 fechado
+
+Exatamente três arquivos de governança: backend/tests/test_review_evidence.py,
+scripts/review_evidence.py e scripts/review_pr_body.py. Project Brain,
+checkpoint, CANONICAL-SHA256SUMS.txt, migrations, produto, dashboard,
+dependências e CI permanecem intocados. A migration head permanece
+`0007_telemetry_events`.
+
+## 4. Par ativo e contrato futuro
+
+O único par ativo de promoção de checkpoint passa a ser WO-020-P-G1 e WO-020-P;
+WO-019-P-G1/WO-019-P ficam históricos e promoções desconhecidas como WO-021-P e
+WO-999-P continuam rejeitadas. O futuro WO-020-P permitirá somente
+docs/project-brain/13-CHECKPOINT.md e
+docs/project-brain/CANONICAL-SHA256SUMS.txt, com base autorizada, gramática de
+checkpoint fechada e contrato exato do manifesto.
+
+## 5. Evidência obrigatória
+
+O Review Evidence desta G1 e do futuro WO-020-P exige a evidência já merged
+`control-center-core-v1` a partir da main atual e falha fechado se estiver
+ausente ou FAIL. Nenhum comportamento novo de produto é exigido.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Não houve merge, release, promoção de checkpoint ou início do WO-020-P.
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-020-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo020p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção Control Center operational core fechada
+
+Esta PR promove somente o checkpoint do WO-020 já aprovado, merged e validado
+no pós-merge, sem alegar Full Control Center nem HIVE V0.1 completos. Exige
+exatamente docs/project-brain/13-CHECKPOINT.md e
+docs/project-brain/CANONICAL-SHA256SUMS.txt.
+
+## 2. Contrato semântico
+
+STATUS muda para CONTROL CENTER OPERATIONAL CORE APPROVED / V0.1 IMPLEMENTATION
+ACTIVE. O prefixo histórico de COMPLETED é preservado, seis bullets de evidência
+WO-020 são anexadas, `full Control Center.` permanece em PENDING com todos os
+demais itens e ordem, e IN PROGRESS, BLOCKERS e NEXT STEP passam para a menor
+implementação de métricas e observabilidade do Control Center.
+
+## 3. Evidência e manifesto
+
+O contrato `control-center-core-v1` permanece obrigatório e verde; nenhum
+produto novo é reivindicado. Somente o digest do checkpoint em
+CANONICAL-SHA256SUMS.txt pode mudar, correspondendo aos bytes exatos do
+candidato. A migration head permanece `0007_telemetry_events`.
+
+## 4. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+## 5. STOP antes do merge
+
+Nenhum código de produto, migration, dependência ou CI é alterado. A PR
+permanece aberta, Ready e não mesclada para auditoria de Sol no HEAD exato;
+o executor para antes do merge.
+
+Sol Review State: AWAITING_SOL.
+
+WO-020-P READY FOR SOL AUDIT
+"""
+
+
 def _render_wo015_g1_body(
     *,
     work_order: str,
@@ -3246,6 +3380,32 @@ def render_body(
         )
     if work_order == "WO-020":
         return _render_wo020_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-020-P-G1":
+        return _render_wo020p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-020-P":
+        return _render_wo020p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
