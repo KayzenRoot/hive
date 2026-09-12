@@ -1450,6 +1450,53 @@ def test_wo020_g1_governance_contract_is_fail_closed(
         )
 
 
+def test_gef_adoption_registration_markers_base_and_scope_are_fail_closed() -> None:
+    work_order = review_evidence.GEF_ADOPTION_WORK_ORDER
+    base = review_evidence.GEF_ADOPTION_BASE_SHA
+    paths = sorted(review_evidence.GEF_ADOPTION_ALLOWED_PATHS)
+    body = f"<!-- HIVE-WORK-ORDER: {work_order} -->\n<!-- HIVE-AUTHORIZED-BASE: {base} -->"
+
+    assert review_evidence.parse_work_order_marker(body) == work_order
+    assert review_evidence.parse_authorized_base_marker(body) == base
+    review_evidence.require_current_work_order_authorization(work_order)
+    review_evidence.require_gef_adoption_scope(
+        work_order,
+        base,
+        paths,
+        authorized_base_sha=base,
+    )
+
+    with pytest.raises(ValueError, match="unsupported GEF adoption"):
+        review_evidence.require_supported_work_order("GEF-ADOPTION-002")
+    with pytest.raises(ValueError, match="missing exactly one work-order marker"):
+        review_evidence.parse_work_order_marker(f"<!-- HIVE-AUTHORIZED-BASE: {base} -->")
+    with pytest.raises(ValueError, match="multiple conflicting"):
+        review_evidence.parse_work_order_marker(
+            f"<!-- HIVE-WORK-ORDER: {work_order} -->\n<!-- HIVE-WORK-ORDER: {work_order} -->"
+        )
+    with pytest.raises(ValueError, match="exact authorized-base marker"):
+        review_evidence.require_gef_adoption_scope(
+            work_order,
+            base,
+            paths,
+            authorized_base_sha="a" * 40,
+        )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_gef_adoption_scope(
+            work_order,
+            "b" * 40,
+            paths,
+            authorized_base_sha=base,
+        )
+    with pytest.raises(ValueError, match="exactly the ten GEF artifacts"):
+        review_evidence.require_gef_adoption_scope(
+            work_order,
+            base,
+            [*paths, "backend/app/unrelated.py"],
+            authorized_base_sha=base,
+        )
+
+
 def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
     require_supported_work_order(review_evidence.WO021_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO021_WORK_ORDER)
