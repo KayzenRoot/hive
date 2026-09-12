@@ -6,7 +6,15 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Remove secrets and personal data before submitting logs.
+      value: Remove secrets and personal data before submitting logs. A reproducible defect may receive a governed Work Order after triage.
+  - type: input
+    id: work_order
+    attributes:
+      label: Work Order ID
+      description: Use an existing ID or write NEEDS TRIAGE; do not invent canonical status.
+      placeholder: ENG-PROTOCOL-ADOPTION-001 or NEEDS TRIAGE
+    validations:
+      required: true
   - type: textarea
     id: steps
     attributes:
@@ -31,5 +39,12 @@ body:
     attributes:
       label: Environment
       description: OS, Docker version, commit, and relevant configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and scope
+      description: Include logs without secrets, baseline commit, affected paths, and whether the issue may involve dynamic configuration, jobs, migrations, or public contracts.
     validations:
       required: true

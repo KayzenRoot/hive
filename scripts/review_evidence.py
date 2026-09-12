@@ -25,7 +25,7 @@ VALIDATION = ROOT / "tmp" / "validation"
 INTEGRATION_LOGS = ROOT / "tmp" / "integration-logs"
 HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
-WORK_ORDER_IDENTIFIER = re.compile(r"WO-[0-9]+(?:-[A-Z0-9]+)*")
+WORK_ORDER_IDENTIFIER = re.compile(r"(?:WO-[0-9]+|ENG-[A-Z0-9]+)(?:-[A-Z0-9]+)*")
 WORK_ORDER_MARKER = re.compile(r"<!--\s*HIVE-WORK-ORDER:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE)
 AUTHORIZED_BASE_MARKER = re.compile(
     r"<!--\s*HIVE-AUTHORIZED-BASE:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE
