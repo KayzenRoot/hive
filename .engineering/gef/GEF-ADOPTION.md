@@ -8,6 +8,9 @@
 - Baseline head: `c9430af13860ab30e31bd162991eb88c05215f4f`
 - Default branch: `main`
 - Project fingerprint: `ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36`
+- Adoption branch: `governance/gef-v1-adoption-001`
+- Adoption PR: `#81` (draft, unmerged)
+- Adoption issue: `#80`
 - Current prompt mode after adoption: `GEF_V1`
 - Current review mode after adoption: `HEDS_DELTA`
 - Shadow assurance: `ON`
@@ -42,7 +45,9 @@ GEF artifacts are derived engineering policy/state. They never override a newer 
 - Deterministic validation entry point: `python scripts/validate.py`
 - Hosted CI: `.github/workflows/ci.yml`
 - Active legacy governance PR observed and intentionally untouched: `#37 chore: adopt governed engineering delivery protocol`
+- Active Control Center metrics planning/work observed and intentionally untouched: issue `#79`, branch `feat/wo021-control-center-metrics`
 - Most recent merged governance work: PR `#78`, merge commit `c9430af13860ab30e31bd162991eb88c05215f4f`
+- Adoption PR `#81` exists as draft so it cannot be mistaken for merge-ready work.
 
 ## Adoption Gap Matrix
 
@@ -57,6 +62,7 @@ GEF artifacts are derived engineering policy/state. They never override a newer 
 | UADS host cannot currently allocate distinct reviewer sessions for the latest recovery | Legitimate A4 independent assurance | Preserve fail-closed blocker; resolve host/session lifecycle separately | HIGH | OPEN GAP |
 | Current Review Evidence only recognizes registered HIVE work orders | Governed GEF adoption PR that can satisfy required Review Evidence | Do not weaken the check; register an adoption-compatible work-order/bridge in a separate governed correction before merge if required | MEDIUM | OPEN GAP |
 | Open PR #37 is based on old main and overlaps `.engineering` concepts | Preserve concurrent work | Do not modify/rebase/close it during GEF adoption; reconcile later explicitly | MEDIUM | OPEN GAP |
+| PR #81 CI run `34699511231` failed before any Validate steps were exposed | Legitimate hosted A3 evidence | Treat as infrastructure/runner cause UNKNOWN until diagnosed; do not bypass or call it a product failure | MEDIUM | OPEN GAP |
 
 ## Compatibility decisions
 
@@ -76,16 +82,19 @@ mode: EXISTING_PROJECT
 projectFingerprint: ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36
 baselineHead: c9430af13860ab30e31bd162991eb88c05215f4f
 adoptionBranch: governance/gef-v1-adoption-001
-pr: hosted metadata; do not self-reference source head with a PR number
+pr: #81 (draft, unmerged)
 filesCreated: GEF adoption/policy/execution/review/evidence/profile/current/baseline/proof-map/test-impact artifacts
 filesAdapted: none in canonical product/governance sources
 currentPromptMode: GEF_V1
 currentReviewMode: HEDS_DELTA
 shadowAssurance: ON
 existingGates: Validate, Integration health, Review Evidence
+gaps: UADS reviewer-session capacity; Review Evidence adoption bridge; legacy PR #37 overlap; PR #81 hosted Validate runner/start failure with no exposed steps
+risks: no bypass of fail-closed assurance; no test-skipping authority yet
+nextAction: resolve the smallest adoption compatibility/hosted-validation gap without changing product scope; separately resolve UADS reviewer-session capacity; then validate and review PR #81
 status: READY_WITH_GAPS
 ```
 
 ## Next action
 
-Use GEF V1 immediately for new prompts and reviews. Do not start/advance product work that is still blocked by existing HIVE/UADS governance. Resolve the UADS reviewer-session gap and the adoption-PR Review Evidence compatibility gap as separate, smallest governed corrections before any adoption merge that requires those gates.
+Use GEF V1 immediately for new prompts and reviews. Do not start/advance product work that is still blocked by existing HIVE/UADS governance. Resolve the UADS reviewer-session gap and the adoption-PR Review Evidence/hosted-validation gaps as separate, smallest governed corrections before any adoption merge that requires those gates.

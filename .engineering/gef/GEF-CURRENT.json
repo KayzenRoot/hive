@@ -6,9 +6,24 @@
   "lastReviewedHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
   "activeWork": "GEF-ADOPTION-001",
   "activePr": {
-    "number": null,
-    "note": "PR identity is hosted metadata and is intentionally not self-referential in the source commit"
+    "number": 81,
+    "state": "DRAFT",
+    "branch": "governance/gef-v1-adoption-001"
   },
+  "concurrentWorkPreserved": [
+    {
+      "type": "pull_request",
+      "number": 37,
+      "branch": "chore/eng-protocol-adoption-001",
+      "action": "UNTOUCHED"
+    },
+    {
+      "type": "issue",
+      "number": 79,
+      "branch": "feat/wo021-control-center-metrics",
+      "action": "UNTOUCHED"
+    }
+  ],
   "currentPromptMode": "GEF_V1",
   "currentReviewMode": "HEDS_DELTA",
   "shadowAssurance": "ON",
@@ -24,13 +39,19 @@
       "id": "GEF-GAP-002",
       "severity": "MEDIUM",
       "summary": "Current HIVE Review Evidence recognizes only registered work-order identifiers and has no GEF adoption work-order bridge",
-      "effect": "Adoption PR may remain draft/blocked until a smallest governed compatibility correction is approved"
+      "effect": "Adoption PR remains draft/blocked until the smallest governed compatibility correction is approved"
     },
     {
       "id": "GEF-GAP-003",
       "severity": "MEDIUM",
       "summary": "Legacy open PR #37 overlaps engineering-governance concepts on an old baseline",
       "effect": "Do not mutate it during adoption; reconcile explicitly later"
+    },
+    {
+      "id": "GEF-GAP-004",
+      "severity": "MEDIUM",
+      "summary": "PR #81 CI run 34699511231 failed in Validate before any job steps were exposed; runner_id=0 and downstream jobs were skipped",
+      "effect": "Cause is not proven to be repository code. Do not reinterpret as PASS or bypass hosted validation; retry/diagnose only through governed follow-up"
     }
   ]
 }
