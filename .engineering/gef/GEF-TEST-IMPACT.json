@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "gef-test-impact-v1",
+  "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
+  "mode": "CONSERVATIVE_INITIAL_MAP",
+  "mappings": [
+    {
+      "source": "backend/app/**",
+      "focused": ["related backend/tests/**"],
+      "impacted": ["python -m pytest", "python -m mypy", "python -m ruff check backend scripts migrations"],
+      "hosted": ["Validate", "Integration health", "Review Evidence"]
+    },
+    {
+      "source": "dashboard/src/**",
+      "focused": ["related dashboard tests"],
+      "impacted": ["npm run lint", "npm run typecheck", "npm run test:run", "npm run build"],
+      "hosted": ["Validate", "Review Evidence"]
+    },
+    {
+      "source": "scripts/review_evidence.py|scripts/review_pr_body.py|schemas/review-evidence-v1.schema.json|backend/tests/test_review_evidence.py",
+      "focused": ["backend/tests/test_review_evidence.py"],
+      "impacted": ["python scripts/validate.py"],
+      "hosted": ["Validate", "Integration health", "Review Evidence"]
+    },
+    {
+      "source": "docs/project-brain/**",
+      "focused": ["python scripts/verify_canonical_sources.py"],
+      "impacted": ["python scripts/validate.py"],
+      "hosted": ["Validate", "Review Evidence"]
+    },
+    {
+      "source": "migrations/**",
+      "focused": ["migration/schema tests"],
+      "impacted": ["python -m pytest", "python scripts/validate.py"],
+      "hosted": ["Validate", "Integration health", "Review Evidence"]
+    },
+    {
+      "source": ".engineering/gef/**",
+      "focused": ["JSON parse/format validation for GEF manifests"],
+      "impacted": [],
+      "hosted": ["Validate", "Review Evidence"],
+      "note": "Current Review Evidence may require a registered adoption work-order bridge before a GEF-only PR can pass. Do not weaken the check."
+    }
+  ],
+  "rules": {
+    "shadowOnly": true,
+    "missingMappingAction": "EXPAND_CONSERVATIVELY",
+    "proofSkippingAuthority": false,
+    "updateFromObservedRuns": true
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "gef-proof-map-v1",
+  "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
+  "shadowAssurance": true,
+  "proofs": [
+    {
+      "proofId": "A3:validate",
+      "kind": "hosted-gate",
+      "receipt": "GitHub check Validate",
+      "relevantInputs": ["backend/**", "dashboard/**", "scripts/**", "migrations/**", "requirements-dev.txt", "dashboard/package*.json", "pyproject.toml", "docker-compose.yml", "VERSION", "docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A3:integration-health",
+      "kind": "hosted-gate",
+      "receipt": "GitHub check Integration health",
+      "relevantInputs": ["backend/**", "scripts/*integration*.py", "docker-compose.yml", "migrations/**", ".env.example"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A3:review-evidence",
+      "kind": "hosted-gate",
+      "receipt": "GitHub check Review Evidence + sticky manifest comment/artifact",
+      "relevantInputs": ["scripts/review_evidence.py", "scripts/review_pr_body.py", "schemas/review-evidence-v1.schema.json", "backend/tests/test_review_evidence.py", ".github/workflows/ci.yml", "PR metadata", "exact head"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A2:backend-tests",
+      "kind": "test-family",
+      "receipt": "pytest/junit",
+      "relevantInputs": ["backend/app/**", "backend/tests/**", "migrations/**", "pyproject.toml", "requirements-dev.txt"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A2:dashboard-tests",
+      "kind": "test-family",
+      "receipt": "vitest",
+      "relevantInputs": ["dashboard/src/**", "dashboard/tests/**", "dashboard/package*.json"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A1:canonical-verifier",
+      "kind": "deterministic",
+      "receipt": "scripts/verify_canonical_sources.py",
+      "relevantInputs": ["docs/project-brain/**"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A1:secret-scan",
+      "kind": "deterministic",
+      "receipt": "scripts/check_secrets.py",
+      "relevantInputs": ["repository tracked bytes"],
+      "carryForwardAuthority": false
+    },
+    {
+      "proofId": "A4:heds-delta",
+      "kind": "semantic-assurance",
+      "receipt": "exact-head Sol/HEDS verdict",
+      "relevantInputs": ["changed files", "canonical source identity", "open findings", "invalidated proofs", "hosted gate receipts"],
+      "carryForwardAuthority": false
+    }
+  ],
+  "policy": {
+    "carryForwardRequiresCompatibleEvidenceValidityFingerprint": true,
+    "testNameAloneIsInsufficient": true,
+    "hostedRequiredChecksMayBeSkippedFromCarryForward": false,
+    "promotionRequiresShadowEvidence": true
+  }
+}

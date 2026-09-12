@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "gef-current-v1",
+  "gefVersion": "1.0",
+  "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
+  "baselineHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
+  "lastReviewedHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
+  "activeWork": "GEF-ADOPTION-001",
+  "activePr": {
+    "number": null,
+    "note": "PR identity is hosted metadata and is intentionally not self-referential in the source commit"
+  },
+  "currentPromptMode": "GEF_V1",
+  "currentReviewMode": "HEDS_DELTA",
+  "shadowAssurance": "ON",
+  "migrationState": "READY_WITH_GAPS",
+  "openFindings": [
+    {
+      "id": "GEF-GAP-001",
+      "severity": "HIGH",
+      "summary": "GLOBAL UADS host cannot currently allocate the distinct reviewer sessions required by the latest assurance recovery",
+      "effect": "Existing fail-closed assurance remains blocked; GEF must not bypass it"
+    },
+    {
+      "id": "GEF-GAP-002",
+      "severity": "MEDIUM",
+      "summary": "Current HIVE Review Evidence recognizes only registered work-order identifiers and has no GEF adoption work-order bridge",
+      "effect": "Adoption PR may remain draft/blocked until a smallest governed compatibility correction is approved"
+    },
+    {
+      "id": "GEF-GAP-003",
+      "severity": "MEDIUM",
+      "summary": "Legacy open PR #37 overlaps engineering-governance concepts on an old baseline",
+      "effect": "Do not mutate it during adoption; reconcile explicitly later"
+    }
+  ]
+}
