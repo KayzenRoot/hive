@@ -422,6 +422,14 @@ def _section_bullets(section: str | None) -> list[tuple[str, bool | None]]:
     return entries
 
 
+def _required_section_bullets(text: str, heading: str) -> list[tuple[str, bool | None]] | None:
+    section = _markdown_section(text, heading)
+    if section is None:
+        return None
+    entries = _section_bullets(section)
+    return entries if entries else None
+
+
 def _sanitized_texts(values: list[str]) -> list[str] | None:
     sanitized = [_text(value) for value in values]
     return sanitized if all(value != "UNAVAILABLE" for value in sanitized) else None
@@ -429,11 +437,17 @@ def _sanitized_texts(values: list[str]) -> list[str] | None:
 
 def _parse_checkpoint_document(blob: str) -> dict[str, object] | None:
     status = _section_first_line(_markdown_section(blob, "STATUS"))
-    in_progress = _sanitized_texts(
-        [value for value, _checked in _section_bullets(_markdown_section(blob, "IN PROGRESS"))]
+    in_progress_entries = _required_section_bullets(blob, "IN PROGRESS")
+    pending_entries = _required_section_bullets(blob, "PENDING")
+    in_progress = (
+        _sanitized_texts([value for value, _checked in in_progress_entries])
+        if in_progress_entries is not None
+        else None
     )
-    pending_items = _sanitized_texts(
-        [value for value, _checked in _section_bullets(_markdown_section(blob, "PENDING"))]
+    pending_items = (
+        _sanitized_texts([value for value, _checked in pending_entries])
+        if pending_entries is not None
+        else None
     )
     next_step = _section_first_line(_markdown_section(blob, "NEXT STEP"))
     if status is None or next_step is None or in_progress is None or pending_items is None:
@@ -455,8 +469,10 @@ def _parse_checkpoint_document(blob: str) -> dict[str, object] | None:
 
 
 def _parse_scope_document(blob: str) -> dict[str, object] | None:
-    section = _markdown_section(blob, "NECESSARY — V0.1")
-    items = _sanitized_texts([value for value, _checked in _section_bullets(section)])
+    entries = _required_section_bullets(blob, "NECESSARY — V0.1")
+    items = (
+        _sanitized_texts([value for value, _checked in entries]) if entries is not None else None
+    )
     if items is None:
         return None
     return {

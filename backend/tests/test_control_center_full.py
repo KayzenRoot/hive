@@ -462,6 +462,86 @@ def test_definition_of_done_without_status_grammar_never_fabricates_percentage()
     assert details["percentage_status"] == "UNAVAILABLE"
 
 
+def _project_intelligence_with_blobs(
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoint: str,
+    scope: str | None = None,
+) -> tuple[FullStatus, dict[str, object]]:
+    blobs = {
+        control_center_full.FULL_DOCUMENTS[0]: checkpoint,
+        control_center_full.FULL_DOCUMENTS[1]: scope
+        or "# Scope\n## NECESSARY \u2014 V0.1\n- Required\n",
+        control_center_full.FULL_DOCUMENTS[2]: (
+            "# DoD\n## Functional\n- [x] Fixture validation\n- [ ] Fixture follow-up\n"
+        ),
+    }
+    monkeypatch.setattr(
+        control_center_full,
+        "_git_head_blob",
+        lambda _settings, _project, relative, _observation: blobs[relative],
+    )
+    return control_center_full._canonical_project_intelligence(
+        cast(Settings, SimpleNamespace()),
+        cast(ProjectResponse, project()),
+        _canonical_observations(),
+    )
+
+
+def test_project_intelligence_fails_closed_when_checkpoint_in_progress_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, details = _project_intelligence_with_blobs(
+        monkeypatch,
+        "# Checkpoint\n## STATUS\nACTIVE\n## PENDING\n- Follow-up\n## NEXT STEP\nContinue.\n",
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "13-CHECKPOINT.md" in cast(str, details["reason"])
+
+
+def test_project_intelligence_fails_closed_when_checkpoint_pending_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, details = _project_intelligence_with_blobs(
+        monkeypatch,
+        "# Checkpoint\n## STATUS\nACTIVE\n## IN PROGRESS\n- Work\n## NEXT STEP\nContinue.\n",
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "13-CHECKPOINT.md" in cast(str, details["reason"])
+
+
+def test_project_intelligence_fails_closed_when_scope_required_section_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, details = _project_intelligence_with_blobs(
+        monkeypatch,
+        "# Checkpoint\n## STATUS\nACTIVE\n## IN PROGRESS\n- Work\n"
+        "## PENDING\n- Follow-up\n## NEXT STEP\nContinue.\n",
+        scope="# Scope\n## FUTURE\n- Not required now\n",
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "03-SCOPE.md" in cast(str, details["reason"])
+
+
+def test_project_intelligence_fails_closed_when_mandatory_section_is_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, details = _project_intelligence_with_blobs(
+        monkeypatch,
+        "# Checkpoint\n## STATUS\nACTIVE\n## IN PROGRESS\n- Work\n"
+        "## PENDING\n\n## NEXT STEP\nContinue.\n",
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "13-CHECKPOINT.md" in cast(str, details["reason"])
+
+
 def test_canonical_project_intelligence_fails_closed_on_missing_or_malformed_blob(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
