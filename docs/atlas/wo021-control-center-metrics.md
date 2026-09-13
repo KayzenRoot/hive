@@ -21,6 +21,7 @@ The previous branch `feat/wo021-control-center-metrics` is historical and remain
 - Missing evidence is UNAVAILABLE or UNKNOWN, never zero by invention.
 - Cache hits/misses come only from actual `cache.hit` / `cache.miss` events or an already-approved explicit receipt seam.
 - Storage uses durable task/CAS metadata without exposing host paths.
+- Global physical storage counts each distinct CAS digest once across all registered projects, so shared content is never double-counted.
 - No LLM or provider call is made to manufacture metrics.
 
 ## Provenance vocabulary
@@ -30,13 +31,13 @@ Exactly: `EXACT`, `ESTIMATED`, `UNAVAILABLE`, `UNKNOWN`.
 1. **Token** — input, output, cached, fresh, count, budget and savings when observed. Exact reconciliation supersedes estimates for the same run/metric. Fresh may be derived only from compatible input/cache observations.
 2. **Context** — before/after measurements and reduction only when compatible telemetry exists; estimator-produced counts remain ESTIMATED.
 3. **Cache** — exact observed decisions from canonical cache events. No decisions means UNAVAILABLE, not 0%.
-4. **Storage** — exact project logical task bytes and physical bytes of distinct referenced CAS blobs, plus bounded derived savings.
+4. **Storage** — exact project logical task bytes and physical bytes of distinct referenced CAS blobs, plus bounded derived savings. Global storage uses one PostgreSQL observation over globally distinct referenced CAS digests rather than summing per-project physical bytes.
 
 ## API
 - `GET /api/v1/control-center/metrics?project_id=<uuid>&history_points=<1..100>`
 - `GET /api/v1/control-center/metrics/global?history_points=<1..100>`
 
-Global metrics are deterministic composition of project-scoped summaries, not a competing persistence source.
+Global token, context and cache metrics are deterministic composition of project-scoped summaries. Global storage is a deterministic PostgreSQL aggregate over the same canonical task/CAS metadata, with globally distinct CAS identities to prevent double counting. Neither path creates a competing persistence source.
 
 ## Near-real-time
 The existing project SSE + durable bounded replay remains the event transport. The metrics snapshot is refreshed on the existing bounded Control Center cadence and may be refreshed after relevant live events by the frontend. No second event bus or WebSocket is introduced.
