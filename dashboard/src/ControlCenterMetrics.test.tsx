@@ -90,7 +90,7 @@ describe("ControlCenterMetrics", () => {
     await waitFor(() => expect(screen.getByText("ESTIMATED")).toBeInTheDocument());
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(0);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
-    expect(screen.queryByText("0%"))not.toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
 
   it("switches from deterministic global aggregation to project scope", async () => {
