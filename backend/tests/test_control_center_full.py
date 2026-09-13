@@ -389,3 +389,172 @@ def test_dependency_graph_exposes_python_only_limitation() -> None:
     assert details["supported_languages"] == ["python"]
     assert details["unsupported_languages"] == ["typescript"]
     assert details["complete_graph"] is False
+
+
+def _canonical_observations() -> list[control_center_full.DocumentObservation]:
+    return [
+        control_center_full.DocumentObservation(
+            path=path,
+            status=FullStatus.AVAILABLE,
+            byte_count=100,
+            git_head_sha="a" * 40,
+            tracked=True,
+            working_tree_clean=True,
+            source=f"git:HEAD-blob:{path}",
+        )
+        for path in control_center_full.FULL_DOCUMENTS
+    ]
+
+
+def test_project_intelligence_parses_bounded_canonical_head_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blobs = {
+        "docs/project-brain/13-CHECKPOINT.md": (
+            "# Checkpoint\n## STATUS\nFIXTURE ACTIVE\n## IN PROGRESS\n"
+            "- Verify project intelligence\n## PENDING\n- Fixture follow-up\n"
+            "- Fixture audit\n## NEXT STEP\nPublish fixture result.\n"
+        ),
+        "docs/project-brain/03-SCOPE.md": (
+            "# Scope\n## NECESSARY — V0.1\n- Full HIVE Control Center.\n- Bounded fixture scope.\n"
+        ),
+        "docs/project-brain/15-DEFINITION-OF-DONE.md": (
+            "# DoD\n## Functional\n- [x] Fixture validation\n- [ ] Fixture follow-up\n"
+        ),
+    }
+    monkeypatch.setattr(
+        control_center_full,
+        "_git_head_blob",
+        lambda _settings, _project, relative, _observation: blobs[relative],
+    )
+
+    status, details = control_center_full._canonical_project_intelligence(
+        cast(Settings, SimpleNamespace()),
+        cast(ProjectResponse, project()),
+        _canonical_observations(),
+    )
+
+    assert status is FullStatus.AVAILABLE
+    checkpoint = cast(dict[str, object], details["checkpoint"])
+    assert checkpoint["current_status"] == "FIXTURE ACTIVE"
+    pending = cast(dict[str, object], checkpoint["pending"])
+    assert pending["count"] == 2
+    assert checkpoint["next_step"] == "Publish fixture result."
+    scope = cast(dict[str, object], details["scope"])
+    assert "Full HIVE Control Center." in cast(list[str], scope["required_items"])
+    dod = cast(dict[str, object], details["definition_of_done"])
+    assert dod["total_count"] == 2
+    assert dod["completed_count"] == 1
+    assert dod["percentage"] == 50.0
+    assert dod["source"] == "git:HEAD-blob:docs/project-brain/15-DEFINITION-OF-DONE.md"
+
+
+def test_definition_of_done_without_status_grammar_never_fabricates_percentage() -> None:
+    details = control_center_full._parse_definition_of_done(
+        "# DoD\n## Functional\n- One requirement\n- Another requirement\n"
+    )
+
+    assert details is not None
+    assert details["status"] == "UNAVAILABLE"
+    assert details["total_count"] == 2
+    assert details["completed_count"] is None
+    assert details["percentage"] is None
+    assert details["percentage_status"] == "UNAVAILABLE"
+
+
+def test_canonical_project_intelligence_fails_closed_on_missing_or_malformed_blob(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blobs: dict[str, str | None] = {
+        control_center_full.FULL_DOCUMENTS[0]: (
+            "# Checkpoint\n## STATUS\nACTIVE\n## IN PROGRESS\n- Work\n"
+            "## PENDING\n- Follow-up\n## NEXT STEP\nContinue.\n"
+        ),
+        control_center_full.FULL_DOCUMENTS[1]: ("# Scope\n## NECESSARY \u2014 V0.1\n- Required\n"),
+        control_center_full.FULL_DOCUMENTS[2]: None,
+    }
+    monkeypatch.setattr(
+        control_center_full,
+        "_git_head_blob",
+        lambda _settings, _project, relative, _observation: blobs[relative],
+    )
+
+    status, details = control_center_full._canonical_project_intelligence(
+        cast(Settings, SimpleNamespace()),
+        cast(ProjectResponse, project()),
+        _canonical_observations(),
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "15-DEFINITION-OF-DONE.md" in cast(str, details["reason"])
+
+
+def test_git_head_blob_requires_clean_exact_registered_head(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    candidate = cast(ProjectResponse, project())
+    observation = _canonical_observations()[0]
+
+    def fake_git(_root: Path, *arguments: str) -> str | None:
+        if arguments[:2] == ("rev-parse", "--verify"):
+            return "a" * 40
+        if arguments[:2] == ("cat-file", "blob"):
+            return "## STATUS\nACTIVE\n"
+        return None
+
+    monkeypatch.setattr(control_center_full, "_project_path", lambda _s, _p: tmp_path)
+    monkeypatch.setattr(control_center_full, "_git_command", fake_git)
+    assert (
+        control_center_full._git_head_blob(
+            cast(Settings, SimpleNamespace()), candidate, observation.path, observation
+        )
+        == "## STATUS\nACTIVE\n"
+    )
+
+    dirty = observation.model_copy(update={"working_tree_clean": False})
+    assert (
+        control_center_full._git_head_blob(
+            cast(Settings, SimpleNamespace()), candidate, observation.path, dirty
+        )
+        is None
+    )
+    candidate.git_head_sha = "b" * 40
+    assert (
+        control_center_full._git_head_blob(
+            cast(Settings, SimpleNamespace()), candidate, observation.path, observation
+        )
+        is None
+    )
+
+
+def test_decisions_details_exposes_canonical_ledger_separately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observation = control_center_full.DocumentObservation(
+        path=control_center_full.DECISIONS_DOCUMENT,
+        status=FullStatus.AVAILABLE,
+        byte_count=120,
+        git_head_sha="a" * 40,
+        tracked=True,
+        working_tree_clean=True,
+        source=f"git:HEAD-blob:{control_center_full.DECISIONS_DOCUMENT}",
+    )
+    monkeypatch.setattr(control_center_full, "_document_observation", lambda *_args: observation)
+    monkeypatch.setattr(
+        control_center_full,
+        "_git_head_blob",
+        lambda *_args: ("# Decisions\n## HIVE-ADR-001 — Fixture decision\n**Status:** Accepted\n"),
+    )
+
+    status, details = control_center_full._decisions_details(
+        cast(Settings, SimpleNamespace()), cast(ProjectResponse, project())
+    )
+
+    assert status is FullStatus.AVAILABLE
+    assert details["count"] == 1
+    decisions = cast(list[dict[str, object]], details["decisions"])
+    assert decisions[0]["id"] == "HIVE-ADR-001"
+    assert decisions[0]["title"] == "Fixture decision"
+    assert decisions[0]["status"] == "Accepted"
+    assert decisions[0]["source"] == ("git:HEAD-blob:docs/project-brain/16-DECISIONS-LEDGER.md")

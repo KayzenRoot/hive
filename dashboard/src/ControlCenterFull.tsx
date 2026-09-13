@@ -149,6 +149,53 @@ function detailValue(value: unknown, depth = 0): ReactNode {
   return <span>{primitiveDetailValue(value)}</span>;
 }
 
+function projectIntelligenceSummary(capability: Capability): ReactNode {
+  if (capability.id === "checkpoint-scope-dod") {
+    const checkpoint = isRecord(capability.details.checkpoint)
+      ? capability.details.checkpoint
+      : null;
+    const pending = checkpoint && isRecord(checkpoint.pending) ? checkpoint.pending : null;
+    const scope = isRecord(capability.details.scope) ? capability.details.scope : null;
+    const dod = isRecord(capability.details.definition_of_done)
+      ? capability.details.definition_of_done
+      : null;
+    return (
+      <section className="cc-project-intelligence" aria-label="canonical project intelligence">
+        <h4>Canonical checkpoint</h4>
+        <p>STATUS: {detailValue(checkpoint?.current_status)}</p>
+        <div>IN PROGRESS: {detailValue(checkpoint?.in_progress)}</div>
+        <div>
+          PENDING ({detailValue(pending?.count)}): {detailValue(pending?.items)}
+        </div>
+        <p>NEXT STEP: {detailValue(checkpoint?.next_step)}</p>
+        <h4>Canonical scope</h4>
+        <div>{detailValue(scope?.required_items)}</div>
+        <h4>Definition of Done</h4>
+        <p data-testid="dod-progress">
+          Progress: {primitiveDetailValue(dod?.completed_count)} / {primitiveDetailValue(dod?.total_count)} (
+          {primitiveDetailValue(dod?.percentage)}%)
+        </p>
+        <p>Status: {detailValue(dod?.percentage_status)}</p>
+      </section>
+    );
+  }
+  if (capability.id === "decisions-memory") {
+    const canonical = isRecord(capability.details.canonical_decisions)
+      ? capability.details.canonical_decisions
+      : null;
+    const memory = isRecord(capability.details.memory) ? capability.details.memory : null;
+    return (
+      <section className="cc-project-intelligence" aria-label="canonical decisions and memory">
+        <h4>canonical_decisions</h4>
+        {detailValue(canonical?.decisions)}
+        <h4>memory</h4>
+        {detailValue(memory)}
+      </section>
+    );
+  }
+  return null;
+}
+
 function CapabilityCard({ capability }: { capability: Capability }) {
   const detailEntries = Object.entries(capability.details).slice(0, 8);
   return (
@@ -159,6 +206,7 @@ function CapabilityCard({ capability }: { capability: Capability }) {
       </div>
       <p className="cc-muted">{capability.summary}</p>
       <p className="cc-muted">Provenance: {capability.provenance}</p>
+      {projectIntelligenceSummary(capability)}
       {detailEntries.length > 0 ? (
         <dl className="project-details">
           {detailEntries.map(([key, value]) => (

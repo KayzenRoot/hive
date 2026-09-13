@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 from collections import Counter
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -47,6 +48,7 @@ FULL_EVIDENCE_VERSION = "control-center-full-v1"
 FULL_HISTORY_MAX_POINTS = 100
 FULL_TEXT_MAX_CHARS = 256
 FULL_LIST_MAX = 100
+FULL_CANONICAL_BLOB_MAX_BYTES = 200_000
 FULL_CHART_MAX_POINTS = 100
 FULL_COMMIT_MAX = 20
 FULL_DOCUMENTS = (
@@ -54,6 +56,7 @@ FULL_DOCUMENTS = (
     "docs/project-brain/03-SCOPE.md",
     "docs/project-brain/15-DEFINITION-OF-DONE.md",
 )
+DECISIONS_DOCUMENT = "docs/project-brain/16-DECISIONS-LEDGER.md"
 PROJECT_CAPABILITIES = (
     "project-intelligence",
     "checkpoint-scope-dod",
@@ -289,62 +292,346 @@ def _valid_git_head(value: str | None) -> bool:
     return value is not None and re.fullmatch(r"[0-9a-fA-F]{40,64}", value) is not None
 
 
-def _document_observations(
-    settings: Settings, project: ProjectResponse
-) -> list[DocumentObservation]:
+def _document_observation(
+    settings: Settings, project: ProjectResponse, relative: str
+) -> DocumentObservation:
     root = _project_path(settings, project)
     repository_head = _git_command(root, "rev-parse", "--verify", "HEAD") if root else None
     registered_head = project.git_head_sha
-    observations: list[DocumentObservation] = []
-    for relative in FULL_DOCUMENTS:
-        status = FullStatus.UNAVAILABLE
-        size: int | None = None
-        tracked = False
-        working_tree_clean: bool | None = None
-        source = "git:project-repository-unavailable"
-        if root is not None:
-            if not _valid_git_head(repository_head) or not _valid_git_head(registered_head):
-                source = "git:HEAD-identity-unavailable"
-            elif cast(str, repository_head).lower() != cast(str, registered_head).lower():
-                source = "git:HEAD-does-not-match-registered-project"
+    status = FullStatus.UNAVAILABLE
+    size: int | None = None
+    tracked = False
+    working_tree_clean: bool | None = None
+    source = "git:project-repository-unavailable"
+    if root is not None:
+        if not _valid_git_head(repository_head) or not _valid_git_head(registered_head):
+            source = "git:HEAD-identity-unavailable"
+        elif cast(str, repository_head).lower() != cast(str, registered_head).lower():
+            source = "git:HEAD-does-not-match-registered-project"
+        else:
+            tracked = _git_command(root, "ls-files", "--error-unmatch", "--", relative) is not None
+            if not tracked:
+                source = "git:governance-document-not-tracked"
             else:
-                tracked = (
-                    _git_command(root, "ls-files", "--error-unmatch", "--", relative) is not None
+                dirty = _git_command(
+                    root, "status", "--porcelain=v1", "--untracked-files=all", "--", relative
                 )
-                if not tracked:
-                    source = "git:governance-document-not-tracked"
+                working_tree_clean = dirty == ""
+                if not working_tree_clean:
+                    source = "git:governance-document-working-tree-dirty"
                 else:
-                    dirty = _git_command(
-                        root, "status", "--porcelain=v1", "--untracked-files=all", "--", relative
+                    blob_size = _git_command(
+                        root, "cat-file", "-s", f"{repository_head}:{relative}"
                     )
-                    working_tree_clean = dirty == ""
-                    if not working_tree_clean:
-                        source = "git:governance-document-working-tree-dirty"
+                    try:
+                        size = int(blob_size) if blob_size is not None else None
+                    except ValueError:
+                        size = None
+                    if size is not None and size >= 0:
+                        status = FullStatus.AVAILABLE
+                        source = f"git:HEAD-blob:{relative}"
                     else:
-                        blob_size = _git_command(
-                            root, "cat-file", "-s", f"{repository_head}:{relative}"
-                        )
-                        try:
-                            size = int(blob_size) if blob_size is not None else None
-                        except ValueError:
-                            size = None
-                        if size is not None and size >= 0:
-                            status = FullStatus.AVAILABLE
-                            source = f"git:HEAD-blob:{relative}"
-                        else:
-                            source = "git:HEAD-blob-unavailable"
-        observations.append(
-            DocumentObservation(
-                path=relative,
-                status=status,
-                byte_count=size,
-                git_head_sha=repository_head if _valid_git_head(repository_head) else None,
-                tracked=tracked,
-                working_tree_clean=working_tree_clean,
-                source=source,
-            )
+                        source = "git:HEAD-blob-unavailable"
+    return DocumentObservation(
+        path=relative,
+        status=status,
+        byte_count=size,
+        git_head_sha=repository_head if _valid_git_head(repository_head) else None,
+        tracked=tracked,
+        working_tree_clean=working_tree_clean,
+        source=source,
+    )
+
+
+def _document_observations(
+    settings: Settings, project: ProjectResponse
+) -> list[DocumentObservation]:
+    return [_document_observation(settings, project, relative) for relative in FULL_DOCUMENTS]
+
+
+def _git_head_blob(
+    settings: Settings,
+    project: ProjectResponse,
+    relative: str,
+    observation: DocumentObservation | object,
+) -> str | None:
+    """Read bounded canonical bytes only after the exact Git identity checks."""
+
+    status = getattr(observation, "status", None)
+    status_value = getattr(status, "value", status)
+    if status_value != FullStatus.AVAILABLE.value:
+        return None
+    if getattr(observation, "tracked", False) is not True:
+        return None
+    if getattr(observation, "working_tree_clean", None) is not True:
+        return None
+    observed_head = getattr(observation, "git_head_sha", None)
+    registered_head = getattr(project, "git_head_sha", None)
+    root = _project_path(settings, project)
+    repository_head = _git_command(root, "rev-parse", "--verify", "HEAD") if root else None
+    if (
+        not _valid_git_head(repository_head)
+        or not _valid_git_head(observed_head)
+        or not _valid_git_head(registered_head)
+        or cast(str, repository_head).lower() != cast(str, observed_head).lower()
+        or cast(str, repository_head).lower() != cast(str, registered_head).lower()
+    ):
+        return None
+    blob = _git_command(root, "cat-file", "blob", f"{repository_head}:{relative}") if root else None
+    if blob is None:
+        return None
+    try:
+        if len(blob.encode("utf-8")) > FULL_CANONICAL_BLOB_MAX_BYTES:
+            return None
+    except UnicodeError:
+        return None
+    return blob
+
+
+def _markdown_section(text: str, heading: str) -> str | None:
+    match = re.search(
+        rf"^##[ \t]+{re.escape(heading)}[ \t]*\r?\n(?P<body>.*?)(?=^##[ \t]+|\Z)",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    return match.group("body") if match else None
+
+
+def _section_first_line(section: str | None) -> str | None:
+    if section is None:
+        return None
+    for line in section.splitlines():
+        value = line.strip()
+        if value:
+            return value
+    return None
+
+
+def _section_bullets(section: str | None) -> list[tuple[str, bool | None]]:
+    if section is None:
+        return []
+    entries: list[tuple[str, bool | None]] = []
+    for line in section.splitlines():
+        match = re.match(r"^\s*-\s+(?:\[([ xX])\]\s+)?(\S.*)\s*$", line)
+        if not match:
+            continue
+        checked = match.group(1)
+        entries.append((match.group(2), None if checked is None else checked.lower() == "x"))
+        if len(entries) >= FULL_LIST_MAX:
+            break
+    return entries
+
+
+def _sanitized_texts(values: list[str]) -> list[str] | None:
+    sanitized = [_text(value) for value in values]
+    return sanitized if all(value != "UNAVAILABLE" for value in sanitized) else None
+
+
+def _parse_checkpoint_document(blob: str) -> dict[str, object] | None:
+    status = _section_first_line(_markdown_section(blob, "STATUS"))
+    in_progress = _sanitized_texts(
+        [value for value, _checked in _section_bullets(_markdown_section(blob, "IN PROGRESS"))]
+    )
+    pending_items = _sanitized_texts(
+        [value for value, _checked in _section_bullets(_markdown_section(blob, "PENDING"))]
+    )
+    next_step = _section_first_line(_markdown_section(blob, "NEXT STEP"))
+    if status is None or next_step is None or in_progress is None or pending_items is None:
+        return None
+    status_text = _text(status)
+    next_step_text = _text(next_step)
+    if status_text == "UNAVAILABLE" or next_step_text == "UNAVAILABLE":
+        return None
+    return {
+        "current_status": status_text,
+        "in_progress": in_progress,
+        "pending": {
+            "count": len(pending_items),
+            "summary": _text(f"{len(pending_items)} pending item(s)"),
+            "items": pending_items,
+        },
+        "next_step": next_step_text,
+    }
+
+
+def _parse_scope_document(blob: str) -> dict[str, object] | None:
+    section = _markdown_section(blob, "NECESSARY — V0.1")
+    items = _sanitized_texts([value for value, _checked in _section_bullets(section)])
+    if items is None:
+        return None
+    return {
+        "summary": _text(f"NECESSARY — V0.1: {len(items)} required item(s)"),
+        "required_items_count": len(items),
+        "required_items": items,
+    }
+
+
+def _parse_definition_of_done(blob: str) -> dict[str, object] | None:
+    section_headings = re.findall(r"^##[ \t]+(.+?)[ \t]*$", blob, flags=re.MULTILINE)
+    entries: list[tuple[str, bool | None]] = []
+    for heading in section_headings:
+        entries.extend(_section_bullets(_markdown_section(blob, heading)))
+        if len(entries) >= FULL_LIST_MAX:
+            entries = entries[:FULL_LIST_MAX]
+            break
+    if not entries:
+        return None
+    item_payload = [{"text": _text(value), "completed": checked} for value, checked in entries]
+    if any(item["text"] == "UNAVAILABLE" for item in item_payload):
+        return None
+    explicit_checklist = all(checked is not None for _value, checked in entries)
+    if explicit_checklist:
+        completed = sum(checked is True for _value, checked in entries)
+        percentage = round((completed / len(entries)) * 100, 2)
+        return {
+            "status": FullStatus.AVAILABLE.value,
+            "total_count": len(entries),
+            "completed_count": completed,
+            "percentage": percentage,
+            "percentage_status": FullStatus.AVAILABLE.value,
+            "checklist_grammar": "markdown-task-checkbox",
+            "items": item_payload,
+        }
+    return {
+        "status": FullStatus.UNAVAILABLE.value,
+        "total_count": len(entries),
+        "completed_count": None,
+        "percentage": None,
+        "percentage_status": FullStatus.UNAVAILABLE.value,
+        "checklist_grammar": "unmarked-bullet-requirements",
+        "items": item_payload,
+        "reason": "explicit checklist/status grammar is absent; percentage is not inferred",
+    }
+
+
+def _document_payload(observation: DocumentObservation | object) -> dict[str, object]:
+    model_dump = getattr(observation, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(mode="json")
+        if isinstance(dumped, dict):
+            return dumped
+    return {
+        "path": getattr(observation, "path", "UNAVAILABLE"),
+        "status": getattr(getattr(observation, "status", None), "value", "UNAVAILABLE"),
+        "byte_count": getattr(observation, "byte_count", None),
+        "git_head_sha": getattr(observation, "git_head_sha", None),
+        "tracked": getattr(observation, "tracked", False),
+        "working_tree_clean": getattr(observation, "working_tree_clean", None),
+        "source": getattr(observation, "source", "git:HEAD-identity-unavailable"),
+    }
+
+
+def _canonical_project_intelligence(
+    settings: Settings,
+    project: ProjectResponse,
+    observations: Sequence[object],
+) -> tuple[FullStatus, dict[str, object]]:
+    by_path = {getattr(item, "path", None): item for item in observations}
+    document_payload = [_document_payload(item) for item in observations]
+    parsed: dict[str, dict[str, object]] = {}
+    parsers = {
+        FULL_DOCUMENTS[0]: _parse_checkpoint_document,
+        FULL_DOCUMENTS[1]: _parse_scope_document,
+        FULL_DOCUMENTS[2]: _parse_definition_of_done,
+    }
+    for relative, parser in parsers.items():
+        observation = by_path.get(relative)
+        blob = (
+            _git_head_blob(settings, project, relative, observation)
+            if observation is not None
+            else None
         )
-    return observations
+        parsed_document = parser(blob) if blob is not None else None
+        if parsed_document is None:
+            return FullStatus.UNAVAILABLE, _details(
+                {
+                    "status": FullStatus.UNAVAILABLE.value,
+                    "provenance": MetricProvenance.UNAVAILABLE.value,
+                    "reason": f"canonical Git HEAD blob parsing is unavailable for {relative}",
+                    "documents": document_payload,
+                    "source": "git:HEAD-blob:canonical-project-brain",
+                }
+            )
+        parsed[relative] = {
+            **parsed_document,
+            "source": f"git:HEAD-blob:{relative}",
+            "provenance": MetricProvenance.EXACT.value,
+        }
+    return FullStatus.AVAILABLE, _details(
+        {
+            "status": FullStatus.AVAILABLE.value,
+            "provenance": MetricProvenance.EXACT.value,
+            "documents": document_payload,
+            "checkpoint": parsed[FULL_DOCUMENTS[0]],
+            "scope": parsed[FULL_DOCUMENTS[1]],
+            "definition_of_done": parsed[FULL_DOCUMENTS[2]],
+            "source": "git:HEAD-blob:canonical-project-brain",
+        }
+    )
+
+
+def _parse_decisions_ledger(blob: str) -> list[dict[str, object]] | None:
+    headings = list(
+        re.finditer(
+            r"^##[ \t]+(HIVE-ADR-[0-9]+)[ \t]+[—-][ \t]+(.+?)[ \t]*$",
+            blob,
+            flags=re.MULTILINE,
+        )
+    )
+    if not headings:
+        return None
+    decisions: list[dict[str, object]] = []
+    for index, match in enumerate(headings[:FULL_LIST_MAX]):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(blob)
+        section = blob[match.end() : end]
+        status_match = re.search(r"^\*\*Status:\*\*[ \t]*(.+?)[ \t]*$", section, flags=re.MULTILINE)
+        if status_match is None:
+            return None
+        identifier = _text(match.group(1))
+        title = _text(match.group(2))
+        decision_status = _text(status_match.group(1))
+        if "UNAVAILABLE" in {identifier, title, decision_status}:
+            return None
+        decisions.append(
+            {
+                "id": identifier,
+                "title": title,
+                "status": decision_status,
+                "source": f"git:HEAD-blob:{DECISIONS_DOCUMENT}",
+                "provenance": MetricProvenance.EXACT.value,
+            }
+        )
+    return decisions
+
+
+def _decisions_details(
+    settings: Settings, project: ProjectResponse
+) -> tuple[FullStatus, dict[str, object]]:
+    observation = _document_observation(settings, project, DECISIONS_DOCUMENT)
+    blob = _git_head_blob(settings, project, DECISIONS_DOCUMENT, observation)
+    decisions = _parse_decisions_ledger(blob) if blob is not None else None
+    if decisions is None:
+        return FullStatus.UNAVAILABLE, _details(
+            {
+                "status": FullStatus.UNAVAILABLE.value,
+                "count": 0,
+                "decisions": [],
+                "reason": (
+                    "canonical decisions ledger is missing, malformed, dirty or not HEAD-bound"
+                ),
+                "source": f"git:HEAD-blob:{DECISIONS_DOCUMENT}",
+                "provenance": MetricProvenance.UNAVAILABLE.value,
+            }
+        )
+    return FullStatus.AVAILABLE, _details(
+        {
+            "status": FullStatus.AVAILABLE.value,
+            "count": len(decisions),
+            "decisions": decisions,
+            "source": f"git:HEAD-blob:{DECISIONS_DOCUMENT}",
+            "provenance": MetricProvenance.EXACT.value,
+        }
+    )
 
 
 def _git_commits(settings: Settings, project: ProjectResponse) -> list[CommitObservation]:
@@ -584,6 +871,7 @@ def _memory_details(settings: Settings, project_id: UUID) -> tuple[FullStatus, d
                 item["status"] in {"OBSERVATION", "INFERRED", "PROPOSED", "CONFIRMED"}
                 for item in items
             ),
+            "state": "AVAILABLE" if items else "NO_RECORDS",
             "records": items,
             "source": "postgres:memory_records",
         }
@@ -1425,6 +1713,14 @@ def build_full_control_center(
     retrieval_status, retrieval_details = _retrieval_details(settings, project_id)
     dependency_status, dependency_details = _dependency_summary(settings, project, modules)
     documents = _document_observations(settings, project)
+    checkpoint_scope_dod_status, checkpoint_scope_dod_details = _canonical_project_intelligence(
+        settings, project, documents
+    )
+    checkpoint_scope_dod_provenance = (
+        MetricProvenance.EXACT
+        if checkpoint_scope_dod_status is FullStatus.AVAILABLE
+        else MetricProvenance.UNAVAILABLE
+    )
     commits = _git_commits(settings, project)
     runs = summarize_runs(settings, project_id, limit=FULL_LIST_MAX)
     try:
@@ -1434,6 +1730,28 @@ def build_full_control_center(
             FullStatus.UNAVAILABLE,
             {"reason": "memory_observation_unavailable"},
         )
+    canonical_decisions_status, canonical_decisions_details = _decisions_details(settings, project)
+    if canonical_decisions_status is FullStatus.AVAILABLE and memory_status is FullStatus.AVAILABLE:
+        decisions_memory_status = FullStatus.AVAILABLE
+        decisions_memory_provenance = MetricProvenance.EXACT
+    elif (
+        canonical_decisions_status is FullStatus.AVAILABLE or memory_status is FullStatus.AVAILABLE
+    ):
+        decisions_memory_status = FullStatus.DEGRADED
+        decisions_memory_provenance = MetricProvenance.UNKNOWN
+    else:
+        decisions_memory_status = FullStatus.UNAVAILABLE
+        decisions_memory_provenance = MetricProvenance.UNAVAILABLE
+    decisions_memory_details = _details(
+        {
+            "canonical_decisions": canonical_decisions_details,
+            "memory": memory_details,
+            "source": (
+                "git:HEAD-blob:docs/project-brain/16-DECISIONS-LEDGER.md + postgres:memory_records"
+            ),
+            "provenance": decisions_memory_provenance.value,
+        }
+    )
     health = _health_surfaces(settings)
     quality_events = [
         {
@@ -1467,15 +1785,13 @@ def build_full_control_center(
         ),
         _capability(
             "checkpoint-scope-dod",
-            FullStatus.AVAILABLE
-            if all(item.status is FullStatus.AVAILABLE for item in documents)
-            else FullStatus.UNAVAILABLE,
+            checkpoint_scope_dod_status,
             (
-                "canonical checkpoint, scope and Definition of Done documents are observed "
-                "by project-relative identity"
+                "canonical checkpoint, scope and Definition of Done content is visible from "
+                "the project-relative Git HEAD blobs"
             ),
-            MetricProvenance.EXACT,
-            _details({"documents": [item.model_dump(mode="json") for item in documents]}),
+            checkpoint_scope_dod_provenance,
+            checkpoint_scope_dod_details,
         ),
         _capability(
             "index-health",
@@ -1507,12 +1823,10 @@ def build_full_control_center(
         ),
         _capability(
             "decisions-memory",
-            memory_status,
-            "canonical and staged memory records are visible with provenance",
-            MetricProvenance.EXACT
-            if memory_status is FullStatus.AVAILABLE
-            else MetricProvenance.UNAVAILABLE,
-            memory_details,
+            decisions_memory_status,
+            "canonical decisions remain separate from durable memory records, each with provenance",
+            decisions_memory_provenance,
+            decisions_memory_details,
         ),
         _capability(
             "modules-symbols",

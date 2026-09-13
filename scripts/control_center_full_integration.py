@@ -290,6 +290,80 @@ def assert_surface(payload: dict[str, object], project_id: UUID) -> None:
         ),
         "governance documents are not bound to Git-tracked HEAD bytes",
     )
+    require(
+        checkpoint.get("status") == "AVAILABLE",
+        "canonical project intelligence is unavailable",
+    )
+    checkpoint_payload = checkpoint_details.get("checkpoint")
+    require(isinstance(checkpoint_payload, dict), "checkpoint content is missing")
+    require(
+        checkpoint_payload.get("current_status") == "FIXTURE CONTROL CENTER ACTIVE",
+        "canonical checkpoint status is not visible",
+    )
+    require(
+        isinstance(checkpoint_payload.get("in_progress"), list)
+        and "Verify bounded project intelligence" in checkpoint_payload["in_progress"],
+        "canonical checkpoint IN PROGRESS content is not visible",
+    )
+    pending = checkpoint_payload.get("pending")
+    require(isinstance(pending, dict), "canonical checkpoint PENDING content is missing")
+    require(pending.get("count") == 2, "canonical checkpoint PENDING count is not truthful")
+    require(
+        "Fixture follow-up" in pending.get("items", [])
+        and "Fixture audit" in pending.get("items", []),
+        "canonical checkpoint PENDING items are not visible",
+    )
+    require(
+        checkpoint_payload.get("next_step") == "Publish the next bounded fixture result.",
+        "canonical checkpoint NEXT STEP is not visible",
+    )
+    scope_payload = checkpoint_details.get("scope")
+    require(isinstance(scope_payload, dict), "canonical scope content is missing")
+    require(
+        scope_payload.get("required_items_count") == 2
+        and "Full HIVE Control Center." in scope_payload.get("required_items", []),
+        "canonical required scope content is not visible",
+    )
+    dod_payload = checkpoint_details.get("definition_of_done")
+    require(isinstance(dod_payload, dict), "Definition of Done content is missing")
+    require(
+        dod_payload.get("total_count") == 2
+        and dod_payload.get("completed_count") == 1
+        and dod_payload.get("percentage") == 50.0
+        and dod_payload.get("percentage_status") == "AVAILABLE",
+        "Definition of Done progress is not deterministic",
+    )
+    decisions_memory = next(
+        capability
+        for capability in capabilities
+        if isinstance(capability, dict) and capability.get("id") == "decisions-memory"
+    )
+    decisions_details = decisions_memory.get("details")
+    require(isinstance(decisions_details, dict), "decisions and memory details are missing")
+    canonical_decisions = decisions_details.get("canonical_decisions")
+    memory = decisions_details.get("memory")
+    require(isinstance(canonical_decisions, dict), "canonical decisions are missing")
+    require(isinstance(memory, dict), "durable memory state is missing")
+    decisions = canonical_decisions.get("decisions")
+    require(
+        canonical_decisions.get("status") == "AVAILABLE"
+        and isinstance(decisions, list)
+        and any(
+            isinstance(decision, dict)
+            and decision.get("id") == "HIVE-ADR-001"
+            and decision.get("title") == "Fixture canonical decision"
+            and decision.get("status") == "Accepted"
+            and str(decision.get("source", "")).startswith("git:HEAD-blob:")
+            for decision in decisions
+        ),
+        "canonical decision ledger content is not visible",
+    )
+    require(
+        memory.get("source") == "postgres:memory_records"
+        and isinstance(memory.get("records"), list)
+        and memory.get("record_count") == len(memory["records"]),
+        "durable memory state is not separate or truthful",
+    )
 
 
 def compare_canonical(left: dict[str, object], right: dict[str, object]) -> None:
@@ -321,6 +395,8 @@ def verify_dashboard(probe: ApiProbe) -> None:
         "data-chart-id",
         "real points",
         "live refresh through",
+        "canonical_decisions",
+        "definition_of_done",
     ):
         require(marker in bundle, f"dashboard full surface is missing {marker!r}")
 

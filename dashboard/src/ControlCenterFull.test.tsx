@@ -88,7 +88,42 @@ describe("ControlCenterFull", () => {
                 commits: [{ sha: "a".repeat(40), subject: "fixture commit" }],
               },
             }
-          : capability,
+          : capability.id === "checkpoint-scope-dod"
+            ? {
+                ...capability,
+                details: {
+                  checkpoint: {
+                    current_status: "FIXTURE CONTROL CENTER ACTIVE",
+                    in_progress: ["Verify bounded project intelligence"],
+                    pending: { count: 2, items: ["Fixture follow-up", "Fixture audit"] },
+                    next_step: "Publish the next bounded fixture result.",
+                  },
+                  scope: { required_items: ["Full HIVE Control Center."] },
+                  definition_of_done: {
+                    total_count: 2,
+                    completed_count: 1,
+                    percentage: 50,
+                    percentage_status: "AVAILABLE",
+                  },
+                },
+              }
+            : capability.id === "decisions-memory"
+              ? {
+                  ...capability,
+                  details: {
+                    canonical_decisions: {
+                      decisions: [
+                        {
+                          id: "HIVE-ADR-001",
+                          title: "Fixture canonical decision",
+                          status: "Accepted",
+                        },
+                      ],
+                    },
+                    memory: { state: "NO_RECORDS", record_count: 0, records: [] },
+                  },
+                }
+              : capability,
       ),
       charts: snapshot.charts.map((chart) =>
         chart.id === "tokens-over-time"
@@ -135,6 +170,13 @@ describe("ControlCenterFull", () => {
     expect(screen.getByText("fixture commit")).toBeInTheDocument();
     expect(screen.getByText("test:cpu")).toBeInTheDocument();
     expect(screen.getByTestId("chart-state-cost-over-time")).toHaveTextContent("UNAVAILABLE");
+    expect(screen.getAllByText("FIXTURE CONTROL CENTER ACTIVE").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Publish the next bounded fixture result.").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("dod-progress")).toHaveTextContent("Progress: 1 / 2 (50%)");
+    expect(screen.getAllByText("HIVE-ADR-001").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fixture canonical decision").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "canonical_decisions" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "memory" })).toBeInTheDocument();
   });
 
   it("refreshes the same selected tab when the existing event signal advances", async () => {

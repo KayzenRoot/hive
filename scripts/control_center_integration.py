@@ -302,12 +302,33 @@ def create_fixture_repository(repository: Path, label: str) -> None:
     )
     governance = repository / "docs" / "project-brain"
     governance.mkdir(parents=True)
-    for relative, heading in (
-        ("13-CHECKPOINT.md", "# Fixture checkpoint\n\n## STATUS\nREADY\n"),
-        ("03-SCOPE.md", "# Fixture scope\n\n- bounded fixture scope\n"),
-        ("15-DEFINITION-OF-DONE.md", "# Fixture Definition of Done\n\n- fixture validation\n"),
+    for relative, content in (
+        (
+            "13-CHECKPOINT.md",
+            "# Fixture checkpoint\n\n"
+            "## STATUS\nFIXTURE CONTROL CENTER ACTIVE\n\n"
+            "## IN PROGRESS\n- Verify bounded project intelligence\n\n"
+            "## PENDING\n- Fixture follow-up\n- Fixture audit\n\n"
+            "## NEXT STEP\nPublish the next bounded fixture result.\n",
+        ),
+        (
+            "03-SCOPE.md",
+            "# Fixture scope\n\n"
+            "## NECESSARY — V0.1\n- Full HIVE Control Center.\n- Bounded fixture scope.\n",
+        ),
+        (
+            "15-DEFINITION-OF-DONE.md",
+            "# Fixture Definition of Done\n\n"
+            "## Functional\n- [x] Fixture validation\n- [ ] Fixture follow-up\n",
+        ),
+        (
+            "16-DECISIONS-LEDGER.md",
+            "# Fixture decisions\n\n"
+            "## HIVE-ADR-001 — Fixture canonical decision\n"
+            "**Status:** Accepted\n",
+        ),
     ):
-        (governance / relative).write_text(heading, encoding="utf-8")
+        (governance / relative).write_text(content, encoding="utf-8")
     run_command(["git", "-C", str(repository), "add", "-A"])
     run_command(["git", "-C", str(repository), "commit", "-m", "initial WO-020 fixture"])
 
