@@ -11,6 +11,8 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/context_fingerprints.py: Python source or test module.
 - backend/app/context_manager.py: Python source or test module.
 - backend/app/control_center.py: Python source or test module.
+- backend/app/control_center_metrics.py: Python source or test module.
+- backend/app/control_center_storage_metrics.py: Python source or test module.
 - backend/app/db.py: Python source or test module.
 - backend/app/delta_context.py: Python source or test module.
 - backend/app/execution_orchestrator.py: Python source or test module.
@@ -37,6 +39,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_context_fingerprints.py: Python source or test module.
 - backend/tests/test_context_manager.py: Python source or test module.
 - backend/tests/test_control_center.py: Python source or test module.
+- backend/tests/test_control_center_metrics.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
 - backend/tests/test_execution_orchestrator.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
