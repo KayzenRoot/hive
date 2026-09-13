@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { API_BASE_URL } from "./config";
+import ControlCenterFull from "./ControlCenterFull";
 import { CANONICAL_EVENT_TYPES } from "./eventVocabulary";
 import { formatDateTime, formatTimestamp, shortId } from "./format";
 
@@ -24,6 +25,7 @@ import { formatDateTime, formatTimestamp, shortId } from "./format";
 export type ControlViewId =
   | "fleet"
   | "project"
+  | "full"
   | "runs"
   | "health"
   | "tests"
@@ -223,6 +225,7 @@ type ReplayWindow = { limit: number; hasMore: boolean };
 const CONTROL_VIEWS: { id: ControlViewId; label: string }[] = [
   { id: "fleet", label: "Fleet" },
   { id: "project", label: "Project detail" },
+  { id: "full", label: "Full Control Center" },
   { id: "runs", label: "Runs" },
   { id: "health", label: "Platform health" },
   { id: "tests", label: "Tests" },
@@ -1453,6 +1456,7 @@ export default function ControlCenter({
       </div>
     );
   };
+  const renderFull = () => <ControlCenterFull selectedProjectId={selectedProjectId} />;
   const renderRuns = () => {
     if (!selectedProjectId) {
       return <p className="fleet-message">Select an operational project to open its run surfaces.</p>;
@@ -1893,6 +1897,7 @@ export default function ControlCenter({
       >
         {view === "fleet" ? renderFleet() : null}
         {view === "project" ? renderProject() : null}
+        {view === "full" ? renderFull() : null}
         {view === "runs" ? renderRuns() : null}
         {view === "health" ? renderHealth() : null}
         {view === "tests" ? renderTests() : null}
