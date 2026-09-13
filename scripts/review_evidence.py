@@ -877,6 +877,159 @@ WO021_PRODUCT_DEPENDENCY_PATHS = frozenset(
 )
 WO021_PRODUCT_RELEASE_PATHS = frozenset({"VERSION", "CHANGELOG.md"})
 
+CONTROL_CENTER_FULL_EVIDENCE_VERSION = "control-center-full-v1"
+CONTROL_CENTER_FULL_EVIDENCE_FILE = "control-center-full.json"
+CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD = "0007_telemetry_events"
+CONTROL_CENTER_FULL_PROJECT_CAPABILITIES = (
+    "project-intelligence",
+    "checkpoint-scope-dod",
+    "index-health",
+    "latest-commits",
+    "run-history",
+    "decisions-memory",
+    "modules-symbols",
+    "dependency-graph",
+    "quality-history",
+    "retrieval-quality",
+)
+CONTROL_CENTER_FULL_CHARTS = (
+    "tokens-over-time",
+    "cached-vs-fresh-tokens",
+    "token-savings",
+    "cost-over-time",
+    "cache-hit-rate",
+    "context-reduction",
+    "context-signal-ratio",
+    "physical-vs-logical-storage",
+    "compression-dedup-savings",
+    "project-activity",
+    "test-pass-failure-rate",
+    "retrieval-latency",
+    "service-latency-errors",
+)
+CONTROL_CENTER_FULL_ALERTS = (
+    "disk-low",
+    "redis-unavailable",
+    "postgres-unavailable",
+    "project-stale",
+    "index-inconsistent",
+    "retrieval-degradation",
+    "cache-hit-collapse",
+    "token-spike",
+    "unexpected-cost-spike",
+    "failed-test-build",
+    "executor-disconnected",
+    "checkpoint-mismatch",
+)
+CONTROL_CENTER_FULL_HEALTH_CAPABILITIES = (
+    "platform-resource-health",
+    "container-status",
+    "local-model-health-conditional",
+)
+CONTROL_CENTER_FULL_TRUE_FIELDS = (
+    "full_control_center_capabilities_implemented",
+    "project_intelligence_visible",
+    "project_checkpoint_scope_dod_visible",
+    "project_index_health_visible",
+    "project_latest_commits_visible",
+    "project_run_history_visible",
+    "project_decisions_memory_visible",
+    "project_modules_symbols_visible",
+    "project_dependency_graph_visible",
+    "project_quality_history_visible",
+    "project_retrieval_quality_visible",
+    "required_charts_visible",
+    "required_alerts_visible",
+    "platform_resource_health_visible",
+    "container_status_visible",
+    "local_model_health_conditional",
+    "estimated_values_labelled",
+    "unavailable_metrics_not_fabricated",
+    "unknown_metrics_not_zero",
+    "postgres_canonical",
+    "redis_noncanonical",
+    "project_scoped",
+    "near_realtime_refresh",
+    "payloads_bounded",
+    "frontend_render_bounded",
+    "restart_recovery",
+    "redis_loss_recovery",
+)
+CONTROL_CENTER_FULL_FALSE_FIELDS = (
+    "full_v01_complete_claimed",
+    "redis_canonical_truth",
+    "fabricated_metrics",
+    "fabricated_alerts",
+)
+CONTROL_CENTER_FULL_INTEGER_FIELDS = (
+    "history_max_points",
+    "secret_leaks",
+    "filesystem_path_leaks",
+    "cross_project_leaks",
+    "llm_calls",
+    "provider_calls",
+)
+CONTROL_CENTER_FULL_STRING_FIELDS = (
+    "full_control_center_evidence_version",
+    "evidence_file",
+    "observed_migration_head",
+    "migration_base_head",
+    "api_path",
+    "dashboard_path",
+)
+CONTROL_CENTER_FULL_LIST_FIELDS = (
+    "implemented_project_capabilities",
+    "implemented_charts",
+    "implemented_alerts",
+    "implemented_health_capabilities",
+    "evidence_paths",
+)
+CONTROL_CENTER_FULL_REQUIRED_FIELDS = (
+    "status",
+    *CONTROL_CENTER_FULL_STRING_FIELDS,
+    "migration_changed",
+    *CONTROL_CENTER_FULL_TRUE_FIELDS,
+    *CONTROL_CENTER_FULL_FALSE_FIELDS,
+    *CONTROL_CENTER_FULL_INTEGER_FIELDS,
+    *CONTROL_CENTER_FULL_LIST_FIELDS,
+)
+CONTROL_CENTER_FULL_ALLOWED_FIELDS = frozenset(CONTROL_CENTER_FULL_REQUIRED_FIELDS)
+CONTROL_CENTER_FULL_PATH_ROOTS = {
+    "api_path": "backend/app/",
+    "dashboard_path": "dashboard/src/",
+}
+CONTROL_CENTER_FULL_EVIDENCE_PATH_ROOTS = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "scripts/",
+    "docs/atlas/",
+)
+CONTROL_CENTER_FULL_MAX_HISTORY_POINTS = 512
+CONTROL_CENTER_FULL_MAX_EVIDENCE_PATHS = 24
+
+WO022_G1_BASE_SHA = "ccff5882a0bec20a90ee4516640aa44d9e9b5352"
+WO022_G1_WORK_ORDER = "WO-022-G1"
+WO022_WORK_ORDER = "WO-022"
+WO022_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO022_PRODUCT_ALLOWED_PREFIXES = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "scripts/",
+    "docs/atlas/",
+)
+WO022_PRODUCT_FORBIDDEN_PATHS = frozenset(WO022_G1_ALLOWED_PATHS)
+
 GEF_ADOPTION_WORK_ORDER = "GEF-ADOPTION-001"
 GEF_ADOPTION_BASE_SHA = "c9430af13860ab30e31bd162991eb88c05215f4f"
 GEF_ADOPTION_ARTIFACT_PATHS = frozenset(
@@ -1737,6 +1890,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO020_WORK_ORDER,
         WO021_G1_WORK_ORDER,
         WO021_WORK_ORDER,
+        WO022_G1_WORK_ORDER,
+        WO022_WORK_ORDER,
     }:
         return
     if work_order == WO014_C2_WORK_ORDER:
@@ -1750,7 +1905,7 @@ def require_supported_work_order(work_order: str) -> None:
             "registration is required: " + work_order
         )
     future_match = re.fullmatch(r"WO-(\d+)(?:-[A-Z0-9]+)*", work_order)
-    if future_match and int(future_match.group(1)) >= 21:
+    if future_match and int(future_match.group(1)) >= 23:
         raise ValueError(
             "unsupported future work order; explicit governance registration is required: "
             + work_order
@@ -3828,6 +3983,96 @@ def require_wo021_scope(
         )
 
 
+def require_wo022_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+) -> None:
+    if work_order != WO022_G1_WORK_ORDER:
+        return
+    if base_sha != WO022_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO022_G1_WORK_ORDER} requires exact base {WO022_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO022_G1_WORK_ORDER} requires the protected main base branch")
+    if sorted(set(paths)) != sorted(WO022_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO022_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(f"{WO022_G1_WORK_ORDER} requires exactly the four governance files")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO022_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO022_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO022_G1_WORK_ORDER} requires migration head "
+            f"{CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD}"
+        )
+
+
+def require_wo022_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO022_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO022_WORK_ORDER} requires the protected main base branch")
+    if HEX_SHA.fullmatch(base_sha) is None or base_sha == "0" * 40:
+        raise ValueError(f"{WO022_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) is None:
+            raise ValueError(f"{WO022_WORK_ORDER} requires a resolved current protected main SHA")
+        if base_sha != current_main:
+            raise ValueError(
+                f"{WO022_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+        base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode(
+            "utf-8"
+        )
+        if WO022_G1_WORK_ORDER not in base_review_evidence:
+            raise ValueError(
+                f"{WO022_WORK_ORDER} requires merged {WO022_G1_WORK_ORDER} support in its base"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO022_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO022_WORK_ORDER} cannot change migrations")
+    if any(path == ".github" or path.startswith(".github/") for path in paths):
+        raise ValueError(f"{WO022_WORK_ORDER} cannot change CI workflows")
+    if any(path in WO021_PRODUCT_DEPENDENCY_PATHS for path in paths):
+        raise ValueError(f"{WO022_WORK_ORDER} cannot change dependencies")
+    if any(
+        path in WO021_PRODUCT_RELEASE_PATHS
+        or path == "release-assets"
+        or path.startswith("release-assets/")
+        for path in paths
+    ):
+        raise ValueError(f"{WO022_WORK_ORDER} cannot change release files")
+    unauthorized = sorted(
+        path
+        for path in set(paths)
+        if path in WO022_PRODUCT_FORBIDDEN_PATHS
+        or not any(path.startswith(prefix) for prefix in WO022_PRODUCT_ALLOWED_PREFIXES)
+    )
+    if unauthorized:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} changed files outside the bounded "
+            "Full Control Center product scope: " + ", ".join(unauthorized)
+        )
+
+
 def require_wo018_autonomous_evidence(
     work_order: str,
     integration: Mapping[str, object],
@@ -4889,6 +5134,21 @@ def valid_control_center_metrics_path(value: object) -> bool:
     )
 
 
+def valid_control_center_full_path(field: str, value: object) -> bool:
+    """Apply the full Control Center path rule and its bounded role root."""
+
+    return canonical_repository_relative_path(value, prefix=CONTROL_CENTER_FULL_PATH_ROOTS[field])
+
+
+def valid_control_center_full_evidence_path(value: object) -> bool:
+    """Return True for a normalized path in an authorized WO-022 product area."""
+
+    return any(
+        canonical_repository_relative_path(value, prefix=prefix)
+        for prefix in CONTROL_CENTER_FULL_EVIDENCE_PATH_ROOTS
+    )
+
+
 def _is_closed_string_set(value: object, expected: tuple[str, ...]) -> bool:
     """Return True when value is exactly one permutation of expected strings."""
 
@@ -5006,6 +5266,109 @@ def require_wo021_control_center_metrics_evidence(
     ):
         if metrics.get(field) != 0:
             raise ValueError(f"{WO021_WORK_ORDER} requires {field}=0")
+
+
+def require_wo022_full_control_center_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order == WO022_G1_WORK_ORDER:
+        if "control_center_full" in integration:
+            raise ValueError(
+                f"{WO022_G1_WORK_ORDER} must not claim future Full Control Center evidence"
+            )
+        return
+    if work_order != WO022_WORK_ORDER:
+        return
+    full = integration.get("control_center_full")
+    if not isinstance(full, Mapping):
+        raise ValueError(f"{WO022_WORK_ORDER} missing mandatory Full Control Center evidence")
+    if set(full) != CONTROL_CENTER_FULL_ALLOWED_FIELDS:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} Full Control Center evidence must match the closed "
+            "contract exactly"
+        )
+    if full.get("status") != "PASS":
+        raise ValueError(f"{WO022_WORK_ORDER} requires passing Full Control Center evidence")
+    if full.get("evidence_file") != CONTROL_CENTER_FULL_EVIDENCE_FILE:
+        raise ValueError(f"{WO022_WORK_ORDER} requires {CONTROL_CENTER_FULL_EVIDENCE_FILE}")
+    if full.get("full_control_center_evidence_version") != CONTROL_CENTER_FULL_EVIDENCE_VERSION:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} requires evidence version {CONTROL_CENTER_FULL_EVIDENCE_VERSION}"
+        )
+    missing = [field for field in CONTROL_CENTER_FULL_TRUE_FIELDS if full.get(field) is not True]
+    if missing:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} missing mandatory Full Control Center evidence: "
+            + ", ".join(sorted(missing))
+        )
+    invalid_false = [
+        field for field in CONTROL_CENTER_FULL_FALSE_FIELDS if full.get(field) is not False
+    ]
+    if invalid_false:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} requires bounded negative claims: "
+            + ", ".join(sorted(invalid_false))
+        )
+    for field in CONTROL_CENTER_FULL_INTEGER_FIELDS:
+        value = full.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{WO022_WORK_ORDER} requires bounded integer evidence for {field}")
+    history_points = cast(int, full["history_max_points"])
+    if not 1 <= history_points <= CONTROL_CENTER_FULL_MAX_HISTORY_POINTS:
+        raise ValueError(f"{WO022_WORK_ORDER} requires bounded history points")
+    closed_lists = (
+        ("implemented_project_capabilities", CONTROL_CENTER_FULL_PROJECT_CAPABILITIES),
+        ("implemented_charts", CONTROL_CENTER_FULL_CHARTS),
+        ("implemented_alerts", CONTROL_CENTER_FULL_ALERTS),
+        ("implemented_health_capabilities", CONTROL_CENTER_FULL_HEALTH_CAPABILITIES),
+    )
+    for field, expected in closed_lists:
+        if not _is_closed_string_set(full.get(field), expected):
+            raise ValueError(f"{WO022_WORK_ORDER} requires the closed {field} contract")
+    if not valid_control_center_full_path("api_path", full.get("api_path")):
+        raise ValueError(f"{WO022_WORK_ORDER} requires a sanitized relative api_path")
+    if not valid_control_center_full_path("dashboard_path", full.get("dashboard_path")):
+        raise ValueError(f"{WO022_WORK_ORDER} requires a sanitized relative dashboard_path")
+    paths = full.get("evidence_paths")
+    if (
+        not isinstance(paths, list)
+        or not 1 <= len(paths) <= CONTROL_CENTER_FULL_MAX_EVIDENCE_PATHS
+        or any(not isinstance(path, str) for path in cast(list[object], paths))
+        or len(set(cast(list[object], paths))) != len(paths)
+        or any(
+            not valid_control_center_full_evidence_path(path) for path in cast(list[object], paths)
+        )
+    ):
+        raise ValueError(
+            f"{WO022_WORK_ORDER} requires bounded normalized repository-relative evidence paths"
+        )
+    if full.get("migration_changed") is not False:
+        raise ValueError(f"{WO022_WORK_ORDER} requires migration_changed=false")
+    if full.get("observed_migration_head") != CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} requires observed migration head "
+            f"{CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD}"
+        )
+    if migration_head_value != CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} requires migration head {CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD}"
+        )
+    if full.get("migration_base_head") != CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO022_WORK_ORDER} requires migration_base_head "
+            f"{CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD}"
+        )
+    for field in (
+        "secret_leaks",
+        "filesystem_path_leaks",
+        "cross_project_leaks",
+        "llm_calls",
+        "provider_calls",
+    ):
+        if full.get(field) != 0:
+            raise ValueError(f"{WO022_WORK_ORDER} requires {field}=0")
 
 
 def require_wo020_control_center_evidence(
@@ -5282,7 +5645,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-022-P", "WO-022", "WO-999"):
+    for rejected in ("WO-022-P", "WO-023", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -5314,7 +5677,7 @@ def verify_wo021_g1_governance_contract(
         f"migration_head={CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD}; migration_changed=False; "
         f"future_{WO021_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_METRICS_EVIDENCE_VERSION}_fail_closed=PASS; "
-        "metrics_implementation=False; unknown_WO-022-P_WO-022_WO-999=REJECTED; "
+        "metrics_implementation=False; unknown_WO-022-P_WO-023_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -5359,6 +5722,98 @@ def verify_wo021_governance_contract(
         f"migration_head={migration_head_value}; migration_changed=False; "
         "full_control_center_claimed=False; full_v01_complete_claimed=False; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo022_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO022_G1_WORK_ORDER:
+        return None
+    require_wo022_g1_scope(work_order, base_sha, paths)
+    for rejected in ("WO-022-P", "WO-023", "WO-999"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO022_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO022_G1_WORK_ORDER} requires migration head "
+            f"{CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO022_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO022_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo022_full_control_center_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO022_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO022_WORK_ORDER)
+    return (
+        f"work_order={WO022_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        f"migration_head={CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD}; migration_changed=False; "
+        f"future_{WO022_WORK_ORDER}_registered=PASS; "
+        f"future_{CONTROL_CENTER_FULL_EVIDENCE_VERSION}_fail_closed=PASS; "
+        "full_control_center_implementation=False; "
+        "unknown_WO-022-P_WO-023_WO-999=REJECTED; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo022_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO022_WORK_ORDER:
+        return None
+    require_wo022_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO022_WORK_ORDER} cannot change canonical Project Brain")
+    require_wo022_full_control_center_evidence(work_order, integration, migration_head_value)
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO022_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO022_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_current_work_order_authorization(WO022_WORK_ORDER)
+    full = cast(Mapping[str, object], integration["control_center_full"])
+    capabilities = ",".join(cast(list[str], full["implemented_project_capabilities"]))
+    return (
+        f"work_order={WO022_WORK_ORDER}; product_scope=PASS; "
+        f"evidence_version={CONTROL_CENTER_FULL_EVIDENCE_VERSION}; "
+        f"implemented_project_capabilities={capabilities}; "
+        "charts=PASS; alerts=PASS; platform_resource_health=PASS; "
+        "postgres_canonical=PASS; redis_canonical_truth=False; "
+        "estimated_unavailable_unknown_provenance=PASS; project_scope=PASS; "
+        "near_realtime=PASS; restart/redis_loss=PASS/PASS; "
+        "secret_path_cross_project_leaks=0/0/0; llm_provider_calls=0/0; "
+        f"migration_head={migration_head_value}; migration_changed=False; "
+        "full_v01_complete_claimed=False; ruleset_unchanged=PASS; "
+        "auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
 
@@ -7412,6 +7867,124 @@ def control_center_metrics_evidence() -> dict[str, object]:
     }
 
 
+def control_center_full_evidence() -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "full_control_center_evidence_version": CONTROL_CENTER_FULL_EVIDENCE_VERSION,
+        "evidence_file": CONTROL_CENTER_FULL_EVIDENCE_FILE,
+        "observed_migration_head": "UNKNOWN",
+        "migration_base_head": "UNKNOWN",
+        "api_path": "UNKNOWN",
+        "dashboard_path": "UNKNOWN",
+        "migration_changed": False,
+        **{field: False for field in CONTROL_CENTER_FULL_TRUE_FIELDS},
+        **{field: False for field in CONTROL_CENTER_FULL_FALSE_FIELDS},
+        **{field: 0 for field in CONTROL_CENTER_FULL_INTEGER_FIELDS},
+        "implemented_project_capabilities": [],
+        "implemented_charts": [],
+        "implemented_alerts": [],
+        "implemented_health_capabilities": [],
+        "evidence_paths": [],
+    }
+    text = integration_file(CONTROL_CENTER_FULL_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+
+    extra_fields = set(data) - CONTROL_CENTER_FULL_ALLOWED_FIELDS
+    true_values = {field: data.get(field) is True for field in CONTROL_CENTER_FULL_TRUE_FIELDS}
+    false_checks = {field: data.get(field) is False for field in CONTROL_CENTER_FULL_FALSE_FIELDS}
+    false_values = {field: data.get(field) is True for field in CONTROL_CENTER_FULL_FALSE_FIELDS}
+    strings = {
+        field: data.get(field) if isinstance(data.get(field), str) else "UNKNOWN"
+        for field in CONTROL_CENTER_FULL_STRING_FIELDS
+    }
+    integers: dict[str, int] = {}
+    integer_fields_valid = True
+    for field in CONTROL_CENTER_FULL_INTEGER_FIELDS:
+        value = data.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            integer_fields_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    raw_lists = {
+        "implemented_project_capabilities": data.get("implemented_project_capabilities"),
+        "implemented_charts": data.get("implemented_charts"),
+        "implemented_alerts": data.get("implemented_alerts"),
+        "implemented_health_capabilities": data.get("implemented_health_capabilities"),
+    }
+    expected_lists = {
+        "implemented_project_capabilities": CONTROL_CENTER_FULL_PROJECT_CAPABILITIES,
+        "implemented_charts": CONTROL_CENTER_FULL_CHARTS,
+        "implemented_alerts": CONTROL_CENTER_FULL_ALERTS,
+        "implemented_health_capabilities": CONTROL_CENTER_FULL_HEALTH_CAPABILITIES,
+    }
+    list_valid = {
+        field: _is_closed_string_set(raw_lists[field], expected_lists[field]) for field in raw_lists
+    }
+    implemented_lists = {
+        field: list(cast(list[str], raw_lists[field])) if list_valid[field] else []
+        for field in raw_lists
+    }
+    raw_paths = data.get("evidence_paths")
+    paths_valid = (
+        isinstance(raw_paths, list)
+        and 1 <= len(raw_paths) <= CONTROL_CENTER_FULL_MAX_EVIDENCE_PATHS
+        and all(isinstance(path, str) for path in cast(list[object], raw_paths))
+        and len(set(cast(list[object], raw_paths))) == len(raw_paths)
+        and all(
+            valid_control_center_full_evidence_path(path) for path in cast(list[object], raw_paths)
+        )
+    )
+    evidence_paths = list(cast(list[str], raw_paths)) if paths_valid else []
+    migration_changed = data.get("migration_changed") is True
+    status = (
+        "PASS"
+        if data.get("status") == "PASS"
+        and not extra_fields
+        and strings["full_control_center_evidence_version"] == CONTROL_CENTER_FULL_EVIDENCE_VERSION
+        and strings["evidence_file"] == CONTROL_CENTER_FULL_EVIDENCE_FILE
+        and strings["migration_base_head"] == CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD
+        and strings["observed_migration_head"] == CONTROL_CENTER_FULL_MIGRATION_BASE_HEAD
+        and migration_changed is False
+        and all(true_values.values())
+        and all(false_checks.values())
+        and all(list_valid.values())
+        and valid_control_center_full_path("api_path", strings["api_path"])
+        and valid_control_center_full_path("dashboard_path", strings["dashboard_path"])
+        and paths_valid
+        and integer_fields_valid
+        and 1 <= integers["history_max_points"] <= CONTROL_CENTER_FULL_MAX_HISTORY_POINTS
+        and all(
+            integers[field] == 0
+            for field in (
+                "secret_leaks",
+                "filesystem_path_leaks",
+                "cross_project_leaks",
+                "llm_calls",
+                "provider_calls",
+            )
+        )
+        else "FAIL"
+    )
+    return {
+        "status": status,
+        **strings,
+        "migration_changed": migration_changed,
+        **true_values,
+        **false_values,
+        **integers,
+        **implemented_lists,
+        "evidence_paths": evidence_paths,
+    }
+
+
 def acce_storage_policy_evidence() -> dict[str, object]:
     unknown: dict[str, object] = {
         "status": "UNKNOWN",
@@ -7961,6 +8534,9 @@ def integration_evidence(
         and control_center_metrics["status"] == "FAIL"
     ):
         status = "FAIL"
+    control_center_full = control_center_full_evidence()
+    if work_order == WO022_WORK_ORDER and control_center_full["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
         "status": status,
@@ -8023,6 +8599,8 @@ def integration_evidence(
         evidence["control_center_core"] = control_center_core
     if work_order in {WO021_WORK_ORDER, WO021P_G1_WORK_ORDER, WO021P_WORK_ORDER}:
         evidence["control_center_metrics"] = control_center_metrics
+    if work_order == WO022_WORK_ORDER:
+        evidence["control_center_full"] = control_center_full
     return evidence
 
 
@@ -9505,6 +10083,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         paths,
         base_branch=args.base_branch,
     )
+    require_wo022_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+    )
     require_wo012p_scope(
         work_order,
         base_sha,
@@ -9640,6 +10224,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_branch=args.base_branch,
         enforce_current_main=True,
     )
+    require_wo022_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     require_gef_adoption_scope(
         work_order,
         base_sha,
@@ -9686,6 +10277,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo019_telemetry_evidence(work_order, integration, migration_head())
     require_wo020_control_center_evidence(work_order, integration, migration_head())
     require_wo021_control_center_metrics_evidence(work_order, integration, migration_head())
+    require_wo022_full_control_center_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -9836,6 +10428,24 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo021_governance_evidence = verify_wo021_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo022_g1_governance_evidence = verify_wo022_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo022_governance_evidence = verify_wo022_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -10120,6 +10730,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             else []
         )
         + (
+            [f"WO-022-G1 governance evidence: {wo022_g1_governance_evidence}"]
+            if wo022_g1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-022 governance evidence: {wo022_governance_evidence}"]
+            if wo022_governance_evidence
+            else []
+        )
+        + (
             [f"WO-017-P-G1 governance evidence: {wo017p_g1_governance_evidence}"]
             if wo017p_g1_governance_evidence
             else []
@@ -10283,6 +10903,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
     )
     require_wo021_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+    )
+    require_wo022_g1_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -10455,6 +11083,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_current_main=True,
     )
     require_wo021_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
+    )
+    require_wo022_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
@@ -10819,6 +11456,36 @@ def validate_manifest(manifest: dict[str, object]) -> None:
                 "WO-021 evidence must record the explicit Control Center metrics "
                 "governance contract"
             )
+    wo022_g1_evidence = verify_wo022_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO022_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-022-G1 governance evidence: {wo022_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-022-G1 evidence must record the explicit governance enablement contract"
+            )
+    wo022_evidence = verify_wo022_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO022_WORK_ORDER:
+        expected_entry = f"WO-022 governance evidence: {wo022_evidence}"
+        if expected_entry not in negative_scope:
+            raise ValueError(
+                "WO-022 evidence must record the explicit Full Control Center governance contract"
+            )
     wo017_g1_evidence = verify_wo017_g1_governance_contract(
         work_order,
         cast(str, base["sha"]),
@@ -11070,6 +11737,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
     )
     require_wo021_control_center_metrics_evidence(
+        work_order,
+        cast(dict[str, Any], evidence["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    require_wo022_full_control_center_evidence(
         work_order,
         cast(dict[str, Any], evidence["integration"]),
         cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
@@ -11680,6 +12352,30 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{control_center_metrics_evidence_value.get('metrics_llm_calls', 'UNKNOWN')}/"
         f"{control_center_metrics_evidence_value.get('metrics_provider_calls', 'UNKNOWN')}`"
     )
+    control_center_full_evidence_value = cast(
+        dict[str, Any], integration.get("control_center_full", {})
+    )
+    control_center_full_version = control_center_full_evidence_value.get(
+        "full_control_center_evidence_version", "NOT_REQUIRED"
+    )
+    control_center_full_text = (
+        f"`{control_center_full_evidence_value.get('status', 'NOT_REQUIRED')}`; version `"
+        f"{control_center_full_version}`, "
+        "project capabilities `"
+        f"{control_center_full_evidence_value.get('implemented_project_capabilities', [])}`, "
+        f"charts `{control_center_full_evidence_value.get('implemented_charts', [])}`, "
+        f"alerts `{control_center_full_evidence_value.get('implemented_alerts', [])}`, "
+        "health `"
+        f"{control_center_full_evidence_value.get('implemented_health_capabilities', [])}`, "
+        "full V0.1 claim `"
+        f"{control_center_full_evidence_value.get('full_v01_complete_claimed', False)}`, "
+        f"leaks/calls `"
+        f"{control_center_full_evidence_value.get('secret_leaks', 'UNKNOWN')}/"
+        f"{control_center_full_evidence_value.get('filesystem_path_leaks', 'UNKNOWN')}/"
+        f"{control_center_full_evidence_value.get('cross_project_leaks', 'UNKNOWN')}/"
+        f"{control_center_full_evidence_value.get('llm_calls', 'UNKNOWN')}/"
+        f"{control_center_full_evidence_value.get('provider_calls', 'UNKNOWN')}`"
+    )
     integration_summary = ", ".join(
         f"{label} `{cast(dict[str, Any], integration[key])['status']}`"
         for key, label in (
@@ -11695,6 +12391,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
             ("mcp_surface", "MCP Core Surface"),
             ("telemetry_event_bus", "Telemetry/Event Bus"),
             ("control_center_metrics", "Control Center Metrics"),
+            ("control_center_full", "Full Control Center"),
         )
         if key in integration
     )
@@ -11739,6 +12436,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - MCP Core Surface evidence: {mcp_surface_text}
 - Telemetry/Event Bus evidence: {telemetry_event_bus_text}
 - Control Center Metrics evidence: {control_center_metrics_text}
+- Full Control Center evidence: {control_center_full_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
 - WO-015-G1 governance evidence: {wo015_g1_governance_text}
