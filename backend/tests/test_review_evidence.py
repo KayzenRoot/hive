@@ -3631,6 +3631,15 @@ def test_wo021p_checkpoint_semantics_are_closed_and_retain_pending() -> None:
             1,
         ),
         candidate.replace(
+            f"- {review_evidence.EXPECTED_WO021P_IN_PROGRESS}",
+            "- Preparing the smallest necessary Control Center stabilization increment.",
+            1,
+        ).replace(
+            review_evidence.EXPECTED_WO021P_NEXT_STEP,
+            "Prepare the smallest necessary Control Center stabilization increment.",
+            1,
+        ),
+        candidate.replace(
             review_evidence.WO021P_CANONICAL_COMPLETION_BULLETS[-1],
             "full HIVE V0.1 is complete.",
             1,

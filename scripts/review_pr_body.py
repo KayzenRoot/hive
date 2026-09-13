@@ -2578,8 +2578,9 @@ IMPLEMENTATION ACTIVE. O prefixo histórico de COMPLETED é preservado e seis
 bullets fechados de evidência WO-021 são anexados. Full Control Center,
 benchmarks abrangentes, estabilização, deployment, backup/recovery,
 documentação e revisão final permanecem em PENDING na ordem canônica.
-IN PROGRESS e NEXT STEP avançam para o menor incremento de estabilização ainda
-necessário; não repetem o incremento de métricas concluído.
+IN PROGRESS e NEXT STEP avançam para o menor incremento de implementação do
+Full HIVE Control Center ainda necessário; não repetem o incremento de métricas
+concluído.
 
 ## 3. Evidência e manifesto
 

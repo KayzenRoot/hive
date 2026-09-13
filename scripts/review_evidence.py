@@ -1552,12 +1552,14 @@ WO020P_CANONICAL_COMPLETION_BULLETS = (
 EXPECTED_WO021P_STATUS = "CONTROL CENTER METRICS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE"
 EXPECTED_WO021P_PREVIOUS_STATUS = EXPECTED_WO020P_STATUS
 EXPECTED_WO021P_IN_PROGRESS = (
-    "Preparing the smallest necessary Control Center stabilization increment."
+    "Preparing the smallest necessary full HIVE Control Center implementation increment."
 )
 EXPECTED_WO021P_BLOCKERS = (
     "None known after Control Center Metrics Foundation approval and post-merge validation."
 )
-EXPECTED_WO021P_NEXT_STEP = "Prepare the smallest necessary Control Center stabilization increment."
+EXPECTED_WO021P_NEXT_STEP = (
+    "Prepare the smallest necessary full HIVE Control Center implementation increment."
+)
 WO021P_REQUIRED_RETAINED_PENDING_ITEMS = WO020P_REQUIRED_RETAINED_PENDING_ITEMS
 WO021P_CANONICAL_COMPLETION_BULLETS = (
     "control center metrics foundation is approved under evidence control-center-metrics-v1 "
