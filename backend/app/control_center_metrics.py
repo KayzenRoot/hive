@@ -11,7 +11,11 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import Settings, get_settings
-from .control_center_storage_metrics import StorageObservation, observe_project_storage
+from .control_center_storage_metrics import (
+    StorageObservation,
+    observe_global_storage,
+    observe_project_storage,
+)
 from .registry import get_project, list_projects
 from .telemetry import EventEnvelope, list_recent_events
 
@@ -510,36 +514,7 @@ def _global_snapshot(
         else _missing("global:cache:hit-rate")
     )
 
-    storage = family(
-        (
-            "logical_task_bytes",
-            "physical_referenced_bytes",
-            "task_count",
-            "referenced_blob_count",
-        ),
-        "storage",
-    )
-    logical = storage["logical_task_bytes"]
-    physical = storage["physical_referenced_bytes"]
-    if logical.value is not None and physical.value is not None:
-        saved = logical.value - physical.value
-        storage["saved_bytes"] = _value(
-            saved,
-            MetricProvenance.EXACT,
-            "global:storage:saved",
-        )
-        storage["savings_ratio"] = (
-            _value(
-                saved / logical.value,
-                MetricProvenance.EXACT,
-                "global:storage:ratio",
-            )
-            if logical.value > 0
-            else _missing("global:storage:ratio")
-        )
-    else:
-        storage["saved_bytes"] = _missing("global:storage:saved")
-        storage["savings_ratio"] = _missing("global:storage:ratio")
+    storage = _storage_metrics(observe_global_storage(settings))
 
     history = [
         point for snapshot in snapshots for point in snapshot.history
