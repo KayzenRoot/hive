@@ -157,7 +157,7 @@ def test_full_contract_exposes_all_closed_surface_ids(monkeypatch: pytest.Monkey
     wire(monkeypatch)
 
     response = TestClient(main.app).get(
-        "/api/v1/control-center/projects/00000000-0000-0000-0000-000000000022/full"
+        "/api/v1/control-center/projects/00000000-0000-0000-0000-000000000022/full?history_points=7"
     )
 
     assert response.status_code == 200
@@ -170,7 +170,8 @@ def test_full_contract_exposes_all_closed_surface_ids(monkeypatch: pytest.Monkey
     assert body["canonical_store"] == "postgres"
     assert body["hot_store_canonical"] is False
     assert body["full_v01_complete_claimed"] is False
-    assert body["history_max_points"] <= 512
+    assert body["history_max_points"] == 7
+    assert {chart["max_points"] for chart in body["charts"]} == {7, 100}
 
 
 def test_full_endpoint_keeps_missing_observations_truthful(monkeypatch: pytest.MonkeyPatch) -> None:
