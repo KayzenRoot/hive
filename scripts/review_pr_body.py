@@ -17,6 +17,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-020-P-G1": "2e322095936f2a508f36563699e464d301f89ced",
     "WO-021-G1": "6a5ce4e679de3e9e66a7ad56f23cabebe88f4fb3",
     "WO-021-P-G1": "cd05c753ce0fd25d657dd829a2484041355d873b",
+    "WO-022-G1": "ccff5882a0bec20a90ee4516640aa44d9e9b5352",
 }
 
 
@@ -46,6 +47,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-021",
         "WO-021-P-G1",
         "WO-021-P",
+        "WO-022-G1",
+        "WO-022",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2344,6 +2347,141 @@ WO-021 READY FOR SOL AUDIT
 """
 
 
+def _render_wo022_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR habilita exclusivamente o contrato de Review Evidence para o próximo
+incremento Full HIVE Control Center. É uma mudança de governança: não
+implementa backend, dashboard, migration, checkpoint, release ou o produto
+WO-022.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+O renderer exige a base autorizada exata em lowercase 40-hex e rejeita base
+ausente, divergente ou zero antes de emitir o marcador.
+
+## 3. Escopo G1 fechado
+
+Exatamente quatro arquivos: `backend/tests/test_review_evidence.py`,
+`schemas/review-evidence-v1.schema.json`, `scripts/review_evidence.py` e
+`scripts/review_pr_body.py`. Project Brain, checkpoint, migration
+`0007_telemetry_events`, backend de produto, dashboard, dependências, CI e
+release permanecem intocados. A PR não cria branch ou produto WO-022.
+
+## 4. Contrato futuro separado
+
+O produto futuro é registrado como `WO-022`, separado de `WO-022-G1`, com o
+contrato `control-center-full-v1` e o arquivo `control-center-full.json`.
+Após a inspeção do núcleo já entregue no WO-020 e das métricas do WO-021, o
+menor incremento coerente restante cobre inteligência de projeto (checkpoint,
+escopo, DoD, índice, commits, histórico de runs, decisões/memória,
+módulos/símbolos, grafo de dependências, histórico de qualidade e qualidade de
+retrieval), os gráficos obrigatórios, os alertas obrigatórios e as lacunas de
+saúde de recursos/container/modelo local condicional.
+
+## 5. Evidência e fail-closed
+
+O futuro exige capacidades, gráficos, alertas e saúde enumerados sem campos
+extras; payload/render bounded; escopo por projeto; refresh near-real-time;
+PostgreSQL canônico; Redis não canônico; recuperação após restart e perda do
+Redis; e proveniência explícita para valores estimados, indisponíveis e
+desconhecidos. Métrica ou alerta fabricado, desconhecido convertido em zero,
+leak, path absoluto ou chamada LLM/provider falha fechado. O contrato não
+permite alegar HIVE V0.1 completo prematuramente.
+
+## 6. Governança e STOP
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Não houve merge, release, promoção de checkpoint ou início do WO-022.
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+O executor para antes do merge e entrega o HEAD exato e o Evidence Bundle para
+auditoria de Sol.
+
+WO-022-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo022_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Escopo de produto
+
+Esta PR futura implementa somente o incremento bounded restante do Full HIVE
+Control Center registrado no G1. A base auditada é `{base_sha}` e o HEAD é
+`{head_sha}`. O contrato não autoriza declarar HIVE V0.1 completo sem o restante
+do Definition of Done.
+
+## 2. Capacidades obrigatórias
+
+O contrato `control-center-full-v1` usa `control-center-full.json` e fecha a
+lista de inteligência de projeto, gráficos de tokens/contexto/cache/storage,
+atividade/qualidade/latência, alertas de operação e saúde de recursos,
+containers e modelos locais quando aplicável. O Evidence Bundle deve provar
+cada item enumerado, com payloads bounded e paths repository-relative.
+
+## 3. Verdade e proveniência
+
+PostgreSQL é canônico e Redis é não canônico. Valores estimados,
+UNAVAILABLE e UNKNOWN permanecem distintos; nenhuma métrica ou alerta pode ser
+fabricado ou convertido em zero. O produto futuro exige escopo por projeto,
+refresh near-real-time, replay/reconciliação e recuperação após restart/Redis
+loss, sem migrations nesta fatia.
+
+## 4. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+- Migration head/base: `0007_telemetry_events`; migration_changed: `false`.
+
+A PR permanece aberta, Ready e não mesclada. Auto-merge permanece UNARMED.
+Sol Review State: AWAITING_SOL.
+
+WO-022 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo020p_g1_body(
     *,
     work_order: str,
@@ -3687,6 +3825,32 @@ def render_body(
         )
     if work_order == "WO-021":
         return _render_wo021_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-022-G1":
+        return _render_wo022_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-022":
+        return _render_wo022_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
