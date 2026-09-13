@@ -80,6 +80,7 @@ EVIDENCE_PATHS = (
     "dashboard/src/ControlCenterFull.tsx",
     "dashboard/src/ControlCenterFull.test.tsx",
     "scripts/control_center_full_integration.py",
+    "scripts/control_center_integration.py",
     "scripts/integration_health.py",
     "docs/atlas/wo022-control-center-full.md",
 )
@@ -235,6 +236,60 @@ def assert_surface(payload: dict[str, object], project_id: UUID) -> None:
         points = chart.get("points")
         require(isinstance(points, list), "chart points are not bounded")
         require(len(points) <= 100, "chart exceeded its point bound")
+    chart_by_id = {str(chart["id"]): chart for chart in charts if isinstance(chart, dict)}
+    context_signal = chart_by_id["context-signal-ratio"]
+    require(
+        context_signal["status"] == "UNAVAILABLE" and context_signal["points"] == [],
+        "context signal ratio was derived from context reduction or fabricated",
+    )
+    health_by_id = {str(surface["id"]): surface for surface in health if isinstance(surface, dict)}
+    resources = health_by_id["platform-resource-health"]
+    resource_details = resources.get("details")
+    require(isinstance(resource_details, dict), "platform resource details are missing")
+    observations = resource_details.get("observations")
+    require(isinstance(observations, dict), "platform resource observations are missing")
+    for resource_name in ("cpu", "ram", "disk", "io"):
+        observation = observations.get(resource_name)
+        require(isinstance(observation, dict), f"{resource_name} observation is missing")
+        require(
+            observation.get("status") in {"AVAILABLE", "UNAVAILABLE"},
+            f"{resource_name} observation status is not explicit",
+        )
+        require(
+            isinstance(observation.get("provenance"), str),
+            f"{resource_name} provenance missing",
+        )
+        require(isinstance(observation.get("source"), str), f"{resource_name} source missing")
+    alerts_by_id = {str(alert["id"]): alert for alert in alerts if isinstance(alert, dict)}
+    require(
+        alerts_by_id["executor-disconnected"]["status"] in {"UNKNOWN", "UNAVAILABLE"},
+        "executor absence was incorrectly reported as CLEAR",
+    )
+    require(
+        alerts_by_id["checkpoint-mismatch"]["status"] == "CLEAR",
+        "canonical fixture checkpoint did not qualify from Git evidence",
+    )
+    checkpoint = next(
+        capability
+        for capability in capabilities
+        if isinstance(capability, dict) and capability.get("id") == "checkpoint-scope-dod"
+    )
+    checkpoint_details = checkpoint.get("details")
+    require(isinstance(checkpoint_details, dict), "checkpoint details are missing")
+    documents = checkpoint_details.get("documents")
+    require(
+        isinstance(documents, list) and len(documents) == 3,
+        "governance documents are missing",
+    )
+    require(
+        all(
+            isinstance(document, dict)
+            and document.get("status") == "AVAILABLE"
+            and str(document.get("source", "")).startswith("git:HEAD-blob:")
+            for document in documents
+        ),
+        "governance documents are not bound to Git-tracked HEAD bytes",
+    )
 
 
 def compare_canonical(left: dict[str, object], right: dict[str, object]) -> None:
@@ -263,6 +318,9 @@ def verify_dashboard(probe: ApiProbe) -> None:
         "checkpoint-mismatch",
         "UNAVAILABLE",
         "PostgreSQL is canonical",
+        "data-chart-id",
+        "real points",
+        "live refresh through",
     ):
         require(marker in bundle, f"dashboard full surface is missing {marker!r}")
 
@@ -300,10 +358,37 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
         "alpha payload contains beta identity",
     )
     before = full_payload(probe, alpha.project_id)
+    emit_event_batch(
+        alpha.project_id,
+        [
+            event_spec(
+                event_type="file.changed",
+                run_id=UUID("00000000-0000-0000-0000-000000000401"),
+                emission_key=f"{alpha.label}-full-live-refresh",
+                payload={"path": "src/service.py", "change": "near-realtime-refresh"},
+                task_id=alpha.task_ids[0],
+            )
+        ],
+    )
+    live_after = full_payload(probe, alpha.project_id)
+    before_activity = next(chart for chart in before["charts"] if chart["id"] == "project-activity")
+    after_activity = next(
+        chart for chart in live_after["charts"] if chart["id"] == "project-activity"
+    )
+    require(
+        len(after_activity["points"]) > len(before_activity["points"])
+        and any(point.get("series") == "file.changed" for point in after_activity["points"]),
+        "canonical event did not change the live full snapshot",
+    )
+    require(
+        live_after["project_id"] == before["project_id"],
+        "live refresh changed the selected project identity",
+    )
+    restart_baseline = live_after
     compose("restart", "api")
     wait_for_api_health(probe, attempts=90)
     after_restart = full_payload(probe, alpha.project_id)
-    compare_canonical(before, after_restart)
+    compare_canonical(restart_baseline, after_restart)
     compose("stop", "redis")
     try:
         during_redis_loss = full_payload(probe, alpha.project_id)
@@ -324,7 +409,7 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
         compose("start", "redis")
     wait_for_api_health(probe, attempts=90)
     after_redis = full_payload(probe, alpha.project_id)
-    compare_canonical(before, after_redis)
+    compare_canonical(restart_baseline, after_redis)
     verify_dashboard(probe)
     secret_leaks, path_leaks, cross_project_leaks = verify_no_leaks(
         alpha_payload, beta_payload, alpha.project_id, beta.project_id

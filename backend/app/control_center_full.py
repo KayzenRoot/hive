@@ -10,7 +10,9 @@ zero merely to make a chart or alert look complete.
 from __future__ import annotations
 
 import ast
+import math
 import os
+import re
 import shutil
 import subprocess
 from collections import Counter
@@ -134,6 +136,9 @@ class DocumentObservation(BaseModel):
     path: str
     status: FullStatus
     byte_count: int | None = Field(default=None, ge=0)
+    git_head_sha: str | None = None
+    tracked: bool = False
+    working_tree_clean: bool | None = None
     source: str
 
 
@@ -253,23 +258,90 @@ def _project_path(settings: Settings, project: ProjectResponse) -> Path | None:
         return None
 
 
+def _git_command(root: Path, *arguments: str) -> str | None:
+    command = [
+        "git",
+        "-c",
+        f"safe.directory={root}",
+        "-C",
+        str(root),
+        *arguments,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=5,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def _valid_git_head(value: str | None) -> bool:
+    return value is not None and re.fullmatch(r"[0-9a-fA-F]{40,64}", value) is not None
+
+
 def _document_observations(
     settings: Settings, project: ProjectResponse
 ) -> list[DocumentObservation]:
     root = _project_path(settings, project)
+    repository_head = _git_command(root, "rev-parse", "--verify", "HEAD") if root else None
+    registered_head = project.git_head_sha
     observations: list[DocumentObservation] = []
     for relative in FULL_DOCUMENTS:
-        path = root / Path(*relative.split("/")) if root is not None else None
-        try:
-            size = path.stat().st_size if path is not None and path.is_file() else None
-        except OSError:
-            size = None
+        status = FullStatus.UNAVAILABLE
+        size: int | None = None
+        tracked = False
+        working_tree_clean: bool | None = None
+        source = "git:project-repository-unavailable"
+        if root is not None:
+            if not _valid_git_head(repository_head) or not _valid_git_head(registered_head):
+                source = "git:HEAD-identity-unavailable"
+            elif cast(str, repository_head).lower() != cast(str, registered_head).lower():
+                source = "git:HEAD-does-not-match-registered-project"
+            else:
+                tracked = (
+                    _git_command(root, "ls-files", "--error-unmatch", "--", relative) is not None
+                )
+                if not tracked:
+                    source = "git:governance-document-not-tracked"
+                else:
+                    dirty = _git_command(
+                        root, "status", "--porcelain=v1", "--untracked-files=all", "--", relative
+                    )
+                    working_tree_clean = dirty == ""
+                    if not working_tree_clean:
+                        source = "git:governance-document-working-tree-dirty"
+                    else:
+                        blob_size = _git_command(
+                            root, "cat-file", "-s", f"{repository_head}:{relative}"
+                        )
+                        try:
+                            size = int(blob_size) if blob_size is not None else None
+                        except ValueError:
+                            size = None
+                        if size is not None and size >= 0:
+                            status = FullStatus.AVAILABLE
+                            source = f"git:HEAD-blob:{relative}"
+                        else:
+                            source = "git:HEAD-blob-unavailable"
         observations.append(
             DocumentObservation(
                 path=relative,
-                status=FullStatus.AVAILABLE if size is not None else FullStatus.UNAVAILABLE,
+                status=status,
                 byte_count=size,
-                source="project-git-working-tree:canonical-governance-documents",
+                git_head_sha=repository_head if _valid_git_head(repository_head) else None,
+                tracked=tracked,
+                working_tree_clean=working_tree_clean,
+                source=source,
             )
         )
     return observations
@@ -422,7 +494,7 @@ def _repository_inventory(
 
 def _dependency_summary(
     settings: Settings, project: ProjectResponse, modules: list[dict[str, object]]
-) -> dict[str, object]:
+) -> tuple[FullStatus, dict[str, object]]:
     root = _project_path(settings, project)
     imports: Counter[str] = Counter()
     scanned = 0
@@ -451,12 +523,36 @@ def _dependency_summary(
     dependencies = [
         {"name": name, "observations": count} for name, count in imports.most_common(FULL_LIST_MAX)
     ]
-    return _details(
+    languages = sorted(
+        {
+            str(entry["language"])
+            for entry in modules
+            if isinstance(entry.get("language"), str) and entry.get("language") != "python"
+        }
+    )
+    python_modules = sum(entry.get("language") == "python" for entry in modules)
+    if not modules:
+        status = FullStatus.UNAVAILABLE
+    elif languages:
+        status = FullStatus.DEGRADED
+    elif scanned == 0:
+        status = FullStatus.UNKNOWN
+    else:
+        status = FullStatus.AVAILABLE
+    return status, _details(
         {
             "scanned_python_modules": scanned,
+            "python_module_count": python_modules,
             "dependency_count": len(dependencies),
             "dependencies": dependencies,
-            "source": "repository-index-files:bounded-python-imports",
+            "supported_languages": ["python"],
+            "unsupported_languages": languages,
+            "complete_graph": bool(python_modules) and not languages and scanned == python_modules,
+            "limitations": [
+                "only Python imports are analyzed",
+                "non-Python imports are unavailable",
+            ],
+            "source": "repository-index-files:bounded-python-imports-only",
         }
     )
 
@@ -659,16 +755,24 @@ def _charts(
                     series="reduction_tokens",
                 )
             )
-            if before > 0:
-                context_ratio.append(
-                    ChartPoint(
-                        observed_at=event.occurred_at,
-                        value=reduction / before,
-                        provenance=provenance,
-                        source="derived:context-reduction-ratio",
-                        series="reduction_ratio",
-                    )
+        useful = _number(event.payload.get("useful_context_tokens"))
+        total_sent = _number(event.payload.get("total_context_tokens_sent"))
+        if (
+            useful is not None
+            and total_sent is not None
+            and useful >= 0
+            and total_sent > 0
+            and useful <= total_sent
+        ):
+            context_ratio.append(
+                ChartPoint(
+                    observed_at=event.occurred_at,
+                    value=useful / total_sent,
+                    provenance=_provenance_from_payload(event, "useful_context_tokens"),
+                    source="derived:useful-context-tokens-div-total-context-tokens-sent",
+                    series="useful_context_ratio",
                 )
+            )
         if event.event_type == "cache.hit":
             cache_hits += 1
             cache_total += 1
@@ -806,6 +910,92 @@ def _alert(
     )
 
 
+def _executor_connection_observation(
+    events: list[EventEnvelope],
+) -> tuple[FullStatus, str, MetricProvenance, str]:
+    status = FullStatus.UNKNOWN
+    source = "postgres:telemetry_events.executor-connection-evidence"
+    summary = "no explicit executor heartbeat, connection, or disconnect evidence is recorded"
+    for event in events:
+        payload = event.payload
+        connection_status = payload.get("connection_status")
+        disconnected = (
+            payload.get("executor_disconnected") is True
+            or payload.get("disconnected") is True
+            or isinstance(connection_status, str)
+            and connection_status.lower() == "disconnected"
+        )
+        connected = (
+            payload.get("executor_heartbeat") is True
+            or payload.get("heartbeat") is True
+            or isinstance(connection_status, str)
+            and connection_status.lower() in {"connected", "heartbeat"}
+        )
+        if disconnected:
+            status = FullStatus.ACTIVE
+            summary = "explicit executor disconnect evidence is recorded"
+        elif connected:
+            status = FullStatus.CLEAR
+            summary = "explicit executor heartbeat or connection evidence is recorded"
+    provenance = (
+        MetricProvenance.EXACT if status is not FullStatus.UNKNOWN else MetricProvenance.UNAVAILABLE
+    )
+    return status, summary, provenance, source
+
+
+def _checkpoint_observation(
+    settings: Settings,
+    project: ProjectResponse,
+    checkpoint: DocumentObservation,
+) -> tuple[FullStatus, str, MetricProvenance, str]:
+    root = _project_path(settings, project)
+    repository_head = _git_command(root, "rev-parse", "--verify", "HEAD") if root else None
+    registered_head = project.git_head_sha
+    source = "git:HEAD-vs-postgres:projects.git_head_sha"
+    if not _valid_git_head(repository_head) or not _valid_git_head(registered_head):
+        return (
+            FullStatus.UNAVAILABLE,
+            "checkpoint/head comparison is unavailable because Git identity is incomplete",
+            MetricProvenance.UNAVAILABLE,
+            source,
+        )
+    if cast(str, repository_head).lower() != cast(str, registered_head).lower():
+        return (
+            FullStatus.ACTIVE,
+            "registered project HEAD differs from the repository HEAD",
+            MetricProvenance.EXACT,
+            source,
+        )
+    if (
+        checkpoint.status is not FullStatus.AVAILABLE
+        or getattr(checkpoint, "tracked", False) is not True
+        or getattr(checkpoint, "working_tree_clean", None) is not True
+    ):
+        return (
+            FullStatus.UNAVAILABLE,
+            "checkpoint mismatch is unavailable because canonical document identity is unproven",
+            MetricProvenance.UNAVAILABLE,
+            "git:canonical-checkpoint-document",
+        )
+    checkpoint_head = getattr(checkpoint, "git_head_sha", None)
+    if (
+        isinstance(checkpoint_head, str)
+        and checkpoint_head.lower() != cast(str, repository_head).lower()
+    ):
+        return (
+            FullStatus.ACTIVE,
+            "checkpoint document observation is bound to a different repository HEAD",
+            MetricProvenance.EXACT,
+            "git:canonical-checkpoint-document-head",
+        )
+    return (
+        FullStatus.CLEAR,
+        "canonical checkpoint document is tracked and bound to the registered repository HEAD",
+        MetricProvenance.EXACT,
+        "git:canonical-checkpoint-document",
+    )
+
+
 def _alerts(
     settings: Settings,
     project: ProjectResponse,
@@ -882,23 +1072,13 @@ def _alerts(
         test_status = FullStatus.CLEAR
     else:
         test_status = FullStatus.UNKNOWN
-    executor_events = [event for event in events if event.event_type == "executor.started"]
-    executor_status = FullStatus.CLEAR if not executor_events else FullStatus.AVAILABLE
+    executor_status, executor_summary, executor_provenance, executor_source = (
+        _executor_connection_observation(events)
+    )
     checkpoint = _document_observations(settings, project)[0]
-    checkpoint_status = FullStatus.UNKNOWN
-    checkpoint_source = "canonical-checkpoint-head-comparison"
-    root = _project_path(settings, project)
-    if checkpoint.status is FullStatus.AVAILABLE and root is not None:
-        try:
-            checkpoint_file = root / Path(*checkpoint.path.split("/"))
-            content = checkpoint_file.read_text(encoding="utf-8")[:200_000]
-            checkpoint_status = (
-                FullStatus.CLEAR
-                if project.git_head_sha and project.git_head_sha.lower() in content.lower()
-                else FullStatus.UNKNOWN
-            )
-        except (OSError, UnicodeError):
-            checkpoint_status = FullStatus.UNAVAILABLE
+    checkpoint_status, checkpoint_summary, checkpoint_provenance, checkpoint_source = (
+        _checkpoint_observation(settings, project, checkpoint)
+    )
     return [
         _alert(
             "disk-low",
@@ -1027,28 +1207,22 @@ def _alerts(
         _alert(
             "executor-disconnected",
             executor_status,
-            "executor telemetry is observed"
-            if executor_events
-            else "no executor disconnect signal is recorded",
-            MetricProvenance.EXACT,
-            "postgres:telemetry_events.executor.started",
+            executor_summary,
+            executor_provenance,
+            executor_source,
         ),
         _alert(
             "checkpoint-mismatch",
-            FullStatus.ACTIVE if checkpoint_status is FullStatus.ACTIVE else checkpoint_status,
-            "checkpoint does not contain the registered project HEAD"
-            if checkpoint_status is FullStatus.ACTIVE
-            else "checkpoint/head mismatch is not positively established"
-            if checkpoint_status is FullStatus.UNKNOWN
-            else "checkpoint/head observation is unavailable"
-            if checkpoint_status is FullStatus.UNAVAILABLE
-            else "checkpoint contains the registered project HEAD",
-            MetricProvenance.EXACT
-            if checkpoint_status is not FullStatus.UNKNOWN
-            else MetricProvenance.UNAVAILABLE,
+            checkpoint_status,
+            checkpoint_summary,
+            checkpoint_provenance,
             checkpoint_source,
         ),
     ]
+
+
+def _read_platform_text(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8")
 
 
 def _health_surfaces(settings: Settings) -> list[HealthSurface]:
@@ -1058,6 +1232,58 @@ def _health_surfaces(settings: Settings) -> list[HealthSurface]:
     except psycopg.Error:
         migration = None
     resource_details: dict[str, object] = {"migration_head": migration or "UNAVAILABLE"}
+    observations: dict[str, dict[str, object]] = {}
+
+    def unavailable_observation(name: str, unit: str) -> dict[str, object]:
+        return {
+            "status": FullStatus.UNAVAILABLE.value,
+            "value": None,
+            "unit": unit,
+            "provenance": MetricProvenance.UNAVAILABLE.value,
+            "source": f"platform:{name}:unsupported-or-unavailable",
+        }
+
+    cpu_observation = unavailable_observation("cpu", "load_1m")
+    try:
+        load_average = float(_read_platform_text("/proc/loadavg").split()[0])
+        if math.isfinite(load_average) and load_average >= 0:
+            cpu_observation = {
+                "status": FullStatus.AVAILABLE.value,
+                "value": load_average,
+                "unit": "load_1m",
+                "provenance": MetricProvenance.EXACT.value,
+                "source": "procfs:cpu-loadavg",
+            }
+    except (OSError, UnicodeError, IndexError, ValueError):
+        pass
+    observations["cpu"] = cpu_observation
+
+    ram_observation = unavailable_observation("ram", "bytes")
+    try:
+        memory: dict[str, int] = {}
+        for line in _read_platform_text("/proc/meminfo").splitlines():
+            key, separator, raw_value = line.partition(":")
+            if separator and key in {"MemTotal", "MemAvailable"}:
+                parts = raw_value.strip().split()
+                if parts and parts[0].isdigit():
+                    memory[key] = int(parts[0]) * 1024
+        total = memory.get("MemTotal")
+        available = memory.get("MemAvailable")
+        if total is not None and available is not None and total > 0 and 0 <= available <= total:
+            ram_observation = {
+                "status": FullStatus.AVAILABLE.value,
+                "total_bytes": total,
+                "available_bytes": available,
+                "used_ratio": (total - available) / total,
+                "unit": "bytes",
+                "provenance": MetricProvenance.EXACT.value,
+                "source": "procfs:memory-info",
+            }
+    except (OSError, UnicodeError, ValueError):
+        pass
+    observations["ram"] = ram_observation
+
+    disk_observation = unavailable_observation("disk", "bytes")
     try:
         root = (
             settings.resolved_data_root
@@ -1070,20 +1296,69 @@ def _health_surfaces(settings: Settings) -> list[HealthSurface]:
                 "total_bytes": usage.total,
                 "free_bytes": usage.free,
                 "free_ratio": usage.free / usage.total if usage.total else None,
-                "source": "filesystem:disk_usage",
+                "source": "filesystem:disk-usage",
             }
         )
+        disk_observation = {
+            "status": FullStatus.AVAILABLE.value,
+            "total_bytes": usage.total,
+            "free_bytes": usage.free,
+            "free_ratio": usage.free / usage.total if usage.total else None,
+            "unit": "bytes",
+            "provenance": MetricProvenance.EXACT.value,
+            "source": "filesystem:disk-usage",
+        }
+    except OSError:
+        pass
+    observations["disk"] = disk_observation
+
+    io_observation = unavailable_observation("io", "bytes")
+    try:
+        read_sectors = 0
+        written_sectors = 0
+        devices = 0
+        for line in _read_platform_text("/proc/diskstats").splitlines():
+            fields = line.split()
+            if len(fields) < 10:
+                continue
+            try:
+                read_sectors += int(fields[5])
+                written_sectors += int(fields[9])
+            except ValueError:
+                continue
+            devices += 1
+        if devices:
+            io_observation = {
+                "status": FullStatus.AVAILABLE.value,
+                "read_bytes_cumulative": read_sectors * 512,
+                "write_bytes_cumulative": written_sectors * 512,
+                "observed_devices": devices,
+                "unit": "bytes",
+                "provenance": MetricProvenance.EXACT.value,
+                "source": "procfs:diskstats-cumulative",
+            }
+    except (OSError, UnicodeError):
+        pass
+    observations["io"] = io_observation
+    resource_details["observations"] = observations
+    statuses = [item["status"] for item in observations.values()]
+    if all(status == FullStatus.AVAILABLE.value for status in statuses):
         resource_status = FullStatus.AVAILABLE
         resource_provenance = MetricProvenance.EXACT
-    except OSError:
+    elif any(status == FullStatus.AVAILABLE.value for status in statuses):
+        resource_status = FullStatus.DEGRADED
+        resource_provenance = MetricProvenance.UNKNOWN
+    else:
         resource_status = FullStatus.UNAVAILABLE
         resource_provenance = MetricProvenance.UNAVAILABLE
     checks = {name: value.status for name, value in report.checks.items()}
     container_status = FullStatus.AVAILABLE if checks else FullStatus.UNAVAILABLE
     if any(value != "ok" for value in checks.values()):
         container_status = FullStatus.DEGRADED
-    model_configured = bool(settings.embedding_enabled or settings.rerank_enabled)
-    model_status = FullStatus.AVAILABLE if model_configured else FullStatus.NOT_CONFIGURED
+    model_configured = bool(
+        getattr(settings, "embedding_enabled", False) or getattr(settings, "rerank_enabled", False)
+    )
+    model_status = FullStatus.UNKNOWN if model_configured else FullStatus.NOT_CONFIGURED
     return [
         HealthSurface(
             id="platform-resource-health",
@@ -1121,11 +1396,12 @@ def _health_surfaces(settings: Settings) -> list[HealthSurface]:
                 if model_configured
                 else "local model integration is not configured"
             ),
-            provenance=MetricProvenance.EXACT,
+            provenance=MetricProvenance.UNKNOWN if model_configured else MetricProvenance.EXACT,
             details=_details(
                 {
-                    "embedding_enabled": settings.embedding_enabled,
-                    "rerank_enabled": settings.rerank_enabled,
+                    "embedding_enabled": getattr(settings, "embedding_enabled", False),
+                    "rerank_enabled": getattr(settings, "rerank_enabled", False),
+                    "reachability": "UNKNOWN" if model_configured else "NOT_CONFIGURED",
                     "provider_calls": 0,
                 }
             ),
@@ -1147,6 +1423,7 @@ def build_full_control_center(
     index_status, index_details = _index_details(settings, project)
     _, modules, symbols = _repository_inventory(settings, project_id)
     retrieval_status, retrieval_details = _retrieval_details(settings, project_id)
+    dependency_status, dependency_details = _dependency_summary(settings, project, modules)
     documents = _document_observations(settings, project)
     commits = _git_commits(settings, project)
     runs = summarize_runs(settings, project_id, limit=FULL_LIST_MAX)
@@ -1158,6 +1435,21 @@ def build_full_control_center(
             {"reason": "memory_observation_unavailable"},
         )
     health = _health_surfaces(settings)
+    quality_events = [
+        {
+            "event_type": event.event_type,
+            "occurred_at": event.occurred_at.isoformat(),
+            "passed": (
+                event.payload.get("passed")
+                if event.event_type == "test.finished"
+                else event.event_type == "validation.passed"
+            ),
+            "source": "postgres:telemetry_events",
+        }
+        for event in events
+        if event.event_type
+        in {"test.started", "test.finished", "validation.passed", "validation.failed"}
+    ][-FULL_LIST_MAX:]
     capabilities = [
         _capability(
             "project-intelligence",
@@ -1238,10 +1530,15 @@ def build_full_control_center(
         ),
         _capability(
             "dependency-graph",
-            FullStatus.AVAILABLE,
-            "bounded Python import observations are derived from indexed project files",
-            MetricProvenance.EXACT,
-            _dependency_summary(settings, project, modules),
+            dependency_status,
+            "bounded Python import observations are derived from indexed project files; "
+            "non-Python imports remain unavailable",
+            MetricProvenance.EXACT
+            if dependency_status is FullStatus.AVAILABLE
+            else MetricProvenance.UNKNOWN
+            if dependency_status is FullStatus.UNKNOWN
+            else MetricProvenance.UNAVAILABLE,
+            dependency_details,
         ),
         _capability(
             "quality-history",
@@ -1259,7 +1556,9 @@ def build_full_control_center(
                             "validation.failed",
                         }
                         for event in events
-                    )
+                    ),
+                    "events": quality_events,
+                    "source": "postgres:telemetry_events",
                 }
             ),
         ),

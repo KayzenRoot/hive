@@ -566,6 +566,7 @@ export default function ControlCenter({
   const [runOverrides, setRunOverrides] = useState<Record<string, RunOverride>>({});
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [eventRevision, setEventRevision] = useState(0);
   const [replayWindow, setReplayWindow] = useState<ReplayWindow | null>(null);
   const [reconciledAt, setReconciledAt] = useState<string | null>(null);
   const eventsRef = useRef<Map<string, EventEnvelope>>(new Map());
@@ -633,6 +634,7 @@ export default function ControlCenter({
       }
     }
     if (added === 0 && terminalUpdates.length === 0) return;
+    setEventRevision((previous) => previous + 1);
     const ordered = Array.from(map.values()).sort(compareCanonicalEvents);
     if (ordered.length > EVENT_TIMELINE_MAX) {
       const overflow = ordered.length - EVENT_TIMELINE_MAX;
@@ -679,6 +681,7 @@ export default function ControlCenter({
     setReconciledAt(null);
     setStreamState("idle");
     setStreamError(null);
+    setEventRevision(0);
     clearRunTimeline();
   }, [clearRunTimeline]);
 
@@ -1456,7 +1459,12 @@ export default function ControlCenter({
       </div>
     );
   };
-  const renderFull = () => <ControlCenterFull selectedProjectId={selectedProjectId} />;
+  const renderFull = () => (
+    <ControlCenterFull
+      selectedProjectId={selectedProjectId}
+      refreshSignal={eventRevision}
+    />
+  );
   const renderRuns = () => {
     if (!selectedProjectId) {
       return <p className="fleet-message">Select an operational project to open its run surfaces.</p>;

@@ -300,6 +300,14 @@ def create_fixture_repository(repository: Path, label: str) -> None:
     (source / "service.py").write_text(
         "def fixture() -> str:\n    return 'wo020'\n", encoding="utf-8"
     )
+    governance = repository / "docs" / "project-brain"
+    governance.mkdir(parents=True)
+    for relative, heading in (
+        ("13-CHECKPOINT.md", "# Fixture checkpoint\n\n## STATUS\nREADY\n"),
+        ("03-SCOPE.md", "# Fixture scope\n\n- bounded fixture scope\n"),
+        ("15-DEFINITION-OF-DONE.md", "# Fixture Definition of Done\n\n- fixture validation\n"),
+    ):
+        (governance / relative).write_text(heading, encoding="utf-8")
     run_command(["git", "-C", str(repository), "add", "-A"])
     run_command(["git", "-C", str(repository), "commit", "-m", "initial WO-020 fixture"])
 
