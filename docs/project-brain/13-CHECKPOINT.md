@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-CONTROL CENTER OPERATIONAL CORE APPROVED / V0.1 IMPLEMENTATION ACTIVE
+CONTROL CENTER METRICS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -221,6 +221,12 @@ See `03-SCOPE.md`.
 - unsupported metrics are not fabricated: exact live token usage, exact provider cost, cache hit rate and context signal ratio remain unavailable until backed by reliable telemetry; full control center remains pending.
 - lineage records pr #75 with audited head c28715a4fcaac2a062fc0b14e80cdfb4f418726b, sol review 5180295002, squash merge 2e322095936f2a508f36563699e464d301f89ced and post-merge ci 34615046572; backend 547 and dashboard 27 passed.
 - uads final acceptance lineage records c2-r2 workorderid wo_1ce7f88ba20967d7, executionrunid er_66338e817d9fa1f3 and digest e52da09fafb7d4e17671225f09796b4613d18e3c751bff3c27e2e532d280ca10; legal dispatch under hard budget, reviewer approved, finalize completed/stopped and zeroprojectfootprint=true.
+- control center metrics foundation is approved under evidence control-center-metrics-v1 with truthful bounded token, context, cache and storage metrics and explicit value provenance.
+- provider final usage is exact only after reconciliation; estimated, unavailable and unknown values remain distinct and unknown values are never rendered as zero.
+- context reduction, cache hit/miss and logical/physical storage metrics preserve provenance; cache state is derived from real events or receipts and cost remains unavailable without pricing provenance.
+- project-scoped metrics and deterministic global aggregation are bounded; postgresql remains canonical, redis remains noncanonical, and restart/redis-loss recovery preserves canonical truth.
+- lineage records pr #82 with audited head 1363d6c477faba8b6d780cdb1a953aa3c64259e5, sol review 5190892017, squash merge cd05c753ce0fd25d657dd829a2484041355d873b and post-merge ci 34760861308; backend 568 and dashboard 30 passed.
+- control-center-metrics-v1 evidence records migration head 0007_telemetry_events, zero secret/filesystem-path/cross-project leaks, zero llm/provider calls, and does not claim full control center or hive v0.1 completion.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -228,7 +234,7 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary Control Center metrics and observability increment.
+- Preparing the smallest necessary full HIVE Control Center implementation increment.
 
 ## PENDING
 - full Control Center.
@@ -241,13 +247,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 
 ## BLOCKERS
-None known after Control Center Operational Core approval and post-merge validation.
+None known after Control Center Metrics Foundation approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary Control Center metrics and observability increment.
+Prepare the smallest necessary full HIVE Control Center implementation increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
