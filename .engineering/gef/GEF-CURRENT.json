@@ -3,11 +3,11 @@
   "gefVersion": "1.0",
   "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
   "baselineHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
-  "lastReviewedHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
+  "lastReviewedHead": "2e17a6ec20e84bf989a92a931e86b400fedd3dcb",
   "activeWork": "GEF-ADOPTION-001",
   "activePr": {
     "number": 81,
-    "state": "DRAFT",
+    "state": "READY_FOR_REVIEW",
     "branch": "governance/gef-v1-adoption-001"
   },
   "concurrentWorkPreserved": [
@@ -27,20 +27,8 @@
   "currentPromptMode": "GEF_V1",
   "currentReviewMode": "HEDS_DELTA",
   "shadowAssurance": "ON",
-  "migrationState": "READY_WITH_GAPS",
+  "migrationState": "FINAL_EXACT_HEAD_REVALIDATION_REQUIRED",
   "openFindings": [
-    {
-      "id": "GEF-GAP-001",
-      "severity": "HIGH",
-      "summary": "GLOBAL UADS host cannot currently allocate the distinct reviewer sessions required by the latest assurance recovery",
-      "effect": "Existing fail-closed assurance remains blocked; GEF must not bypass it"
-    },
-    {
-      "id": "GEF-GAP-002",
-      "severity": "MEDIUM",
-      "summary": "Current HIVE Review Evidence recognizes only registered work-order identifiers and has no GEF adoption work-order bridge",
-      "effect": "Adoption PR remains draft/blocked until the smallest governed compatibility correction is approved"
-    },
     {
       "id": "GEF-GAP-003",
       "severity": "MEDIUM",
@@ -48,10 +36,10 @@
       "effect": "Do not mutate it during adoption; reconcile explicitly later"
     },
     {
-      "id": "GEF-GAP-004",
-      "severity": "MEDIUM",
-      "summary": "PR #81 CI run 34699511231 failed in Validate before any job steps were exposed; runner_id=0 and downstream jobs were skipped",
-      "effect": "Cause is not proven to be repository code. Do not reinterpret as PASS or bypass hosted validation; retry/diagnose only through governed follow-up"
+      "id": "GEF-GAP-005",
+      "severity": "LOW",
+      "summary": "Proof carry-forward and selective test skipping remain shadow-only",
+      "effect": "Full required HIVE gates remain authoritative until measured shadow evidence explicitly promotes any optimization"
     }
   ]
 }
