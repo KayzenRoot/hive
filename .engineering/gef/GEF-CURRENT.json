@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "gef-current-v1",
+  "gefVersion": "1.0",
+  "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
+  "baselineHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
+  "lastReviewedHead": "2e17a6ec20e84bf989a92a931e86b400fedd3dcb",
+  "activeWork": "GEF-ADOPTION-001",
+  "activePr": {
+    "number": 81,
+    "state": "READY_FOR_REVIEW",
+    "branch": "governance/gef-v1-adoption-001"
+  },
+  "concurrentWorkPreserved": [
+    {
+      "type": "pull_request",
+      "number": 37,
+      "branch": "chore/eng-protocol-adoption-001",
+      "action": "UNTOUCHED"
+    },
+    {
+      "type": "issue",
+      "number": 79,
+      "branch": "feat/wo021-control-center-metrics",
+      "action": "UNTOUCHED"
+    }
+  ],
+  "currentPromptMode": "GEF_V1",
+  "currentReviewMode": "HEDS_DELTA",
+  "shadowAssurance": "ON",
+  "migrationState": "FINAL_EXACT_HEAD_REVALIDATION_REQUIRED",
+  "openFindings": [
+    {
+      "id": "GEF-GAP-003",
+      "severity": "MEDIUM",
+      "summary": "Legacy open PR #37 overlaps engineering-governance concepts on an old baseline",
+      "effect": "Do not mutate it during adoption; reconcile explicitly later"
+    },
+    {
+      "id": "GEF-GAP-005",
+      "severity": "LOW",
+      "summary": "Proof carry-forward and selective test skipping remain shadow-only",
+      "effect": "Full required HIVE gates remain authoritative until measured shadow evidence explicitly promotes any optimization"
+    }
+  ]
+}

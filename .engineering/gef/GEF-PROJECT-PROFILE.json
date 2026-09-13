@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "gef-project-profile-v1",
+  "gefVersion": "1.0",
+  "project": {
+    "repository": "KayzenRoot/hive",
+    "repositoryId": 1352430022,
+    "defaultBranch": "main",
+    "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
+    "baselineHead": "c9430af13860ab30e31bd162991eb88c05215f4f"
+  },
+  "sourceHierarchy": [
+    "docs/project-brain/13-CHECKPOINT.md",
+    "docs/project-brain/16-DECISIONS-LEDGER.md",
+    "docs/project-brain/03-SCOPE.md",
+    "docs/project-brain/15-DEFINITION-OF-DONE.md",
+    "docs/project-brain/04-ARCHITECTURE.md",
+    "docs/project-brain/02-REQUIREMENTS.md"
+  ],
+  "toolchain": {
+    "python": "3.12",
+    "ruff": true,
+    "mypyStrict": true,
+    "pytest": true,
+    "node": "hosted CI/current supported",
+    "typescript": "5.7.3",
+    "react": "19.0.0",
+    "vite": "6.4.3",
+    "vitest": "3.2.7",
+    "dockerCompose": true,
+    "postgresPgvector": true,
+    "redisHotCache": true
+  },
+  "commands": {
+    "deterministicValidation": "python scripts/validate.py",
+    "backendTests": "python -m pytest",
+    "ruffFormat": "python -m ruff format --check backend scripts migrations",
+    "ruffLint": "python -m ruff check backend scripts migrations",
+    "mypy": "python -m mypy",
+    "dashboardLint": "npm run lint",
+    "dashboardTypecheck": "npm run typecheck",
+    "dashboardTests": "npm run test:run",
+    "dashboardBuild": "npm run build",
+    "composeConfig": "docker compose config --quiet"
+  },
+  "hostedGates": ["Validate", "Integration health", "Review Evidence"],
+  "capabilities": {
+    "exactHeadReviewEvidence": true,
+    "dockerIntegration": true,
+    "canonicalSourceVerifier": true,
+    "secretScan": true,
+    "generatedMaps": true,
+    "adaptiveTokenBudgetBenchmark": true,
+    "uadsGlobal": true,
+    "gefPromptCompilerMode": true,
+    "hedsDeltaReviewMode": true,
+    "proofCarryForwardAuthority": false,
+    "shadowAssurance": true
+  },
+  "taskClasses": ["T0", "T1", "T2", "T3"],
+  "contextRadii": ["C0", "C1", "C2", "C3", "C4"]
+}

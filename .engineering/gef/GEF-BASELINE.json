@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "gef-baseline-v1",
+  "gefVersion": "1.0",
+  "projectFingerprint": "ee11fdd1ec7677d4aa69261a0f0abbe43efb8cadba33f4929db1aa4427558a36",
+  "capturedDate": "2026-09-12",
+  "baselineHead": "c9430af13860ab30e31bd162991eb88c05215f4f",
+  "observed": {
+    "lastMergedGovernancePr": 78,
+    "lastPrHead": "78fa70f83e908c8a5e74dd4839478aa2c09654d3",
+    "postMergeCiRun": 34652500971,
+    "postMergeCiStatus": "SUCCESS",
+    "backendTestsLastExactHead": 562,
+    "dashboardTestsLastExactHead": 27,
+    "migrationHead": "0007_telemetry_events",
+    "requiredHostedChecks": ["Validate", "Integration health", "Review Evidence"],
+    "rulesetId": 21934284,
+    "uadsLatestRecoveryState": "BLOCKED_REVIEWER_SESSION_CAPACITY"
+  },
+  "telemetry": {
+    "executorInputTokens": "UNKNOWN",
+    "executorOutputTokens": "UNKNOWN",
+    "activeExecutorSeconds": "UNKNOWN",
+    "repositorySearches": "UNKNOWN",
+    "filesOpened": "UNKNOWN",
+    "filesChanged": "UNKNOWN",
+    "patchLoc": "UNKNOWN",
+    "retries": "UNKNOWN",
+    "focusedTestSeconds": "UNKNOWN",
+    "impactedEvalSeconds": "UNKNOWN",
+    "ciSeconds": "UNKNOWN",
+    "hedsSeconds": "UNKNOWN",
+    "correctionRounds": "UNKNOWN",
+    "cacheHits": "UNKNOWN",
+    "carriedProofs": "UNKNOWN",
+    "invalidatedProofs": "UNKNOWN",
+    "promptCompilerVersion": "GEF_V1"
+  },
+  "planningTargetsNotMeasuredFacts": {
+    "executorInputTokensReductionPct": [60, 80],
+    "reasoningExplorationReductionPct": [65, 85],
+    "executorOutputTokensReductionPct": [70, 90],
+    "repositorySearchReductionPct": [70, 90],
+    "filesReadReductionPct": [65, 85],
+    "activeExecutorTimeReductionPct": [50, 75],
+    "localValidationReductionPct": [55, 80],
+    "hedsRereadReductionPct": [55, 80],
+    "llmEvidenceWritingReductionPct": [85, 95],
+    "boundedChangeModelTokenCostReductionPct": [55, 80]
+  }
+}

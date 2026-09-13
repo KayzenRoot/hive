@@ -26,6 +26,7 @@ INTEGRATION_LOGS = ROOT / "tmp" / "integration-logs"
 HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
 WORK_ORDER_IDENTIFIER = re.compile(r"WO-[0-9]+(?:-[A-Z0-9]+)*")
+GEF_WORK_ORDER_IDENTIFIER = re.compile(r"GEF-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 WORK_ORDER_MARKER = re.compile(r"<!--\s*HIVE-WORK-ORDER:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE)
 AUTHORIZED_BASE_MARKER = re.compile(
     r"<!--\s*HIVE-AUTHORIZED-BASE:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE
@@ -876,6 +877,30 @@ WO021_PRODUCT_DEPENDENCY_PATHS = frozenset(
 )
 WO021_PRODUCT_RELEASE_PATHS = frozenset({"VERSION", "CHANGELOG.md"})
 
+GEF_ADOPTION_WORK_ORDER = "GEF-ADOPTION-001"
+GEF_ADOPTION_BASE_SHA = "c9430af13860ab30e31bd162991eb88c05215f4f"
+GEF_ADOPTION_ARTIFACT_PATHS = frozenset(
+    {
+        ".engineering/gef/GEF-ADOPTION.md",
+        ".engineering/gef/GEF-BASELINE.json",
+        ".engineering/gef/GEF-CURRENT.json",
+        ".engineering/gef/GEF-EVIDENCE-SPEC.md",
+        ".engineering/gef/GEF-EXECUTION-PROTOCOL.md",
+        ".engineering/gef/GEF-POLICY.md",
+        ".engineering/gef/GEF-PROJECT-PROFILE.json",
+        ".engineering/gef/GEF-PROOF-MAP.json",
+        ".engineering/gef/GEF-REVIEW-PROTOCOL.md",
+        ".engineering/gef/GEF-TEST-IMPACT.json",
+    }
+)
+GEF_ADOPTION_BRIDGE_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    }
+)
+GEF_ADOPTION_ALLOWED_PATHS = frozenset(GEF_ADOPTION_ARTIFACT_PATHS | GEF_ADOPTION_BRIDGE_PATHS)
+
 MANDATORY_GOVERNANCE_KIND_SEQUENCE = (
     "CHECKPOINT",
     "SCOPE",
@@ -1601,7 +1626,10 @@ def parse_work_order_marker(body: str) -> str:
             raise ValueError("HIVE work-order PR is missing exactly one work-order marker")
         raise ValueError("HIVE work-order PR has multiple conflicting work-order markers")
     work_order = str(markers[0]).strip()
-    if len(work_order) > 64 or WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None:
+    if len(work_order) > 64 or (
+        WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+        and GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+    ):
         raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     return work_order
 
@@ -1621,6 +1649,13 @@ def parse_authorized_base_marker(body: str) -> str:
 
 
 def require_supported_work_order(work_order: str) -> None:
+    if work_order == GEF_ADOPTION_WORK_ORDER:
+        return
+    if GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order):
+        raise ValueError(
+            "unsupported GEF adoption work order; explicit governance registration is required: "
+            + work_order
+        )
     if work_order in {
         WO015_G1_WORK_ORDER,
         WO015_WORK_ORDER,
@@ -1677,6 +1712,49 @@ def require_current_work_order_authorization(work_order: str) -> None:
         raise ValueError(
             "historical checkpoint-promotion work order cannot authorize a fresh current PR: "
             + work_order
+        )
+
+
+def require_gef_adoption_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+) -> None:
+    if work_order != GEF_ADOPTION_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{GEF_ADOPTION_WORK_ORDER} requires the protected main base branch")
+    if base_sha != GEF_ADOPTION_BASE_SHA:
+        raise ValueError(
+            f"{GEF_ADOPTION_WORK_ORDER} requires exact base {GEF_ADOPTION_BASE_SHA}, "
+            f"observed {base_sha}"
+        )
+    if authorized_base_sha != GEF_ADOPTION_BASE_SHA:
+        raise ValueError(
+            f"{GEF_ADOPTION_WORK_ORDER} requires the exact authorized-base marker "
+            f"{GEF_ADOPTION_BASE_SHA}"
+        )
+    if sorted(set(paths)) != sorted(GEF_ADOPTION_ALLOWED_PATHS) or len(paths) != len(
+        GEF_ADOPTION_ALLOWED_PATHS
+    ):
+        raise ValueError(
+            f"{GEF_ADOPTION_WORK_ORDER} requires exactly the ten GEF artifacts and "
+            "the Review Evidence bridge/test files"
+        )
+    if any(
+        path == "docs/project-brain"
+        or path.startswith("docs/project-brain/")
+        or path == "migrations"
+        or path.startswith("migrations/")
+        or path == ".github"
+        or path.startswith(".github/")
+        for path in paths
+    ):
+        raise ValueError(
+            f"{GEF_ADOPTION_WORK_ORDER} cannot change Project Brain, migrations, or CI workflows"
         )
 
 
@@ -8720,7 +8798,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             )
     else:
         work_order = args.work_order or "LOCAL-VALIDATION"
-        if work_order != "LOCAL-VALIDATION" and WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None:
+        if (
+            work_order != "LOCAL-VALIDATION"
+            and WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+            and GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+        ):
             raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     require_current_work_order_authorization(work_order)
     validation = read_text(VALIDATION / "summary.txt")
@@ -8745,6 +8827,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             WO018P_WORK_ORDER,
             WO019P_WORK_ORDER,
             WO020P_WORK_ORDER,
+            GEF_ADOPTION_WORK_ORDER,
         }
         else None
     )
@@ -8926,6 +9009,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         paths,
         base_branch=args.base_branch,
         enforce_current_main=True,
+    )
+    require_gef_adoption_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
     )
     all_validation = validation + "\n" + lint + "\n" + tests_text
     evidence_text = all_evidence_text()
