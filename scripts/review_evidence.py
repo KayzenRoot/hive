@@ -10053,7 +10053,8 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         )
         + (
             [wo016_approved_lineage_statement(approved_lineage)]
-            if approved_lineage is not None
+            if work_order in {WO016P_G1_WORK_ORDER, WO016P_WORK_ORDER}
+            and approved_lineage is not None
             else []
         )
         + (
