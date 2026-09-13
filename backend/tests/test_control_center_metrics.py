@@ -39,7 +39,8 @@ def event(
         ordering_id=ordering_id,
         occurred_at=occurred_at or NOW,
         payload=payload or {"component": "fixture"},
-        provenance=provenance or {"producer": "test", "deterministic": True},
+        provenance=provenance
+        or {"producer": "test", "deterministic": True},
         cursor=str(ordering_id),
     )
 
@@ -52,31 +53,53 @@ def wire(
     projects: list[UUID] | None = None,
 ) -> None:
     known = projects or list(events)
-    monkeypatch.setattr(control_center_metrics, "get_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        control_center_metrics,
+        "get_settings",
+        lambda: SimpleNamespace(),
+    )
     monkeypatch.setattr(
         control_center_metrics,
         "get_project",
-        lambda _settings, project_id: SimpleNamespace(project_id=project_id)
-        if project_id in known
-        else None,
+        lambda _settings, project_id: (
+            SimpleNamespace(project_id=project_id)
+            if project_id in known
+            else None
+        ),
     )
     monkeypatch.setattr(
         control_center_metrics,
         "list_projects",
-        lambda _settings: [SimpleNamespace(project_id=project_id) for project_id in known],
+        lambda _settings: [
+            SimpleNamespace(project_id=project_id)
+            for project_id in known
+        ],
     )
 
-    def recent(_settings: object, project_id: UUID, *, limit: int = 100) -> EventPage:
+    def recent(
+        _settings: object,
+        project_id: UUID,
+        *,
+        limit: int = 100,
+    ) -> EventPage:
         source = events.get(project_id, [])
         selected = source[-limit:]
         return EventPage(
             events=selected,
-            next_cursor=selected[-1].cursor if len(source) > limit and selected else None,
+            next_cursor=(
+                selected[-1].cursor
+                if len(source) > limit and selected
+                else None
+            ),
             has_more=len(source) > limit,
             limit=limit,
         )
 
-    monkeypatch.setattr(control_center_metrics, "list_recent_events", recent)
+    monkeypatch.setattr(
+        control_center_metrics,
+        "list_recent_events",
+        recent,
+    )
     storage_map = storage or {}
     monkeypatch.setattr(
         control_center_metrics,
@@ -105,7 +128,11 @@ def test_project_metrics_preserve_provenance_and_real_cache_truth(
             "executor.started",
             ordering_id=1,
             occurred_at=NOW - timedelta(seconds=4),
-            payload={"input_tokens": 100, "cached_tokens": 20, "estimated": True},
+            payload={
+                "input_tokens": 100,
+                "cached_tokens": 20,
+                "estimated": True,
+            },
         ),
         event(
             "run.completed",
@@ -122,9 +149,16 @@ def test_project_metrics_preserve_provenance_and_real_cache_truth(
             "context.built",
             ordering_id=3,
             occurred_at=NOW - timedelta(seconds=2),
-            payload={"estimated_tokens_before": 1000, "estimated_tokens_after": 600},
+            payload={
+                "estimated_tokens_before": 1000,
+                "estimated_tokens_after": 600,
+            },
         ),
-        event("cache.hit", ordering_id=4, occurred_at=NOW - timedelta(seconds=1)),
+        event(
+            "cache.hit",
+            ordering_id=4,
+            occurred_at=NOW - timedelta(seconds=1),
+        ),
         event("cache.miss", ordering_id=5),
     ]
     wire(
@@ -168,7 +202,9 @@ def test_project_metrics_preserve_provenance_and_real_cache_truth(
     assert body["cost_provenance"] == "UNAVAILABLE"
 
 
-def test_missing_metrics_are_unavailable_not_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_metrics_are_unavailable_not_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     wire(monkeypatch, events={PROJECT_A: [event("tool.called")]})
 
     body = client().get(
@@ -190,7 +226,14 @@ def test_unlabelled_observed_token_value_is_unknown_not_exact(
 ) -> None:
     wire(
         monkeypatch,
-        events={PROJECT_A: [event("executor.started", payload={"input_tokens": 33})]},
+        events={
+            PROJECT_A: [
+                event(
+                    "executor.started",
+                    payload={"input_tokens": 33},
+                )
+            ]
+        },
     )
 
     body = client().get(
@@ -218,7 +261,10 @@ def test_history_is_bounded_and_unknown_project_fails_closed(
 
     response = client().get(
         "/api/v1/control-center/metrics",
-        params={"project_id": str(PROJECT_A), "history_points": 7},
+        params={
+            "project_id": str(PROJECT_A),
+            "history_points": 7,
+        },
     )
     assert response.status_code == 200
     assert len(response.json()["history"]) <= 7
@@ -235,7 +281,13 @@ def test_global_metrics_compose_project_scoped_truth_deterministically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events = {
-        PROJECT_A: [event("cache.hit", project_id=PROJECT_A, payload={"input_tokens": 10, "estimated": True})],
+        PROJECT_A: [
+            event(
+                "cache.hit",
+                project_id=PROJECT_A,
+                payload={"input_tokens": 10, "estimated": True},
+            )
+        ],
         PROJECT_B: [
             event(
                 "cache.miss",
@@ -267,5 +319,12 @@ def test_global_metrics_compose_project_scoped_truth_deterministically(
     assert first["cache"]["hit_rate"]["value"] == 0.5
     assert first["storage"]["logical_task_bytes"]["value"] == 300.0
     assert first["storage"]["physical_referenced_bytes"]["value"] == 160.0
-    comparable = lambda body: {key: value for key, value in body.items() if key != "generated_at"}
+
+    def comparable(body: dict[str, object]) -> dict[str, object]:
+        return {
+            key: value
+            for key, value in body.items()
+            if key != "generated_at"
+        }
+
     assert comparable(first) == comparable(second)
