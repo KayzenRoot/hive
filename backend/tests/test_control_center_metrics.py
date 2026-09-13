@@ -50,6 +50,7 @@ def wire(
     *,
     events: dict[UUID, list[EventEnvelope]],
     storage: dict[UUID, StorageObservation] | None = None,
+    global_storage: StorageObservation | None = None,
     projects: list[UUID] | None = None,
 ) -> None:
     known = projects or list(events)
@@ -101,18 +102,21 @@ def wire(
         recent,
     )
     storage_map = storage or {}
+    empty_storage = StorageObservation(
+        logical_task_bytes=0,
+        physical_referenced_bytes=0,
+        task_count=0,
+        referenced_blob_count=0,
+    )
     monkeypatch.setattr(
         control_center_metrics,
         "observe_project_storage",
-        lambda _settings, project_id: storage_map.get(
-            project_id,
-            StorageObservation(
-                logical_task_bytes=0,
-                physical_referenced_bytes=0,
-                task_count=0,
-                referenced_blob_count=0,
-            ),
-        ),
+        lambda _settings, project_id: storage_map.get(project_id, empty_storage),
+    )
+    monkeypatch.setattr(
+        control_center_metrics,
+        "observe_global_storage",
+        lambda _settings: global_storage or empty_storage,
     )
 
 
@@ -277,7 +281,7 @@ def test_history_is_bounded_and_unknown_project_fails_closed(
     assert missing.status_code == 404
 
 
-def test_global_metrics_compose_project_scoped_truth_deterministically(
+def test_global_metrics_compose_project_truth_without_double_counting_shared_cas(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events = {
@@ -303,8 +307,9 @@ def test_global_metrics_compose_project_scoped_truth_deterministically(
         projects=[PROJECT_A, PROJECT_B],
         storage={
             PROJECT_A: StorageObservation(100, 60, 1, 1),
-            PROJECT_B: StorageObservation(200, 100, 2, 1),
+            PROJECT_B: StorageObservation(200, 60, 2, 1),
         },
+        global_storage=StorageObservation(300, 60, 3, 1),
     )
 
     first = client().get("/api/v1/control-center/metrics/global").json()
@@ -318,7 +323,9 @@ def test_global_metrics_compose_project_scoped_truth_deterministically(
     assert first["cache"]["misses"]["value"] == 1.0
     assert first["cache"]["hit_rate"]["value"] == 0.5
     assert first["storage"]["logical_task_bytes"]["value"] == 300.0
-    assert first["storage"]["physical_referenced_bytes"]["value"] == 160.0
+    assert first["storage"]["physical_referenced_bytes"]["value"] == 60.0
+    assert first["storage"]["task_count"]["value"] == 3.0
+    assert first["storage"]["referenced_blob_count"]["value"] == 1.0
 
     def comparable(body: dict[str, object]) -> dict[str, object]:
         return {
