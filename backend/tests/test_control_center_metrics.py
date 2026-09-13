@@ -39,8 +39,7 @@ def event(
         ordering_id=ordering_id,
         occurred_at=occurred_at or NOW,
         payload=payload or {"component": "fixture"},
-        provenance=provenance
-        or {"producer": "test", "deterministic": True},
+        provenance=provenance or {"producer": "test", "deterministic": True},
         cursor=str(ordering_id),
     )
 
@@ -63,18 +62,13 @@ def wire(
         control_center_metrics,
         "get_project",
         lambda _settings, project_id: (
-            SimpleNamespace(project_id=project_id)
-            if project_id in known
-            else None
+            SimpleNamespace(project_id=project_id) if project_id in known else None
         ),
     )
     monkeypatch.setattr(
         control_center_metrics,
         "list_projects",
-        lambda _settings: [
-            SimpleNamespace(project_id=project_id)
-            for project_id in known
-        ],
+        lambda _settings: [SimpleNamespace(project_id=project_id) for project_id in known],
     )
 
     def recent(
@@ -87,11 +81,7 @@ def wire(
         selected = source[-limit:]
         return EventPage(
             events=selected,
-            next_cursor=(
-                selected[-1].cursor
-                if len(source) > limit and selected
-                else None
-            ),
+            next_cursor=(selected[-1].cursor if len(source) > limit and selected else None),
             has_more=len(source) > limit,
             limit=limit,
         )
@@ -211,10 +201,14 @@ def test_missing_metrics_are_unavailable_not_zero(
 ) -> None:
     wire(monkeypatch, events={PROJECT_A: [event("tool.called")]})
 
-    body = client().get(
-        "/api/v1/control-center/metrics",
-        params={"project_id": str(PROJECT_A)},
-    ).json()
+    body = (
+        client()
+        .get(
+            "/api/v1/control-center/metrics",
+            params={"project_id": str(PROJECT_A)},
+        )
+        .json()
+    )
 
     assert body["token"]["input_tokens"]["value"] is None
     assert body["token"]["input_tokens"]["provenance"] == "UNAVAILABLE"
@@ -240,10 +234,14 @@ def test_unlabelled_observed_token_value_is_unknown_not_exact(
         },
     )
 
-    body = client().get(
-        "/api/v1/control-center/metrics",
-        params={"project_id": str(PROJECT_A)},
-    ).json()
+    body = (
+        client()
+        .get(
+            "/api/v1/control-center/metrics",
+            params={"project_id": str(PROJECT_A)},
+        )
+        .json()
+    )
 
     assert body["token"]["input_tokens"]["value"] == 33.0
     assert body["token"]["input_tokens"]["provenance"] == "UNKNOWN"
@@ -328,10 +326,6 @@ def test_global_metrics_compose_project_truth_without_double_counting_shared_cas
     assert first["storage"]["referenced_blob_count"]["value"] == 1.0
 
     def comparable(body: dict[str, object]) -> dict[str, object]:
-        return {
-            key: value
-            for key, value in body.items()
-            if key != "generated_at"
-        }
+        return {key: value for key, value in body.items() if key != "generated_at"}
 
     assert comparable(first) == comparable(second)

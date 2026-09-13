@@ -107,7 +107,9 @@ def log(message: str) -> None:
     print(f"[wo021] {message}", flush=True)
 
 
-def metric_payload(probe: ApiProbe, project_id: UUID | None = None, limit: int = 100) -> dict[str, object]:
+def metric_payload(
+    probe: ApiProbe, project_id: UUID | None = None, limit: int = 100
+) -> dict[str, object]:
     path = "/api/v1/control-center/metrics/global"
     if project_id is not None:
         path = f"/api/v1/control-center/metrics?project_id={project_id}"
@@ -127,7 +129,10 @@ def metric_value(payload: dict[str, object], family: str, name: str) -> dict[str
 
 def emit_metrics_fixture(fixtures: list[Fixture]) -> tuple[UUID, UUID]:
     alpha, beta = fixtures
-    require(alpha.project_id is not None and beta.project_id is not None, "metrics fixtures not registered")
+    require(
+        alpha.project_id is not None and beta.project_id is not None,
+        "metrics fixtures not registered",
+    )
     require(alpha.task_ids and beta.task_ids, "metrics fixture tasks are missing")
     alpha_run = uuid4()
     beta_run = uuid4()
@@ -206,7 +211,9 @@ def assert_project_metrics(alpha: dict[str, object], beta: dict[str, object]) ->
     require(context.get("provenance") == "ESTIMATED", "estimated context was presented as exact")
     require(metric_value(alpha, "cache", "hits").get("value") == 1, "cache hit was not measured")
     require(metric_value(alpha, "cache", "misses").get("value") == 1, "cache miss was not measured")
-    require(metric_value(alpha, "cache", "hit_rate").get("value") == 0.5, "cache hit rate is incorrect")
+    require(
+        metric_value(alpha, "cache", "hit_rate").get("value") == 0.5, "cache hit rate is incorrect"
+    )
     logical = metric_value(alpha, "storage", "logical_task_bytes")
     physical = metric_value(alpha, "storage", "physical_referenced_bytes")
     require(logical.get("provenance") == "EXACT", "logical storage provenance is not exact")
@@ -216,9 +223,17 @@ def assert_project_metrics(alpha: dict[str, object], beta: dict[str, object]) ->
 
     beta_input = metric_value(beta, "token", "input_tokens")
     require(beta_input.get("value") == 33, "unknown token observation was lost")
-    require(beta_input.get("provenance") == "UNKNOWN", "unlabelled token observation is not UNKNOWN")
-    require(metric_value(beta, "cache", "hits").get("value") is None, "unknown cache state became a zero hit count")
-    require(metric_value(beta, "cache", "hits").get("provenance") == "UNAVAILABLE", "unknown cache state lost provenance")
+    require(
+        beta_input.get("provenance") == "UNKNOWN", "unlabelled token observation is not UNKNOWN"
+    )
+    require(
+        metric_value(beta, "cache", "hits").get("value") is None,
+        "unknown cache state became a zero hit count",
+    )
+    require(
+        metric_value(beta, "cache", "hits").get("provenance") == "UNAVAILABLE",
+        "unknown cache state lost provenance",
+    )
 
 
 def comparable(payload: dict[str, object]) -> dict[str, object]:
@@ -228,7 +243,9 @@ def comparable(payload: dict[str, object]) -> dict[str, object]:
 def verify_bounded_history(probe: ApiProbe, project_id: UUID) -> None:
     payload = metric_payload(probe, project_id, limit=1)
     history = payload.get("history")
-    require(isinstance(history, list) and len(history) <= 1, "metrics history exceeded requested bound")
+    require(
+        isinstance(history, list) and len(history) <= 1, "metrics history exceeded requested bound"
+    )
     require(payload.get("history_max_points") == 1, "history bound was not reported truthfully")
     invalid = probe.request(
         "GET",
@@ -257,7 +274,9 @@ def verify_near_realtime(probe: ApiProbe, fixture: Fixture, run_id: UUID) -> Non
     )
     after = metric_payload(probe, fixture.project_id)
     after_hits = metric_value(after, "cache", "hits").get("value")
-    require(after_hits == before_hits + 1, "new canonical event did not refresh the metric snapshot")
+    require(
+        after_hits == before_hits + 1, "new canonical event did not refresh the metric snapshot"
+    )
 
 
 def verify_dashboard(probe: ApiProbe) -> None:
@@ -291,12 +310,16 @@ def verify_restart_and_redis(probe: ApiProbe, project_id: UUID) -> None:
     require(after_redis == before, "Redis recovery changed canonical metrics truth")
 
 
-def verify_no_leaks(alpha: dict[str, object], beta: dict[str, object], alpha_id: UUID, beta_id: UUID) -> tuple[int, int, int]:
+def verify_no_leaks(
+    alpha: dict[str, object], beta: dict[str, object], alpha_id: UUID, beta_id: UUID
+) -> tuple[int, int, int]:
     alpha_text = json.dumps(alpha, sort_keys=True)
     beta_text = json.dumps(beta, sort_keys=True)
     cross_project_leaks = int(str(beta_id) in alpha_text) + int(str(alpha_id) in beta_text)
     path_markers = (str(ROOT), "/var/lib/hive", ".hive-data", ".hive-projects", "C:\\")
-    filesystem_path_leaks = sum(marker in alpha_text or marker in beta_text for marker in path_markers)
+    filesystem_path_leaks = sum(
+        marker in alpha_text or marker in beta_text for marker in path_markers
+    )
     secret_markers = ("api_key", "authorization", "bearer ", "password", "secret")
     lowered = (alpha_text + beta_text).lower()
     secret_leaks = sum(marker in lowered for marker in secret_markers)
@@ -313,7 +336,9 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
 
     register_wo020_fixtures(probe, fixtures)
     alpha, beta = fixtures
-    require(alpha.project_id is not None and beta.project_id is not None, "fixture registration failed")
+    require(
+        alpha.project_id is not None and beta.project_id is not None, "fixture registration failed"
+    )
     create_task(probe, alpha, f"WO-021 duplicate {alpha.label}")
     alpha_run, _beta_run = emit_metrics_fixture(fixtures)
 
@@ -326,7 +351,10 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
 
     global_first = metric_payload(probe)
     global_second = metric_payload(probe)
-    require(comparable(global_first) == comparable(global_second), "global metrics are not deterministic")
+    require(
+        comparable(global_first) == comparable(global_second),
+        "global metrics are not deterministic",
+    )
     require(global_first.get("scope") == "GLOBAL", "global metrics scope is not GLOBAL")
     require(isinstance(global_first.get("project_count"), int), "global project count is missing")
 
@@ -372,7 +400,9 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
 
 def write_evidence(evidence: dict[str, object]) -> None:
     EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    EVIDENCE_OUTPUT.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    EVIDENCE_OUTPUT.write_text(
+        json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     log(f"wrote {EVIDENCE_OUTPUT.relative_to(ROOT).as_posix()}")
 
 

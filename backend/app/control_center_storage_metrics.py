@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 from uuid import UUID
 
 from .config import Settings
@@ -17,7 +18,7 @@ class StorageObservation:
     referenced_blob_count: int
 
 
-def _observation(row: tuple[object, ...] | None) -> StorageObservation:
+def _observation(row: tuple[int, int, int, int] | None) -> StorageObservation:
     if row is None:
         raise RuntimeError("storage metrics query returned no row")
     return StorageObservation(
@@ -48,7 +49,7 @@ def observe_project_storage(settings: Settings, project_id: UUID) -> StorageObse
             """,
             (project_id, project_id, project_id, project_id),
         )
-        return _observation(cursor.fetchone())
+        return _observation(cast(tuple[int, int, int, int] | None, cursor.fetchone()))
 
 
 def observe_global_storage(settings: Settings) -> StorageObservation:
@@ -66,4 +67,4 @@ def observe_global_storage(settings: Settings) -> StorageObservation:
               (SELECT COUNT(DISTINCT original_blob_sha256) FROM tasks)
             """
         )
-        return _observation(cursor.fetchone())
+        return _observation(cast(tuple[int, int, int, int] | None, cursor.fetchone()))

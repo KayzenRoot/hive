@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ControlCenterMetrics from "./ControlCenterMetrics";
@@ -79,6 +79,7 @@ describe("ControlCenterMetrics", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -87,7 +88,7 @@ describe("ControlCenterMetrics", () => {
     render(<ControlCenterMetrics />);
 
     expect(await screen.findByText("Control Center Metrics")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("ESTIMATED")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("ESTIMATED").length).toBeGreaterThan(0));
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(0);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
     expect(screen.queryByText("0%")).not.toBeInTheDocument();

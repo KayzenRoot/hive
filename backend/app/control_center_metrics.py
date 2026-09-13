@@ -117,10 +117,7 @@ def _provenance(event: EventEnvelope, key: str) -> MetricProvenance:
         or event.payload.get("usage_reconciled") is True
     ):
         return MetricProvenance.EXACT
-    if (
-        event.payload.get("estimated") is True
-        or event.payload.get("tokens_estimated") is True
-    ):
+    if event.payload.get("estimated") is True or event.payload.get("tokens_estimated") is True:
         return MetricProvenance.ESTIMATED
     return MetricProvenance.UNKNOWN
 
@@ -129,9 +126,7 @@ def _aggregate(values: list[MetricValue], source: str) -> MetricValue:
     available = [item for item in values if item.value is not None]
     if not available:
         return _missing(source)
-    total: float | int = sum(
-        item.value for item in available if item.value is not None
-    )
+    total: float | int = sum(item.value for item in available if item.value is not None)
     provenances = {item.provenance for item in available}
     provenance = (
         MetricProvenance.UNKNOWN
@@ -154,11 +149,7 @@ def _token_metrics(events: list[EventEnvelope]) -> dict[str, MetricValue]:
         MetricProvenance.UNKNOWN: 1,
     }
     for event in events:
-        identity = (
-            str(event.run_id)
-            if event.run_id is not None
-            else f"event:{event.event_id}"
-        )
+        identity = str(event.run_id) if event.run_id is not None else f"event:{event.event_id}"
         for key in TOKEN_KEYS:
             numeric = _number(event.payload.get(key))
             if numeric is None or numeric < 0:
@@ -168,10 +159,7 @@ def _token_metrics(events: list[EventEnvelope]) -> dict[str, MetricValue]:
             if (
                 current is None
                 or rank[candidate[1]] > rank[current[1]]
-                or (
-                    rank[candidate[1]] == rank[current[1]]
-                    and candidate[2] >= current[2]
-                )
+                or (rank[candidate[1]] == rank[current[1]] and candidate[2] >= current[2])
             ):
                 selected[(identity, key)] = candidate
 
@@ -199,24 +187,17 @@ def _token_metrics(events: list[EventEnvelope]) -> dict[str, MetricValue]:
     result: dict[str, MetricValue] = {}
     for key in TOKEN_KEYS:
         observations = [
-            value
-            for (_identity, metric_key), value in selected.items()
-            if metric_key == key
+            value for (_identity, metric_key), value in selected.items() if metric_key == key
         ]
         result[key] = _aggregate(
-            [
-                _value(value[0], value[1], f"telemetry:{key}")
-                for value in observations
-            ],
+            [_value(value[0], value[1], f"telemetry:{key}") for value in observations],
             f"telemetry-window:{key}",
         )
     return result
 
 
 def _context_metrics(events: list[EventEnvelope]) -> dict[str, MetricValue]:
-    measurements: list[
-        tuple[float | int, float | int, MetricProvenance]
-    ] = []
+    measurements: list[tuple[float | int, float | int, MetricProvenance]] = []
     for event in events:
         if event.event_type not in CONTEXT_EVENTS:
             continue
@@ -227,12 +208,7 @@ def _context_metrics(events: list[EventEnvelope]) -> dict[str, MetricValue]:
             before = _number(event.payload.get("context_before_tokens"))
             after = _number(event.payload.get("context_after_tokens"))
             provenance = _provenance(event, "context_before_tokens")
-        if (
-            before is not None
-            and after is not None
-            and before >= 0
-            and after >= 0
-        ):
+        if before is not None and after is not None and before >= 0 and after >= 0:
             measurements.append((before, after, provenance))
     if not measurements:
         return {
@@ -382,9 +358,7 @@ def _history(
                         "provenance": _provenance(event, key).value,
                         "observed_at": event.occurred_at.isoformat(),
                         "event_type": event.event_type,
-                        "run_id": (
-                            str(event.run_id) if event.run_id else None
-                        ),
+                        "run_id": (str(event.run_id) if event.run_id else None),
                     }
                 )
         if event.event_type in {"cache.hit", "cache.miss"}:
@@ -424,9 +398,7 @@ def _project_snapshot(
         token=_token_metrics(page.events),
         context=_context_metrics(page.events),
         cache=_cache_metrics(page.events),
-        storage=_storage_metrics(
-            observe_project_storage(settings, project_id)
-        ),
+        storage=_storage_metrics(observe_project_storage(settings, project_id)),
         history=_history(page.events, limit),
         history_max_points=limit,
         cost_provenance=MetricProvenance.UNAVAILABLE,
@@ -440,10 +412,7 @@ def _global_snapshot(
     projects = list_projects(settings)
     if not projects:
         raise HTTPException(status_code=404, detail="no registered projects")
-    snapshots = [
-        _project_snapshot(settings, project.project_id, limit)
-        for project in projects
-    ]
+    snapshots = [_project_snapshot(settings, project.project_id, limit) for project in projects]
 
     def family(
         names: tuple[str, ...],
@@ -464,8 +433,7 @@ def _global_snapshot(
     if before.value is not None and after.value is not None:
         provenance = (
             MetricProvenance.ESTIMATED
-            if MetricProvenance.ESTIMATED
-            in {before.provenance, after.provenance}
+            if MetricProvenance.ESTIMATED in {before.provenance, after.provenance}
             else MetricProvenance.EXACT
         )
         if MetricProvenance.UNKNOWN in {
@@ -489,9 +457,7 @@ def _global_snapshot(
             else _missing("global:context:ratio")
         )
     else:
-        context["reduction_tokens"] = _missing(
-            "global:context:reduction"
-        )
+        context["reduction_tokens"] = _missing("global:context:reduction")
         context["reduction_ratio"] = _missing("global:context:ratio")
 
     cache = family(
@@ -506,19 +472,13 @@ def _global_snapshot(
             MetricProvenance.EXACT,
             "global:cache:hit-rate",
         )
-        if (
-            hits.value is not None
-            and total.value is not None
-            and total.value > 0
-        )
+        if (hits.value is not None and total.value is not None and total.value > 0)
         else _missing("global:cache:hit-rate")
     )
 
     storage = _storage_metrics(observe_global_storage(settings))
 
-    history = [
-        point for snapshot in snapshots for point in snapshot.history
-    ][-limit:]
+    history = [point for snapshot in snapshots for point in snapshot.history][-limit:]
     return MetricsResponse(
         metrics_evidence_version=METRICS_EVIDENCE_VERSION,
         generated_at=_now(),
@@ -528,12 +488,8 @@ def _global_snapshot(
         canonical_store="postgres",
         hot_store="redis",
         hot_store_canonical=False,
-        scanned_events=sum(
-            snapshot.scanned_events for snapshot in snapshots
-        ),
-        window_truncated=any(
-            snapshot.window_truncated for snapshot in snapshots
-        ),
+        scanned_events=sum(snapshot.scanned_events for snapshot in snapshots),
+        window_truncated=any(snapshot.window_truncated for snapshot in snapshots),
         token=token,
         context=context,
         cache=cache,

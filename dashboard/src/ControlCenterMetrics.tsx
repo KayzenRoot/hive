@@ -140,11 +140,11 @@ export default function ControlCenterMetrics() {
   }, [metricsUrl]);
 
   useEffect(() => {
-    void loadProjects();
+    queueMicrotask(() => void loadProjects());
   }, [loadProjects]);
 
   useEffect(() => {
-    void loadMetrics();
+    queueMicrotask(() => void loadMetrics());
     const interval = window.setInterval(() => void loadMetrics(), refreshIntervalMs);
     return () => window.clearInterval(interval);
   }, [loadMetrics]);
