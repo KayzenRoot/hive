@@ -22,11 +22,9 @@ def fetch(url: str) -> tuple[int, bytes, dict | None]:
         return response.status, body, payload
 
 
-def run_control_center_integration() -> int:
-    """Run the WO-020 Control Center integration evidence in place."""
-
+def run_integration_script(path: str) -> int:
     completed = subprocess.run(
-        [sys.executable, "scripts/control_center_integration.py"],
+        [sys.executable, path],
         cwd=ROOT,
         check=False,
     )
@@ -50,13 +48,18 @@ def main() -> int:
                 assert dashboard_status == 200
                 assert b"HIVE" in dashboard_body
                 print(json.dumps(payload, indent=2))
-                result = run_control_center_integration()
-                if result != 0:
-                    print(
-                        f"Control Center integration failed with exit code {result}",
-                        file=sys.stderr,
-                    )
-                    return 1
+                integrations = (
+                    ("Control Center", "scripts/control_center_integration.py"),
+                    ("Control Center metrics", "scripts/control_center_metrics_integration.py"),
+                )
+                for label, path in integrations:
+                    result = run_integration_script(path)
+                    if result != 0:
+                        print(
+                            f"{label} integration failed with exit code {result}",
+                            file=sys.stderr,
+                        )
+                        return 1
                 print("Integration health passed.")
                 return 0
         except (AssertionError, KeyError, OSError, urllib.error.URLError, ValueError) as exc:
