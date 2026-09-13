@@ -4910,7 +4910,7 @@ def require_wo021_control_center_metrics_evidence(
                 f"{WO021_G1_WORK_ORDER} must not claim future Control Center metrics evidence"
             )
         return
-    if work_order != WO021_WORK_ORDER:
+    if work_order not in {WO021_WORK_ORDER, WO021P_G1_WORK_ORDER, WO021P_WORK_ORDER}:
         return
     metrics = integration.get("control_center_metrics")
     if not isinstance(metrics, Mapping):
@@ -7954,7 +7954,10 @@ def integration_evidence(
     ):
         status = "FAIL"
     control_center_metrics = control_center_metrics_evidence()
-    if work_order == WO021_WORK_ORDER and control_center_metrics["status"] == "FAIL":
+    if (
+        work_order in {WO021_WORK_ORDER, WO021P_G1_WORK_ORDER, WO021P_WORK_ORDER}
+        and control_center_metrics["status"] == "FAIL"
+    ):
         status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
@@ -8016,7 +8019,7 @@ def integration_evidence(
         evidence["telemetry_event_bus"] = telemetry_event_bus
     if work_order in {WO020_WORK_ORDER, WO020P_G1_WORK_ORDER, WO020P_WORK_ORDER}:
         evidence["control_center_core"] = control_center_core
-    if work_order == WO021_WORK_ORDER:
+    if work_order in {WO021_WORK_ORDER, WO021P_G1_WORK_ORDER, WO021P_WORK_ORDER}:
         evidence["control_center_metrics"] = control_center_metrics
     return evidence
 
