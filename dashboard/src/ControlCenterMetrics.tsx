@@ -152,7 +152,7 @@ export default function ControlCenterMetrics() {
   useEffect(() => {
     if (!projectId || typeof EventSource === "undefined") return undefined;
     const source = new EventSource(
-      `${API_BASE_URL}/api/v1/control-center/projects/${encodeURIComponent(projectId)}/events/stream`,
+      `${API_BASE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/events/stream`,
     );
     source.onmessage = () => void loadMetrics();
     source.onerror = () => {
