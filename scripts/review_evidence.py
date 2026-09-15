@@ -3134,6 +3134,16 @@ def require_wo021p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
         raise ValueError("WO-021-P candidate has an unexpected BLOCKERS intent")
     if normalized_checkpoint_value(candidate, "NEXT STEP") != EXPECTED_WO021P_NEXT_STEP:
         raise ValueError("WO-021-P NEXT STEP must match the exact Control Center grammar")
+    for name in set(base) - {
+        "STATUS",
+        "COMPLETED",
+        "IN PROGRESS",
+        "PENDING",
+        "BLOCKERS",
+        "NEXT STEP",
+    }:
+        if base[name] != candidate[name]:
+            raise ValueError(f"WO-021-P changed unrelated checkpoint section: {name}")
 
 
 def _require_wo022p_strict_raw_checkpoint_grammar(

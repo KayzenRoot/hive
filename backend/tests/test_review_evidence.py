@@ -3699,6 +3699,60 @@ def test_wo021p_checkpoint_semantics_are_closed_and_retain_pending() -> None:
         )
 
 
+def test_wo021p_checkpoint_semantics_keep_the_historical_unrelated_section_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base, candidate = wo021p_checkpoint_fixture()
+    review_evidence.require_wo021p_checkpoint_semantics(base, candidate)
+    controlled = {
+        "STATUS",
+        "COMPLETED",
+        "IN PROGRESS",
+        "PENDING",
+        "BLOCKERS",
+        "NEXT STEP",
+    }
+    unrelated = sorted(set(review_evidence.checkpoint_sections(base)) - controlled)
+    assert {"VERSION", "PHASE", "OBJECTIVE"}.issubset(unrelated)
+
+    for name in unrelated:
+        mutated = replace_checkpoint_section(candidate, name, "WO-021-P unrelated rewrite")
+        with pytest.raises(
+            ValueError, match=f"WO-021-P changed unrelated checkpoint section: {name}"
+        ):
+            review_evidence.require_wo021p_checkpoint_semantics(base, mutated)
+
+    monkeypatch.setattr(
+        review_evidence,
+        "_require_wo021p_strict_raw_checkpoint_grammar",
+        lambda _base_text, _candidate_text: None,
+    )
+    for name in unrelated:
+        mutated = replace_checkpoint_section(candidate, name, "WO-021-P unrelated rewrite")
+        with pytest.raises(
+            ValueError, match=f"WO-021-P changed unrelated checkpoint section: {name}"
+        ):
+            review_evidence.require_wo021p_checkpoint_semantics(base, mutated)
+
+
+def test_wo022p_checkpoint_semantics_guard_unrelated_sections_independently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base, candidate = wo022p_checkpoint_fixture()
+    review_evidence.require_wo022p_checkpoint_semantics(base, candidate)
+    monkeypatch.setattr(
+        review_evidence,
+        "_require_wo022p_strict_raw_checkpoint_grammar",
+        lambda _base_text, _candidate_text: None,
+    )
+    for name in ("VERSION", "PHASE", "OBJECTIVE"):
+        mutated = replace_checkpoint_section(candidate, name, "WO-022-P unrelated rewrite")
+        with pytest.raises(
+            ValueError, match=f"WO-022-P changed unrelated checkpoint section: {name}"
+        ):
+            review_evidence.require_wo022p_checkpoint_semantics(base, mutated)
+
+
 def test_wo021p_manifest_contract_only_changes_checkpoint_hash() -> None:
     manifest_path = review_evidence.ROOT / review_evidence.CANONICAL_MANIFEST_PATH
     base_manifest = manifest_path.read_text(encoding="utf-8")
