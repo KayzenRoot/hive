@@ -679,7 +679,7 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "observed_migration_head": review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
         "migration_base_head": review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
         "baseline_reference_version": "baseline-full-context-v1",
-        "ground_truth_source": "git:HEAD-blob:docs/atlas/wo023-benchmarks.md",
+        "ground_truth_source": ("git:HEAD-blob:docs/atlas/wo022-control-center-full.md"),
         "run_digest": hashlib.sha256(b"wo023 fixture run").hexdigest(),
         "retrieval_metrics_status": "AVAILABLE",
         "token_metrics_status": "AVAILABLE",
@@ -828,7 +828,7 @@ def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> Non
             wo023_benchmark_payload(
                 token_metrics_status="NOT_SUPPORTED", token_reduction_percentage=37.5
             ),
-            "not AVAILABLE",
+            "core metrics",
         ),
         (
             "available family without numbers",
@@ -852,7 +852,7 @@ def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> Non
             wo023_benchmark_payload(
                 token_metrics_status="UNAVAILABLE", token_reduction_percentage=0.0
             ),
-            "not AVAILABLE",
+            "core metrics",
         ),
         ("provider mismatch", wo023_benchmark_payload(optional_provider_calls=3), "provider"),
         ("bad digest", wo023_benchmark_payload(run_digest="not-a-digest"), "run digest"),
@@ -867,7 +867,142 @@ def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> Non
             wo023_benchmark_payload(cross_project_retrieval_accepted=True),
             "negative claims",
         ),
+        (
+            "retrieval below accepted baseline",
+            wo023_benchmark_payload(retrieval_recall_at_k=0.5),
+            "accepted baseline",
+        ),
+        (
+            "retrieval zero recall",
+            wo023_benchmark_payload(retrieval_recall_at_k=0.0),
+            "accepted baseline",
+        ),
+        (
+            "zero precision",
+            wo023_benchmark_payload(retrieval_precision=0.0),
+            "strictly positive",
+        ),
+        (
+            "contradictory token reduction",
+            wo023_benchmark_payload(token_reduction_percentage=10.0),
+            "contradicts the declared",
+        ),
+        (
+            "optimized above baseline",
+            wo023_benchmark_payload(token_optimized_input_tokens=50_000),
+            "optimized < baseline",
+        ),
+        (
+            "zero baseline tokens",
+            wo023_benchmark_payload(token_baseline_input_tokens=0),
+            "baseline",
+        ),
+        (
+            "contradictory dedup ratio",
+            wo023_benchmark_payload(storage_dedup_ratio=0.2),
+            "contradicts the declared",
+        ),
+        (
+            "contradictory compression ratio",
+            wo023_benchmark_payload(storage_compression_ratio=0.9),
+            "contradicts the declared",
+        ),
+        (
+            "contradictory total reduction",
+            wo023_benchmark_payload(storage_total_reduction_ratio=0.1),
+            "contradicts the declared",
+        ),
+        ("empty evidence paths", wo023_benchmark_payload(evidence_paths=[]), "evidence paths"),
+        (
+            "duplicate evidence paths",
+            wo023_benchmark_payload(
+                evidence_paths=[
+                    "backend/app/retrieval.py",
+                    "backend/app/retrieval.py",
+                ]
+            ),
+            "evidence paths",
+        ),
+        (
+            "absolute evidence path",
+            wo023_benchmark_payload(evidence_paths=["/etc/passwd"]),
+            "evidence paths",
+        ),
+        (
+            "traversal evidence path",
+            wo023_benchmark_payload(evidence_paths=["scripts/../backend/app/retrieval.py"]),
+            "evidence paths",
+        ),
+        (
+            "out-of-scope evidence path",
+            wo023_benchmark_payload(evidence_paths=["docs/project-brain/13-CHECKPOINT.md"]),
+            "evidence paths",
+        ),
+        (
+            "malformed ground truth prefix",
+            wo023_benchmark_payload(ground_truth_source="HEAD-blob:docs/atlas/wo022.md"),
+            "ground-truth source",
+        ),
+        (
+            "arbitrary ground truth string",
+            wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:not a path"),
+            "canonical repository-relative ground-truth path",
+        ),
+        (
+            "traversal ground truth",
+            wo023_benchmark_payload(
+                ground_truth_source="git:HEAD-blob:scripts/../backend/app/retrieval.py"
+            ),
+            "canonical repository-relative ground-truth path",
+        ),
+        (
+            "absolute ground truth",
+            wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:/etc/passwd"),
+            "canonical repository-relative ground-truth path",
+        ),
+        (
+            "missing ground truth blob",
+            wo023_benchmark_payload(
+                ground_truth_source="git:HEAD-blob:docs/atlas/wo023-missing-fixture.md"
+            ),
+            "exist at the reviewed HEAD",
+        ),
+        (
+            "out-of-scope ground truth",
+            wo023_benchmark_payload(
+                ground_truth_source="git:HEAD-blob:docs/project-brain/13-CHECKPOINT.md"
+            ),
+            "canonical repository-relative ground-truth path",
+        ),
     )
+    for _family, status_field in (
+        ("retrieval", "retrieval_metrics_status"),
+        ("token", "token_metrics_status"),
+        ("storage", "storage_metrics_status"),
+    ):
+        for status in ("UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED"):
+            family_numbers = {
+                "retrieval_metrics_status": {
+                    "retrieval_recall_at_k": None,
+                    "retrieval_precision": None,
+                },
+                "token_metrics_status": {"token_reduction_percentage": None},
+                "storage_metrics_status": {
+                    "storage_dedup_ratio": None,
+                    "storage_compression_ratio": None,
+                    "storage_total_reduction_ratio": None,
+                },
+            }[status_field]
+            with pytest.raises(ValueError, match="core metrics"):
+                review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                    review_evidence.WO023_WORK_ORDER,
+                    {
+                        "comprehensive_benchmarks": wo023_benchmark_payload(
+                            **{status_field: status}, **family_numbers
+                        )
+                    },
+                    migration,
+                )
     for _label, candidate, expected in mutations:
         with pytest.raises(ValueError, match=expected):
             review_evidence.require_wo023_comprehensive_benchmarks_evidence(
@@ -875,6 +1010,24 @@ def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> Non
                 {"comprehensive_benchmarks": candidate},
                 migration,
             )
+
+
+def test_wo023_reader_rejects_invalid_evidence_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = json.dumps(wo023_benchmark_payload())
+    monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=valid: _raw)
+    assert review_evidence.comprehensive_benchmarks_evidence()["status"] == "PASS"
+    for bad_paths in (
+        ["/etc/passwd"],
+        ["scripts/../backend/app/retrieval.py"],
+        [],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["backend/app/retrieval.py", "backend/app/retrieval.py"],
+    ):
+        raw = json.dumps(wo023_benchmark_payload(evidence_paths=bad_paths))
+        monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
+        assert review_evidence.comprehensive_benchmarks_evidence()["status"] == "FAIL"
 
 
 def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -948,6 +1101,15 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
         wo023_benchmark_payload(canonical_loss=True),
         {**wo023_benchmark_payload(), "unexpected": 1},
         wo023_benchmark_payload(retrieval_recall_at_k=1.5),
+        wo023_benchmark_payload(retrieval_recall_at_k=0.5),
+        wo023_benchmark_payload(retrieval_precision=0.0),
+        wo023_benchmark_payload(token_metrics_status="NOT_SUPPORTED"),
+        wo023_benchmark_payload(evidence_paths=["/etc/passwd"]),
+        wo023_benchmark_payload(
+            evidence_paths=["backend/app/retrieval.py", "backend/app/retrieval.py"]
+        ),
+        wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:not a path"),
+        wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:/etc/passwd"),
         wo023_benchmark_payload(benchmark_families=["retrieval", "token"]),
     ):
         with pytest.raises(jsonschema.ValidationError):

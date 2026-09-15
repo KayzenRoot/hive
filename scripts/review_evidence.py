@@ -1058,6 +1058,24 @@ COMPREHENSIVE_BENCHMARKS_FAMILIES = ("retrieval", "token", "storage")
 COMPREHENSIVE_BENCHMARKS_METRIC_STATUSES = ("AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED")
 COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS = 1000
 COMPREHENSIVE_BENCHMARKS_RUN_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+# Core benchmark families must be measured; only provider-dependent optional
+# metrics may stay UNKNOWN/NOT_SUPPORTED.
+COMPREHENSIVE_BENCHMARKS_CORE_FAMILY_STATUS = "AVAILABLE"
+# Accepted retrieval baseline: the repository already gates lexical retrieval at
+# recall@5 >= 0.90 in scripts/retrieval_integration.py, so a comprehensive
+# benchmark must not regress below the accepted quality it replaces. Precision
+# has no accepted numeric baseline today, so the contract requires a strictly
+# positive precision instead of inventing a threshold.
+COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_AT_K_MIN = 0.90
+COMPREHENSIVE_BENCHMARKS_MIN_PRECISION_EXCLUSIVE = 0.0
+# Token reduction is (baseline - optimized) / baseline * 100. Storage ratios are
+# reduction ratios: dedup = (logical - deduplicated) / logical,
+# compression = (deduplicated - physical) / deduplicated and
+# total = (logical - physical) / logical. Both must agree with the explicit byte
+# and token counts inside these deterministic tolerances.
+COMPREHENSIVE_BENCHMARKS_TOKEN_REDUCTION_TOLERANCE_PP = 0.5
+COMPREHENSIVE_BENCHMARKS_RATIO_TOLERANCE = 0.01
+COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX = "git:HEAD-blob:"
 COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS = 24
 COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
     "comprehensive_benchmarks_evidence_version",
@@ -5757,7 +5775,9 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         and len(set(cast(list[object], raw_paths))) == len(cast(list[object], raw_paths))
     )
     return {
-        "status": "PASS" if integer_valid and numbers_valid and families_valid else "FAIL",
+        "status": (
+            "PASS" if integer_valid and numbers_valid and families_valid and paths_valid else "FAIL"
+        ),
         **strings,
         "benchmark_families": (
             list(cast(list[str], payload["benchmark_families"])) if families_valid else []
@@ -5856,16 +5876,69 @@ def require_wo023_comprehensive_benchmarks_evidence(
         status = full.get(status_field)
         if status not in COMPREHENSIVE_BENCHMARKS_METRIC_STATUSES:
             raise ValueError(f"{WO023_WORK_ORDER} requires an explicit {family} metrics status")
+        if status != COMPREHENSIVE_BENCHMARKS_CORE_FAMILY_STATUS:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires measured {family} core metrics; "
+                f"{COMPREHENSIVE_BENCHMARKS_CORE_FAMILY_STATUS} status is mandatory"
+            )
         numeric = [
             full.get(field) for field in COMPREHENSIVE_BENCHMARKS_FAMILY_NUMBER_FIELDS[family]
         ]
-        if status == "AVAILABLE" and any(value is None for value in numeric):
+        if any(value is None for value in numeric):
             raise ValueError(
                 f"{WO023_WORK_ORDER} requires measured {family} metrics when reported AVAILABLE"
             )
-        if status != "AVAILABLE" and any(value is not None for value in numeric):
+    recall_at_k = full.get("retrieval_recall_at_k")
+    precision = full.get("retrieval_precision")
+    if (
+        not _benchmark_number(recall_at_k, (0.0, 1.0))
+        or float(cast(float, recall_at_k)) < COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_AT_K_MIN
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires recall@k at or above the accepted baseline "
+            f"{COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_AT_K_MIN}"
+        )
+    if not _benchmark_number(precision, (0.0, 1.0)) or float(cast(float, precision)) <= (
+        COMPREHENSIVE_BENCHMARKS_MIN_PRECISION_EXCLUSIVE
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a strictly positive bounded retrieval precision"
+        )
+    baseline_tokens = cast(int, full["token_baseline_input_tokens"])
+    optimized_tokens = cast(int, full["token_optimized_input_tokens"])
+    reduction = full.get("token_reduction_percentage")
+    if baseline_tokens <= 0 or optimized_tokens >= baseline_tokens:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a token saving claim with baseline > 0 and "
+            "optimized < baseline"
+        )
+    expected_reduction = (baseline_tokens - optimized_tokens) / baseline_tokens * 100
+    if not _benchmark_number(reduction, (0.0, 100.0)) or abs(
+        float(cast(float, reduction)) - expected_reduction
+    ) > (COMPREHENSIVE_BENCHMARKS_TOKEN_REDUCTION_TOLERANCE_PP):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} token reduction percentage contradicts the declared token counts"
+        )
+    if logical > 0:
+        expected_dedup = (logical - deduplicated) / logical
+        expected_total = (logical - physical) / logical
+    else:
+        expected_dedup = 0.0
+        expected_total = 0.0
+    expected_compression = (deduplicated - physical) / deduplicated if deduplicated > 0 else 0.0
+    for field, expected_ratio in (
+        ("storage_dedup_ratio", expected_dedup),
+        ("storage_compression_ratio", expected_compression),
+        ("storage_total_reduction_ratio", expected_total),
+    ):
+        value = full.get(field)
+        if (
+            not _benchmark_number(value, (0.0, 1.0))
+            or abs(float(cast(float, value)) - expected_ratio)
+            > COMPREHENSIVE_BENCHMARKS_RATIO_TOLERANCE
+        ):
             raise ValueError(
-                f"{WO023_WORK_ORDER} must not report {family} values that are not AVAILABLE"
+                f"{WO023_WORK_ORDER} {field} contradicts the declared storage byte counts"
             )
     for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS:
         value = full.get(field)
@@ -5880,12 +5953,45 @@ def require_wo023_comprehensive_benchmarks_evidence(
         raise ValueError(
             f"{WO023_WORK_ORDER} requires optional provider usage to be recorded explicitly"
         )
-    ground_truth = full.get("ground_truth_source")
-    if not (
-        valid_comprehensive_benchmarks_evidence_path(ground_truth)
-        or (isinstance(ground_truth, str) and ground_truth.startswith("git:HEAD-blob:"))
+    evidence_paths = full.get("evidence_paths")
+    if (
+        not isinstance(evidence_paths, list)
+        or not 1
+        <= len(cast(list[object], evidence_paths))
+        <= COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS
+        or any(not valid_comprehensive_benchmarks_evidence_path(path) for path in evidence_paths)
+        or len(set(cast(list[object], evidence_paths))) != len(cast(list[object], evidence_paths))
     ):
-        raise ValueError(f"{WO023_WORK_ORDER} requires an auditable ground-truth source")
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires bounded, unique, normalized evidence paths inside "
+            "authorized product roots"
+        )
+    ground_truth = full.get("ground_truth_source")
+    if not isinstance(ground_truth, str) or not ground_truth.startswith(
+        COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires an auditable ground-truth source "
+            f"prefixed with {COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX}"
+        )
+    ground_truth_path = ground_truth[len(COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX) :]
+    if not valid_comprehensive_benchmarks_evidence_path(ground_truth_path):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a canonical repository-relative ground-truth path"
+        )
+    reviewed_head = git_value("rev-parse", "HEAD", fallback="")
+    try:
+        ground_truth_blob = (
+            git_blob_bytes(reviewed_head, ground_truth_path)
+            if HEX_SHA.fullmatch(reviewed_head)
+            else b""
+        )
+    except ValueError:
+        ground_truth_blob = b""
+    if not ground_truth_blob:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires the ground-truth blob to exist at the reviewed HEAD"
+        )
     baseline = full.get("baseline_reference_version")
     if not isinstance(baseline, str) or not baseline:
         raise ValueError(f"{WO023_WORK_ORDER} requires a versioned benchmark baseline")
