@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "work_order": "WO-023",
+  "dataset_identity": "wo023-benchmark-corpus-v1",
+  "description": "Deterministic benchmark corpus and auditable ground truth for the WO-023 comprehensive retrieval, token and storage benchmark. Corpus files are materialized into an isolated Git fixture repository; every query declares its expected repository-relative path and criticality.",
+  "corpus_files": [
+    {
+      "path": "src/order_service.py",
+      "content": "# Order intake service.\n\nIDEMPOTENCY_KEY_HEADER = \"X-Hive-Idempotency-Key\"\n\n\ndef submit_order(store: dict[str, str], idempotency_key: str, payload: str) -> str:\n    \"\"\"Persist an order once per idempotency key.\"\"\"\n    existing = store.get(idempotency_key)\n    if existing is not None:\n        return existing\n    store[idempotency_key] = payload\n    return payload\n\n\ndef suppress_duplicate_order(store: dict[str, str], idempotency_key: str) -> bool:\n    \"\"\"Report whether a duplicate order was suppressed.\"\"\"\n    return idempotency_key in store\n"
+    },
+    {
+      "path": "src/rate_limiter.py",
+      "content": "# Token bucket rate limiter.\n\nBUCKET_CAPACITY = 60\nREFILL_PER_SECOND = 1.5\n\n\nclass TokenBucketRateLimiter:\n    \"\"\"Deterministic token bucket refill model.\"\"\"\n\n    def __init__(self, capacity: int = BUCKET_CAPACITY) -> None:\n        self.capacity = capacity\n        self.tokens = float(capacity)\n        self.last_refill_seconds = 0.0\n\n    def refill(self, elapsed_seconds: float) -> float:\n        \"\"\"Refill tokens at the configured rate.\"\"\"\n        self.tokens = min(self.capacity, self.tokens + elapsed_seconds * REFILL_PER_SECOND)\n        self.last_refill_seconds = elapsed_seconds\n        return self.tokens\n\n    def allow(self, cost: float = 1.0) -> bool:\n        \"\"\"Consume tokens when the bucket has enough capacity.\"\"\"\n        if self.tokens < cost:\n            return False\n        self.tokens -= cost\n        return True\n"
+    },
+    {
+      "path": "src/cache_policy.py",
+      "content": "# Cache ttl and eviction policy.\n\nDEFAULT_TTL_SECONDS = 300\nMAX_ENTRIES = 512\n\n\nclass TtlCachePolicy:\n    \"\"\"Least-recently-used eviction with a bounded ttl.\"\"\"\n\n    def __init__(self, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:\n        self.ttl_seconds = ttl_seconds\n        self.entries: dict[str, int] = {}\n\n    def store(self, key: str, inserted_at: int) -> None:\n        \"\"\"Insert an entry and evict the oldest entry when the bound is exceeded.\"\"\"\n        self.entries[key] = inserted_at\n        if len(self.entries) > MAX_ENTRIES:\n            oldest = min(self.entries, key=self.entries.get)  # type: ignore[arg-type]\n            del self.entries[oldest]\n\n    def is_fresh(self, key: str, now: int) -> bool:\n        \"\"\"Report whether an entry is still within its ttl window.\"\"\"\n        inserted_at = self.entries.get(key)\n        if inserted_at is None:\n            return False\n        return now - inserted_at <= self.ttl_seconds\n"
+    },
+    {
+      "path": "src/storage_policy.py",
+      "content": "# Zstd compression tier selection.\n\nHOT_LEVEL = 1\nWARM_LEVEL = 3\nCOLD_LEVEL = 9\n\n\ndef zstd_level_for_tier(tier: str) -> int:\n    \"\"\"Map an ACCE storage tier to its measured zstd compression level.\"\"\"\n    levels = {\"HOT\": HOT_LEVEL, \"WARM\": WARM_LEVEL, \"COLD\": COLD_LEVEL}\n    if tier not in levels:\n        raise ValueError(f\"unknown storage tier: {tier}\")\n    return levels[tier]\n\n\ndef physical_bytes_for_tier(tier: str, logical_bytes: int, ratio: float) -> int:\n    \"\"\"Estimate physical bytes from a measured compression ratio.\"\"\"\n    zstd_level_for_tier(tier)\n    return int(logical_bytes * ratio)\n"
+    },
+    {
+      "path": "src/retrieval_ranker.py",
+      "content": "# Hybrid rank fusion.\n\nRECIPROCAL_RANK_CONSTANT = 60\n\n\ndef reciprocal_rank_fusion(rankings: list[list[str]]) -> dict[str, float]:\n    \"\"\"Fuse lexical and semantic rankings with reciprocal rank fusion.\"\"\"\n    fused: dict[str, float] = {}\n    for ranking in rankings:\n        for rank, identifier in enumerate(ranking, start=1):\n            fused[identifier] = fused.get(identifier, 0.0) + (\n                1.0 / (RECIPROCAL_RANK_CONSTANT + rank)\n            )\n    return fused\n\n\ndef best_rank(identifier: str, ranking: list[str]) -> int | None:\n    \"\"\"Return the one-based rank of an identifier in a ranking.\"\"\"\n    for rank, candidate in enumerate(ranking, start=1):\n        if candidate == identifier:\n            return rank\n    return None\n"
+    },
+    {
+      "path": "docs/notes.md",
+      "content": "# Benchmark fixture notes\n\nThis repository is an isolated deterministic fixture for the WO-023 comprehensive\nbenchmark. It contains no production code, no credentials and no user data.\n"
+    }
+  ],
+  "duplicate_task_texts": [
+    "# Duplicate payload for deduplication measurement\n\nThe same bytes are submitted twice so the content-addressed storage proves real\ndeduplication on representative HIVE-owned data instead of a hand-authored value.\n"
+  ],
+  "queries": [
+    {
+      "query": "idempotency key duplicate order suppression",
+      "expected_path": "src/order_service.py",
+      "critical": true
+    },
+    {
+      "query": "token bucket refill rate limiter capacity",
+      "expected_path": "src/rate_limiter.py",
+      "critical": true
+    },
+    {
+      "query": "cache ttl eviction oldest entry",
+      "expected_path": "src/cache_policy.py",
+      "critical": true
+    },
+    {
+      "query": "zstd level compression tier hot warm cold",
+      "expected_path": "src/storage_policy.py",
+      "critical": true
+    },
+    {
+      "query": "reciprocal rank fusion hybrid ranking",
+      "expected_path": "src/retrieval_ranker.py",
+      "critical": true
+    }
+  ],
+  "tasks": [
+    {
+      "title": "Benchmark task order intake",
+      "expected_path": "src/order_service.py",
+      "preamble": "# Idempotent order intake review\n\n## Acceptance Criteria\n- Confirm the idempotency key duplicate order suppression evidence in src/order_service.py.\n"
+    },
+    {
+      "title": "Benchmark task rate limiter",
+      "expected_path": "src/rate_limiter.py",
+      "preamble": "# Token bucket review\n\n## Acceptance Criteria\n- Confirm the token bucket refill rate limiter evidence in src/rate_limiter.py.\n"
+    },
+    {
+      "title": "Benchmark task storage tiers",
+      "expected_path": "src/storage_policy.py",
+      "preamble": "# Storage tier review\n\n## Acceptance Criteria\n- Confirm the zstd level compression tier selection evidence in src/storage_policy.py.\n"
+    }
+  ],
+  "optional_pressure_repeat": 1500,
+  "optional_pressure_sentence": "optional lower-priority evidence that may be trimmed safely "
+}
