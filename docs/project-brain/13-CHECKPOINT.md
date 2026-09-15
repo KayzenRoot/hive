@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-CONTROL CENTER METRICS FOUNDATION APPROVED / V0.1 IMPLEMENTATION ACTIVE
+FULL CONTROL CENTER APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -227,6 +227,12 @@ See `03-SCOPE.md`.
 - project-scoped metrics and deterministic global aggregation are bounded; postgresql remains canonical, redis remains noncanonical, and restart/redis-loss recovery preserves canonical truth.
 - lineage records pr #82 with audited head 1363d6c477faba8b6d780cdb1a953aa3c64259e5, sol review 5190892017, squash merge cd05c753ce0fd25d657dd829a2484041355d873b and post-merge ci 34760861308; backend 568 and dashboard 30 passed.
 - control-center-metrics-v1 evidence records migration head 0007_telemetry_events, zero secret/filesystem-path/cross-project leaks, zero llm/provider calls, and does not claim full control center or hive v0.1 completion.
+- full control center is approved under evidence control-center-full-v1 with ten project-intelligence capabilities, thirteen required charts, twelve alerts and three health surfaces rendered from canonical git head blobs and bounded project-scoped telemetry.
+- bounded project-scoped near-real-time behaviour reuses canonical postgresql truth with bounded history points, estimated values labelled, and no fabricated metric or alert.
+- postgresql remains canonical, redis remains noncanonical hot state, and restart plus redis-loss recovery preserve the same canonical project-scoped view.
+- mandatory governance sections fail closed as unavailable, unknown values are never rendered as zero, and missing canonical project-brain sections are never materialized as data.
+- lineage records pr #86 with audited head a870275b3ad738b789e30169d5b1fac00e2e4ae3, sol review 5204463844, squash merge 82c39025fe4e4a4a3b4664ed8e8059984fffb039 and post-merge ci 34916205113; backend 606 and dashboard 34 passed.
+- control-center-full-v1 evidence records migration head 0007_telemetry_events, zero secret/filesystem-path/cross-project leaks, zero llm/provider calls, and does not claim hive v0.1 completion.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -234,10 +240,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the smallest necessary full HIVE Control Center implementation increment.
+- Preparing the comprehensive retrieval, token and storage benchmarks increment.
 
 ## PENDING
-- full Control Center.
 - comprehensive retrieval/token/storage benchmarks.
 - stabilization.
 - full local deployment validation.
@@ -247,13 +252,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 
 ## BLOCKERS
-None known after Control Center Metrics Foundation approval and post-merge validation.
+None known after Full Control Center approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the smallest necessary full HIVE Control Center implementation increment.
+Prepare the comprehensive retrieval, token and storage benchmarks increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
