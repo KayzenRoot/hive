@@ -52,6 +52,7 @@ def main() -> int:
                     ("Control Center", "scripts/control_center_integration.py"),
                     ("Control Center metrics", "scripts/control_center_metrics_integration.py"),
                     ("Full Control Center", "scripts/control_center_full_integration.py"),
+                    ("Comprehensive benchmarks", "scripts/comprehensive_benchmarks.py"),
                 )
                 for label, path in integrations:
                     result = run_integration_script(path)

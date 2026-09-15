@@ -36,6 +36,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/conftest.py: Python source or test module.
 - backend/tests/test_adaptive_token_budget.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
+- backend/tests/test_comprehensive_benchmarks.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
 - backend/tests/test_context_fingerprints.py: Python source or test module.
 - backend/tests/test_context_manager.py: Python source or test module.
@@ -100,6 +101,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/autonomous_execution_integration.py: deterministic maintenance or validation script.
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
+- scripts/comprehensive_benchmarks.py: deterministic maintenance or validation script.
 - scripts/context_manager_integration.py: deterministic maintenance or validation script.
 - scripts/control_center_full_integration.py: deterministic maintenance or validation script.
 - scripts/control_center_integration.py: deterministic maintenance or validation script.

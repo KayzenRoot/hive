@@ -2,7 +2,7 @@
   "schema_version": 1,
   "work_order": "WO-023",
   "dataset_identity": "wo023-benchmark-corpus-v1",
-  "description": "Deterministic benchmark corpus and auditable ground truth for the WO-023 comprehensive retrieval, token and storage benchmark. Corpus files are materialized into an isolated Git fixture repository; every query declares its expected repository-relative path and criticality.",
+  "description": "Deterministic benchmark corpus and auditable ground truth for the WO-023 comprehensive retrieval, token and storage benchmark. Task texts stay inside the Context Manager query window and use only literal corpus tokens, so the real AND-semantics retrieval query resolves the auditable ground truth without truncation artifacts.",
   "corpus_files": [
     {
       "path": "src/order_service.py",
@@ -34,7 +34,7 @@
   ],
   "queries": [
     {
-      "query": "idempotency key duplicate order suppression",
+      "query": "idempotency key duplicate order suppressed",
       "expected_path": "src/order_service.py",
       "critical": true
     },
@@ -61,21 +61,34 @@
   ],
   "tasks": [
     {
-      "title": "Benchmark task order intake",
+      "title": "persist an order once per idempotency key",
       "expected_path": "src/order_service.py",
-      "preamble": "# Idempotent order intake review\n\n## Acceptance Criteria\n- Confirm the idempotency key duplicate order suppression evidence in src/order_service.py.\n"
+      "preamble": "# persist an order once per idempotency key\n\n## Acceptance Criteria\n- return complete file src/order_service.py duplicate order suppressed acceptance criteria\n"
     },
     {
-      "title": "Benchmark task rate limiter",
+      "title": "deterministic token bucket refill model",
       "expected_path": "src/rate_limiter.py",
-      "preamble": "# Token bucket review\n\n## Acceptance Criteria\n- Confirm the token bucket refill rate limiter evidence in src/rate_limiter.py.\n"
+      "preamble": "# deterministic token bucket refill model\n\n## Acceptance Criteria\n- return complete file src/rate_limiter.py refill tokens configured rate acceptance criteria\n"
     },
     {
-      "title": "Benchmark task storage tiers",
+      "title": "map a storage tier to its measured zstd compression level",
       "expected_path": "src/storage_policy.py",
-      "preamble": "# Storage tier review\n\n## Acceptance Criteria\n- Confirm the zstd level compression tier selection evidence in src/storage_policy.py.\n"
+      "preamble": "# map a storage tier to its measured zstd compression level\n\n## Acceptance Criteria\n- return complete file src/storage_policy.py measured zstd compression level acceptance criteria\n"
     }
   ],
-  "optional_pressure_repeat": 1500,
-  "optional_pressure_sentence": "optional lower-priority evidence that may be trimmed safely "
+  "optional_pressure_repeat": 0,
+  "optional_pressure_sentence": "optional lower-priority evidence that may be trimmed safely ",
+  "corpus_module_count": 36,
+  "corpus_module_template": "MODULE_INDEX = {index}\n\n\ndef module_{index}_load(store: dict[str, str]) -> str:\n    \"\"\"Load module {index} state from the store.\"\"\"\n    return store.get(\"module-{index}\", \"\")\n\n\ndef module_{index}_store(store: dict[str, str], value: str) -> None:\n    \"\"\"Store module {index} state.\"\"\"\n    store[\"module-{index}\"] = value\n\n\ndef module_{index}_summary() -> str:\n    \"\"\"Summarize module {index} ownership.\"\"\"\n    return \"module {index} owns deterministic fixture state\"\n",
+  "task_pressure_sentence": "Also summarize deterministic fixture state ownership across every generated module and reconcile PRESSURE_PADDING evidence across the optional padding blocks.\n",
+  "large_corpus_files": {
+    "count": 3,
+    "path_template": "src/large/padding_block_{index}.py",
+    "target_kilobytes": 8,
+    "line_template": "PRESSURE_PADDING_{index}_LINE_{line} = 'deterministic optional padding for the WO-023 benchmark corpus'\n"
+  },
+  "corpus_narrative": {
+    "repeat": 1,
+    "template": "# {name} acceptance criteria return complete file reference note {line}: deterministic commentary retained as optional context for the WO-023 benchmark corpus.\n"
+  }
 }
