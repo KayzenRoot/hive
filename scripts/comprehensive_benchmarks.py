@@ -22,6 +22,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "backend"))
 
 import review_evidence as governance  # noqa: E402
-from app.adaptive_token_budget import run_focused_benchmark  # noqa: E402
+from app.adaptive_token_budget import estimate_context_payload_tokens  # noqa: E402
 from app.cas import measure_storage_policy, select_storage_policy  # noqa: E402
 from control_center_integration import (  # noqa: E402
     ApiProbe,
@@ -58,6 +59,7 @@ RECALL_K = governance.COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K
 TOP_K = 5
 CANDIDATE_POOL = 20
 CONTEXT_TOP_K = 10
+OPTIMIZED_PAYLOAD_EXCLUDED_FIELDS = ("adaptive_token_budget", "bounds")
 EVIDENCE_PATHS = (
     "backend/tests/test_comprehensive_benchmarks.py",
     "docs/atlas/WO-023-BENCHMARK-REPORT.md",
@@ -66,6 +68,15 @@ EVIDENCE_PATHS = (
 )
 INDEX_WAIT_ATTEMPTS = 60
 CORPUS_WAIT_ATTEMPTS = 60
+BETA_OWN_QUERIES = (
+    "beta_isolated_worker BETA_ONLY_MARKER second project marker",
+    "isolation probe module second benchmark project",
+)
+ALPHA_ONLY_QUERIES = (
+    "idempotency key duplicate order suppressed",
+    "zstd level compression tier hot warm cold",
+    "reciprocal rank fusion hybrid ranking",
+)
 
 
 def load_ground_truth() -> dict[str, object]:
@@ -270,12 +281,24 @@ def run_index(probe: ApiProbe, project_id: UUID) -> dict[str, object]:
 
     triggered = probe.request("POST", f"/api/v1/projects/{project_id}/index", expected=(200, 201))
     require(isinstance(triggered, dict), "repository index response is not an object")
+    seen: dict[str, object] = {}
     for _ in range(INDEX_WAIT_ATTEMPTS):
         payload = probe.request("GET", f"/api/v1/projects/{project_id}/index")
-        if isinstance(payload, dict) and payload.get("status") == "COMPLETED":
-            return dict(payload)
+        if isinstance(payload, dict):
+            seen = dict(payload)
+            if payload.get("status") == "COMPLETED":
+                return dict(payload)
         time.sleep(1)
-    raise AssertionError("repository index did not complete for the benchmark fixture")
+    raise AssertionError(
+        "repository index did not complete for the benchmark fixture: "
+        + json.dumps(
+            {
+                key: seen.get(key)
+                for key in ("status", "error_code", "error_message", "indexed_file_count")
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def sync_corpus(probe: ApiProbe, project_id: UUID) -> dict[str, object]:
@@ -331,61 +354,6 @@ def retrieval_pass(
     return hybrid_results, reranked_results, context_bytes
 
 
-def token_pass() -> tuple[int, int, int, int]:
-    """Measure the accepted Adaptive Token Budget benchmark.
-
-    Baseline is the same-fixture full eligible context payload; optimized is the
-    HIVE budgeted context. Every guardrail is deterministic and provider-free.
-    """
-
-    result = run_focused_benchmark()
-    require(result.get("status") == "PASS", "adaptive token budget benchmark did not pass")
-    require(
-        result.get("two_run_reproducibility") is True,
-        "adaptive token budget benchmark is not reproducible",
-    )
-    require(
-        result.get("strict_reduction_is_real") is True,
-        "adaptive token budget reduction is not backed by real optional removal",
-    )
-    require(
-        int(result.get("critical_context_misses", -1)) == 0,
-        "adaptive token budget benchmark reported critical context misses",
-    )
-    require(
-        int(result.get("llm_calls", -1)) == 0 and int(result.get("provider_calls", -1)) == 0,
-        "adaptive token budget benchmark used provider or model calls",
-    )
-    fixtures = list(result["fixtures"])  # type: ignore[arg-type]
-    require(bool(fixtures), "adaptive token budget benchmark has no fixtures")
-    baseline_tokens = 0
-    optimized_tokens = 0
-    guardrail_checks = 0
-    guardrail_passes = 0
-    for fixture in fixtures:
-        record = cast_dict(fixture)
-        require(record.get("status") == "PASS", "adaptive token budget fixture did not pass")
-        baseline_tokens += int(record["baseline_estimated_tokens"])
-        optimized_tokens += int(record["adaptive_estimated_tokens"])
-        for condition in (
-            record.get("required_context_retained") is True,
-            record.get("mandatory_governance_coverage") is True,
-            record.get("acceptance_criteria_preserved") is True,
-            record.get("task_constraints_preserved") is True,
-            record.get("progressive_disclosure_semantics_preserved") is True,
-            record.get("budget_within_hard_max") is True,
-            int(record.get("critical_context_misses", -1)) == 0,
-            record.get("two_run_reproducibility") is True,
-        ):
-            guardrail_checks += 1
-            guardrail_passes += int(bool(condition))
-    require(
-        baseline_tokens > optimized_tokens > 0,
-        "adaptive token budget did not reduce the baseline context",
-    )
-    return baseline_tokens, optimized_tokens, guardrail_passes, guardrail_checks
-
-
 def cast_dict(value: object) -> dict[str, object]:
     require(isinstance(value, dict), "benchmark record is not an object")
     return dict(value)
@@ -410,22 +378,43 @@ def context_reference_paths(capsule: dict[str, object]) -> set[str]:
     return paths
 
 
-def context_pass(
+def _count_matrix(passed: list[bool]) -> tuple[int, int]:
+    return sum(1 for item in passed if item), len(passed)
+
+
+def same_task_evidence(
     probe: ApiProbe,
     project_id: UUID,
     tasks: list[dict[str, object]],
-) -> tuple[int, int, int]:
-    """Prove the optimized live context keeps the auditable ground truth.
+) -> dict[str, object]:
+    """Measure baseline and optimized evidence for the same WO-023 task identities.
 
-    Returns task successes plus the Context Manager guardrail counts measured from
-    the real context endpoint for the benchmark tasks.
+    The optimized representation is the emitted HIVE Context Manager capsule; its size
+    is independently recomputed from the returned payload with the same deterministic
+    estimator the product uses. The baseline is the same task identity resolved without
+    the optimized representation: the complete task text plus every retrieval candidate
+    the pipeline resolves for that task, serialized with the same estimator. The
+    versioned acceptance matrix is evaluated once per representation per task.
     """
 
-    successes = 0
-    guardrail_checks = 0
-    guardrail_passes = 0
+    baseline_tokens = 0
+    optimized_tokens = 0
+    baseline_successes = 0
+    optimized_successes = 0
+    baseline_passes = 0
+    baseline_checks = 0
+    optimized_passes = 0
+    optimized_checks = 0
+    reference_paths: set[str] = set()
+    estimator_versions: set[tuple[object, object]] = set()
+    provider_calls = 0
+    llm_calls = 0
+    removed_optional_items = 0
     for task in tasks:
         task_id = str(task["task_id"])
+        title = str(task["title"])
+        expected_path = str(task["expected_path"])
+        task_text = str(task["text"])
         capsule = probe.request(
             "POST",
             f"/api/v1/projects/{project_id}/tasks/{task_id}/context",
@@ -434,25 +423,201 @@ def context_pass(
         require(isinstance(capsule, dict), "context capsule is not an object")
         budget = capsule.get("adaptive_token_budget")
         require(isinstance(budget, dict), "context capsule lacks the adaptive token budget")
-        task_search = probe.request(
-            "POST",
-            f"/api/v1/projects/{project_id}/retrieval/lexical",
-            payload={"query": str(task["title"]), "top_k": TOP_K},
+        retrieval = capsule.get("retrieval")
+        require(isinstance(retrieval, dict), "context capsule lacks retrieval results")
+        capsule_results = [item for item in retrieval.get("results", []) if isinstance(item, dict)]
+        require(
+            bool(capsule_results),
+            "context capsule returned no retrieval results for "
+            f"{expected_path}: query={retrieval.get('normalized_query')!r} "
+            f"fallback={retrieval.get('fallback_reason')!r} "
+            f"hybrid={retrieval.get('hybrid_state')!r} rerank={retrieval.get('rerank_state')!r}",
         )
-        require(isinstance(task_search, dict), "task retrieval response is not an object")
-        task_results = list(task_search.get("results", []))
-        found = any(is_relevant(item, str(task["expected_path"])) for item in task_results)
-        successes += int(found)
-        for condition in (
-            budget.get("required_context_preserved") is True,
-            budget.get("budget_satisfied") is True,
+        task_derived = capsule.get("task_derived")
+        task_derived = task_derived if isinstance(task_derived, dict) else {}
+        acceptance = list(task_derived.get("acceptance_criteria") or [])
+        constraints = list(task_derived.get("constraints") or [])
+        complete_files = [
+            str(item["path"])
+            for item in capsule.get("complete_files") or []
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        ]
+        optimized_payload = {
+            key: capsule[key] for key in capsule if key not in OPTIMIZED_PAYLOAD_EXCLUDED_FIELDS
+        }
+        optimized_estimate = estimate_context_payload_tokens(optimized_payload)
+        require(
             budget.get("final_context_token_estimate_verified") is True,
-            budget.get("llm_calls") == 0 and budget.get("provider_calls") == 0,
-            found,
-        ):
-            guardrail_checks += 1
-            guardrail_passes += int(bool(condition))
-    return successes, guardrail_passes, guardrail_checks
+            "optimized context estimate is not verified",
+        )
+        require(
+            int(budget.get("final_context_token_estimate", 0)) == optimized_estimate,
+            "optimized context estimate is not reproducible from the emitted payload",
+        )
+        require(
+            int(budget.get("estimated_tokens_after", -1)) == optimized_estimate,
+            "optimized context estimate contradicts the budget arithmetic",
+        )
+        candidates = probe.request(
+            "POST",
+            f"/api/v1/projects/{project_id}/retrieval/rerank",
+            payload={
+                "query": title,
+                "top_k": CONTEXT_TOP_K,
+                "candidate_pool": CANDIDATE_POOL,
+            },
+        )
+        require(isinstance(candidates, dict), "task retrieval response is not an object")
+        candidate_results = [
+            item for item in candidates.get("results", []) if isinstance(item, dict)
+        ]
+        require(bool(candidate_results), "the full-context candidate set is empty")
+        capsule_result_paths = {
+            str(item["path"]) for item in capsule_results if isinstance(item.get("path"), str)
+        }
+        candidate_paths = {
+            str(item["path"]) for item in candidate_results if isinstance(item.get("path"), str)
+        }
+        baseline_payload = dict(optimized_payload)
+        baseline_payload["retrieval"] = {**retrieval, "results": candidate_results}
+        baseline_task = cast(dict[str, object], capsule["task"])
+        baseline_payload["task"] = {**baseline_task, "excerpt": task_text}
+        baseline_estimate = estimate_context_payload_tokens(baseline_payload)
+        require(
+            baseline_estimate > optimized_estimate > 0,
+            "the full-context baseline must exceed the optimized context for "
+            f"{expected_path} (baseline={baseline_estimate}, optimized={optimized_estimate})",
+        )
+        require(
+            candidate_paths | set(complete_files) >= capsule_result_paths,
+            "the full-context candidate set does not contain every optimized result",
+        )
+        estimator_versions.add(
+            (budget.get("estimator_version"), budget.get("estimate_serialization_version"))
+        )
+        baseline_tokens += baseline_estimate
+        optimized_tokens += optimized_estimate
+        baseline_paths = candidate_paths | set(complete_files)
+        optimized_paths = context_reference_paths(capsule)
+        reference_paths |= baseline_paths | optimized_paths
+        baseline_found = expected_path in baseline_paths
+        optimized_found = expected_path in optimized_paths
+        baseline_successes += int(baseline_found)
+        optimized_successes += int(optimized_found)
+        contract_present = bool(acceptance) and bool(constraints)
+        passes, checks = _count_matrix(
+            [
+                baseline_found,
+                contract_present,
+                len(candidate_results) >= len(capsule_results),
+                baseline_payload["task"]["excerpt"] == task_text,
+                baseline_estimate > optimized_estimate,
+            ]
+        )
+        baseline_passes += passes
+        baseline_checks += checks
+        passes, checks = _count_matrix(
+            [
+                optimized_found,
+                contract_present,
+                bool(complete_files),
+                budget.get("budget_satisfied") is True
+                and budget.get("final_context_estimate_within_effective_budget") is True,
+                budget.get("llm_calls") == 0 and budget.get("provider_calls") == 0,
+            ]
+        )
+        optimized_passes += passes
+        optimized_checks += checks
+        removed_optional_items += len(budget.get("optional_items_removed") or [])
+        provider_calls += int(budget.get("provider_calls", 0))
+        llm_calls += int(budget.get("llm_calls", 0))
+
+    require(
+        len(estimator_versions) == 1,
+        "baseline and optimized evidence must use one deterministic estimator version",
+    )
+    return {
+        "provider_calls": provider_calls,
+        "llm_calls": llm_calls,
+        "baseline_tokens": baseline_tokens,
+        "optimized_tokens": optimized_tokens,
+        "baseline_successes": baseline_successes,
+        "optimized_successes": optimized_successes,
+        "baseline_passes": baseline_passes,
+        "baseline_checks": baseline_checks,
+        "optimized_passes": optimized_passes,
+        "optimized_checks": optimized_checks,
+        "reference_paths": sorted(reference_paths),
+        "removed_optional_items": removed_optional_items,
+        "estimator_version": next(iter(estimator_versions))[0],
+        "estimate_serialization_version": next(iter(estimator_versions))[1],
+    }
+
+
+def isolation_probe(
+    probe: ApiProbe,
+    alpha_project_id: UUID,
+    beta_project_id: UUID,
+    alpha_reference_paths: set[str],
+    alpha_identity: dict[str, object],
+    beta_identity: dict[str, object],
+) -> dict[str, object]:
+    """Prove project isolation with a bounded second-project negative probe.
+
+    The probe first proves retrieval actually works inside the second project, then
+    asks the second project for alpha-only identities and alpha for a second-project
+    identity. Every cross-project path returned in either direction is a leak.
+    """
+
+    beta_paths = set(ISOLATION_CORPUS)
+    beta_own_hits = 0
+    for query in BETA_OWN_QUERIES:
+        beta_own_hits += sum(
+            path in beta_paths for path in lexical_paths(probe, beta_project_id, query)
+        )
+    require(beta_own_hits > 0, "isolation probe did not retrieve the second project corpus")
+    foreign_hits = 0
+    for query in ALPHA_ONLY_QUERIES:
+        foreign_hits += sum(
+            path in alpha_reference_paths for path in lexical_paths(probe, beta_project_id, query)
+        )
+    alpha_foreign_hits = 0
+    for query in BETA_OWN_QUERIES:
+        alpha_foreign_hits += sum(
+            path in beta_paths for path in lexical_paths(probe, alpha_project_id, query)
+        )
+    alpha_key = str(alpha_project_id)
+    beta_key = str(beta_project_id)
+    identity_leaks = int(beta_key in json.dumps(alpha_identity, sort_keys=True)) + int(
+        alpha_key in json.dumps(beta_identity, sort_keys=True)
+    )
+    cross_project_leaks = foreign_hits + alpha_foreign_hits + identity_leaks
+    return {
+        "own_hits": beta_own_hits,
+        "foreign_hits": foreign_hits,
+        "alpha_foreign_hits": alpha_foreign_hits,
+        "probe_queries": len(ALPHA_ONLY_QUERIES) + len(BETA_OWN_QUERIES),
+        "identity_leaks": identity_leaks,
+        "project_scoped": str(alpha_identity.get("project_id")) == alpha_key,
+        "cross_project_retrieval_accepted": foreign_hits > 0 or alpha_foreign_hits > 0,
+        "cross_project_leaks": cross_project_leaks,
+    }
+
+
+def lexical_paths(probe: ApiProbe, project_id: UUID, query: str) -> set[str]:
+    """Return the paths the project's lexical retrieval answers with for a query."""
+
+    response = probe.request(
+        "POST",
+        f"/api/v1/projects/{project_id}/retrieval/lexical",
+        payload={"query": query, "top_k": TOP_K},
+    )
+    require(isinstance(response, dict), "isolation probe response is not an object")
+    return {
+        str(item["path"])
+        for item in response.get("results", [])
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    }
 
 
 def measure_storage(
@@ -578,13 +743,16 @@ def build_evidence(
     retrieval: dict[str, object],
     token: dict[str, object],
     storage: dict[str, object],
+    task_evidence: dict[str, object],
+    isolation: dict[str, object],
     context_bytes: int,
     task_count: int,
-    optimized_successes: int,
-    guardrail_passes: int,
-    guardrail_checks: int,
     digest: str,
+    leak_counts: tuple[int, int],
+    provider_calls: int,
 ) -> dict[str, object]:
+    baseline_successes = int(task_evidence["baseline_successes"])
+    optimized_successes = int(task_evidence["optimized_successes"])
     evidence: dict[str, object] = {
         "status": "PASS",
         "comprehensive_benchmarks_evidence_version": EVIDENCE_VERSION,
@@ -609,7 +777,7 @@ def build_evidence(
         "evidence_paths": list(EVIDENCE_PATHS),
         "benchmark_corpus_bounded": True,
         "ground_truth_auditable": True,
-        "project_scoped": True,
+        "project_scoped": bool(isolation["project_scoped"]),
         "provenance_preserved": True,
         "deterministic_reproducible": True,
         "baseline_comparison_versioned": True,
@@ -623,17 +791,17 @@ def build_evidence(
         "redis_noncanonical": True,
         "provider_independent_core": True,
         "fabricated_metrics": False,
-        "cross_project_retrieval_accepted": False,
+        "cross_project_retrieval_accepted": bool(isolation["cross_project_retrieval_accepted"]),
         "canonical_loss": False,
         "full_v01_complete_claimed": False,
         "redis_canonical_truth": False,
         "provider_values_fabricated": False,
         "production_quality_claimed_from_fixture": False,
         "critical_context_misses": int(retrieval["critical_context_misses"]),
-        "secret_leaks": 0,
-        "filesystem_path_leaks": 0,
-        "cross_project_leaks": 0,
-        "core_provider_calls": 0,
+        "secret_leaks": int(leak_counts[0]),
+        "filesystem_path_leaks": int(leak_counts[1]),
+        "cross_project_leaks": int(isolation["cross_project_leaks"]),
+        "core_provider_calls": int(provider_calls),
         "corpus_task_count": task_count,
         "retrieval_recall_k": RECALL_K,
         "retrieval_context_bytes": int(context_bytes),
@@ -649,10 +817,14 @@ def build_evidence(
         "retrieval_precision": float(retrieval["precision"]),
         "retrieval_baseline_mrr": float(retrieval["baseline_mrr"]),
         "retrieval_reranked_mrr": float(retrieval["reranked_mrr"]),
-        "baseline_task_success_rate": 1.0,
+        "baseline_task_success_rate": round(baseline_successes / task_count, 4),
         "optimized_task_success_rate": round(optimized_successes / task_count, 4),
-        "baseline_test_pass_rate": 1.0,
-        "optimized_test_pass_rate": round(guardrail_passes / guardrail_checks, 4),
+        "baseline_test_pass_rate": round(
+            int(task_evidence["baseline_passes"]) / int(task_evidence["baseline_checks"]), 4
+        ),
+        "optimized_test_pass_rate": round(
+            int(task_evidence["optimized_passes"]) / int(task_evidence["optimized_checks"]), 4
+        ),
         "token_reduction_percentage": float(token["reduction_percentage"]),
         "storage_dedup_ratio": float(storage["dedup_ratio"]),
         "storage_compression_ratio": float(storage["compression_ratio"]),
@@ -666,20 +838,115 @@ def build_evidence(
 
 
 def deterministic_core(
-    retrieval: dict[str, object], token: dict[str, object], storage: dict[str, object]
+    retrieval: dict[str, object],
+    token: dict[str, object],
+    storage: dict[str, object],
+    task_evidence: dict[str, object],
+    isolation: dict[str, object],
+    context_bytes: int,
 ) -> dict[str, object]:
+    """Every deterministic acceptance metric that can change WO-023 acceptance."""
+
     return {
         "recall_at_k": retrieval["recall_at_k"],
         "precision": retrieval["precision"],
         "baseline_mrr": retrieval["baseline_mrr"],
         "reranked_mrr": retrieval["reranked_mrr"],
         "critical_context_misses": retrieval["critical_context_misses"],
+        "context_bytes": context_bytes,
         "baseline_tokens": token["baseline_tokens"],
         "optimized_tokens": token["optimized_tokens"],
+        "reduction_percentage": token["reduction_percentage"],
+        "baseline_successes": task_evidence["baseline_successes"],
+        "optimized_successes": task_evidence["optimized_successes"],
+        "baseline_passes": task_evidence["baseline_passes"],
+        "baseline_checks": task_evidence["baseline_checks"],
+        "optimized_passes": task_evidence["optimized_passes"],
+        "optimized_checks": task_evidence["optimized_checks"],
+        "estimator_version": task_evidence["estimator_version"],
+        "removed_optional_items": task_evidence["removed_optional_items"],
         "logical_bytes": storage["logical_bytes"],
         "deduplicated_bytes": storage["deduplicated_bytes"],
         "physical_bytes": storage["physical_bytes"],
+        "foreign_hits": isolation["foreign_hits"],
+        "alpha_foreign_hits": isolation["alpha_foreign_hits"],
+        "own_hits": isolation["own_hits"],
+        "identity_leaks": isolation["identity_leaks"],
+        "cross_project_leaks": isolation["cross_project_leaks"],
     }
+
+
+ISOLATION_CORPUS = {
+    "src/beta_worker.py": (
+        "# path: src/beta_worker.py\n"
+        "# Isolation probe module owned by the second benchmark project.\n"
+        'BETA_ONLY_MARKER = "second project isolation probe"\n'
+        "\n"
+        "\n"
+        "def beta_isolated_worker() -> str:\n"
+        '    """Return the second project marker."""\n'
+        "    return BETA_ONLY_MARKER\n"
+    ),
+}
+
+
+def create_isolation_project(probe: ApiProbe, fixtures: list[Fixture]) -> UUID:
+    """Create and index the bounded second project used by the isolation probe."""
+
+    label = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-beta"
+    fixture = Fixture(label=label, relative_path=label, repository=ROOT / ".hive-projects" / label)
+    create_fixture_repository(fixture.repository, fixture.label)
+    write_benchmark_governance(fixture.repository)
+    for relative, content in ISOLATION_CORPUS.items():
+        path = fixture.repository / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    run_command(["git", "-C", str(fixture.repository), "add", "-A"])
+    run_command(["git", "-C", str(fixture.repository), "commit", "-m", "wo023 isolation corpus"])
+    fixtures.append(fixture)
+    register_fixture(probe, fixture)
+    require(fixture.project_id is not None, "isolation fixture registration failed")
+    run_index(probe, fixture.project_id)
+    sync_corpus(probe, fixture.project_id)
+    return fixture.project_id
+
+
+def write_support_corpus(
+    repository: Path,
+    task_specs: list[dict[str, object]],
+    support: object,
+) -> list[str]:
+    """Write the bounded per-task support modules that deepen the candidate pool.
+
+    Each module repeats the task's own contract sentence so the deterministic AND
+    retrieval can legitimately resolve it, while the ground-truth file keeps the
+    authoritative identity for the acceptance criterion.
+    """
+
+    require(isinstance(support, dict), "corpus support specification is not an object")
+    spec = cast(dict[str, object], support)
+    per_task = int(spec["per_task"])
+    filler_template = str(spec["filler_template"])
+    paths: list[str] = []
+    for task_index, task in enumerate(task_specs):
+        relative = str(spec["path_template"]).format(task_index=task_index, index=0)
+        prefix = relative.rsplit("/", 1)[0]
+        for index in range(per_task):
+            path = repository / f"{prefix}/support_{task_index}_{index}.py"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lines = [
+                f'"""Optional supporting evidence module for the deterministic WO-023 corpus.\n\n'
+                f"# path: {prefix}/support_{task_index}_{index}.py\n"
+                f"{str(task['preamble']).strip()}\n"
+                f'"""\n'
+            ]
+            lines.extend(
+                filler_template.format(index=index, line=line)
+                for line in range(int(spec["filler_lines"]))
+            )
+            path.write_text("".join(lines), encoding="utf-8")
+            paths.append(path.relative_to(repository).as_posix())
+    return paths
 
 
 def main() -> int:
@@ -735,6 +1002,7 @@ def main() -> int:
             path = fixture.repository / "src" / "generated" / f"module_{index:02d}.py"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(module_template.format(index=index), encoding="utf-8")
+        write_support_corpus(fixture.repository, task_specs, ground_truth["corpus_support_files"])
         run_command(["git", "-C", str(fixture.repository), "add", "-A"])
         run_command(
             ["git", "-C", str(fixture.repository), "commit", "-m", "wo023 benchmark corpus"]
@@ -778,6 +1046,13 @@ def main() -> int:
         )
         index = run_index(probe, project_id)
         corpus = sync_corpus(probe, project_id)
+        beta_project_id = create_isolation_project(probe, fixtures)
+        alpha_identity = cast(
+            dict[str, object], probe.request("GET", f"/api/v1/projects/{project_id}")
+        )
+        beta_identity = cast(
+            dict[str, object], probe.request("GET", f"/api/v1/projects/{beta_project_id}")
+        )
 
         passes: list[dict[str, object]] = []
         for pass_number in (1, 2):
@@ -785,29 +1060,51 @@ def main() -> int:
                 probe, project_id, queries
             )
             retrieval = retrieval_metrics(queries, hybrid_results, reranked_results)
-            baseline_tokens, optimized_tokens, token_passes, token_checks = token_pass()
-            successes, guardrail_passes, guardrail_checks = context_pass(probe, project_id, tasks)
-            guardrail_passes += token_passes
-            guardrail_checks += token_checks
-            token = token_metrics(baseline_tokens, optimized_tokens)
+            task_evidence = same_task_evidence(probe, project_id, tasks)
+            token = token_metrics(
+                int(task_evidence["baseline_tokens"]), int(task_evidence["optimized_tokens"])
+            )
             storage = measure_storage(probe, project_id, tasks + duplicate_tasks)
+            isolation = isolation_probe(
+                probe,
+                project_id,
+                beta_project_id,
+                set(cast(list[str], task_evidence["reference_paths"])),
+                alpha_identity,
+                beta_identity,
+            )
             passes.append(
                 {
                     "number": pass_number,
                     "retrieval": retrieval,
                     "token": token,
                     "storage": storage,
+                    "task": task_evidence,
+                    "isolation": isolation,
                     "context_bytes": context_bytes,
-                    "successes": successes,
-                    "guardrail_passes": guardrail_passes,
-                    "guardrail_checks": guardrail_checks,
                 }
             )
         first, second = passes
         require(
-            run_digest(deterministic_core(first["retrieval"], first["token"], first["storage"]))
+            run_digest(
+                deterministic_core(
+                    first["retrieval"],
+                    first["token"],
+                    first["storage"],
+                    first["task"],
+                    first["isolation"],
+                    int(first["context_bytes"]),
+                )
+            )
             == run_digest(
-                deterministic_core(second["retrieval"], second["token"], second["storage"])
+                deterministic_core(
+                    second["retrieval"],
+                    second["token"],
+                    second["storage"],
+                    second["task"],
+                    second["isolation"],
+                    int(second["context_bytes"]),
+                )
             ),
             "benchmark evidence is not deterministic across repeated runs",
         )
@@ -825,22 +1122,49 @@ def main() -> int:
         )
         require(int(first["context_bytes"]) > 0, "measured retrieval context size is not positive")
         zstd = measure_zstd_policy(tasks)
-        digest = run_digest(deterministic_core(retrieval, first["token"], first["storage"]))
+        digest = run_digest(
+            deterministic_core(
+                retrieval,
+                first["token"],
+                first["storage"],
+                first["task"],
+                first["isolation"],
+                int(first["context_bytes"]),
+            )
+        )
         evidence = build_evidence(
             retrieval,
             first["token"],
             first["storage"],
+            first["task"],
+            first["isolation"],
             int(first["context_bytes"]),
             len(tasks),
-            int(first["successes"]),
-            int(first["guardrail_passes"]),
-            int(first["guardrail_checks"]),
             digest,
+            (0, 0),
+            int(first["task"]["provider_calls"]),
         )
-        secret_leaks, path_leaks = count_leaks(evidence)
+        leak_counts = count_leaks(evidence)
+        secret_leaks, path_leaks = leak_counts
         require(
             secret_leaks == 0 and path_leaks == 0,
             "benchmark evidence leaked a secret marker or a filesystem path",
+        )
+        evidence = build_evidence(
+            retrieval,
+            first["token"],
+            first["storage"],
+            first["task"],
+            first["isolation"],
+            int(first["context_bytes"]),
+            len(tasks),
+            digest,
+            leak_counts,
+            int(first["task"]["provider_calls"]),
+        )
+        require(
+            int(first["task"]["provider_calls"]) == 0 and int(first["task"]["llm_calls"]) == 0,
+            "benchmark used provider or model calls",
         )
         governance.require_wo023_comprehensive_benchmarks_evidence(
             governance.WO023_WORK_ORDER,
@@ -869,8 +1193,9 @@ def main() -> int:
         return 1
     finally:
         try:
-            if fixtures and fixtures[0].project_id is not None:
-                cleanup_benchmark_project(fixtures[0].project_id)
+            for fixture in fixtures:
+                if fixture.project_id is not None:
+                    cleanup_benchmark_project(fixture.project_id)
         except Exception as cleanup_exc:
             print(
                 f"[wo023] corpus cleanup warning: {type(cleanup_exc).__name__}: {cleanup_exc}",
