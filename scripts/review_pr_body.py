@@ -27,6 +27,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-022-G1": "ccff5882a0bec20a90ee4516640aa44d9e9b5352",
     "WO-022-P-G1": "82c39025fe4e4a4a3b4664ed8e8059984fffb039",
     "WO-023-G1": "45bf00a78150ea0368bd4c0b173e83178b102333",
+    "WO-023-P-G1": "25c16248211da567dbda928697862a696dcf46eb",
 }
 
 
@@ -62,6 +63,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-022-P",
         "WO-023-G1",
         "WO-023",
+        "WO-023-P-G1",
+        "WO-023-P",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2671,7 +2674,7 @@ permanece `0007_telemetry_events`.
 ## 4. Contrato futuro separado
 
 O par ativo de promoção é WO-022-P-G1 e WO-022-P; WO-021-P-G1/WO-021-P e
-WO-020-P-G1/WO-020-P ficam históricos e promoções desconhecidas como WO-023-P e
+WO-020-P-G1/WO-020-P ficam históricos e promoções desconhecidas como WO-024-P e
 WO-999-P continuam rejeitadas. O futuro WO-021-P permitirá somente
 `docs/project-brain/13-CHECKPOINT.md` e
 `docs/project-brain/CANONICAL-SHA256SUMS.txt`, com base atual autorizada,
@@ -2816,7 +2819,7 @@ isolamento de projeto, proveniência e reprodutibilidade determinística.
 Comparação versionada baseline versus otimizado com estimativas rotuladas,
 valores indisponíveis como UNKNOWN/NOT_SUPPORTED (nunca zero fabricado) e
 guardrails de correção. Storage mede bytes lógicos, deduplicados e físicos sem
-dupla contagem, com reconstrução exata e perda canônica zero. WO-023-P, WO-024 e
+dupla contagem, com reconstrução exata e perda canônica zero. WO-024-P, WO-024 e
 work orders futuros permanecem rejeitados fail-closed.
 
 ## 5. Evidência obrigatória
@@ -2834,6 +2837,147 @@ Nenhum checkpoint foi promovido e nenhuma alegação de HIVE V0.1 completo é fe
 Sol Review State: AWAITING_SOL.
 
 WO-023-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo023p_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR é somente governança: habilita o Review Evidence para a futura
+promoção canônica do incremento de benchmarks abrangentes entregue no WO-023,
+já aprovado, merged e validado no pós-merge. Não edita o Project Brain, não
+promove o checkpoint, não implementa produto e não executa o WO-023-P.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}. O renderer exige a base autorizada exata,
+  lowercase 40-hex e diferente de zero; divergência falha fechado.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo G1 fechado
+
+Exatamente quatro arquivos de governança: `backend/tests/test_review_evidence.py`,
+`schemas/review-evidence-v1.schema.json`, `scripts/review_evidence.py` e
+`scripts/review_pr_body.py`. Project Brain, checkpoint,
+CANONICAL-SHA256SUMS.txt, migrations, produto, dashboard, dependências, CI e
+arquivos de release permanecem intocados. A migration head permanece
+`0007_telemetry_events`.
+
+## 4. Contrato futuro separado
+
+O único par ativo de promoção é WO-023-P-G1 e WO-023-P; WO-022-P-G1/WO-022-P,
+WO-022-G1/WO-022 e os pares anteriores ficam históricos, e promoções
+desconhecidas como WO-023-P-C1, WO-024 e WO-999-P continuam rejeitadas. O
+futuro WO-023-P permitirá somente `docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`, com base atual autorizada que
+contenha este suporte G1 merged, gramática de checkpoint fechada e manifesto
+limitado ao digest do checkpoint.
+
+## 5. Evidência obrigatória
+
+Esta G1 e o futuro WO-023-P exigem a evidência já merged
+`comprehensive-benchmarks-v1`, o lineage exato do PR #90, o HEAD auditado
+270929c2e1428335ea9c98337c29a31d5682686d e a migration head
+`0007_telemetry_events`. A promoção registra retrieval, token e storage
+medidos sobre o mesmo corpus determinístico e auditável, mantém PostgreSQL
+canônico e Redis não canônico, não alega qualidade de produção a partir de
+fixture limitada e não autoriza alegação de HIVE V0.1 completo.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Não houve merge, release, promoção de checkpoint ou início do WO-023-P.
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-023-P-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo023p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção dos benchmarks abrangentes fechada
+
+Esta PR promove somente o checkpoint do WO-023 já aprovado, merged e validado
+no pós-merge, sem alegar HIVE V0.1 completo. Exige exatamente
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`.
+
+## 2. Contrato semântico
+
+STATUS muda para
+`COMPREHENSIVE BENCHMARKS APPROVED / V0.1 IMPLEMENTATION ACTIVE`. O prefixo
+histórico de COMPLETED é preservado e sete bullets fechados de evidência WO-023
+são anexados. Apenas `comprehensive retrieval/token/storage benchmarks.` sai de
+PENDING, preservando estabilização, deployment local, backup/recovery,
+documentação, revisão final e checkpoint awareness na ordem canônica. IN
+PROGRESS e NEXT STEP avançam apenas para a estabilização; não repetem o
+incremento concluído dos benchmarks.
+
+## 3. Evidência e manifesto
+
+O contrato `comprehensive-benchmarks-v1` e o lineage exato do PR #90
+permanecem obrigatórios e verdes. Somente o digest do checkpoint em
+`CANONICAL-SHA256SUMS.txt` pode mudar, correspondendo aos bytes exatos do
+candidato. A migration head permanece `0007_telemetry_events` e nenhuma
+alegação de qualidade de produção é feita a partir da fixture limitada.
+
+## 4. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+## 5. STOP antes do merge
+
+Nenhum código de produto, migration, dependência ou CI é alterado. A PR
+permanece aberta, Ready e não mesclada para auditoria de Sol no HEAD exato;
+o executor para antes do merge. Auto-merge permanece UNARMED.
+
+Sol Review State: AWAITING_SOL.
+
+WO-023-P READY FOR SOL AUDIT
 """
 
 
@@ -2949,7 +3093,7 @@ arquivos de release permanecem intocados. A migration head permanece
 ## 4. Contrato futuro separado
 
 O único par ativo de promoção é WO-022-P-G1 e WO-022-P; WO-021-P-G1/WO-021-P e
-WO-020-P-G1/WO-020-P ficam históricos e promoções desconhecidas como WO-023-P e
+WO-020-P-G1/WO-020-P ficam históricos e promoções desconhecidas como WO-024-P e
 WO-999-P continuam rejeitadas, assim como WO-023. O futuro WO-022-P permitirá
 somente `docs/project-brain/13-CHECKPOINT.md` e
 `docs/project-brain/CANONICAL-SHA256SUMS.txt`, com base atual autorizada que
@@ -4216,6 +4360,32 @@ def render_body(
         )
     if work_order == "WO-023-G1":
         return _render_wo023_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-023-P-G1":
+        return _render_wo023p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-023-P":
+        return _render_wo023p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
