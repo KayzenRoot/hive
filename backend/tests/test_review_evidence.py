@@ -669,6 +669,909 @@ def test_wo016_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
         require_wo016_scope(WO016_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
 
 
+def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "status": "PASS",
+        "comprehensive_benchmarks_evidence_version": (
+            review_evidence.COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION
+        ),
+        "evidence_file": review_evidence.COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE,
+        "observed_migration_head": review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+        "migration_base_head": review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+        "baseline_reference_version": "baseline-full-context-v1",
+        "ground_truth_source": ("git:HEAD-blob:docs/atlas/wo022-control-center-full.md"),
+        "run_digest": hashlib.sha256(b"wo023 fixture run").hexdigest(),
+        "retrieval_metrics_status": "AVAILABLE",
+        "token_metrics_status": "AVAILABLE",
+        "storage_metrics_status": "AVAILABLE",
+        "retrieval_context_measure": "final-reranked-context-bytes",
+        "token_cache_status": "NOT_SUPPORTED",
+        "token_output_status": "NOT_SUPPORTED",
+        "provider_receipt_version": "NONE",
+        "provider_receipt_artifact": "NONE",
+        "provider_receipt_sha256": "NONE",
+        "optional_provider_metric": "NONE",
+        "benchmark_families": list(review_evidence.COMPREHENSIVE_BENCHMARKS_FAMILIES),
+        "evidence_paths": ["backend/tests/test_review_evidence.py"],
+        **{field: True for field in review_evidence.COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: False for field in review_evidence.COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **{field: 0 for field in review_evidence.COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS},
+        "corpus_task_count": 24,
+        "retrieval_recall_k": 5,
+        "storage_logical_bytes": 1_000_000,
+        "storage_dedup_bytes": 600_000,
+        "storage_physical_bytes": 300_000,
+        "token_baseline_input_tokens": 40_000,
+        "token_optimized_input_tokens": 25_000,
+        "optional_provider_calls": 0,
+        "retrieval_context_bytes": 4096,
+        "token_cached_tokens": None,
+        "token_output_tokens": None,
+        "provider_receipt_reconciled": False,
+        "retrieval_recall_at_k": 0.95,
+        "retrieval_precision": 0.8,
+        "retrieval_baseline_mrr": 0.6,
+        "retrieval_reranked_mrr": 0.8,
+        "baseline_task_success_rate": 0.9,
+        "optimized_task_success_rate": 0.9,
+        "baseline_test_pass_rate": 1.0,
+        "optimized_test_pass_rate": 1.0,
+        "token_reduction_percentage": 37.5,
+        "storage_dedup_ratio": 0.4,
+        "storage_compression_ratio": 0.5,
+        "storage_total_reduction_ratio": 0.7,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_wo023_g1_scope_is_exact_and_noncanonical(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    allowed = sorted(review_evidence.WO023_G1_ALLOWED_PATHS)
+    review_evidence.require_wo023_g1_scope(
+        review_evidence.WO023_G1_WORK_ORDER,
+        review_evidence.WO023_G1_BASE_SHA,
+        allowed,
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo023_g1_scope(
+            review_evidence.WO023_G1_WORK_ORDER, "f" * 40, allowed
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        review_evidence.require_wo023_g1_scope(
+            review_evidence.WO023_G1_WORK_ORDER,
+            review_evidence.WO023_G1_BASE_SHA,
+            allowed,
+            base_branch="release",
+        )
+    for extra in (
+        review_evidence.CHECKPOINT_PATH,
+        review_evidence.CANONICAL_MANIFEST_PATH,
+        "migrations/versions/0008_next.py",
+        "backend/app/retrieval.py",
+        ".github/workflows/ci.yml",
+    ):
+        with pytest.raises(ValueError, match="exactly the four|canonical Project Brain|migrations"):
+            review_evidence.require_wo023_g1_scope(
+                review_evidence.WO023_G1_WORK_ORDER,
+                review_evidence.WO023_G1_BASE_SHA,
+                allowed + [extra],
+            )
+
+
+def test_wo023_scope_requires_merged_g1_support_and_bounded_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: "a" * 40)
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda *_args, **_kwargs: b"WO-023-G1",
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    review_evidence.require_wo023_scope(
+        review_evidence.WO023_WORK_ORDER,
+        "a" * 40,
+        ["backend/app/retrieval.py"],
+        enforce_current_main=True,
+    )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda *_args, **_kwargs: b"no g1")
+    with pytest.raises(ValueError, match="merged WO-023-G1 support"):
+        review_evidence.require_wo023_scope(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            ["backend/app/retrieval.py"],
+            enforce_current_main=True,
+        )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda *_args, **_kwargs: b"WO-023-G1")
+    with pytest.raises(ValueError, match="outside the bounded"):
+        review_evidence.require_wo023_scope(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+            enforce_current_main=False,
+        )
+    with pytest.raises(ValueError, match="cannot change CI workflows"):
+        review_evidence.require_wo023_scope(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            [".github/workflows/ci.yml"],
+            enforce_current_main=False,
+        )
+
+
+def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> None:
+    assert set(wo023_benchmark_payload()) == (
+        review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
+    )
+    unknown = review_evidence.comprehensive_benchmarks_evidence()
+    assert unknown["status"] == "UNKNOWN"
+    assert set(unknown) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_G1_WORK_ORDER,
+        {},
+    )
+    with pytest.raises(ValueError, match="must not claim future"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_G1_WORK_ORDER,
+            {"comprehensive_benchmarks": wo023_benchmark_payload()},
+        )
+    migration = review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
+    with pytest.raises(ValueError, match="missing mandatory"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {},
+            migration,
+        )
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": wo023_benchmark_payload()},
+        migration,
+    )
+    mutations: tuple[tuple[str, dict[str, object], str], ...] = (
+        ("empty evidence", {}, "closed contract"),
+        (
+            "unavailable family with numbers",
+            wo023_benchmark_payload(
+                token_metrics_status="NOT_SUPPORTED", token_reduction_percentage=37.5
+            ),
+            "core metrics",
+        ),
+        (
+            "available family without numbers",
+            wo023_benchmark_payload(token_reduction_percentage=None),
+            "when reported AVAILABLE",
+        ),
+        ("critical miss", wo023_benchmark_payload(critical_context_misses=1), "0"),
+        ("canonical loss", wo023_benchmark_payload(canonical_loss=True), "negative claims"),
+        (
+            "v0.1 claim",
+            wo023_benchmark_payload(full_v01_complete_claimed=True),
+            "negative claims",
+        ),
+        (
+            "impossible bytes",
+            wo023_benchmark_payload(storage_physical_bytes=2_000_000),
+            "logical >= deduplicated",
+        ),
+        (
+            "fabricated zero",
+            wo023_benchmark_payload(
+                token_metrics_status="UNAVAILABLE", token_reduction_percentage=0.0
+            ),
+            "core metrics",
+        ),
+        ("provider mismatch", wo023_benchmark_payload(optional_provider_calls=3), "provider"),
+        ("bad digest", wo023_benchmark_payload(run_digest="not-a-digest"), "run digest"),
+        ("extra field", {**wo023_benchmark_payload(), "unexpected": 1}, "closed contract"),
+        (
+            "wrong migration head",
+            wo023_benchmark_payload(observed_migration_head="0006_memory_lifecycle_provenance"),
+            "migration head",
+        ),
+        (
+            "cross-project accepted",
+            wo023_benchmark_payload(cross_project_retrieval_accepted=True),
+            "negative claims",
+        ),
+        (
+            "retrieval below accepted baseline",
+            wo023_benchmark_payload(retrieval_recall_at_k=0.5),
+            "accepted baseline",
+        ),
+        (
+            "retrieval zero recall",
+            wo023_benchmark_payload(retrieval_recall_at_k=0.0),
+            "accepted baseline",
+        ),
+        (
+            "zero precision",
+            wo023_benchmark_payload(retrieval_precision=0.0),
+            "strictly positive",
+        ),
+        (
+            "contradictory token reduction",
+            wo023_benchmark_payload(token_reduction_percentage=10.0),
+            "contradicts the declared",
+        ),
+        (
+            "optimized above baseline",
+            wo023_benchmark_payload(token_optimized_input_tokens=50_000),
+            "optimized < baseline",
+        ),
+        (
+            "zero baseline tokens",
+            wo023_benchmark_payload(token_baseline_input_tokens=0),
+            "baseline",
+        ),
+        (
+            "contradictory dedup ratio",
+            wo023_benchmark_payload(storage_dedup_ratio=0.2),
+            "contradicts the declared",
+        ),
+        (
+            "contradictory compression ratio",
+            wo023_benchmark_payload(storage_compression_ratio=0.9),
+            "contradicts the declared",
+        ),
+        (
+            "contradictory total reduction",
+            wo023_benchmark_payload(storage_total_reduction_ratio=0.1),
+            "contradicts the declared",
+        ),
+        ("empty evidence paths", wo023_benchmark_payload(evidence_paths=[]), "evidence paths"),
+        (
+            "duplicate evidence paths",
+            wo023_benchmark_payload(
+                evidence_paths=[
+                    "backend/app/retrieval.py",
+                    "backend/app/retrieval.py",
+                ]
+            ),
+            "evidence paths",
+        ),
+        (
+            "absolute evidence path",
+            wo023_benchmark_payload(evidence_paths=["/etc/passwd"]),
+            "evidence paths",
+        ),
+        (
+            "traversal evidence path",
+            wo023_benchmark_payload(evidence_paths=["scripts/../backend/app/retrieval.py"]),
+            "evidence paths",
+        ),
+        (
+            "out-of-scope evidence path",
+            wo023_benchmark_payload(evidence_paths=["docs/project-brain/13-CHECKPOINT.md"]),
+            "evidence paths",
+        ),
+        (
+            "malformed ground truth prefix",
+            wo023_benchmark_payload(ground_truth_source="HEAD-blob:docs/atlas/wo022.md"),
+            "ground-truth source",
+        ),
+        (
+            "arbitrary ground truth string",
+            wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:not a path"),
+            "canonical repository-relative ground-truth path",
+        ),
+        (
+            "traversal ground truth",
+            wo023_benchmark_payload(
+                ground_truth_source="git:HEAD-blob:scripts/../backend/app/retrieval.py"
+            ),
+            "canonical repository-relative ground-truth path",
+        ),
+        (
+            "absolute ground truth",
+            wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:/etc/passwd"),
+            "canonical repository-relative ground-truth path",
+        ),
+        (
+            "missing ground truth blob",
+            wo023_benchmark_payload(
+                ground_truth_source="git:HEAD-blob:docs/atlas/wo023-missing-fixture.md"
+            ),
+            "exist at the reviewed HEAD",
+        ),
+        (
+            "out-of-scope ground truth",
+            wo023_benchmark_payload(
+                ground_truth_source="git:HEAD-blob:docs/project-brain/13-CHECKPOINT.md"
+            ),
+            "canonical repository-relative ground-truth path",
+        ),
+    )
+    c2_mutations: tuple[tuple[str, dict[str, object], str], ...] = (
+        ("wrong recall depth k=1", wo023_benchmark_payload(retrieval_recall_k=1), "recall@5"),
+        ("wrong recall depth k=10", wo023_benchmark_payload(retrieval_recall_k=10), "recall@5"),
+        (
+            "regressed reranking quality",
+            wo023_benchmark_payload(retrieval_baseline_mrr=0.9, retrieval_reranked_mrr=0.5),
+            "reranking quality",
+        ),
+        (
+            "missing reranking baseline",
+            wo023_benchmark_payload(retrieval_baseline_mrr=None),
+            "reranking MRR evidence",
+        ),
+        (
+            "zero context size",
+            wo023_benchmark_payload(retrieval_context_bytes=0),
+            "positive measured retrieval context size",
+        ),
+        (
+            "unknown context measure",
+            wo023_benchmark_payload(retrieval_context_measure="tokens-estimated"),
+            "context-size measure",
+        ),
+        (
+            "cache available without count",
+            wo023_benchmark_payload(token_cache_status="AVAILABLE", token_cached_tokens=None),
+            "token_cached_tokens",
+        ),
+        (
+            "cache fabricated zero",
+            wo023_benchmark_payload(token_cache_status="NOT_SUPPORTED", token_cached_tokens=0),
+            "must not report token_cached_tokens",
+        ),
+        (
+            "output available without count",
+            wo023_benchmark_payload(token_output_status="AVAILABLE", token_output_tokens=None),
+            "token_output_tokens",
+        ),
+        (
+            "output fabricated zero",
+            wo023_benchmark_payload(token_output_status="UNAVAILABLE", token_output_tokens=0),
+            "must not report token_output_tokens",
+        ),
+        (
+            "unknown cache status",
+            wo023_benchmark_payload(token_cache_status="MAYBE"),
+            "explicit token_cache_status",
+        ),
+        (
+            "degraded task success",
+            wo023_benchmark_payload(optimized_task_success_rate=0.5),
+            "must not degrade benchmark task success",
+        ),
+        (
+            "degraded test pass rate",
+            wo023_benchmark_payload(optimized_test_pass_rate=0.9),
+            "materially degrade the benchmark test pass rate",
+        ),
+        (
+            "zero storage dataset",
+            wo023_benchmark_payload(
+                storage_logical_bytes=0,
+                storage_dedup_bytes=0,
+                storage_physical_bytes=0,
+                storage_dedup_ratio=0.0,
+                storage_compression_ratio=0.0,
+                storage_total_reduction_ratio=0.0,
+            ),
+            "nonempty representative storage dataset",
+        ),
+    )
+    for _label, candidate, expected in c2_mutations:
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": candidate},
+                migration,
+            )
+    for placeholder in ("UNKNOWN", "unavailable", "NOT_SUPPORTED", "not-supported", "NONE", "   "):
+        with pytest.raises(ValueError, match="baseline"):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {
+                    "comprehensive_benchmarks": wo023_benchmark_payload(
+                        baseline_reference_version=placeholder
+                    )
+                },
+                migration,
+            )
+    for _family, status_field in (
+        ("retrieval", "retrieval_metrics_status"),
+        ("token", "token_metrics_status"),
+        ("storage", "storage_metrics_status"),
+    ):
+        for status in ("UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED"):
+            family_numbers = {
+                "retrieval_metrics_status": {
+                    "retrieval_recall_at_k": None,
+                    "retrieval_precision": None,
+                },
+                "token_metrics_status": {"token_reduction_percentage": None},
+                "storage_metrics_status": {
+                    "storage_dedup_ratio": None,
+                    "storage_compression_ratio": None,
+                    "storage_total_reduction_ratio": None,
+                },
+            }[status_field]
+            with pytest.raises(ValueError, match="core metrics"):
+                review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                    review_evidence.WO023_WORK_ORDER,
+                    {
+                        "comprehensive_benchmarks": wo023_benchmark_payload(
+                            **{status_field: status}, **family_numbers
+                        )
+                    },
+                    migration,
+                )
+    for _label, candidate, expected in mutations:
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": candidate},
+                migration,
+            )
+
+
+def test_wo023_reader_rejects_invalid_evidence_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = json.dumps(wo023_benchmark_payload())
+    monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=valid: _raw)
+    assert review_evidence.comprehensive_benchmarks_evidence()["status"] == "PASS"
+    for bad_paths in (
+        ["/etc/passwd"],
+        ["scripts/../backend/app/retrieval.py"],
+        [],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["backend/app/retrieval.py", "backend/app/retrieval.py"],
+    ):
+        raw = json.dumps(wo023_benchmark_payload(evidence_paths=bad_paths))
+        monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
+        assert review_evidence.comprehensive_benchmarks_evidence()["status"] == "FAIL"
+
+
+def wo023_provider_receipt_evidence(**overrides: object) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "status": "PASS",
+        **{
+            field: True
+            for field in review_evidence.COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES
+        },
+        "provider_cache_provider_usage_sources": [
+            "PROVIDER_REPORTED",
+            "DERIVED_FROM_PROVIDER_REPORTED_FIELDS",
+        ],
+        "provider_cache_provider_total_input_tokens": 100,
+        "provider_cache_provider_cached_input_tokens": 64,
+        "provider_cache_provider_fresh_input_tokens": 36,
+    }
+    evidence.update(overrides)
+    return evidence
+
+
+def wo023_provider_receipt_artifact(**overrides: object) -> str:
+    receipt: dict[str, object] = {
+        "status": "PASS",
+        "provider_usage_receipt_version": ("provider-usage-receipt-v1"),
+        "provider_receipt_artifact": "provider-usage-receipt.json",
+        "provider_reconciliation_state": "EXACT",
+        "provider_usage_source": "PROVIDER_REPORTED",
+        "provider_total_input_tokens": 100,
+        "provider_cached_input_tokens": 64,
+        "provider_fresh_input_tokens": 36,
+        "provider_output_tokens": 12,
+        "provider_calls": 1,
+        "secret_leaks": 0,
+        "credential_leaks": 0,
+    }
+    receipt.update(overrides)
+    return json.dumps(receipt)
+
+
+def wo023_provider_backed_payload(**overrides: object) -> dict[str, object]:
+    payload = wo023_benchmark_payload()
+    payload.update(
+        {
+            "token_cache_status": "AVAILABLE",
+            "token_cached_tokens": 64,
+            "token_output_status": "AVAILABLE",
+            "token_output_tokens": 12,
+            "provider_receipt_version": "provider-usage-receipt-v1",
+            "provider_receipt_reconciled": True,
+            "provider_receipt_artifact": "provider-usage-receipt.json",
+            "provider_receipt_sha256": hashlib.sha256(
+                wo023_provider_receipt_artifact().encode("utf-8")
+            ).hexdigest(),
+            "optional_provider_calls": 1,
+            "optional_provider_metric": "provider.cached_input_tokens",
+        }
+    )
+    payload.update(overrides)
+    return payload
+
+
+def test_wo023_provider_backed_token_claims_require_independent_provider_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
+    provider_integration = {"context_manager": wo023_provider_receipt_evidence()}
+
+    def load(receipt_text: str) -> None:
+        def reader(name: str) -> str:
+            if name == review_evidence.COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE:
+                return receipt_text
+            return ""
+
+        monkeypatch.setattr(review_evidence, "integration_file", reader)
+
+    load(wo023_provider_receipt_artifact())
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": wo023_provider_backed_payload(), **provider_integration},
+        migration,
+    )
+    # provider-independent core still passes with absent provider evidence
+    load("")
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": wo023_benchmark_payload()},
+        migration,
+    )
+    # explicit measured zero cache and zero output are valid when reconciled
+    zero_receipt = wo023_provider_receipt_artifact(
+        provider_cached_input_tokens=0,
+        provider_fresh_input_tokens=100,
+        provider_output_tokens=0,
+    )
+    zero_digest = hashlib.sha256(zero_receipt.encode("utf-8")).hexdigest()
+    load(zero_receipt)
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {
+            "comprehensive_benchmarks": wo023_provider_backed_payload(
+                token_cached_tokens=0,
+                token_output_tokens=0,
+                provider_receipt_sha256=zero_digest,
+            ),
+            **provider_integration,
+        },
+        migration,
+    )
+    load(wo023_provider_receipt_artifact())
+
+    cases: tuple[tuple[str, dict[str, object], dict[str, Any], str], ...] = (
+        (
+            "available cache without provider evidence",
+            wo023_provider_backed_payload(),
+            {"__context": {}},
+            "reconciled provider usage",
+        ),
+        (
+            "independent receipt artifact missing",
+            wo023_provider_backed_payload(),
+            {"__receipt": ""},
+            "independently loaded reconciled provider receipt",
+        ),
+        (
+            "receipt digest mismatch",
+            wo023_provider_backed_payload(provider_receipt_sha256="0" * 64),
+            {},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "receipt output mismatch",
+            wo023_provider_backed_payload(),
+            {"__receipt": wo023_provider_receipt_artifact(provider_output_tokens=99)},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "receipt reconciliation unknown",
+            wo023_provider_backed_payload(),
+            {"__receipt": wo023_provider_receipt_artifact(provider_reconciliation_state="UNKNOWN")},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "receipt provider source missing",
+            wo023_provider_backed_payload(),
+            {"__receipt": wo023_provider_receipt_artifact(provider_usage_source="HIVE_ESTIMATE")},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "available cache with unreconciled receipt",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_reported_usage_reconciled=False
+                )
+            },
+            "provider usage guarantees",
+        ),
+        (
+            "available cache with unknown provider accounting",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_unknown_usage_not_zero=False
+                )
+            },
+            "provider usage guarantees",
+        ),
+        (
+            "cached count mismatch against the receipt",
+            wo023_provider_backed_payload(token_cached_tokens=65),
+            provider_integration,
+            "contradicts the independent provider receipt",
+        ),
+        (
+            "fresh tokens silently coerced to zero",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_fresh_input_tokens=0
+                )
+            },
+            "reconcile with the provider total",
+        ),
+        (
+            "fresh tokens unknown",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_fresh_input_tokens=None
+                )
+            },
+            "reconciled provider usage",
+        ),
+        (
+            "receipt without provider usage sources",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_usage_sources=["DERIVED_FROM_PROVIDER_REPORTED_FIELDS"]
+                )
+            },
+            "provider usage sources",
+        ),
+        (
+            "available output without provider evidence",
+            wo023_provider_backed_payload(),
+            {"__context": {}},
+            "reconciled provider usage",
+        ),
+        (
+            "output count mismatch against the receipt",
+            wo023_provider_backed_payload(token_output_tokens=13),
+            provider_integration,
+            "contradicts the independent provider receipt",
+        ),
+        (
+            "provider claim without recorded provider calls",
+            wo023_provider_backed_payload(optional_provider_calls=0),
+            provider_integration,
+            "recorded provider usage",
+        ),
+        (
+            "available cache with NONE receipt binding",
+            wo023_provider_backed_payload(provider_receipt_version="NONE"),
+            provider_integration,
+            "provider-usage-receipt-v1",
+        ),
+        (
+            "available cache without a reconciled receipt flag",
+            wo023_provider_backed_payload(provider_receipt_reconciled=False),
+            provider_integration,
+            "reconciled provider usage evidence",
+        ),
+    )
+    for _label, candidate, extra, expected in cases:
+        receipt_text = cast(str, extra.pop("__receipt", wo023_provider_receipt_artifact()))
+        context_evidence = extra.pop("__context", wo023_provider_receipt_evidence())
+        load(receipt_text)
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {
+                    "comprehensive_benchmarks": candidate,
+                    "context_manager": context_evidence,
+                    **extra,
+                },
+                migration,
+            )
+    load(wo023_provider_receipt_artifact())
+    # a receipt that matches the digest but carries contradictory output fails the cross-check
+    mismatched = wo023_provider_receipt_artifact(provider_output_tokens=99)
+    mismatched_digest = hashlib.sha256(mismatched.encode("utf-8")).hexdigest()
+    load(mismatched)
+    with pytest.raises(ValueError, match="output token count contradicts the independent"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {
+                "comprehensive_benchmarks": wo023_provider_backed_payload(
+                    provider_receipt_sha256=mismatched_digest
+                ),
+                **provider_integration,
+            },
+            migration,
+        )
+    # a receipt with unknown reconciliation still fails when the digest matches
+    unknown_receipt = wo023_provider_receipt_artifact(provider_reconciliation_state="INVALID")
+    load(unknown_receipt)
+    with pytest.raises(ValueError, match="EXACT"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {
+                "comprehensive_benchmarks": wo023_provider_backed_payload(
+                    provider_receipt_sha256=hashlib.sha256(
+                        unknown_receipt.encode("utf-8")
+                    ).hexdigest()
+                ),
+                **provider_integration,
+            },
+            migration,
+        )
+    load(wo023_provider_receipt_artifact())
+    # provider-independent payload must not carry receipt values
+    for field, value in (
+        ("provider_receipt_version", "provider-usage-receipt-v1"),
+        ("provider_receipt_reconciled", True),
+        ("provider_receipt_artifact", "provider-usage-receipt.json"),
+        ("provider_receipt_sha256", "a" * 64),
+    ):
+        with pytest.raises(ValueError, match="provider receipt"):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": wo023_benchmark_payload(**{field: value})},
+                migration,
+            )
+
+
+def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
+    integration = {"comprehensive_benchmarks": wo023_benchmark_payload()}
+    g1 = review_evidence.verify_wo023_g1_governance_contract(
+        review_evidence.WO023_G1_WORK_ORDER,
+        review_evidence.WO023_G1_BASE_SHA,
+        sorted(review_evidence.WO023_G1_ALLOWED_PATHS),
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        governance,
+        {},
+        "0007_telemetry_events",
+    )
+    assert g1 is not None
+    assert "future_WO-023_registered=PASS" in g1
+    assert "comprehensive-benchmarks-v1_fail_closed=PASS" in g1
+    assert "unknown_WO-023-P_WO-024_WO-999=REJECTED" in g1
+    assert "checkpoint_promotion=False" in g1
+    with pytest.raises(ValueError, match="must not claim future"):
+        review_evidence.verify_wo023_g1_governance_contract(
+            review_evidence.WO023_G1_WORK_ORDER,
+            review_evidence.WO023_G1_BASE_SHA,
+            sorted(review_evidence.WO023_G1_ALLOWED_PATHS),
+            {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+            governance,
+            integration,
+            "0007_telemetry_events",
+        )
+    product = review_evidence.verify_wo023_governance_contract(
+        review_evidence.WO023_WORK_ORDER,
+        "a" * 40,
+        ["backend/app/retrieval.py"],
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        governance,
+        integration,
+        "0007_telemetry_events",
+    )
+    assert product is not None
+    assert "retrieval_family=PASS; token_family=PASS; storage_family=PASS" in product
+    assert "full_v01_complete_claimed=False" in product
+    assert "checkpoint_promotion=False" in product
+    with pytest.raises(ValueError, match="passing comprehensive benchmarks"):
+        review_evidence.verify_wo023_governance_contract(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            ["backend/app/retrieval.py"],
+            {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+            governance,
+            {
+                "comprehensive_benchmarks": {
+                    **wo023_benchmark_payload(),
+                    "status": "FAIL",
+                }
+            },
+            "0007_telemetry_events",
+        )
+
+    schema = json.loads(
+        (review_evidence.ROOT / "schemas" / "review-evidence-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    definition = schema["$defs"]["comprehensive_benchmarks_evidence"]
+    jsonschema.validate(instance=wo023_benchmark_payload(), schema=definition)
+    # the provider-backed fixture must satisfy the schema coupling as well
+    jsonschema.validate(instance=wo023_provider_backed_payload(), schema=definition)
+    assert set(definition["required"]) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
+    assert definition["additionalProperties"] is False
+    # Cross-field non-regression (task success and test-pass rates) and the exact
+    # cached/fresh arithmetic are enforced by the Python validator because JSON Schema
+    # cannot compare two properties without $data.
+    assert len(definition["allOf"]) == 3
+    for invalid in (
+        wo023_benchmark_payload(full_v01_complete_claimed=True),
+        wo023_benchmark_payload(canonical_loss=True),
+        {**wo023_benchmark_payload(), "unexpected": 1},
+        wo023_benchmark_payload(retrieval_recall_at_k=1.5),
+        wo023_benchmark_payload(retrieval_recall_at_k=0.5),
+        wo023_benchmark_payload(retrieval_precision=0.0),
+        wo023_benchmark_payload(token_metrics_status="NOT_SUPPORTED"),
+        wo023_benchmark_payload(evidence_paths=["/etc/passwd"]),
+        wo023_benchmark_payload(
+            evidence_paths=["backend/app/retrieval.py", "backend/app/retrieval.py"]
+        ),
+        wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:not a path"),
+        wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:/etc/passwd"),
+        wo023_benchmark_payload(benchmark_families=["retrieval", "token"]),
+        wo023_benchmark_payload(retrieval_recall_k=1),
+        wo023_benchmark_payload(retrieval_context_bytes=0),
+        wo023_benchmark_payload(token_cache_status="AVAILABLE", token_cached_tokens=None),
+        wo023_benchmark_payload(token_output_status="AVAILABLE", token_output_tokens=None),
+        wo023_benchmark_payload(baseline_reference_version="UNKNOWN"),
+        wo023_benchmark_payload(baseline_reference_version="none"),
+        wo023_benchmark_payload(storage_physical_bytes=0),
+        wo023_provider_backed_payload(provider_receipt_version="NONE"),
+        wo023_provider_backed_payload(provider_receipt_reconciled=False),
+        wo023_provider_backed_payload(provider_receipt_artifact="NONE"),
+        wo023_provider_backed_payload(provider_receipt_sha256="NONE"),
+        wo023_provider_backed_payload(provider_receipt_sha256="not-a-digest"),
+        wo023_benchmark_payload(provider_receipt_version="provider-usage-receipt-v1"),
+        wo023_benchmark_payload(provider_receipt_reconciled=True),
+        wo023_benchmark_payload(provider_receipt_artifact="provider-usage-receipt.json"),
+        wo023_benchmark_payload(provider_receipt_sha256="b" * 64),
+    ):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=invalid, schema=definition)
+
+
+def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
+    common: dict[str, Any] = {
+        "pr_number": 92,
+        "branch": "governance/wo023-g1-comprehensive-benchmarks",
+        "base_sha": review_evidence.WO023_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "artifact",
+        "ruleset_before": "before",
+        "ruleset_after": "after",
+        "merge_before": "before",
+        "merge_after": "after",
+    }
+    g1 = render_body(work_order=review_evidence.WO023_G1_WORK_ORDER, **common)
+    assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-023-G1 -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO023_G1_BASE_SHA} -->" in g1
+    assert "Exatamente quatro arquivos" in g1
+    assert "comprehensive-benchmarks-v1" in g1
+    assert "WO-023-P" in g1 and "WO-024" in g1
+    assert "AWAITING_SOL" in g1
+    assert "WO-023-G1 READY FOR SOL AUDIT" in g1
+    product = render_body(
+        work_order=review_evidence.WO023_WORK_ORDER,
+        **{**common, "base_sha": "c" * 40, "head_sha": "d" * 40},
+    )
+    assert product.startswith("<!-- HIVE-WORK-ORDER: WO-023 -->")
+    for marker in ("Retrieval:", "Token:", "Storage:", "comprehensive-benchmarks-v1"):
+        assert marker in product
+    assert "WO-023 READY FOR SOL AUDIT" in product
+    assert "checkpoint" in product.casefold()
+    for unsupported in ("WO-023-P", "WO-024", "WO-999"):
+        with pytest.raises(ValueError):
+            render_body(work_order=unsupported, **common)
+
+
 def test_wo018_registration_and_bounded_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1552,10 +2455,12 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-023-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-023")
+        require_supported_work_order("WO-024")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -5046,7 +5951,8 @@ def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_me
     future = render_body(work_order=WO015_WORK_ORDER, **common)
     promotion_g1 = render_body(work_order=WO015P_G1_WORK_ORDER, **common)
     promotion = render_body(work_order=WO015P_WORK_ORDER, **common)
-    unknown = render_body(work_order="WO-999", **common)
+    with pytest.raises(ValueError, match="unsupported future"):
+        render_body(work_order="WO-999", **common)
     assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-015-G1 -->")
     assert "não implementa Memory" in g1
     assert "memory-lifecycle-provenance-v1" in g1
@@ -5058,7 +5964,6 @@ def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_me
     assert promotion.startswith("<!-- HIVE-WORK-ORDER: WO-015-P -->")
     assert "<!-- HIVE-AUTHORIZED-BASE: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->" in promotion
     assert "WO-015-P READY FOR SOL AUDIT" in promotion
-    assert "memory-lifecycle-provenance-v1" not in unknown
 
 
 def test_wo016_renderers_are_dedicated_and_explicit() -> None:
@@ -8162,10 +9067,12 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     require_supported_work_order(review_evidence.WO022_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-023-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-023")
+        require_supported_work_order("WO-024")
 
     monkeypatch.setattr(
         review_evidence,

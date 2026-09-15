@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+
+import review_evidence as _review_evidence  # noqa: E402
 
 EXACT_SHA = re.compile(r"^[0-9a-f]{40}$")
 ZERO_SHA = "0" * 40
@@ -19,6 +26,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-021-P-G1": "cd05c753ce0fd25d657dd829a2484041355d873b",
     "WO-022-G1": "ccff5882a0bec20a90ee4516640aa44d9e9b5352",
     "WO-022-P-G1": "82c39025fe4e4a4a3b4664ed8e8059984fffb039",
+    "WO-023-G1": "45bf00a78150ea0368bd4c0b173e83178b102333",
 }
 
 
@@ -52,6 +60,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-022",
         "WO-022-P-G1",
         "WO-022-P",
+        "WO-023-G1",
+        "WO-023",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2754,6 +2764,145 @@ WO-021-P READY FOR SOL AUDIT
 """
 
 
+def _render_wo023_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Esta PR é somente governança: habilita o Review Evidence para o próximo
+incremento de produto WO-023 (benchmarks abrangentes de retrieval, tokens e
+storage) e define o contrato fechado `comprehensive-benchmarks-v1` antes de
+qualquer implementação. Não implementa benchmarks, não altera o Project Brain e
+não promove checkpoint.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}. O renderer exige a base autorizada exata,
+  lowercase 40-hex e diferente de zero; divergência falha fechado.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo fechado
+
+Exatamente quatro arquivos de governança: `backend/tests/test_review_evidence.py`,
+`schemas/review-evidence-v1.schema.json`, `scripts/review_evidence.py` e
+`scripts/review_pr_body.py`. Project Brain, checkpoint,
+CANONICAL-SHA256SUMS.txt, migrations, produto, dashboard, dependências, CI e
+arquivos de release permanecem intocados. A migration head permanece
+`0007_telemetry_events`.
+
+## 4. Contrato `comprehensive-benchmarks-v1`
+
+Famílias retrieval, token e storage com corpus limitado e ground truth
+auditável, recall@k, precision, qualidade de reranking, misses críticos zero,
+isolamento de projeto, proveniência e reprodutibilidade determinística.
+Comparação versionada baseline versus otimizado com estimativas rotuladas,
+valores indisponíveis como UNKNOWN/NOT_SUPPORTED (nunca zero fabricado) e
+guardrails de correção. Storage mede bytes lógicos, deduplicados e físicos sem
+dupla contagem, com reconstrução exata e perda canônica zero. WO-023-P, WO-024 e
+work orders futuros permanecem rejeitados fail-closed.
+
+## 5. Evidência obrigatória
+
+Testes de Review Evidence, validação determinística do repositório, verificador
+canônico e varredura de segredos. A PR permanece aberta, Ready e não mesclada
+para auditoria de Sol no HEAD exato.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Nenhum checkpoint foi promovido e nenhuma alegação de HIVE V0.1 completo é feita.
+
+Sol Review State: AWAITING_SOL.
+
+WO-023-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo023_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Implementar o incremento de produto dos benchmarks abrangentes de retrieval,
+tokens e storage sob o contrato já aprovado `comprehensive-benchmarks-v1`, sem
+promover checkpoint e sem alegar HIVE V0.1 completo.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha} (main que contém o suporte WO-023-G1 merged).
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Famílias de benchmark
+
+- Retrieval: corpus limitado com arquivos/símbolos relevantes conhecidos,
+  recall@k, precision, qualidade de reranking, tamanho de contexto e misses
+  críticos zero, com isolamento de projeto e proveniência.
+- Token: comparação versionada baseline/contexto completo versus contexto
+  otimizado do HIVE, tokens de entrada/contexto estimados ou exatos do provider
+  quando disponíveis, cached versus fresh somente com evidência, redução
+  absoluta e percentual, estimativas rotuladas e valores indisponíveis como
+  UNKNOWN/NOT_SUPPORTED.
+- Storage: bytes lógicos, deduplicados e físicos explícitos, economias de dedup
+  e compressão sem dupla contagem, reconstrução exata ou por digest com perda
+  canônica zero, comportamento Zstd medido em dados reais e Redis não canônico.
+
+## 4. Evidência obrigatória
+
+`comprehensive-benchmarks-v1` deve passar com guardrails de correção e de
+passagem de testes preservados, LLM/provider calls do núcleo em zero, zero
+vazamentos de segredo/caminho de arquivo/projeto cruzado e migration head
+`0007_telemetry_events`. Qualidade de produção não é alegada a partir de
+fixtures pequenas.
+
+## 5. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+Checkpoint não é promovido e HIVE V0.1 completo não é alegado.
+
+Sol Review State: AWAITING_SOL.
+
+WO-023 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo022p_g1_body(
     *,
     work_order: str,
@@ -3647,6 +3796,12 @@ WO-015 READY FOR SOL AUDIT
 """
 
 
+def _require_renderable_work_order(work_order: str) -> None:
+    """Fail closed before renderer selection for unsupported future work orders."""
+
+    _review_evidence.require_supported_work_order(work_order)
+
+
 def render_body(
     *,
     work_order: str,
@@ -3664,6 +3819,7 @@ def render_body(
 ) -> str:
     _require_exact_head(work_order, head_sha)
     _require_authorized_base(work_order, base_sha)
+    _require_renderable_work_order(work_order)
     if work_order == "WO-008":
         return _render_wo008_body(
             work_order=work_order,
@@ -4047,6 +4203,32 @@ def render_body(
         )
     if work_order == "WO-022-P-G1":
         return _render_wo022p_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-023-G1":
+        return _render_wo023_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-023":
+        return _render_wo023_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

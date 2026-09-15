@@ -1030,6 +1030,247 @@ WO022_PRODUCT_ALLOWED_PREFIXES = (
 )
 WO022_PRODUCT_FORBIDDEN_PATHS = frozenset(WO022_G1_ALLOWED_PATHS)
 
+WO023_G1_BASE_SHA = "45bf00a78150ea0368bd4c0b173e83178b102333"
+WO023_G1_WORK_ORDER = "WO-023-G1"
+WO023_WORK_ORDER = "WO-023"
+WO023_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO023_PRODUCT_ALLOWED_PREFIXES = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "scripts/",
+    "docs/atlas/",
+)
+WO023_PRODUCT_FORBIDDEN_PATHS = frozenset(WO023_G1_ALLOWED_PATHS)
+
+COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION = "comprehensive-benchmarks-v1"
+COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE = "comprehensive-benchmarks.json"
+COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD = "0007_telemetry_events"
+COMPREHENSIVE_BENCHMARKS_FAMILIES = ("retrieval", "token", "storage")
+COMPREHENSIVE_BENCHMARKS_METRIC_STATUSES = ("AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED")
+COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS = 1000
+COMPREHENSIVE_BENCHMARKS_RUN_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+# Core benchmark families must be measured; only provider-dependent optional
+# metrics may stay UNKNOWN/NOT_SUPPORTED.
+COMPREHENSIVE_BENCHMARKS_CORE_FAMILY_STATUS = "AVAILABLE"
+# Accepted retrieval baseline: the repository already gates lexical retrieval at
+# recall@5 >= 0.90 in scripts/retrieval_integration.py, so a comprehensive
+# benchmark must not regress below the accepted quality it replaces. Precision
+# has no accepted numeric baseline today, so the contract requires a strictly
+# positive precision instead of inventing a threshold.
+COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_AT_K_MIN = 0.90
+COMPREHENSIVE_BENCHMARKS_MIN_PRECISION_EXCLUSIVE = 0.0
+# Token reduction is (baseline - optimized) / baseline * 100. Storage ratios are
+# reduction ratios: dedup = (logical - deduplicated) / logical,
+# compression = (deduplicated - physical) / deduplicated and
+# total = (logical - physical) / logical. Both must agree with the explicit byte
+# and token counts inside these deterministic tolerances.
+COMPREHENSIVE_BENCHMARKS_TOKEN_REDUCTION_TOLERANCE_PP = 0.5
+COMPREHENSIVE_BENCHMARKS_RATIO_TOLERANCE = 0.01
+COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX = "git:HEAD-blob:"
+# The accepted project retrieval gate is recall@5 >= 0.90 with zero critical
+# misses, so the accepted benchmark depth is fixed at k=5 instead of accepting
+# any depth with the same threshold.
+COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K = 5
+# Retrieval context size must be measured explicitly; accepted measures are the
+# final retrieved or reranked context in bytes. A token-based measure would need
+# its own grammar decision and is therefore not accepted here.
+COMPREHENSIVE_BENCHMARKS_CONTEXT_MEASURES = (
+    "final-retrieved-context-bytes",
+    "final-reranked-context-bytes",
+)
+# Task success is preserved and the test-pass rate must not degrade at all
+# relative to the baseline; any tolerance change is a grammar decision.
+COMPREHENSIVE_BENCHMARKS_MAX_TEST_PASS_DEGRADATION = 0.0
+COMPREHENSIVE_BENCHMARKS_SIGNAL_STATUSES = ("AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED")
+COMPREHENSIVE_BENCHMARKS_BASELINE_PLACEHOLDERS = frozenset(
+    {"UNKNOWN", "UNAVAILABLE", "NOT_SUPPORTED", "NOT-SUPPORTED", "NONE"}
+)
+COMPREHENSIVE_BENCHMARKS_MAX_BASELINE_VERSION_LENGTH = 128
+# AVAILABLE cache/output token claims must be backed by the existing
+# provider-usage-receipt-v1 seam; the benchmark never carries a second provider
+# accounting model.
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION = "provider-usage-receipt-v1"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE = "NONE"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE = "PROVIDER_REPORTED"
+# The provider receipt is loaded from its own integration artifact so the
+# comprehensive benchmark payload can never substitute provider bytes: the
+# payload only binds to the artifact identity and its SHA-256 digest.
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE = "provider-usage-receipt.json"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECONCILIATION_EXACT = "EXACT"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_STRING_FIELDS = (
+    "provider_usage_receipt_version",
+    "provider_receipt_artifact",
+    "provider_reconciliation_state",
+    "provider_usage_source",
+)
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS = (
+    "provider_total_input_tokens",
+    "provider_cached_input_tokens",
+    "provider_fresh_input_tokens",
+    "provider_calls",
+    "secret_leaks",
+    "credential_leaks",
+)
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_ALLOWED_FIELDS = frozenset(
+    {
+        "status",
+        *COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_STRING_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS,
+        "provider_output_tokens",
+    }
+)
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES = (
+    "provider_usage_receipt_versioned",
+    "provider_cache_reported_usage_reconciled",
+    "provider_cache_invalid_usage_fail_closed",
+    "provider_cache_unknown_usage_not_zero",
+    "provider_cache_explicit_zero_distinct_from_unknown",
+    "provider_cache_hive_estimates_not_provider_usage",
+)
+COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS = 24
+COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
+    "comprehensive_benchmarks_evidence_version",
+    "evidence_file",
+    "observed_migration_head",
+    "migration_base_head",
+    "baseline_reference_version",
+    "ground_truth_source",
+    "run_digest",
+    "retrieval_metrics_status",
+    "token_metrics_status",
+    "storage_metrics_status",
+    "retrieval_context_measure",
+    "token_cache_status",
+    "token_output_status",
+    "provider_receipt_version",
+    "provider_receipt_artifact",
+    "provider_receipt_sha256",
+    "optional_provider_metric",
+)
+COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS = (
+    "benchmark_corpus_bounded",
+    "ground_truth_auditable",
+    "project_scoped",
+    "provenance_preserved",
+    "deterministic_reproducible",
+    "baseline_comparison_versioned",
+    "token_estimates_labelled",
+    "correctness_guardrail_preserved",
+    "test_pass_behaviour_preserved",
+    "avoided_work_evidence_deterministic",
+    "storage_savings_single_counted",
+    "storage_reconstruction_exact",
+    "storage_zstd_measured",
+    "redis_noncanonical",
+    "provider_independent_core",
+)
+COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS = (
+    "fabricated_metrics",
+    "cross_project_retrieval_accepted",
+    "canonical_loss",
+    "full_v01_complete_claimed",
+    "redis_canonical_truth",
+    "provider_values_fabricated",
+    "production_quality_claimed_from_fixture",
+)
+COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS = (
+    "critical_context_misses",
+    "secret_leaks",
+    "filesystem_path_leaks",
+    "cross_project_leaks",
+    "core_provider_calls",
+)
+COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS = (
+    "corpus_task_count",
+    "retrieval_recall_k",
+    "retrieval_context_bytes",
+    "storage_logical_bytes",
+    "storage_dedup_bytes",
+    "storage_physical_bytes",
+    "token_baseline_input_tokens",
+    "token_optimized_input_tokens",
+    "optional_provider_calls",
+)
+COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS = (
+    "retrieval_recall_at_k",
+    "retrieval_precision",
+    "retrieval_baseline_mrr",
+    "retrieval_reranked_mrr",
+    "baseline_task_success_rate",
+    "optimized_task_success_rate",
+    "baseline_test_pass_rate",
+    "optimized_test_pass_rate",
+    "token_reduction_percentage",
+    "storage_dedup_ratio",
+    "storage_compression_ratio",
+    "storage_total_reduction_ratio",
+)
+COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS = (
+    "token_cached_tokens",
+    "token_output_tokens",
+)
+COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS = {
+    "retrieval": "retrieval_metrics_status",
+    "token": "token_metrics_status",
+    "storage": "storage_metrics_status",
+}
+COMPREHENSIVE_BENCHMARKS_FAMILY_NUMBER_FIELDS = {
+    "retrieval": ("retrieval_recall_at_k", "retrieval_precision"),
+    "token": ("token_reduction_percentage",),
+    "storage": (
+        "storage_dedup_ratio",
+        "storage_compression_ratio",
+        "storage_total_reduction_ratio",
+    ),
+}
+COMPREHENSIVE_BENCHMARKS_EVIDENCE_PATH_ROOTS = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "scripts/",
+    "docs/atlas/",
+)
+COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS = {
+    "retrieval_recall_at_k": (0.0, 1.0),
+    "retrieval_precision": (0.0, 1.0),
+    "retrieval_baseline_mrr": (0.0, 1.0),
+    "retrieval_reranked_mrr": (0.0, 1.0),
+    "baseline_task_success_rate": (0.0, 1.0),
+    "optimized_task_success_rate": (0.0, 1.0),
+    "baseline_test_pass_rate": (0.0, 1.0),
+    "optimized_test_pass_rate": (0.0, 1.0),
+    "token_reduction_percentage": (0.0, 100.0),
+    "storage_dedup_ratio": (0.0, 1.0),
+    "storage_compression_ratio": (0.0, 1.0),
+    "storage_total_reduction_ratio": (0.0, 1.0),
+}
+COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS = frozenset(
+    {
+        "status",
+        "benchmark_families",
+        "evidence_paths",
+        "provider_receipt_reconciled",
+        *COMPREHENSIVE_BENCHMARKS_STRING_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS,
+    }
+)
+
 GEF_ADOPTION_WORK_ORDER = "GEF-ADOPTION-001"
 GEF_ADOPTION_BASE_SHA = "c9430af13860ab30e31bd162991eb88c05215f4f"
 GEF_ADOPTION_ARTIFACT_PATHS = frozenset(
@@ -1938,6 +2179,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO021P_WORK_ORDER,
         WO022P_G1_WORK_ORDER,
         WO022P_WORK_ORDER,
+        WO023_G1_WORK_ORDER,
+        WO023_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
         WO017_G1_WORK_ORDER,
@@ -4095,6 +4338,96 @@ def require_wo020_scope(
         )
 
 
+def require_wo023_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+) -> None:
+    if work_order != WO023_G1_WORK_ORDER:
+        return
+    if base_sha != WO023_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO023_G1_WORK_ORDER} requires exact base {WO023_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires the protected main base branch")
+    if sorted(set(paths)) != sorted(WO023_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO023_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires exactly the four governance files")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO023_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO023_G1_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+
+
+def require_wo023_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO023_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO023_WORK_ORDER} requires the protected main base branch")
+    if HEX_SHA.fullmatch(base_sha) is None or base_sha == "0" * 40:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) is None:
+            raise ValueError(f"{WO023_WORK_ORDER} requires a resolved current protected main SHA")
+        if base_sha != current_main:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+        base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode(
+            "utf-8"
+        )
+        if WO023_G1_WORK_ORDER not in base_review_evidence:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires merged {WO023_G1_WORK_ORDER} support in its base"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change migrations")
+    if any(path == ".github" or path.startswith(".github/") for path in paths):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change CI workflows")
+    if any(path in WO021_PRODUCT_DEPENDENCY_PATHS for path in paths):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change dependencies")
+    if any(
+        path in WO021_PRODUCT_RELEASE_PATHS
+        or path == "release-assets"
+        or path.startswith("release-assets/")
+        for path in paths
+    ):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change release files")
+    unauthorized = sorted(
+        path
+        for path in set(paths)
+        if path in WO023_PRODUCT_FORBIDDEN_PATHS
+        or not any(path.startswith(prefix) for prefix in WO023_PRODUCT_ALLOWED_PREFIXES)
+    )
+    if unauthorized:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} changed files outside the bounded "
+            "comprehensive benchmarks product scope: " + ", ".join(unauthorized)
+        )
+
+
 def require_wo021_g1_scope(
     work_order: str,
     base_sha: str,
@@ -5440,6 +5773,685 @@ def valid_control_center_full_evidence_path(value: object) -> bool:
     )
 
 
+def valid_comprehensive_benchmarks_evidence_path(value: object) -> bool:
+    """Return True for a normalized path in an authorized WO-023 product area."""
+
+    return any(
+        canonical_repository_relative_path(value, prefix=prefix)
+        for prefix in COMPREHENSIVE_BENCHMARKS_EVIDENCE_PATH_ROOTS
+    )
+
+
+def _benchmark_number(value: object, bounds: tuple[float, float]) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return float(bounds[0]) <= float(value) <= float(bounds[1])
+
+
+def comprehensive_benchmarks_evidence() -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "comprehensive_benchmarks_evidence_version": COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION,
+        "evidence_file": COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE,
+        "observed_migration_head": "UNKNOWN",
+        "migration_base_head": "UNKNOWN",
+        "baseline_reference_version": "UNKNOWN",
+        "ground_truth_source": "UNKNOWN",
+        "run_digest": "UNKNOWN",
+        "retrieval_metrics_status": "UNKNOWN",
+        "token_metrics_status": "UNKNOWN",
+        "storage_metrics_status": "UNKNOWN",
+        "retrieval_context_measure": "UNKNOWN",
+        "token_cache_status": "UNKNOWN",
+        "token_output_status": "UNKNOWN",
+        "provider_receipt_version": "UNKNOWN",
+        "provider_receipt_artifact": "UNKNOWN",
+        "provider_receipt_sha256": "UNKNOWN",
+        "provider_receipt_reconciled": False,
+        "optional_provider_metric": "UNKNOWN",
+        "benchmark_families": [],
+        "evidence_paths": [],
+        **{field: False for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS},
+        **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS},
+        **{field: None for field in COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS},
+        **{field: None for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS},
+    }
+    text = integration_file(COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+    payload = cast(dict[str, object], data)
+    if set(payload) != COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS:
+        return {**unknown, "status": "FAIL"}
+    strings = {
+        field: payload.get(field) if isinstance(payload.get(field), str) else "UNKNOWN"
+        for field in COMPREHENSIVE_BENCHMARKS_STRING_FIELDS
+    }
+    integers: dict[str, int] = {}
+    integer_valid = True
+    for field in (
+        *COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS,
+    ):
+        value = payload.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            integer_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    numbers: dict[str, object] = {}
+    numbers_valid = True
+    for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS:
+        value = payload.get(field)
+        if value is None:
+            numbers[field] = None
+            continue
+        if not _benchmark_number(value, COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS[field]):
+            numbers_valid = False
+            numbers[field] = None
+            continue
+        numbers[field] = value
+    nullable_integers: dict[str, int | None] = {}
+    nullable_valid = True
+    for field in COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS:
+        value = payload.get(field)
+        if value is None:
+            nullable_integers[field] = None
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            nullable_valid = False
+            nullable_integers[field] = None
+            continue
+        nullable_integers[field] = value
+    receipt_version = payload.get("provider_receipt_version")
+    receipt_reconciled = payload.get("provider_receipt_reconciled")
+    provider_claims = (
+        payload.get("token_cache_status") == "AVAILABLE"
+        or payload.get("token_output_status") == "AVAILABLE"
+    )
+    provider_valid = (
+        (
+            receipt_version == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION
+            and receipt_reconciled is True
+            and payload.get("provider_receipt_artifact")
+            == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE
+            and isinstance(payload.get("provider_receipt_sha256"), str)
+            and COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(
+                cast(str, payload.get("provider_receipt_sha256"))
+            )
+            is not None
+        )
+        if provider_claims
+        else (
+            receipt_version == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+            and receipt_reconciled is False
+            and payload.get("provider_receipt_artifact")
+            == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+            and payload.get("provider_receipt_sha256")
+            == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+        )
+    )
+    families_valid = _is_closed_string_set(
+        payload.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES
+    )
+    raw_paths = payload.get("evidence_paths")
+    paths_valid = (
+        isinstance(raw_paths, list)
+        and 1 <= len(cast(list[object], raw_paths)) <= COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS
+        and all(valid_comprehensive_benchmarks_evidence_path(path) for path in raw_paths)
+        and len(set(cast(list[object], raw_paths))) == len(cast(list[object], raw_paths))
+    )
+    return {
+        "status": (
+            "PASS"
+            if integer_valid
+            and numbers_valid
+            and families_valid
+            and paths_valid
+            and nullable_valid
+            and provider_valid
+            else "FAIL"
+        ),
+        **strings,
+        "benchmark_families": (
+            list(cast(list[str], payload["benchmark_families"])) if families_valid else []
+        ),
+        "evidence_paths": (
+            [str(path) for path in cast(list[object], raw_paths)] if paths_valid else []
+        ),
+        **{field: payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **integers,
+        **nullable_integers,
+        **numbers,
+        "provider_receipt_reconciled": payload.get("provider_receipt_reconciled") is True,
+    }
+
+
+def provider_usage_receipt_evidence() -> dict[str, object]:
+    """Load the independent provider usage receipt artifact for WO-023 binding."""
+
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "artifact_sha256": "UNKNOWN",
+        "provider_usage_receipt_version": "UNKNOWN",
+        "provider_receipt_artifact": COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE,
+        "provider_reconciliation_state": "UNKNOWN",
+        "provider_usage_source": "UNKNOWN",
+        **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS},
+        "provider_output_tokens": None,
+    }
+    text = integration_file(COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+    payload = cast(dict[str, object], data)
+    if set(payload) != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_ALLOWED_FIELDS:
+        return {**unknown, "status": "FAIL"}
+    strings = {
+        field: payload.get(field) if isinstance(payload.get(field), str) else "UNKNOWN"
+        for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_STRING_FIELDS
+    }
+    integers: dict[str, int] = {}
+    integer_valid = True
+    for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS:
+        value = payload.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            integer_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    output_tokens = payload.get("provider_output_tokens")
+    output_valid = output_tokens is None or (
+        isinstance(output_tokens, int)
+        and not isinstance(output_tokens, bool)
+        and output_tokens >= 0
+    )
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return {
+        "status": "PASS" if integer_valid and output_valid else "FAIL",
+        "artifact_sha256": digest,
+        **strings,
+        **integers,
+        "provider_output_tokens": output_tokens if output_valid else None,
+    }
+
+
+def require_wo023_comprehensive_benchmarks_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order == WO023_G1_WORK_ORDER:
+        if "comprehensive_benchmarks" in integration:
+            raise ValueError(
+                f"{WO023_G1_WORK_ORDER} must not claim future comprehensive benchmarks evidence"
+            )
+        return
+    if work_order != WO023_WORK_ORDER:
+        return
+    benchmarks = integration.get("comprehensive_benchmarks")
+    if not isinstance(benchmarks, Mapping):
+        raise ValueError(f"{WO023_WORK_ORDER} missing mandatory comprehensive benchmarks evidence")
+    full = cast(Mapping[str, object], benchmarks)
+    if set(full) != COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} comprehensive benchmarks evidence must match the closed "
+            "contract exactly"
+        )
+    if full.get("status") != "PASS":
+        raise ValueError(f"{WO023_WORK_ORDER} requires passing comprehensive benchmarks evidence")
+    if full.get("evidence_file") != COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE:
+        raise ValueError(f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE}")
+    if (
+        full.get("comprehensive_benchmarks_evidence_version")
+        != COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires evidence version "
+            f"{COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}"
+        )
+    if not _is_closed_string_set(full.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires the closed retrieval, token and storage families"
+        )
+    missing_true = [
+        field for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS if full.get(field) is not True
+    ]
+    if missing_true:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} missing mandatory comprehensive benchmarks evidence: "
+            + ", ".join(sorted(missing_true))
+        )
+    invalid_false = [
+        field for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS if full.get(field) is not False
+    ]
+    if invalid_false:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires bounded negative claims: "
+            + ", ".join(sorted(invalid_false))
+        )
+    for field in COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS:
+        value = full.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value != 0:
+            raise ValueError(f"{WO023_WORK_ORDER} requires {field}=0")
+    for field in COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS:
+        value = full.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{WO023_WORK_ORDER} requires bounded integer evidence for {field}")
+    corpus_tasks = cast(int, full["corpus_task_count"])
+    if not 1 <= corpus_tasks <= COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a bounded benchmark corpus")
+    if cast(int, full["retrieval_recall_k"]) != COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires the accepted recall@"
+            f"{COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K} benchmark depth"
+        )
+    logical = cast(int, full["storage_logical_bytes"])
+    deduplicated = cast(int, full["storage_dedup_bytes"])
+    physical = cast(int, full["storage_physical_bytes"])
+    if not logical >= deduplicated >= physical:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires logical >= deduplicated >= physical byte counts"
+        )
+    if physical <= 0:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a nonempty representative storage dataset with "
+            "positive logical, deduplicated and physical bytes"
+        )
+    run_digest = full.get("run_digest")
+    if (
+        not isinstance(run_digest, str)
+        or COMPREHENSIVE_BENCHMARKS_RUN_DIGEST_PATTERN.fullmatch(run_digest) is None
+    ):
+        raise ValueError(f"{WO023_WORK_ORDER} requires a reproducible run digest")
+    for family, status_field in COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS.items():
+        status = full.get(status_field)
+        if status not in COMPREHENSIVE_BENCHMARKS_METRIC_STATUSES:
+            raise ValueError(f"{WO023_WORK_ORDER} requires an explicit {family} metrics status")
+        if status != COMPREHENSIVE_BENCHMARKS_CORE_FAMILY_STATUS:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires measured {family} core metrics; "
+                f"{COMPREHENSIVE_BENCHMARKS_CORE_FAMILY_STATUS} status is mandatory"
+            )
+        numeric = [
+            full.get(field) for field in COMPREHENSIVE_BENCHMARKS_FAMILY_NUMBER_FIELDS[family]
+        ]
+        if any(value is None for value in numeric):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires measured {family} metrics when reported AVAILABLE"
+            )
+    recall_at_k = full.get("retrieval_recall_at_k")
+    precision = full.get("retrieval_precision")
+    if (
+        not _benchmark_number(recall_at_k, (0.0, 1.0))
+        or float(cast(float, recall_at_k)) < COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_AT_K_MIN
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires recall@k at or above the accepted baseline "
+            f"{COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_AT_K_MIN}"
+        )
+    if not _benchmark_number(precision, (0.0, 1.0)) or float(cast(float, precision)) <= (
+        COMPREHENSIVE_BENCHMARKS_MIN_PRECISION_EXCLUSIVE
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a strictly positive bounded retrieval precision"
+        )
+    baseline_mrr = full.get("retrieval_baseline_mrr")
+    reranked_mrr = full.get("retrieval_reranked_mrr")
+    for field, value in (
+        ("retrieval_baseline_mrr", baseline_mrr),
+        ("retrieval_reranked_mrr", reranked_mrr),
+    ):
+        if not _benchmark_number(value, (0.0, 1.0)):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires bounded reranking MRR evidence for {field}"
+            )
+    if float(cast(float, reranked_mrr)) < float(cast(float, baseline_mrr)):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} must not regress reranking quality below its baseline"
+        )
+    if full.get("retrieval_context_measure") not in (COMPREHENSIVE_BENCHMARKS_CONTEXT_MEASURES):
+        raise ValueError(f"{WO023_WORK_ORDER} requires an accepted retrieval context-size measure")
+    context_bytes = full.get("retrieval_context_bytes")
+    if not isinstance(context_bytes, int) or isinstance(context_bytes, bool) or context_bytes <= 0:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a positive measured retrieval context size")
+    cache_status = full.get("token_cache_status")
+    output_status = full.get("token_output_status")
+    for status_field, value_field in (
+        ("token_cache_status", "token_cached_tokens"),
+        ("token_output_status", "token_output_tokens"),
+    ):
+        status = full.get(status_field)
+        if status not in COMPREHENSIVE_BENCHMARKS_SIGNAL_STATUSES:
+            raise ValueError(f"{WO023_WORK_ORDER} requires an explicit {status_field}")
+        value = full.get(value_field)
+        if status == "AVAILABLE":
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires measured {value_field} when reported AVAILABLE"
+                )
+        elif value is not None:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must not report {value_field} that is not AVAILABLE"
+            )
+    provider_claims = cache_status == "AVAILABLE" or output_status == "AVAILABLE"
+    receipt_version = full.get("provider_receipt_version")
+    receipt_reconciled = full.get("provider_receipt_reconciled")
+    receipt_artifact = full.get("provider_receipt_artifact")
+    receipt_sha256 = full.get("provider_receipt_sha256")
+    if not provider_claims:
+        if receipt_version != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE} "
+                "provider receipt binding without AVAILABLE provider-backed claims"
+            )
+        if (
+            receipt_reconciled is not False
+            or receipt_artifact != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+            or receipt_sha256 != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must not carry provider receipt bindings without "
+                "AVAILABLE provider-backed claims"
+            )
+    if provider_claims:
+        if receipt_version != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION} "
+                "evidence for AVAILABLE cache or output token claims"
+            )
+        if receipt_reconciled is not True:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires reconciled provider usage evidence for AVAILABLE "
+                "cache or output token claims"
+            )
+        provider_calls = full.get("optional_provider_calls")
+        provider_metric = full.get("optional_provider_metric")
+        provider_recorded = isinstance(provider_metric, str) and provider_metric not in {
+            "NONE",
+            "UNKNOWN",
+        }
+        if (
+            not isinstance(provider_calls, int)
+            or isinstance(provider_calls, bool)
+            or provider_calls <= 0
+            or not provider_recorded
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires recorded provider usage for AVAILABLE provider "
+                "token claims"
+            )
+        provider_evidence = cast(dict[str, Any], integration.get("context_manager", {}))
+        missing_provider = [
+            field
+            for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES
+            if provider_evidence.get(field) is not True
+        ]
+        if missing_provider:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires reconciled provider usage guarantees: "
+                + ", ".join(sorted(missing_provider))
+            )
+        if receipt_artifact != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires the independent provider receipt artifact "
+                f"{COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE}"
+            )
+        if not isinstance(receipt_sha256, str) or (
+            COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(receipt_sha256) is None
+        ):
+            raise ValueError(f"{WO023_WORK_ORDER} requires a provider receipt SHA-256 binding")
+        independent_receipt = provider_usage_receipt_evidence()
+        if independent_receipt.get("status") != "PASS":
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires an independently loaded reconciled provider receipt"
+            )
+        if independent_receipt.get("artifact_sha256") != receipt_sha256:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} provider receipt identity does not match the loaded artifact"
+            )
+        if (
+            independent_receipt.get("provider_usage_receipt_version")
+            != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires version "
+                f"{COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION} provider receipt evidence"
+            )
+        if (
+            independent_receipt.get("provider_reconciliation_state")
+            != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECONCILIATION_EXACT
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires "
+                f"{COMPREHENSIVE_BENCHMARKS_PROVIDER_RECONCILIATION_EXACT} provider receipt "
+                "reconciliation"
+            )
+        if (
+            independent_receipt.get("provider_usage_source")
+            != COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE} "
+                "provider receipt evidence"
+            )
+        for field in ("secret_leaks", "credential_leaks"):
+            if independent_receipt.get(field) != 0:
+                raise ValueError(f"{WO023_WORK_ORDER} requires a provider receipt without {field}")
+        independent_total = independent_receipt.get("provider_total_input_tokens")
+        independent_cached = independent_receipt.get("provider_cached_input_tokens")
+        independent_fresh = independent_receipt.get("provider_fresh_input_tokens")
+        for field, value in (
+            ("provider_total_input_tokens", independent_total),
+            ("provider_cached_input_tokens", independent_cached),
+            ("provider_fresh_input_tokens", independent_fresh),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{WO023_WORK_ORDER} requires measured provider receipt {field}")
+        if cast(int, independent_cached) + cast(int, independent_fresh) != cast(
+            int, independent_total
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires the independent provider receipt to reconcile "
+                "cached plus fresh input tokens with its total"
+            )
+        usage_sources = provider_evidence.get("provider_cache_provider_usage_sources")
+        if not isinstance(usage_sources, list) or (
+            COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE not in usage_sources
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE} "
+                "provider usage sources"
+            )
+        receipt_total = provider_evidence.get("provider_cache_provider_total_input_tokens")
+        receipt_cached = provider_evidence.get("provider_cache_provider_cached_input_tokens")
+        receipt_fresh = provider_evidence.get("provider_cache_provider_fresh_input_tokens")
+        for field, value in (
+            ("provider_cache_provider_total_input_tokens", receipt_total),
+            ("provider_cache_provider_cached_input_tokens", receipt_cached),
+            ("provider_cache_provider_fresh_input_tokens", receipt_fresh),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires reconciled provider usage for {field}"
+                )
+        if cast(int, receipt_cached) + cast(int, receipt_fresh) != cast(int, receipt_total):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires provider cached plus fresh input tokens to "
+                "reconcile with the provider total"
+            )
+        if cache_status == "AVAILABLE" and full.get("token_cached_tokens") != independent_cached:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} cached token count contradicts the independent "
+                "provider receipt"
+            )
+        if output_status == "AVAILABLE":
+            independent_output = independent_receipt.get("provider_output_tokens")
+            if not isinstance(independent_output, int) or isinstance(independent_output, bool):
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires measured independent provider receipt "
+                    "output tokens for an AVAILABLE output claim"
+                )
+            if full.get("token_output_tokens") != independent_output:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} output token count contradicts the independent "
+                    "provider receipt"
+                )
+    for field in (
+        "baseline_task_success_rate",
+        "optimized_task_success_rate",
+        "baseline_test_pass_rate",
+        "optimized_test_pass_rate",
+    ):
+        if not _benchmark_number(full.get(field), (0.0, 1.0)):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires bounded benchmark outcome evidence for {field}"
+            )
+    if float(cast(float, full["optimized_task_success_rate"])) < float(
+        cast(float, full["baseline_task_success_rate"])
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} must not degrade benchmark task success relative to the baseline"
+        )
+    if (
+        float(cast(float, full["optimized_test_pass_rate"]))
+        < float(cast(float, full["baseline_test_pass_rate"]))
+        - COMPREHENSIVE_BENCHMARKS_MAX_TEST_PASS_DEGRADATION
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} must not materially degrade the benchmark test pass rate"
+        )
+    baseline_tokens = cast(int, full["token_baseline_input_tokens"])
+    optimized_tokens = cast(int, full["token_optimized_input_tokens"])
+    reduction = full.get("token_reduction_percentage")
+    if baseline_tokens <= 0 or optimized_tokens >= baseline_tokens:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a token saving claim with baseline > 0 and "
+            "optimized < baseline"
+        )
+    expected_reduction = (baseline_tokens - optimized_tokens) / baseline_tokens * 100
+    if not _benchmark_number(reduction, (0.0, 100.0)) or abs(
+        float(cast(float, reduction)) - expected_reduction
+    ) > (COMPREHENSIVE_BENCHMARKS_TOKEN_REDUCTION_TOLERANCE_PP):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} token reduction percentage contradicts the declared token counts"
+        )
+    if logical > 0:
+        expected_dedup = (logical - deduplicated) / logical
+        expected_total = (logical - physical) / logical
+    else:
+        expected_dedup = 0.0
+        expected_total = 0.0
+    expected_compression = (deduplicated - physical) / deduplicated if deduplicated > 0 else 0.0
+    for field, expected_ratio in (
+        ("storage_dedup_ratio", expected_dedup),
+        ("storage_compression_ratio", expected_compression),
+        ("storage_total_reduction_ratio", expected_total),
+    ):
+        value = full.get(field)
+        if (
+            not _benchmark_number(value, (0.0, 1.0))
+            or abs(float(cast(float, value)) - expected_ratio)
+            > COMPREHENSIVE_BENCHMARKS_RATIO_TOLERANCE
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} {field} contradicts the declared storage byte counts"
+            )
+    for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS:
+        value = full.get(field)
+        if value is None:
+            continue
+        if not _benchmark_number(value, COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS[field]):
+            raise ValueError(f"{WO023_WORK_ORDER} requires bounded numeric evidence for {field}")
+    optional_calls = cast(int, full["optional_provider_calls"])
+    optional_metric = full.get("optional_provider_metric")
+    recorded = isinstance(optional_metric, str) and optional_metric not in {"NONE", "UNKNOWN"}
+    if (optional_calls > 0) != recorded:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires optional provider usage to be recorded explicitly"
+        )
+    evidence_paths = full.get("evidence_paths")
+    if (
+        not isinstance(evidence_paths, list)
+        or not 1
+        <= len(cast(list[object], evidence_paths))
+        <= COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS
+        or any(not valid_comprehensive_benchmarks_evidence_path(path) for path in evidence_paths)
+        or len(set(cast(list[object], evidence_paths))) != len(cast(list[object], evidence_paths))
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires bounded, unique, normalized evidence paths inside "
+            "authorized product roots"
+        )
+    ground_truth = full.get("ground_truth_source")
+    if not isinstance(ground_truth, str) or not ground_truth.startswith(
+        COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires an auditable ground-truth source "
+            f"prefixed with {COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX}"
+        )
+    ground_truth_path = ground_truth[len(COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX) :]
+    if not valid_comprehensive_benchmarks_evidence_path(ground_truth_path):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a canonical repository-relative ground-truth path"
+        )
+    reviewed_head = git_value("rev-parse", "HEAD", fallback="")
+    try:
+        ground_truth_blob = (
+            git_blob_bytes(reviewed_head, ground_truth_path)
+            if HEX_SHA.fullmatch(reviewed_head)
+            else b""
+        )
+    except ValueError:
+        ground_truth_blob = b""
+    if not ground_truth_blob:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires the ground-truth blob to exist at the reviewed HEAD"
+        )
+    baseline = full.get("baseline_reference_version")
+    if not isinstance(baseline, str) or not baseline.strip():
+        raise ValueError(f"{WO023_WORK_ORDER} requires a versioned benchmark baseline")
+    if (
+        len(baseline) > COMPREHENSIVE_BENCHMARKS_MAX_BASELINE_VERSION_LENGTH
+        or baseline.strip().upper() in COMPREHENSIVE_BENCHMARKS_BASELINE_PLACEHOLDERS
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a bounded stable baseline identity instead of a "
+            "placeholder value"
+        )
+    if (
+        migration_head_value is not None
+        and migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+    for field, expected in (
+        ("observed_migration_head", COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD),
+        ("migration_base_head", COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD),
+    ):
+        if full.get(field) != expected:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires observed migration head "
+                f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+            )
+
+
 def _is_closed_string_set(value: object, expected: tuple[str, ...]) -> bool:
     """Return True when value is exactly one permutation of expected strings."""
 
@@ -5936,7 +6948,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-023-P", "WO-023", "WO-999"):
+    for rejected in ("WO-023-P", "WO-024", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -5968,7 +6980,7 @@ def verify_wo021_g1_governance_contract(
         f"migration_head={CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD}; migration_changed=False; "
         f"future_{WO021_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_METRICS_EVIDENCE_VERSION}_fail_closed=PASS; "
-        "metrics_implementation=False; unknown_WO-023-P_WO-023_WO-999=REJECTED; "
+        "metrics_implementation=False; unknown_WO-023-P_WO-024_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -6028,7 +7040,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-023-P", "WO-023", "WO-999"):
+    for rejected in ("WO-023-P", "WO-024", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -6061,7 +7073,7 @@ def verify_wo022_g1_governance_contract(
         f"future_{WO022_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_FULL_EVIDENCE_VERSION}_fail_closed=PASS; "
         "full_control_center_implementation=False; "
-        "unknown_WO-023-P_WO-023_WO-999=REJECTED; "
+        "unknown_WO-023-P_WO-024_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -6186,6 +7198,98 @@ def verify_wo018_governance_contract(
         "secret_leaks=0; filesystem_path_leaks=0; "
         "migration_head=0006_memory_lifecycle_provenance; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo023_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO023_G1_WORK_ORDER:
+        return None
+    require_wo023_g1_scope(work_order, base_sha, paths)
+    for rejected in ("WO-023-P", "WO-024", "WO-999"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO023_G1_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo023_comprehensive_benchmarks_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO023_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO023_WORK_ORDER)
+    return (
+        f"work_order={WO023_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        f"migration_head={COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}; migration_changed=False; "
+        f"future_{WO023_WORK_ORDER}_registered=PASS; "
+        f"future_{COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}_fail_closed=PASS; "
+        "comprehensive_benchmarks_implementation=False; "
+        "unknown_WO-023-P_WO-024_WO-999=REJECTED; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo023_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO023_WORK_ORDER:
+        return None
+    require_wo023_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change canonical Project Brain")
+    if migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO023_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO023_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo023_comprehensive_benchmarks_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO023_WORK_ORDER)
+    return (
+        f"work_order={WO023_WORK_ORDER}; product_scope=PASS; project_brain_changed=False; "
+        f"migration_head={COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}; "
+        f"comprehensive_benchmarks_evidence=PASS; "
+        f"comprehensive_benchmarks_version={COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}; "
+        "retrieval_family=PASS; token_family=PASS; storage_family=PASS; "
+        "critical_context_misses=0; canonical_loss=False; "
+        "full_v01_complete_claimed=False; ruleset_unchanged=PASS; auto_merge=UNARMED; "
+        "checkpoint_promotion=False"
     )
 
 
@@ -8966,6 +10070,9 @@ def integration_evidence(
         and control_center_full["status"] == "FAIL"
     ):
         status = "FAIL"
+    comprehensive_benchmarks = comprehensive_benchmarks_evidence()
+    if work_order == WO023_WORK_ORDER and comprehensive_benchmarks["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
         "status": status,
@@ -9030,6 +10137,8 @@ def integration_evidence(
         evidence["control_center_metrics"] = control_center_metrics
     if work_order in {WO022_WORK_ORDER, WO022P_G1_WORK_ORDER, WO022P_WORK_ORDER}:
         evidence["control_center_full"] = control_center_full
+    if work_order == WO023_WORK_ORDER:
+        evidence["comprehensive_benchmarks"] = comprehensive_benchmarks
     return evidence
 
 
@@ -10740,6 +11849,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         paths,
         base_branch=args.base_branch,
     )
+    require_wo023_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+    )
     require_wo019_g1_scope(
         work_order,
         base_sha,
@@ -10866,6 +11981,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo023_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     require_wo016_scope(
         work_order,
         base_sha,
@@ -10961,6 +12083,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo020_control_center_evidence(work_order, integration, migration_head())
     require_wo021_control_center_metrics_evidence(work_order, integration, migration_head())
     require_wo022_full_control_center_evidence(work_order, integration, migration_head())
+    require_wo023_comprehensive_benchmarks_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -11131,6 +12254,24 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo022_governance_evidence = verify_wo022_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo023_g1_governance_evidence = verify_wo023_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo023_governance_evidence = verify_wo023_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -11445,6 +12586,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             else []
         )
         + (
+            [f"WO-023-G1 governance evidence: {wo023_g1_governance_evidence}"]
+            if wo023_g1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-023 governance evidence: {wo023_governance_evidence}"]
+            if wo023_governance_evidence
+            else []
+        )
+        + (
             [f"WO-017-P-G1 governance evidence: {wo017p_g1_governance_evidence}"]
             if wo017p_g1_governance_evidence
             else []
@@ -11615,6 +12766,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if isinstance(manifest["base"], Mapping)
         else "main",
     )
+    require_wo023_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+    )
     require_wo019_g1_scope(
         work_order,
         cast(str, base["sha"]),
@@ -11775,6 +12934,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
         enforce_current_main=True,
         enforce_authorized_base=False,
+    )
+    require_wo023_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
     )
     require_wo016_scope(
         work_order,
@@ -12233,6 +13401,37 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if expected_entry not in negative_scope:
             raise ValueError(
                 "WO-022 evidence must record the explicit Full Control Center governance contract"
+            )
+    wo023_g1_evidence = verify_wo023_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO023_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-023-G1 governance evidence: {wo023_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-023-G1 evidence must record the explicit governance enablement contract"
+            )
+    wo023_evidence = verify_wo023_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO023_WORK_ORDER:
+        expected_entry = f"WO-023 governance evidence: {wo023_evidence}"
+        if expected_entry not in negative_scope:
+            raise ValueError(
+                "WO-023 evidence must record the explicit comprehensive benchmarks "
+                "governance contract"
             )
     wo017_g1_evidence = verify_wo017_g1_governance_contract(
         work_order,
