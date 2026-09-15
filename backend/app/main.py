@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .context_manager import router as context_manager_router
 from .control_center import router as control_center_router
+from .control_center_full import router as control_center_full_router
 from .control_center_metrics import router as control_center_metrics_router
 from .db import ensure_schema_current
 from .health import HealthResponse, collect_health
@@ -62,6 +63,7 @@ app.include_router(memory_router)
 app.include_router(telemetry_router)
 app.include_router(control_center_router)
 app.include_router(control_center_metrics_router)
+app.include_router(control_center_full_router)
 
 
 @app.get("/", tags=["meta"])

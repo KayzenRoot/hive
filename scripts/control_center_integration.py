@@ -143,7 +143,9 @@ COST_KEY_MARKERS = ("provider_cost", "cost_usd", "exact_provider_cost", "billing
 READ_ONLY_SQL_MARKERS = ("INSERT ", "UPDATE ", "DELETE ")
 CONTROL_CENTER_EVENT_LIMIT_DEFAULT = 50
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-WO020_FIXTURE_PATH = re.compile(r"^wo020-cc-\d+-[0-9a-f]{8}-(alpha|beta)$")
+WO020_FIXTURE_PATH = re.compile(
+    r"^wo020-cc-\d+-[0-9a-f]{8}-(alpha|beta|missing-pending|missing-scope)$"
+)
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f]")
 
 
@@ -300,6 +302,35 @@ def create_fixture_repository(repository: Path, label: str) -> None:
     (source / "service.py").write_text(
         "def fixture() -> str:\n    return 'wo020'\n", encoding="utf-8"
     )
+    governance = repository / "docs" / "project-brain"
+    governance.mkdir(parents=True)
+    for relative, content in (
+        (
+            "13-CHECKPOINT.md",
+            "# Fixture checkpoint\n\n"
+            "## STATUS\nFIXTURE CONTROL CENTER ACTIVE\n\n"
+            "## IN PROGRESS\n- Verify bounded project intelligence\n\n"
+            "## PENDING\n- Fixture follow-up\n- Fixture audit\n\n"
+            "## NEXT STEP\nPublish the next bounded fixture result.\n",
+        ),
+        (
+            "03-SCOPE.md",
+            "# Fixture scope\n\n"
+            "## NECESSARY — V0.1\n- Full HIVE Control Center.\n- Bounded fixture scope.\n",
+        ),
+        (
+            "15-DEFINITION-OF-DONE.md",
+            "# Fixture Definition of Done\n\n"
+            "## Functional\n- [x] Fixture validation\n- [ ] Fixture follow-up\n",
+        ),
+        (
+            "16-DECISIONS-LEDGER.md",
+            "# Fixture decisions\n\n"
+            "## HIVE-ADR-001 — Fixture canonical decision\n"
+            "**Status:** Accepted\n",
+        ),
+    ):
+        (governance / relative).write_text(content, encoding="utf-8")
     run_command(["git", "-C", str(repository), "add", "-A"])
     run_command(["git", "-C", str(repository), "commit", "-m", "initial WO-020 fixture"])
 
