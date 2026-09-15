@@ -1280,6 +1280,9 @@
         "token_cached_tokens",
         "token_output_status",
         "token_output_tokens",
+        "provider_receipt_version",
+        "provider_receipt_reconciled",
+        "provider_receipt_output_tokens",
         "token_reduction_percentage",
         "storage_dedup_ratio",
         "storage_compression_ratio",
@@ -1396,6 +1399,9 @@
           "enum": ["AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED"]
         },
         "token_output_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "provider_receipt_version": { "enum": ["provider-usage-receipt-v1", "NONE"] },
+        "provider_receipt_reconciled": { "type": "boolean" },
+        "provider_receipt_output_tokens": { "type": ["integer", "null"], "minimum": 0 },
         "storage_dedup_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
         "storage_compression_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
         "storage_total_reduction_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
@@ -1416,6 +1422,34 @@
           },
           "then": { "properties": { "token_output_tokens": { "type": "integer" } } },
           "else": { "properties": { "token_output_tokens": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": { "token_cache_status": { "const": "AVAILABLE" } },
+                "required": ["token_cache_status"]
+              },
+              {
+                "properties": { "token_output_status": { "const": "AVAILABLE" } },
+                "required": ["token_output_status"]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "provider_receipt_version": { "const": "provider-usage-receipt-v1" },
+              "provider_receipt_reconciled": { "const": true },
+              "provider_receipt_output_tokens": { "type": ["integer", "null"] }
+            }
+          },
+          "else": {
+            "properties": {
+              "provider_receipt_version": { "const": "NONE" },
+              "provider_receipt_reconciled": { "const": false },
+              "provider_receipt_output_tokens": { "type": "null" }
+            }
+          }
         }
       ]
     },

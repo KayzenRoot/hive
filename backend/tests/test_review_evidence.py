@@ -687,6 +687,7 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "retrieval_context_measure": "final-reranked-context-bytes",
         "token_cache_status": "NOT_SUPPORTED",
         "token_output_status": "NOT_SUPPORTED",
+        "provider_receipt_version": "NONE",
         "optional_provider_metric": "NONE",
         "benchmark_families": list(review_evidence.COMPREHENSIVE_BENCHMARKS_FAMILIES),
         "evidence_paths": ["backend/tests/test_review_evidence.py"],
@@ -704,6 +705,8 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "retrieval_context_bytes": 4096,
         "token_cached_tokens": None,
         "token_output_tokens": None,
+        "provider_receipt_output_tokens": None,
+        "provider_receipt_reconciled": False,
         "retrieval_recall_at_k": 0.95,
         "retrieval_precision": 0.8,
         "retrieval_baseline_mrr": 0.6,
@@ -1131,6 +1134,185 @@ def test_wo023_reader_rejects_invalid_evidence_paths(
         assert review_evidence.comprehensive_benchmarks_evidence()["status"] == "FAIL"
 
 
+def wo023_provider_receipt_evidence(**overrides: object) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "status": "PASS",
+        **{
+            field: True
+            for field in review_evidence.COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES
+        },
+        "provider_cache_provider_usage_sources": [
+            "PROVIDER_REPORTED",
+            "DERIVED_FROM_PROVIDER_REPORTED_FIELDS",
+        ],
+        "provider_cache_provider_total_input_tokens": 100,
+        "provider_cache_provider_cached_input_tokens": 64,
+        "provider_cache_provider_fresh_input_tokens": 36,
+    }
+    evidence.update(overrides)
+    return evidence
+
+
+def wo023_provider_backed_payload(**overrides: object) -> dict[str, object]:
+    payload = wo023_benchmark_payload()
+    payload.update(
+        {
+            "token_cache_status": "AVAILABLE",
+            "token_cached_tokens": 64,
+            "token_output_status": "AVAILABLE",
+            "token_output_tokens": 12,
+            "provider_receipt_version": "provider-usage-receipt-v1",
+            "provider_receipt_reconciled": True,
+            "provider_receipt_output_tokens": 12,
+            "optional_provider_calls": 1,
+            "optional_provider_metric": "provider.cached_input_tokens",
+        }
+    )
+    payload.update(overrides)
+    return payload
+
+
+def test_wo023_provider_backed_token_claims_require_reconciled_receipt() -> None:
+    migration = review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
+    provider_integration = {"context_manager": wo023_provider_receipt_evidence()}
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": wo023_provider_backed_payload(), **provider_integration},
+        migration,
+    )
+    # provider-independent core still passes with absent provider evidence
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": wo023_benchmark_payload()},
+        migration,
+    )
+
+    cases: tuple[tuple[str, dict[str, object], dict[str, Any], str], ...] = (
+        (
+            "available cache without provider evidence",
+            wo023_provider_backed_payload(),
+            {},
+            "reconciled provider usage",
+        ),
+        (
+            "available cache with unreconciled receipt",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_reported_usage_reconciled=False
+                )
+            },
+            "provider usage guarantees",
+        ),
+        (
+            "available cache with unknown provider accounting",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_unknown_usage_not_zero=False
+                )
+            },
+            "provider usage guarantees",
+        ),
+        (
+            "cached count mismatch against the receipt",
+            wo023_provider_backed_payload(token_cached_tokens=65),
+            provider_integration,
+            "contradicts the provider usage receipt",
+        ),
+        (
+            "fresh tokens silently coerced to zero",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_fresh_input_tokens=0
+                )
+            },
+            "reconcile with the provider total",
+        ),
+        (
+            "fresh tokens unknown",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_fresh_input_tokens=None
+                )
+            },
+            "reconciled provider usage",
+        ),
+        (
+            "receipt without provider usage sources",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_usage_sources=["DERIVED_FROM_PROVIDER_REPORTED_FIELDS"]
+                )
+            },
+            "provider usage sources",
+        ),
+        (
+            "available output without provider evidence",
+            wo023_provider_backed_payload(),
+            {},
+            "reconciled provider usage",
+        ),
+        (
+            "output count mismatch against the receipt",
+            wo023_provider_backed_payload(token_output_tokens=13),
+            provider_integration,
+            "contradicts the provider receipt",
+        ),
+        (
+            "provider claim without recorded provider calls",
+            wo023_provider_backed_payload(optional_provider_calls=0),
+            provider_integration,
+            "recorded provider usage",
+        ),
+        (
+            "available cache with NONE receipt binding",
+            wo023_provider_backed_payload(provider_receipt_version="NONE"),
+            provider_integration,
+            "provider-usage-receipt-v1",
+        ),
+        (
+            "available cache without a reconciled receipt flag",
+            wo023_provider_backed_payload(provider_receipt_reconciled=False),
+            provider_integration,
+            "reconciled provider usage evidence",
+        ),
+        (
+            "zero cached provider tokens",
+            wo023_provider_backed_payload(),
+            {
+                "context_manager": wo023_provider_receipt_evidence(
+                    provider_cache_provider_cached_input_tokens=0,
+                    provider_cache_provider_fresh_input_tokens=100,
+                )
+            },
+            "positively reported provider cached input tokens",
+        ),
+    )
+    for _label, candidate, extra, expected in cases:
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": candidate, **extra},
+                migration,
+            )
+    # provider-independent payload must not carry receipt values
+    for field, value in (
+        ("provider_receipt_version", "provider-usage-receipt-v1"),
+        ("provider_receipt_reconciled", True),
+        ("provider_receipt_output_tokens", 12),
+    ):
+        with pytest.raises(ValueError, match="provider receipt"):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": wo023_benchmark_payload(**{field: value})},
+                migration,
+            )
+
+
 def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
@@ -1195,11 +1377,14 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
     )
     definition = schema["$defs"]["comprehensive_benchmarks_evidence"]
     jsonschema.validate(instance=wo023_benchmark_payload(), schema=definition)
+    # the provider-backed fixture must satisfy the schema coupling as well
+    jsonschema.validate(instance=wo023_provider_backed_payload(), schema=definition)
     assert set(definition["required"]) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
     assert definition["additionalProperties"] is False
-    # Cross-field non-regression (task success and test-pass rates) is enforced by the
-    # Python validator because JSON Schema cannot compare two properties without $data.
-    assert len(definition["allOf"]) == 2
+    # Cross-field non-regression (task success and test-pass rates) and the exact
+    # cached/fresh arithmetic are enforced by the Python validator because JSON Schema
+    # cannot compare two properties without $data.
+    assert len(definition["allOf"]) == 3
     for invalid in (
         wo023_benchmark_payload(full_v01_complete_claimed=True),
         wo023_benchmark_payload(canonical_loss=True),
@@ -1222,6 +1407,10 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
         wo023_benchmark_payload(baseline_reference_version="UNKNOWN"),
         wo023_benchmark_payload(baseline_reference_version="none"),
         wo023_benchmark_payload(storage_physical_bytes=0),
+        wo023_provider_backed_payload(provider_receipt_version="NONE"),
+        wo023_provider_backed_payload(provider_receipt_reconciled=False),
+        wo023_benchmark_payload(provider_receipt_version="provider-usage-receipt-v1"),
+        wo023_benchmark_payload(provider_receipt_reconciled=True),
     ):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=invalid, schema=definition)

@@ -1095,6 +1095,20 @@ COMPREHENSIVE_BENCHMARKS_BASELINE_PLACEHOLDERS = frozenset(
     {"UNKNOWN", "UNAVAILABLE", "NOT_SUPPORTED", "NOT-SUPPORTED", "NONE"}
 )
 COMPREHENSIVE_BENCHMARKS_MAX_BASELINE_VERSION_LENGTH = 128
+# AVAILABLE cache/output token claims must be backed by the existing
+# provider-usage-receipt-v1 seam; the benchmark never carries a second provider
+# accounting model.
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION = "provider-usage-receipt-v1"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE = "NONE"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE = "PROVIDER_REPORTED"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES = (
+    "provider_usage_receipt_versioned",
+    "provider_cache_reported_usage_reconciled",
+    "provider_cache_invalid_usage_fail_closed",
+    "provider_cache_unknown_usage_not_zero",
+    "provider_cache_explicit_zero_distinct_from_unknown",
+    "provider_cache_hive_estimates_not_provider_usage",
+)
 COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS = 24
 COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
     "comprehensive_benchmarks_evidence_version",
@@ -1110,6 +1124,7 @@ COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
     "retrieval_context_measure",
     "token_cache_status",
     "token_output_status",
+    "provider_receipt_version",
     "optional_provider_metric",
 )
 COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS = (
@@ -1173,6 +1188,7 @@ COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS = (
 COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS = (
     "token_cached_tokens",
     "token_output_tokens",
+    "provider_receipt_output_tokens",
 )
 COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS = {
     "retrieval": "retrieval_metrics_status",
@@ -1215,6 +1231,7 @@ COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS = frozenset(
         "status",
         "benchmark_families",
         "evidence_paths",
+        "provider_receipt_reconciled",
         *COMPREHENSIVE_BENCHMARKS_STRING_FIELDS,
         *COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS,
         *COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS,
@@ -5758,6 +5775,8 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         "retrieval_context_measure": "UNKNOWN",
         "token_cache_status": "UNKNOWN",
         "token_output_status": "UNKNOWN",
+        "provider_receipt_version": "UNKNOWN",
+        "provider_receipt_reconciled": False,
         "optional_provider_metric": "UNKNOWN",
         "benchmark_families": [],
         "evidence_paths": [],
@@ -5820,6 +5839,24 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             nullable_integers[field] = None
             continue
         nullable_integers[field] = value
+    receipt_version = payload.get("provider_receipt_version")
+    receipt_reconciled = payload.get("provider_receipt_reconciled")
+    provider_claims = (
+        payload.get("token_cache_status") == "AVAILABLE"
+        or payload.get("token_output_status") == "AVAILABLE"
+    )
+    provider_valid = (
+        (
+            receipt_version == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION
+            and receipt_reconciled is True
+        )
+        if provider_claims
+        else (
+            receipt_version == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+            and receipt_reconciled is False
+            and payload.get("provider_receipt_output_tokens") is None
+        )
+    )
     families_valid = _is_closed_string_set(
         payload.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES
     )
@@ -5837,7 +5874,8 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             and numbers_valid
             and families_valid
             and paths_valid
-            and (nullable_valid)
+            and nullable_valid
+            and provider_valid
             else "FAIL"
         ),
         **strings,
@@ -5852,6 +5890,7 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         **integers,
         **nullable_integers,
         **numbers,
+        "provider_receipt_reconciled": payload.get("provider_receipt_reconciled") is True,
     }
 
 
@@ -5994,6 +6033,8 @@ def require_wo023_comprehensive_benchmarks_evidence(
     context_bytes = full.get("retrieval_context_bytes")
     if not isinstance(context_bytes, int) or isinstance(context_bytes, bool) or context_bytes <= 0:
         raise ValueError(f"{WO023_WORK_ORDER} requires a positive measured retrieval context size")
+    cache_status = full.get("token_cache_status")
+    output_status = full.get("token_output_status")
     for status_field, value_field in (
         ("token_cache_status", "token_cached_tokens"),
         ("token_output_status", "token_output_tokens"),
@@ -6011,6 +6052,104 @@ def require_wo023_comprehensive_benchmarks_evidence(
             raise ValueError(
                 f"{WO023_WORK_ORDER} must not report {value_field} that is not AVAILABLE"
             )
+    provider_claims = cache_status == "AVAILABLE" or output_status == "AVAILABLE"
+    receipt_version = full.get("provider_receipt_version")
+    receipt_reconciled = full.get("provider_receipt_reconciled")
+    mirrored_output = full.get("provider_receipt_output_tokens")
+    if not provider_claims:
+        if receipt_version != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE} "
+                "provider receipt binding without AVAILABLE provider-backed claims"
+            )
+        if receipt_reconciled is not False or mirrored_output is not None:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must not carry provider receipt values without "
+                "AVAILABLE provider-backed claims"
+            )
+    if provider_claims:
+        if receipt_version != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION} "
+                "evidence for AVAILABLE cache or output token claims"
+            )
+        if receipt_reconciled is not True:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires reconciled provider usage evidence for AVAILABLE "
+                "cache or output token claims"
+            )
+        provider_calls = full.get("optional_provider_calls")
+        provider_metric = full.get("optional_provider_metric")
+        provider_recorded = isinstance(provider_metric, str) and provider_metric not in {
+            "NONE",
+            "UNKNOWN",
+        }
+        if (
+            not isinstance(provider_calls, int)
+            or isinstance(provider_calls, bool)
+            or provider_calls <= 0
+            or not provider_recorded
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires recorded provider usage for AVAILABLE provider "
+                "token claims"
+            )
+        provider_evidence = cast(dict[str, Any], integration.get("context_manager", {}))
+        missing_provider = [
+            field
+            for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES
+            if provider_evidence.get(field) is not True
+        ]
+        if missing_provider:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires reconciled provider usage guarantees: "
+                + ", ".join(sorted(missing_provider))
+            )
+        usage_sources = provider_evidence.get("provider_cache_provider_usage_sources")
+        if not isinstance(usage_sources, list) or (
+            COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE not in usage_sources
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE} "
+                "provider usage sources"
+            )
+        receipt_total = provider_evidence.get("provider_cache_provider_total_input_tokens")
+        receipt_cached = provider_evidence.get("provider_cache_provider_cached_input_tokens")
+        receipt_fresh = provider_evidence.get("provider_cache_provider_fresh_input_tokens")
+        for field, value in (
+            ("provider_cache_provider_total_input_tokens", receipt_total),
+            ("provider_cache_provider_cached_input_tokens", receipt_cached),
+            ("provider_cache_provider_fresh_input_tokens", receipt_fresh),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires reconciled provider usage for {field}"
+                )
+        if cast(int, receipt_cached) + cast(int, receipt_fresh) != cast(int, receipt_total):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires provider cached plus fresh input tokens to "
+                "reconcile with the provider total"
+            )
+        if cache_status == "AVAILABLE":
+            if cast(int, receipt_cached) <= 0:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires positively reported provider cached input "
+                    "tokens for an AVAILABLE cache claim"
+                )
+            if full.get("token_cached_tokens") != receipt_cached:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} cached token count contradicts the provider usage receipt"
+                )
+        if output_status == "AVAILABLE":
+            if not isinstance(mirrored_output, int) or isinstance(mirrored_output, bool):
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires provider output tokens for an AVAILABLE "
+                    "output claim"
+                )
+            if full.get("token_output_tokens") != mirrored_output:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} output token count contradicts the provider receipt"
+                )
     for field in (
         "baseline_task_success_rate",
         "optimized_task_success_rate",
