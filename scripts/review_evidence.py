@@ -1049,7 +1049,18 @@ WO023_PRODUCT_ALLOWED_PREFIXES = (
     "scripts/",
     "docs/atlas/",
 )
-WO023_PRODUCT_FORBIDDEN_PATHS = frozenset(WO023_G1_ALLOWED_PATHS)
+WO023_AUTHORIZED_CORRECTION_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    }
+)
+# The closed benchmarks contract and its PR-body renderer stay forbidden for the
+# WO-023 product increment; only the two files authorized for the merged
+# false-field normalizer defect and its regression are exempt.
+WO023_PRODUCT_FORBIDDEN_PATHS = frozenset(
+    WO023_G1_ALLOWED_PATHS - WO023_AUTHORIZED_CORRECTION_PATHS
+)
 
 COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION = "comprehensive-benchmarks-v1"
 COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE = "comprehensive-benchmarks.json"
@@ -5898,6 +5909,9 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
         )
     )
+    claims_valid = all(
+        payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS
+    ) and all(payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS)
     families_valid = _is_closed_string_set(
         payload.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES
     )
@@ -5917,6 +5931,7 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             and paths_valid
             and nullable_valid
             and provider_valid
+            and claims_valid
             else "FAIL"
         ),
         **strings,
@@ -5926,12 +5941,12 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         "evidence_paths": (
             [str(path) for path in cast(list[object], raw_paths)] if paths_valid else []
         ),
-        **{field: payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
-        **{field: payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **{field: payload.get(field) for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: payload.get(field) for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
         **integers,
         **nullable_integers,
         **numbers,
-        "provider_receipt_reconciled": payload.get("provider_receipt_reconciled") is True,
+        "provider_receipt_reconciled": payload.get("provider_receipt_reconciled"),
     }
 
 

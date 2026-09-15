@@ -809,10 +809,45 @@ def test_wo023_scope_requires_merged_g1_support_and_bounded_paths(
         )
 
 
-def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> None:
+def test_wo023_scope_authorizes_only_the_parser_correction_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: "a" * 40)
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda *_args, **_kwargs: b"WO-023-G1")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    assert {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    } == set(review_evidence.WO023_AUTHORIZED_CORRECTION_PATHS)
+    review_evidence.require_wo023_scope(
+        review_evidence.WO023_WORK_ORDER,
+        "a" * 40,
+        sorted(review_evidence.WO023_AUTHORIZED_CORRECTION_PATHS),
+        base_branch="main",
+        enforce_current_main=False,
+    )
+    for forbidden in ("schemas/review-evidence-v1.schema.json", "scripts/review_pr_body.py"):
+        assert forbidden in review_evidence.WO023_PRODUCT_FORBIDDEN_PATHS
+        with pytest.raises(ValueError, match="outside the bounded"):
+            review_evidence.require_wo023_scope(
+                review_evidence.WO023_WORK_ORDER,
+                "a" * 40,
+                [forbidden],
+                enforce_current_main=False,
+            )
+
+
+def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     assert set(wo023_benchmark_payload()) == (
         review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
     )
+    monkeypatch.setattr(review_evidence, "integration_file", lambda _name: "")
     unknown = review_evidence.comprehensive_benchmarks_evidence()
     assert unknown["status"] == "UNKNOWN"
     assert set(unknown) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
@@ -1133,6 +1168,80 @@ def test_wo023_reader_rejects_invalid_evidence_paths(
         raw = json.dumps(wo023_benchmark_payload(evidence_paths=bad_paths))
         monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
         assert review_evidence.comprehensive_benchmarks_evidence()["status"] == "FAIL"
+
+
+def test_wo023_loader_keeps_literal_negative_claims_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A realistic evidence file must survive the file loader with false claims intact."""
+
+    raw = json.dumps(wo023_benchmark_payload())
+    monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
+    loaded = review_evidence.comprehensive_benchmarks_evidence()
+
+    for field in review_evidence.COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS:
+        assert loaded[field] is False, field
+    for field in review_evidence.COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS:
+        assert loaded[field] is True, field
+    assert loaded["provider_receipt_reconciled"] is False
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": loaded},
+        review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+    )
+
+
+def test_wo023_loader_never_normalizes_invalid_claims_into_accepted_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A true or missing negative claim must not become an accepted false claim."""
+
+    for override in (
+        {"canonical_loss": True},
+        {"fabricated_metrics": True},
+        {"full_v01_complete_claimed": True},
+        {"provider_values_fabricated": True},
+    ):
+        payload = wo023_benchmark_payload(**override)
+        raw = json.dumps(payload)
+        monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
+        loaded = review_evidence.comprehensive_benchmarks_evidence()
+        field = next(iter(override))
+        assert loaded[field] is True, field
+        assert loaded["status"] == "FAIL"
+        with pytest.raises(ValueError):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": loaded},
+                review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+            )
+
+    missing = wo023_benchmark_payload()
+    del missing["canonical_loss"]
+    raw = json.dumps(missing)
+    monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
+    loaded = review_evidence.comprehensive_benchmarks_evidence()
+    for field in review_evidence.COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS:
+        assert loaded[field] is False, field
+    assert loaded["status"] == "FAIL"
+    with pytest.raises(ValueError):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {"comprehensive_benchmarks": loaded},
+            review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+        )
+
+
+def test_wo023_true_claims_must_stay_true_through_the_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = wo023_benchmark_payload(benchmark_corpus_bounded=False)
+    raw = json.dumps(payload)
+    monkeypatch.setattr(review_evidence, "integration_file", lambda _name, _raw=raw: _raw)
+    loaded = review_evidence.comprehensive_benchmarks_evidence()
+
+    assert loaded["benchmark_corpus_bounded"] is False
+    assert loaded["status"] == "FAIL"
 
 
 def wo023_provider_receipt_evidence(**overrides: object) -> dict[str, object]:

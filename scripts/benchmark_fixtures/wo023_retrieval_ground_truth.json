@@ -1,0 +1,121 @@
+{
+  "corpus_files": [
+    {
+      "content": "# path: persist an order once per idempotency key\n# contract: persist an order once per idempotency key\n# acceptance criteria: return complete file src/order_service.py order suppressed\n# constraints: keep the idempotency key order path\n# Order intake service.\n\nIDEMPOTENCY_KEY_HEADER = \"X-Hive-Idempotency-Key\"\n\n\ndef submit_order(store: dict[str, str], idempotency_key: str, payload: str) -> str:\n    \"\"\"Persist an order once per idempotency key.\"\"\"\n    existing = store.get(idempotency_key)\n    if existing is not None:\n        return existing\n    store[idempotency_key] = payload\n    return payload\n\n\ndef suppress_duplicate_order(store: dict[str, str], idempotency_key: str) -> bool:\n    \"\"\"Report whether a duplicate order was suppressed.\"\"\"\n    return idempotency_key in store\n",
+      "path": "src/order_service.py"
+    },
+    {
+      "content": "# path: deterministic token bucket refill model\n# contract: deterministic token bucket refill model\n# acceptance criteria: return complete file src/rate_limiter.py refill rate capacity\n# constraints: keep the token bucket refill model capacity\n# Token bucket rate limiter.\n\nBUCKET_CAPACITY = 60\nREFILL_PER_SECOND = 1.5\n\n\nclass TokenBucketRateLimiter:\n    \"\"\"Deterministic token bucket refill model.\"\"\"\n\n    def __init__(self, capacity: int = BUCKET_CAPACITY) -> None:\n        self.capacity = capacity\n        self.tokens = float(capacity)\n        self.last_refill_seconds = 0.0\n\n    def refill(self, elapsed_seconds: float) -> float:\n        \"\"\"Refill tokens at the configured rate.\"\"\"\n        self.tokens = min(self.capacity, self.tokens + elapsed_seconds * REFILL_PER_SECOND)\n        self.last_refill_seconds = elapsed_seconds\n        return self.tokens\n\n    def allow(self, cost: float = 1.0) -> bool:\n        \"\"\"Consume tokens when the bucket has enough capacity.\"\"\"\n        if self.tokens < cost:\n            return False\n        self.tokens -= cost\n        return True\n",
+      "path": "src/rate_limiter.py"
+    },
+    {
+      "content": "# Cache ttl and eviction policy.\n\nDEFAULT_TTL_SECONDS = 300\nMAX_ENTRIES = 512\n\n\nclass TtlCachePolicy:\n    \"\"\"Least-recently-used eviction with a bounded ttl.\"\"\"\n\n    def __init__(self, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:\n        self.ttl_seconds = ttl_seconds\n        self.entries: dict[str, int] = {}\n\n    def store(self, key: str, inserted_at: int) -> None:\n        \"\"\"Insert an entry and evict the oldest entry when the bound is exceeded.\"\"\"\n        self.entries[key] = inserted_at\n        if len(self.entries) > MAX_ENTRIES:\n            oldest = min(self.entries, key=self.entries.get)  # type: ignore[arg-type]\n            del self.entries[oldest]\n\n    def is_fresh(self, key: str, now: int) -> bool:\n        \"\"\"Report whether an entry is still within its ttl window.\"\"\"\n        inserted_at = self.entries.get(key)\n        if inserted_at is None:\n            return False\n        return now - inserted_at <= self.ttl_seconds\n",
+      "path": "src/cache_policy.py"
+    },
+    {
+      "content": "# path: map a storage tier to its measured zstd level\n# contract: map a storage tier to its measured zstd level\n# acceptance criteria: return complete file src/storage_policy.py measured zstd level\n# constraints: keep the measured zstd tier level\n# Zstd compression tier selection.\n\nHOT_LEVEL = 1\nWARM_LEVEL = 3\nCOLD_LEVEL = 9\n\n\ndef zstd_level_for_tier(tier: str) -> int:\n    \"\"\"Map an ACCE storage tier to its measured zstd compression level.\"\"\"\n    levels = {\"HOT\": HOT_LEVEL, \"WARM\": WARM_LEVEL, \"COLD\": COLD_LEVEL}\n    if tier not in levels:\n        raise ValueError(f\"unknown storage tier: {tier}\")\n    return levels[tier]\n\n\ndef physical_bytes_for_tier(tier: str, logical_bytes: int, ratio: float) -> int:\n    \"\"\"Estimate physical bytes from a measured compression ratio.\"\"\"\n    zstd_level_for_tier(tier)\n    return int(logical_bytes * ratio)\n",
+      "path": "src/storage_policy.py"
+    },
+    {
+      "content": "# Hybrid rank fusion.\n\nRECIPROCAL_RANK_CONSTANT = 60\n\n\ndef reciprocal_rank_fusion(rankings: list[list[str]]) -> dict[str, float]:\n    \"\"\"Fuse lexical and semantic rankings with reciprocal rank fusion.\"\"\"\n    fused: dict[str, float] = {}\n    for ranking in rankings:\n        for rank, identifier in enumerate(ranking, start=1):\n            fused[identifier] = fused.get(identifier, 0.0) + (\n                1.0 / (RECIPROCAL_RANK_CONSTANT + rank)\n            )\n    return fused\n\n\ndef best_rank(identifier: str, ranking: list[str]) -> int | None:\n    \"\"\"Return the one-based rank of an identifier in a ranking.\"\"\"\n    for rank, candidate in enumerate(ranking, start=1):\n        if candidate == identifier:\n            return rank\n    return None\n",
+      "path": "src/retrieval_ranker.py"
+    },
+    {
+      "content": "# Benchmark fixture notes\n\nThis repository is an isolated deterministic fixture for the WO-023 comprehensive\nbenchmark. It contains no production code, no credentials and no user data.\n",
+      "path": "docs/notes.md"
+    }
+  ],
+  "corpus_module_count": 36,
+  "corpus_module_template": "MODULE_INDEX = {index}\n\n\ndef module_{index}_load(store: dict[str, str]) -> str:\n    \"\"\"Load module {index} state from the store.\"\"\"\n    return store.get(\"module-{index}\", \"\")\n\n\ndef module_{index}_store(store: dict[str, str], value: str) -> None:\n    \"\"\"Store module {index} state.\"\"\"\n    store[\"module-{index}\"] = value\n\n\ndef module_{index}_summary() -> str:\n    \"\"\"Summarize module {index} ownership.\"\"\"\n    return \"module {index} owns deterministic fixture state\"\n",
+  "corpus_narrative": {
+    "repeat": 1,
+    "template": "# {name} acceptance criteria return complete file reference note {line}: deterministic commentary retained as optional context for the WO-023 benchmark corpus.\n"
+  },
+  "corpus_support_files": {
+    "filler_lines": 8,
+    "filler_template": "SUPPORT_NOTE_{index}_{line} = \"\"\"Optional supporting evidence for the deterministic WO-023 benchmark corpus that the accepted context bound may trim.\"\"\"\n",
+    "path_template": "src/support/support_{task_index}_{index}.py",
+    "per_task": 6
+  },
+  "dataset_identity": "wo023-benchmark-corpus-v1",
+  "description": "Deterministic benchmark corpus and auditable ground truth for the WO-023 comprehensive retrieval, token and storage benchmark. Task texts stay inside the Context Manager query window and use only literal corpus tokens, so the real AND-semantics retrieval query resolves the auditable ground truth without truncation artifacts.",
+  "duplicate_task_texts": [
+    "# Duplicate payload for deduplication measurement\n\nThe same bytes are submitted twice so the content-addressed storage proves real\ndeduplication on representative HIVE-owned data instead of a hand-authored value.\n"
+  ],
+  "large_corpus_files": {
+    "count": 3,
+    "line_template": "PRESSURE_PADDING_{index}_LINE_{line} = 'deterministic optional padding for the WO-023 benchmark corpus'\n",
+    "path_template": "src/large/padding_block_{index}.py",
+    "target_kilobytes": 8
+  },
+  "optional_pressure_repeat": 0,
+  "optional_pressure_sentence": "optional lower-priority evidence that may be trimmed safely ",
+  "queries": [
+    {
+      "critical": true,
+      "expected_path": "src/order_service.py",
+      "query": "idempotency key duplicate order suppressed"
+    },
+    {
+      "critical": true,
+      "expected_path": "src/rate_limiter.py",
+      "query": "token bucket refill rate limiter capacity"
+    },
+    {
+      "critical": true,
+      "expected_path": "src/cache_policy.py",
+      "query": "cache ttl eviction oldest entry"
+    },
+    {
+      "critical": true,
+      "expected_path": "src/storage_policy.py",
+      "query": "zstd level compression tier hot warm cold"
+    },
+    {
+      "critical": true,
+      "expected_path": "src/retrieval_ranker.py",
+      "query": "reciprocal rank fusion hybrid ranking"
+    }
+  ],
+  "schema_version": 1,
+  "task_pressure_sentence": "Also summarize deterministic fixture state ownership across every generated module and reconcile PRESSURE_PADDING evidence across the optional padding blocks.\n",
+  "tasks": [
+    {
+      "expected_path": "src/order_service.py",
+      "preamble": "# persist an order once per idempotency key\n## Acceptance Criteria\n- return complete file src/order_service.py order suppressed\n## Constraints\n- keep the idempotency key order path\n",
+      "support_tokens": [
+        "persist",
+        "order",
+        "idempotency",
+        "key"
+      ],
+      "title": "persist an order once per idempotency key"
+    },
+    {
+      "expected_path": "src/rate_limiter.py",
+      "preamble": "# deterministic token bucket refill model\n## Acceptance Criteria\n- return complete file src/rate_limiter.py refill rate capacity\n## Constraints\n- keep the token bucket refill model capacity\n",
+      "support_tokens": [
+        "token",
+        "bucket",
+        "refill",
+        "rate",
+        "limiter",
+        "capacity"
+      ],
+      "title": "deterministic token bucket refill model"
+    },
+    {
+      "expected_path": "src/storage_policy.py",
+      "preamble": "# map a storage tier to its measured zstd level\n## Acceptance Criteria\n- return complete file src/storage_policy.py measured zstd level\n## Constraints\n- keep the measured zstd tier level\n",
+      "support_tokens": [
+        "storage",
+        "tier",
+        "zstd",
+        "compression",
+        "level"
+      ],
+      "title": "map a storage tier to its measured zstd compression level"
+    }
+  ],
+  "work_order": "WO-023"
+}
