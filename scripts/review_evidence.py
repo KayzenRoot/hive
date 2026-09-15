@@ -1049,7 +1049,18 @@ WO023_PRODUCT_ALLOWED_PREFIXES = (
     "scripts/",
     "docs/atlas/",
 )
-WO023_PRODUCT_FORBIDDEN_PATHS = frozenset(WO023_G1_ALLOWED_PATHS)
+WO023_AUTHORIZED_CORRECTION_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    }
+)
+# The closed benchmarks contract and its PR-body renderer stay forbidden for the
+# WO-023 product increment; only the two files authorized for the merged
+# false-field normalizer defect and its regression are exempt.
+WO023_PRODUCT_FORBIDDEN_PATHS = frozenset(
+    WO023_G1_ALLOWED_PATHS - WO023_AUTHORIZED_CORRECTION_PATHS
+)
 
 COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION = "comprehensive-benchmarks-v1"
 COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE = "comprehensive-benchmarks.json"

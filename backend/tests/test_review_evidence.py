@@ -809,6 +809,38 @@ def test_wo023_scope_requires_merged_g1_support_and_bounded_paths(
         )
 
 
+def test_wo023_scope_authorizes_only_the_parser_correction_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: "a" * 40)
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda *_args, **_kwargs: b"WO-023-G1")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    assert {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    } == set(review_evidence.WO023_AUTHORIZED_CORRECTION_PATHS)
+    review_evidence.require_wo023_scope(
+        review_evidence.WO023_WORK_ORDER,
+        "a" * 40,
+        sorted(review_evidence.WO023_AUTHORIZED_CORRECTION_PATHS),
+        base_branch="main",
+        enforce_current_main=False,
+    )
+    for forbidden in ("schemas/review-evidence-v1.schema.json", "scripts/review_pr_body.py"):
+        assert forbidden in review_evidence.WO023_PRODUCT_FORBIDDEN_PATHS
+        with pytest.raises(ValueError, match="outside the bounded"):
+            review_evidence.require_wo023_scope(
+                review_evidence.WO023_WORK_ORDER,
+                "a" * 40,
+                [forbidden],
+                enforce_current_main=False,
+            )
+
+
 def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
