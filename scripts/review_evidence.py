@@ -1101,6 +1101,34 @@ COMPREHENSIVE_BENCHMARKS_MAX_BASELINE_VERSION_LENGTH = 128
 COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION = "provider-usage-receipt-v1"
 COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE = "NONE"
 COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE = "PROVIDER_REPORTED"
+# The provider receipt is loaded from its own integration artifact so the
+# comprehensive benchmark payload can never substitute provider bytes: the
+# payload only binds to the artifact identity and its SHA-256 digest.
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE = "provider-usage-receipt.json"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECONCILIATION_EXACT = "EXACT"
+COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_STRING_FIELDS = (
+    "provider_usage_receipt_version",
+    "provider_receipt_artifact",
+    "provider_reconciliation_state",
+    "provider_usage_source",
+)
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS = (
+    "provider_total_input_tokens",
+    "provider_cached_input_tokens",
+    "provider_fresh_input_tokens",
+    "provider_calls",
+    "secret_leaks",
+    "credential_leaks",
+)
+COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_ALLOWED_FIELDS = frozenset(
+    {
+        "status",
+        *COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_STRING_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS,
+        "provider_output_tokens",
+    }
+)
 COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_GUARANTEES = (
     "provider_usage_receipt_versioned",
     "provider_cache_reported_usage_reconciled",
@@ -1125,6 +1153,8 @@ COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
     "token_cache_status",
     "token_output_status",
     "provider_receipt_version",
+    "provider_receipt_artifact",
+    "provider_receipt_sha256",
     "optional_provider_metric",
 )
 COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS = (
@@ -1188,7 +1218,6 @@ COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS = (
 COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS = (
     "token_cached_tokens",
     "token_output_tokens",
-    "provider_receipt_output_tokens",
 )
 COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS = {
     "retrieval": "retrieval_metrics_status",
@@ -5776,6 +5805,8 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         "token_cache_status": "UNKNOWN",
         "token_output_status": "UNKNOWN",
         "provider_receipt_version": "UNKNOWN",
+        "provider_receipt_artifact": "UNKNOWN",
+        "provider_receipt_sha256": "UNKNOWN",
         "provider_receipt_reconciled": False,
         "optional_provider_metric": "UNKNOWN",
         "benchmark_families": [],
@@ -5849,12 +5880,22 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         (
             receipt_version == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION
             and receipt_reconciled is True
+            and payload.get("provider_receipt_artifact")
+            == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE
+            and isinstance(payload.get("provider_receipt_sha256"), str)
+            and COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(
+                cast(str, payload.get("provider_receipt_sha256"))
+            )
+            is not None
         )
         if provider_claims
         else (
             receipt_version == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
             and receipt_reconciled is False
-            and payload.get("provider_receipt_output_tokens") is None
+            and payload.get("provider_receipt_artifact")
+            == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+            and payload.get("provider_receipt_sha256")
+            == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
         )
     )
     families_valid = _is_closed_string_set(
@@ -5891,6 +5932,60 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         **nullable_integers,
         **numbers,
         "provider_receipt_reconciled": payload.get("provider_receipt_reconciled") is True,
+    }
+
+
+def provider_usage_receipt_evidence() -> dict[str, object]:
+    """Load the independent provider usage receipt artifact for WO-023 binding."""
+
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "artifact_sha256": "UNKNOWN",
+        "provider_usage_receipt_version": "UNKNOWN",
+        "provider_receipt_artifact": COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE,
+        "provider_reconciliation_state": "UNKNOWN",
+        "provider_usage_source": "UNKNOWN",
+        **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS},
+        "provider_output_tokens": None,
+    }
+    text = integration_file(COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+    payload = cast(dict[str, object], data)
+    if set(payload) != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_ALLOWED_FIELDS:
+        return {**unknown, "status": "FAIL"}
+    strings = {
+        field: payload.get(field) if isinstance(payload.get(field), str) else "UNKNOWN"
+        for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_STRING_FIELDS
+    }
+    integers: dict[str, int] = {}
+    integer_valid = True
+    for field in COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_INTEGER_FIELDS:
+        value = payload.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            integer_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    output_tokens = payload.get("provider_output_tokens")
+    output_valid = output_tokens is None or (
+        isinstance(output_tokens, int)
+        and not isinstance(output_tokens, bool)
+        and output_tokens >= 0
+    )
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return {
+        "status": "PASS" if integer_valid and output_valid else "FAIL",
+        "artifact_sha256": digest,
+        **strings,
+        **integers,
+        "provider_output_tokens": output_tokens if output_valid else None,
     }
 
 
@@ -6055,16 +6150,21 @@ def require_wo023_comprehensive_benchmarks_evidence(
     provider_claims = cache_status == "AVAILABLE" or output_status == "AVAILABLE"
     receipt_version = full.get("provider_receipt_version")
     receipt_reconciled = full.get("provider_receipt_reconciled")
-    mirrored_output = full.get("provider_receipt_output_tokens")
+    receipt_artifact = full.get("provider_receipt_artifact")
+    receipt_sha256 = full.get("provider_receipt_sha256")
     if not provider_claims:
         if receipt_version != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE:
             raise ValueError(
                 f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE} "
                 "provider receipt binding without AVAILABLE provider-backed claims"
             )
-        if receipt_reconciled is not False or mirrored_output is not None:
+        if (
+            receipt_reconciled is not False
+            or receipt_artifact != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+            or receipt_sha256 != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
+        ):
             raise ValueError(
-                f"{WO023_WORK_ORDER} must not carry provider receipt values without "
+                f"{WO023_WORK_ORDER} must not carry provider receipt bindings without "
                 "AVAILABLE provider-backed claims"
             )
     if provider_claims:
@@ -6105,6 +6205,69 @@ def require_wo023_comprehensive_benchmarks_evidence(
                 f"{WO023_WORK_ORDER} requires reconciled provider usage guarantees: "
                 + ", ".join(sorted(missing_provider))
             )
+        if receipt_artifact != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires the independent provider receipt artifact "
+                f"{COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE}"
+            )
+        if not isinstance(receipt_sha256, str) or (
+            COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(receipt_sha256) is None
+        ):
+            raise ValueError(f"{WO023_WORK_ORDER} requires a provider receipt SHA-256 binding")
+        independent_receipt = provider_usage_receipt_evidence()
+        if independent_receipt.get("status") != "PASS":
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires an independently loaded reconciled provider receipt"
+            )
+        if independent_receipt.get("artifact_sha256") != receipt_sha256:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} provider receipt identity does not match the loaded artifact"
+            )
+        if (
+            independent_receipt.get("provider_usage_receipt_version")
+            != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires version "
+                f"{COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_VERSION} provider receipt evidence"
+            )
+        if (
+            independent_receipt.get("provider_reconciliation_state")
+            != COMPREHENSIVE_BENCHMARKS_PROVIDER_RECONCILIATION_EXACT
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires "
+                f"{COMPREHENSIVE_BENCHMARKS_PROVIDER_RECONCILIATION_EXACT} provider receipt "
+                "reconciliation"
+            )
+        if (
+            independent_receipt.get("provider_usage_source")
+            != COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE} "
+                "provider receipt evidence"
+            )
+        for field in ("secret_leaks", "credential_leaks"):
+            if independent_receipt.get(field) != 0:
+                raise ValueError(f"{WO023_WORK_ORDER} requires a provider receipt without {field}")
+        independent_total = independent_receipt.get("provider_total_input_tokens")
+        independent_cached = independent_receipt.get("provider_cached_input_tokens")
+        independent_fresh = independent_receipt.get("provider_fresh_input_tokens")
+        for field, value in (
+            ("provider_total_input_tokens", independent_total),
+            ("provider_cached_input_tokens", independent_cached),
+            ("provider_fresh_input_tokens", independent_fresh),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{WO023_WORK_ORDER} requires measured provider receipt {field}")
+        if cast(int, independent_cached) + cast(int, independent_fresh) != cast(
+            int, independent_total
+        ):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires the independent provider receipt to reconcile "
+                "cached plus fresh input tokens with its total"
+            )
         usage_sources = provider_evidence.get("provider_cache_provider_usage_sources")
         if not isinstance(usage_sources, list) or (
             COMPREHENSIVE_BENCHMARKS_PROVIDER_USAGE_SOURCE not in usage_sources
@@ -6130,25 +6293,22 @@ def require_wo023_comprehensive_benchmarks_evidence(
                 f"{WO023_WORK_ORDER} requires provider cached plus fresh input tokens to "
                 "reconcile with the provider total"
             )
-        if cache_status == "AVAILABLE":
-            if cast(int, receipt_cached) <= 0:
-                raise ValueError(
-                    f"{WO023_WORK_ORDER} requires positively reported provider cached input "
-                    "tokens for an AVAILABLE cache claim"
-                )
-            if full.get("token_cached_tokens") != receipt_cached:
-                raise ValueError(
-                    f"{WO023_WORK_ORDER} cached token count contradicts the provider usage receipt"
-                )
+        if cache_status == "AVAILABLE" and full.get("token_cached_tokens") != independent_cached:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} cached token count contradicts the independent "
+                "provider receipt"
+            )
         if output_status == "AVAILABLE":
-            if not isinstance(mirrored_output, int) or isinstance(mirrored_output, bool):
+            independent_output = independent_receipt.get("provider_output_tokens")
+            if not isinstance(independent_output, int) or isinstance(independent_output, bool):
                 raise ValueError(
-                    f"{WO023_WORK_ORDER} requires provider output tokens for an AVAILABLE "
-                    "output claim"
+                    f"{WO023_WORK_ORDER} requires measured independent provider receipt "
+                    "output tokens for an AVAILABLE output claim"
                 )
-            if full.get("token_output_tokens") != mirrored_output:
+            if full.get("token_output_tokens") != independent_output:
                 raise ValueError(
-                    f"{WO023_WORK_ORDER} output token count contradicts the provider receipt"
+                    f"{WO023_WORK_ORDER} output token count contradicts the independent "
+                    "provider receipt"
                 )
     for field in (
         "baseline_task_success_rate",

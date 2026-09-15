@@ -688,6 +688,8 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "token_cache_status": "NOT_SUPPORTED",
         "token_output_status": "NOT_SUPPORTED",
         "provider_receipt_version": "NONE",
+        "provider_receipt_artifact": "NONE",
+        "provider_receipt_sha256": "NONE",
         "optional_provider_metric": "NONE",
         "benchmark_families": list(review_evidence.COMPREHENSIVE_BENCHMARKS_FAMILIES),
         "evidence_paths": ["backend/tests/test_review_evidence.py"],
@@ -705,7 +707,6 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "retrieval_context_bytes": 4096,
         "token_cached_tokens": None,
         "token_output_tokens": None,
-        "provider_receipt_output_tokens": None,
         "provider_receipt_reconciled": False,
         "retrieval_recall_at_k": 0.95,
         "retrieval_precision": 0.8,
@@ -1153,6 +1154,25 @@ def wo023_provider_receipt_evidence(**overrides: object) -> dict[str, object]:
     return evidence
 
 
+def wo023_provider_receipt_artifact(**overrides: object) -> str:
+    receipt: dict[str, object] = {
+        "status": "PASS",
+        "provider_usage_receipt_version": ("provider-usage-receipt-v1"),
+        "provider_receipt_artifact": "provider-usage-receipt.json",
+        "provider_reconciliation_state": "EXACT",
+        "provider_usage_source": "PROVIDER_REPORTED",
+        "provider_total_input_tokens": 100,
+        "provider_cached_input_tokens": 64,
+        "provider_fresh_input_tokens": 36,
+        "provider_output_tokens": 12,
+        "provider_calls": 1,
+        "secret_leaks": 0,
+        "credential_leaks": 0,
+    }
+    receipt.update(overrides)
+    return json.dumps(receipt)
+
+
 def wo023_provider_backed_payload(**overrides: object) -> dict[str, object]:
     payload = wo023_benchmark_payload()
     payload.update(
@@ -1163,7 +1183,10 @@ def wo023_provider_backed_payload(**overrides: object) -> dict[str, object]:
             "token_output_tokens": 12,
             "provider_receipt_version": "provider-usage-receipt-v1",
             "provider_receipt_reconciled": True,
-            "provider_receipt_output_tokens": 12,
+            "provider_receipt_artifact": "provider-usage-receipt.json",
+            "provider_receipt_sha256": hashlib.sha256(
+                wo023_provider_receipt_artifact().encode("utf-8")
+            ).hexdigest(),
             "optional_provider_calls": 1,
             "optional_provider_metric": "provider.cached_input_tokens",
         }
@@ -1172,27 +1195,91 @@ def wo023_provider_backed_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
-def test_wo023_provider_backed_token_claims_require_reconciled_receipt() -> None:
+def test_wo023_provider_backed_token_claims_require_independent_provider_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     migration = review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
     provider_integration = {"context_manager": wo023_provider_receipt_evidence()}
+
+    def load(receipt_text: str) -> None:
+        def reader(name: str) -> str:
+            if name == review_evidence.COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_FILE:
+                return receipt_text
+            return ""
+
+        monkeypatch.setattr(review_evidence, "integration_file", reader)
+
+    load(wo023_provider_receipt_artifact())
     review_evidence.require_wo023_comprehensive_benchmarks_evidence(
         review_evidence.WO023_WORK_ORDER,
         {"comprehensive_benchmarks": wo023_provider_backed_payload(), **provider_integration},
         migration,
     )
     # provider-independent core still passes with absent provider evidence
+    load("")
     review_evidence.require_wo023_comprehensive_benchmarks_evidence(
         review_evidence.WO023_WORK_ORDER,
         {"comprehensive_benchmarks": wo023_benchmark_payload()},
         migration,
     )
+    # explicit measured zero cache and zero output are valid when reconciled
+    zero_receipt = wo023_provider_receipt_artifact(
+        provider_cached_input_tokens=0,
+        provider_fresh_input_tokens=100,
+        provider_output_tokens=0,
+    )
+    zero_digest = hashlib.sha256(zero_receipt.encode("utf-8")).hexdigest()
+    load(zero_receipt)
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {
+            "comprehensive_benchmarks": wo023_provider_backed_payload(
+                token_cached_tokens=0,
+                token_output_tokens=0,
+                provider_receipt_sha256=zero_digest,
+            ),
+            **provider_integration,
+        },
+        migration,
+    )
+    load(wo023_provider_receipt_artifact())
 
     cases: tuple[tuple[str, dict[str, object], dict[str, Any], str], ...] = (
         (
             "available cache without provider evidence",
             wo023_provider_backed_payload(),
-            {},
+            {"__context": {}},
             "reconciled provider usage",
+        ),
+        (
+            "independent receipt artifact missing",
+            wo023_provider_backed_payload(),
+            {"__receipt": ""},
+            "independently loaded reconciled provider receipt",
+        ),
+        (
+            "receipt digest mismatch",
+            wo023_provider_backed_payload(provider_receipt_sha256="0" * 64),
+            {},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "receipt output mismatch",
+            wo023_provider_backed_payload(),
+            {"__receipt": wo023_provider_receipt_artifact(provider_output_tokens=99)},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "receipt reconciliation unknown",
+            wo023_provider_backed_payload(),
+            {"__receipt": wo023_provider_receipt_artifact(provider_reconciliation_state="UNKNOWN")},
+            "identity does not match the loaded artifact",
+        ),
+        (
+            "receipt provider source missing",
+            wo023_provider_backed_payload(),
+            {"__receipt": wo023_provider_receipt_artifact(provider_usage_source="HIVE_ESTIMATE")},
+            "identity does not match the loaded artifact",
         ),
         (
             "available cache with unreconciled receipt",
@@ -1218,7 +1305,7 @@ def test_wo023_provider_backed_token_claims_require_reconciled_receipt() -> None
             "cached count mismatch against the receipt",
             wo023_provider_backed_payload(token_cached_tokens=65),
             provider_integration,
-            "contradicts the provider usage receipt",
+            "contradicts the independent provider receipt",
         ),
         (
             "fresh tokens silently coerced to zero",
@@ -1253,14 +1340,14 @@ def test_wo023_provider_backed_token_claims_require_reconciled_receipt() -> None
         (
             "available output without provider evidence",
             wo023_provider_backed_payload(),
-            {},
+            {"__context": {}},
             "reconciled provider usage",
         ),
         (
             "output count mismatch against the receipt",
             wo023_provider_backed_payload(token_output_tokens=13),
             provider_integration,
-            "contradicts the provider receipt",
+            "contradicts the independent provider receipt",
         ),
         (
             "provider claim without recorded provider calls",
@@ -1280,30 +1367,60 @@ def test_wo023_provider_backed_token_claims_require_reconciled_receipt() -> None
             provider_integration,
             "reconciled provider usage evidence",
         ),
-        (
-            "zero cached provider tokens",
-            wo023_provider_backed_payload(),
-            {
-                "context_manager": wo023_provider_receipt_evidence(
-                    provider_cache_provider_cached_input_tokens=0,
-                    provider_cache_provider_fresh_input_tokens=100,
-                )
-            },
-            "positively reported provider cached input tokens",
-        ),
     )
     for _label, candidate, extra, expected in cases:
+        receipt_text = cast(str, extra.pop("__receipt", wo023_provider_receipt_artifact()))
+        context_evidence = extra.pop("__context", wo023_provider_receipt_evidence())
+        load(receipt_text)
         with pytest.raises(ValueError, match=expected):
             review_evidence.require_wo023_comprehensive_benchmarks_evidence(
                 review_evidence.WO023_WORK_ORDER,
-                {"comprehensive_benchmarks": candidate, **extra},
+                {
+                    "comprehensive_benchmarks": candidate,
+                    "context_manager": context_evidence,
+                    **extra,
+                },
                 migration,
             )
+    load(wo023_provider_receipt_artifact())
+    # a receipt that matches the digest but carries contradictory output fails the cross-check
+    mismatched = wo023_provider_receipt_artifact(provider_output_tokens=99)
+    mismatched_digest = hashlib.sha256(mismatched.encode("utf-8")).hexdigest()
+    load(mismatched)
+    with pytest.raises(ValueError, match="output token count contradicts the independent"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {
+                "comprehensive_benchmarks": wo023_provider_backed_payload(
+                    provider_receipt_sha256=mismatched_digest
+                ),
+                **provider_integration,
+            },
+            migration,
+        )
+    # a receipt with unknown reconciliation still fails when the digest matches
+    unknown_receipt = wo023_provider_receipt_artifact(provider_reconciliation_state="INVALID")
+    load(unknown_receipt)
+    with pytest.raises(ValueError, match="EXACT"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {
+                "comprehensive_benchmarks": wo023_provider_backed_payload(
+                    provider_receipt_sha256=hashlib.sha256(
+                        unknown_receipt.encode("utf-8")
+                    ).hexdigest()
+                ),
+                **provider_integration,
+            },
+            migration,
+        )
+    load(wo023_provider_receipt_artifact())
     # provider-independent payload must not carry receipt values
     for field, value in (
         ("provider_receipt_version", "provider-usage-receipt-v1"),
         ("provider_receipt_reconciled", True),
-        ("provider_receipt_output_tokens", 12),
+        ("provider_receipt_artifact", "provider-usage-receipt.json"),
+        ("provider_receipt_sha256", "a" * 64),
     ):
         with pytest.raises(ValueError, match="provider receipt"):
             review_evidence.require_wo023_comprehensive_benchmarks_evidence(
@@ -1409,8 +1526,13 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
         wo023_benchmark_payload(storage_physical_bytes=0),
         wo023_provider_backed_payload(provider_receipt_version="NONE"),
         wo023_provider_backed_payload(provider_receipt_reconciled=False),
+        wo023_provider_backed_payload(provider_receipt_artifact="NONE"),
+        wo023_provider_backed_payload(provider_receipt_sha256="NONE"),
+        wo023_provider_backed_payload(provider_receipt_sha256="not-a-digest"),
         wo023_benchmark_payload(provider_receipt_version="provider-usage-receipt-v1"),
         wo023_benchmark_payload(provider_receipt_reconciled=True),
+        wo023_benchmark_payload(provider_receipt_artifact="provider-usage-receipt.json"),
+        wo023_benchmark_payload(provider_receipt_sha256="b" * 64),
     ):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=invalid, schema=definition)
