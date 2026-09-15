@@ -12799,6 +12799,8 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         if work_order in {WO021P_G1_WORK_ORDER, WO021P_WORK_ORDER}
         else fetch_wo022_approved_lineage(repository)
         if work_order in {WO022P_G1_WORK_ORDER, WO022P_WORK_ORDER}
+        else fetch_wo023_approved_lineage(repository)
+        if work_order in {WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}
         else None
     )
     g1_governance_evidence = verify_wo014p_g1_governance_contract(
