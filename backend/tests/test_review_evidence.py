@@ -669,6 +669,325 @@ def test_wo016_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
         require_wo016_scope(WO016_WORK_ORDER, "a" * 40, ["backend/app/unrelated.py"])
 
 
+def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "status": "PASS",
+        "comprehensive_benchmarks_evidence_version": (
+            review_evidence.COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION
+        ),
+        "evidence_file": review_evidence.COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE,
+        "observed_migration_head": review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+        "migration_base_head": review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD,
+        "baseline_reference_version": "baseline-full-context-v1",
+        "ground_truth_source": "git:HEAD-blob:docs/atlas/wo023-benchmarks.md",
+        "run_digest": hashlib.sha256(b"wo023 fixture run").hexdigest(),
+        "retrieval_metrics_status": "AVAILABLE",
+        "token_metrics_status": "AVAILABLE",
+        "storage_metrics_status": "AVAILABLE",
+        "optional_provider_metric": "NONE",
+        "benchmark_families": list(review_evidence.COMPREHENSIVE_BENCHMARKS_FAMILIES),
+        "evidence_paths": ["backend/tests/test_review_evidence.py"],
+        **{field: True for field in review_evidence.COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: False for field in review_evidence.COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **{field: 0 for field in review_evidence.COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS},
+        "corpus_task_count": 24,
+        "retrieval_recall_k": 5,
+        "storage_logical_bytes": 1_000_000,
+        "storage_dedup_bytes": 600_000,
+        "storage_physical_bytes": 300_000,
+        "token_baseline_input_tokens": 40_000,
+        "token_optimized_input_tokens": 25_000,
+        "optional_provider_calls": 0,
+        "retrieval_recall_at_k": 0.95,
+        "retrieval_precision": 0.8,
+        "token_reduction_percentage": 37.5,
+        "storage_dedup_ratio": 0.4,
+        "storage_compression_ratio": 0.5,
+        "storage_total_reduction_ratio": 0.7,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_wo023_g1_scope_is_exact_and_noncanonical(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    allowed = sorted(review_evidence.WO023_G1_ALLOWED_PATHS)
+    review_evidence.require_wo023_g1_scope(
+        review_evidence.WO023_G1_WORK_ORDER,
+        review_evidence.WO023_G1_BASE_SHA,
+        allowed,
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo023_g1_scope(
+            review_evidence.WO023_G1_WORK_ORDER, "f" * 40, allowed
+        )
+    with pytest.raises(ValueError, match="base branch"):
+        review_evidence.require_wo023_g1_scope(
+            review_evidence.WO023_G1_WORK_ORDER,
+            review_evidence.WO023_G1_BASE_SHA,
+            allowed,
+            base_branch="release",
+        )
+    for extra in (
+        review_evidence.CHECKPOINT_PATH,
+        review_evidence.CANONICAL_MANIFEST_PATH,
+        "migrations/versions/0008_next.py",
+        "backend/app/retrieval.py",
+        ".github/workflows/ci.yml",
+    ):
+        with pytest.raises(ValueError, match="exactly the four|canonical Project Brain|migrations"):
+            review_evidence.require_wo023_g1_scope(
+                review_evidence.WO023_G1_WORK_ORDER,
+                review_evidence.WO023_G1_BASE_SHA,
+                allowed + [extra],
+            )
+
+
+def test_wo023_scope_requires_merged_g1_support_and_bounded_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: "a" * 40)
+    monkeypatch.setattr(
+        review_evidence,
+        "git_blob_bytes",
+        lambda *_args, **_kwargs: b"WO-023-G1",
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    review_evidence.require_wo023_scope(
+        review_evidence.WO023_WORK_ORDER,
+        "a" * 40,
+        ["backend/app/retrieval.py"],
+        enforce_current_main=True,
+    )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda *_args, **_kwargs: b"no g1")
+    with pytest.raises(ValueError, match="merged WO-023-G1 support"):
+        review_evidence.require_wo023_scope(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            ["backend/app/retrieval.py"],
+            enforce_current_main=True,
+        )
+    monkeypatch.setattr(review_evidence, "git_blob_bytes", lambda *_args, **_kwargs: b"WO-023-G1")
+    with pytest.raises(ValueError, match="outside the bounded"):
+        review_evidence.require_wo023_scope(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+            enforce_current_main=False,
+        )
+    with pytest.raises(ValueError, match="cannot change CI workflows"):
+        review_evidence.require_wo023_scope(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            [".github/workflows/ci.yml"],
+            enforce_current_main=False,
+        )
+
+
+def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> None:
+    assert set(wo023_benchmark_payload()) == (
+        review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
+    )
+    unknown = review_evidence.comprehensive_benchmarks_evidence()
+    assert unknown["status"] == "UNKNOWN"
+    assert set(unknown) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_G1_WORK_ORDER,
+        {},
+    )
+    with pytest.raises(ValueError, match="must not claim future"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_G1_WORK_ORDER,
+            {"comprehensive_benchmarks": wo023_benchmark_payload()},
+        )
+    migration = review_evidence.COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
+    with pytest.raises(ValueError, match="missing mandatory"):
+        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+            review_evidence.WO023_WORK_ORDER,
+            {},
+            migration,
+        )
+    review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+        review_evidence.WO023_WORK_ORDER,
+        {"comprehensive_benchmarks": wo023_benchmark_payload()},
+        migration,
+    )
+    mutations: tuple[tuple[str, dict[str, object], str], ...] = (
+        ("empty evidence", {}, "closed contract"),
+        (
+            "unavailable family with numbers",
+            wo023_benchmark_payload(
+                token_metrics_status="NOT_SUPPORTED", token_reduction_percentage=37.5
+            ),
+            "not AVAILABLE",
+        ),
+        (
+            "available family without numbers",
+            wo023_benchmark_payload(token_reduction_percentage=None),
+            "when reported AVAILABLE",
+        ),
+        ("critical miss", wo023_benchmark_payload(critical_context_misses=1), "0"),
+        ("canonical loss", wo023_benchmark_payload(canonical_loss=True), "negative claims"),
+        (
+            "v0.1 claim",
+            wo023_benchmark_payload(full_v01_complete_claimed=True),
+            "negative claims",
+        ),
+        (
+            "impossible bytes",
+            wo023_benchmark_payload(storage_physical_bytes=2_000_000),
+            "logical >= deduplicated",
+        ),
+        (
+            "fabricated zero",
+            wo023_benchmark_payload(
+                token_metrics_status="UNAVAILABLE", token_reduction_percentage=0.0
+            ),
+            "not AVAILABLE",
+        ),
+        ("provider mismatch", wo023_benchmark_payload(optional_provider_calls=3), "provider"),
+        ("bad digest", wo023_benchmark_payload(run_digest="not-a-digest"), "run digest"),
+        ("extra field", {**wo023_benchmark_payload(), "unexpected": 1}, "closed contract"),
+        (
+            "wrong migration head",
+            wo023_benchmark_payload(observed_migration_head="0006_memory_lifecycle_provenance"),
+            "migration head",
+        ),
+        (
+            "cross-project accepted",
+            wo023_benchmark_payload(cross_project_retrieval_accepted=True),
+            "negative claims",
+        ),
+    )
+    for _label, candidate, expected in mutations:
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": candidate},
+                migration,
+            )
+
+
+def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
+    integration = {"comprehensive_benchmarks": wo023_benchmark_payload()}
+    g1 = review_evidence.verify_wo023_g1_governance_contract(
+        review_evidence.WO023_G1_WORK_ORDER,
+        review_evidence.WO023_G1_BASE_SHA,
+        sorted(review_evidence.WO023_G1_ALLOWED_PATHS),
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        governance,
+        {},
+        "0007_telemetry_events",
+    )
+    assert g1 is not None
+    assert "future_WO-023_registered=PASS" in g1
+    assert "comprehensive-benchmarks-v1_fail_closed=PASS" in g1
+    assert "unknown_WO-023-P_WO-024_WO-999=REJECTED" in g1
+    assert "checkpoint_promotion=False" in g1
+    with pytest.raises(ValueError, match="must not claim future"):
+        review_evidence.verify_wo023_g1_governance_contract(
+            review_evidence.WO023_G1_WORK_ORDER,
+            review_evidence.WO023_G1_BASE_SHA,
+            sorted(review_evidence.WO023_G1_ALLOWED_PATHS),
+            {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+            governance,
+            integration,
+            "0007_telemetry_events",
+        )
+    product = review_evidence.verify_wo023_governance_contract(
+        review_evidence.WO023_WORK_ORDER,
+        "a" * 40,
+        ["backend/app/retrieval.py"],
+        {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+        governance,
+        integration,
+        "0007_telemetry_events",
+    )
+    assert product is not None
+    assert "retrieval_family=PASS; token_family=PASS; storage_family=PASS" in product
+    assert "full_v01_complete_claimed=False" in product
+    assert "checkpoint_promotion=False" in product
+    with pytest.raises(ValueError, match="passing comprehensive benchmarks"):
+        review_evidence.verify_wo023_governance_contract(
+            review_evidence.WO023_WORK_ORDER,
+            "a" * 40,
+            ["backend/app/retrieval.py"],
+            {"project_brain_changed": False, "checkpoint_changed": False, "authorized_paths": []},
+            governance,
+            {
+                "comprehensive_benchmarks": {
+                    **wo023_benchmark_payload(),
+                    "status": "FAIL",
+                }
+            },
+            "0007_telemetry_events",
+        )
+
+    schema = json.loads(
+        (review_evidence.ROOT / "schemas" / "review-evidence-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    definition = schema["$defs"]["comprehensive_benchmarks_evidence"]
+    jsonschema.validate(instance=wo023_benchmark_payload(), schema=definition)
+    assert set(definition["required"]) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
+    assert definition["additionalProperties"] is False
+    for invalid in (
+        wo023_benchmark_payload(full_v01_complete_claimed=True),
+        wo023_benchmark_payload(canonical_loss=True),
+        {**wo023_benchmark_payload(), "unexpected": 1},
+        wo023_benchmark_payload(retrieval_recall_at_k=1.5),
+        wo023_benchmark_payload(benchmark_families=["retrieval", "token"]),
+    ):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=invalid, schema=definition)
+
+
+def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
+    common: dict[str, Any] = {
+        "pr_number": 92,
+        "branch": "governance/wo023-g1-comprehensive-benchmarks",
+        "base_sha": review_evidence.WO023_G1_BASE_SHA,
+        "head_sha": "b" * 40,
+        "artifact_name": "artifact",
+        "ruleset_before": "before",
+        "ruleset_after": "after",
+        "merge_before": "before",
+        "merge_after": "after",
+    }
+    g1 = render_body(work_order=review_evidence.WO023_G1_WORK_ORDER, **common)
+    assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-023-G1 -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO023_G1_BASE_SHA} -->" in g1
+    assert "Exatamente quatro arquivos" in g1
+    assert "comprehensive-benchmarks-v1" in g1
+    assert "WO-023-P" in g1 and "WO-024" in g1
+    assert "AWAITING_SOL" in g1
+    assert "WO-023-G1 READY FOR SOL AUDIT" in g1
+    product = render_body(
+        work_order=review_evidence.WO023_WORK_ORDER,
+        **{**common, "base_sha": "c" * 40, "head_sha": "d" * 40},
+    )
+    assert product.startswith("<!-- HIVE-WORK-ORDER: WO-023 -->")
+    for marker in ("Retrieval:", "Token:", "Storage:", "comprehensive-benchmarks-v1"):
+        assert marker in product
+    assert "WO-023 READY FOR SOL AUDIT" in product
+    assert "checkpoint" in product.casefold()
+    for unsupported in ("WO-023-P", "WO-024", "WO-999"):
+        with pytest.raises(ValueError):
+            render_body(work_order=unsupported, **common)
+
+
 def test_wo018_registration_and_bounded_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1552,10 +1871,12 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-023-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-023")
+        require_supported_work_order("WO-024")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -5046,7 +5367,8 @@ def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_me
     future = render_body(work_order=WO015_WORK_ORDER, **common)
     promotion_g1 = render_body(work_order=WO015P_G1_WORK_ORDER, **common)
     promotion = render_body(work_order=WO015P_WORK_ORDER, **common)
-    unknown = render_body(work_order="WO-999", **common)
+    with pytest.raises(ValueError, match="unsupported future"):
+        render_body(work_order="WO-999", **common)
     assert g1.startswith("<!-- HIVE-WORK-ORDER: WO-015-G1 -->")
     assert "não implementa Memory" in g1
     assert "memory-lifecycle-provenance-v1" in g1
@@ -5058,7 +5380,6 @@ def test_wo015_renderers_are_dedicated_and_unknown_ids_do_not_fall_through_to_me
     assert promotion.startswith("<!-- HIVE-WORK-ORDER: WO-015-P -->")
     assert "<!-- HIVE-AUTHORIZED-BASE: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->" in promotion
     assert "WO-015-P READY FOR SOL AUDIT" in promotion
-    assert "memory-lifecycle-provenance-v1" not in unknown
 
 
 def test_wo016_renderers_are_dedicated_and_explicit() -> None:
@@ -8162,10 +8483,12 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     require_supported_work_order(review_evidence.WO022_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO023_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-023-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-023")
+        require_supported_work_order("WO-024")
 
     monkeypatch.setattr(
         review_evidence,

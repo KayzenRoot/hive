@@ -1030,6 +1030,143 @@ WO022_PRODUCT_ALLOWED_PREFIXES = (
 )
 WO022_PRODUCT_FORBIDDEN_PATHS = frozenset(WO022_G1_ALLOWED_PATHS)
 
+WO023_G1_BASE_SHA = "45bf00a78150ea0368bd4c0b173e83178b102333"
+WO023_G1_WORK_ORDER = "WO-023-G1"
+WO023_WORK_ORDER = "WO-023"
+WO023_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+WO023_PRODUCT_ALLOWED_PREFIXES = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "scripts/",
+    "docs/atlas/",
+)
+WO023_PRODUCT_FORBIDDEN_PATHS = frozenset(WO023_G1_ALLOWED_PATHS)
+
+COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION = "comprehensive-benchmarks-v1"
+COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE = "comprehensive-benchmarks.json"
+COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD = "0007_telemetry_events"
+COMPREHENSIVE_BENCHMARKS_FAMILIES = ("retrieval", "token", "storage")
+COMPREHENSIVE_BENCHMARKS_METRIC_STATUSES = ("AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED")
+COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS = 1000
+COMPREHENSIVE_BENCHMARKS_RUN_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS = 24
+COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
+    "comprehensive_benchmarks_evidence_version",
+    "evidence_file",
+    "observed_migration_head",
+    "migration_base_head",
+    "baseline_reference_version",
+    "ground_truth_source",
+    "run_digest",
+    "retrieval_metrics_status",
+    "token_metrics_status",
+    "storage_metrics_status",
+    "optional_provider_metric",
+)
+COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS = (
+    "benchmark_corpus_bounded",
+    "ground_truth_auditable",
+    "project_scoped",
+    "provenance_preserved",
+    "deterministic_reproducible",
+    "baseline_comparison_versioned",
+    "token_estimates_labelled",
+    "correctness_guardrail_preserved",
+    "test_pass_behaviour_preserved",
+    "avoided_work_evidence_deterministic",
+    "storage_savings_single_counted",
+    "storage_reconstruction_exact",
+    "storage_zstd_measured",
+    "redis_noncanonical",
+    "provider_independent_core",
+)
+COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS = (
+    "fabricated_metrics",
+    "cross_project_retrieval_accepted",
+    "canonical_loss",
+    "full_v01_complete_claimed",
+    "redis_canonical_truth",
+    "provider_values_fabricated",
+    "production_quality_claimed_from_fixture",
+)
+COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS = (
+    "critical_context_misses",
+    "secret_leaks",
+    "filesystem_path_leaks",
+    "cross_project_leaks",
+    "core_provider_calls",
+)
+COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS = (
+    "corpus_task_count",
+    "retrieval_recall_k",
+    "storage_logical_bytes",
+    "storage_dedup_bytes",
+    "storage_physical_bytes",
+    "token_baseline_input_tokens",
+    "token_optimized_input_tokens",
+    "optional_provider_calls",
+)
+COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS = (
+    "retrieval_recall_at_k",
+    "retrieval_precision",
+    "token_reduction_percentage",
+    "storage_dedup_ratio",
+    "storage_compression_ratio",
+    "storage_total_reduction_ratio",
+)
+COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS = {
+    "retrieval": "retrieval_metrics_status",
+    "token": "token_metrics_status",
+    "storage": "storage_metrics_status",
+}
+COMPREHENSIVE_BENCHMARKS_FAMILY_NUMBER_FIELDS = {
+    "retrieval": ("retrieval_recall_at_k", "retrieval_precision"),
+    "token": ("token_reduction_percentage",),
+    "storage": (
+        "storage_dedup_ratio",
+        "storage_compression_ratio",
+        "storage_total_reduction_ratio",
+    ),
+}
+COMPREHENSIVE_BENCHMARKS_EVIDENCE_PATH_ROOTS = (
+    "backend/app/",
+    "backend/tests/",
+    "dashboard/src/",
+    "dashboard/tests/",
+    "scripts/",
+    "docs/atlas/",
+)
+COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS = {
+    "retrieval_recall_at_k": (0.0, 1.0),
+    "retrieval_precision": (0.0, 1.0),
+    "token_reduction_percentage": (0.0, 100.0),
+    "storage_dedup_ratio": (0.0, 1.0),
+    "storage_compression_ratio": (0.0, 1.0),
+    "storage_total_reduction_ratio": (0.0, 1.0),
+}
+COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS = frozenset(
+    {
+        "status",
+        "benchmark_families",
+        "evidence_paths",
+        *COMPREHENSIVE_BENCHMARKS_STRING_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS,
+    }
+)
+
 GEF_ADOPTION_WORK_ORDER = "GEF-ADOPTION-001"
 GEF_ADOPTION_BASE_SHA = "c9430af13860ab30e31bd162991eb88c05215f4f"
 GEF_ADOPTION_ARTIFACT_PATHS = frozenset(
@@ -1938,6 +2075,8 @@ def require_supported_work_order(work_order: str) -> None:
         WO021P_WORK_ORDER,
         WO022P_G1_WORK_ORDER,
         WO022P_WORK_ORDER,
+        WO023_G1_WORK_ORDER,
+        WO023_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
         WO017_G1_WORK_ORDER,
@@ -4095,6 +4234,96 @@ def require_wo020_scope(
         )
 
 
+def require_wo023_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+) -> None:
+    if work_order != WO023_G1_WORK_ORDER:
+        return
+    if base_sha != WO023_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO023_G1_WORK_ORDER} requires exact base {WO023_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires the protected main base branch")
+    if sorted(set(paths)) != sorted(WO023_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO023_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires exactly the four governance files")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO023_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO023_G1_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+
+
+def require_wo023_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO023_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO023_WORK_ORDER} requires the protected main base branch")
+    if HEX_SHA.fullmatch(base_sha) is None or base_sha == "0" * 40:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) is None:
+            raise ValueError(f"{WO023_WORK_ORDER} requires a resolved current protected main SHA")
+        if base_sha != current_main:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+        base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode(
+            "utf-8"
+        )
+        if WO023_G1_WORK_ORDER not in base_review_evidence:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires merged {WO023_G1_WORK_ORDER} support in its base"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change migrations")
+    if any(path == ".github" or path.startswith(".github/") for path in paths):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change CI workflows")
+    if any(path in WO021_PRODUCT_DEPENDENCY_PATHS for path in paths):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change dependencies")
+    if any(
+        path in WO021_PRODUCT_RELEASE_PATHS
+        or path == "release-assets"
+        or path.startswith("release-assets/")
+        for path in paths
+    ):
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change release files")
+    unauthorized = sorted(
+        path
+        for path in set(paths)
+        if path in WO023_PRODUCT_FORBIDDEN_PATHS
+        or not any(path.startswith(prefix) for prefix in WO023_PRODUCT_ALLOWED_PREFIXES)
+    )
+    if unauthorized:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} changed files outside the bounded "
+            "comprehensive benchmarks product scope: " + ", ".join(unauthorized)
+        )
+
+
 def require_wo021_g1_scope(
     work_order: str,
     base_sha: str,
@@ -5440,6 +5669,245 @@ def valid_control_center_full_evidence_path(value: object) -> bool:
     )
 
 
+def valid_comprehensive_benchmarks_evidence_path(value: object) -> bool:
+    """Return True for a normalized path in an authorized WO-023 product area."""
+
+    return any(
+        canonical_repository_relative_path(value, prefix=prefix)
+        for prefix in COMPREHENSIVE_BENCHMARKS_EVIDENCE_PATH_ROOTS
+    )
+
+
+def _benchmark_number(value: object, bounds: tuple[float, float]) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return float(bounds[0]) <= float(value) <= float(bounds[1])
+
+
+def comprehensive_benchmarks_evidence() -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "comprehensive_benchmarks_evidence_version": COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION,
+        "evidence_file": COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE,
+        "observed_migration_head": "UNKNOWN",
+        "migration_base_head": "UNKNOWN",
+        "baseline_reference_version": "UNKNOWN",
+        "ground_truth_source": "UNKNOWN",
+        "run_digest": "UNKNOWN",
+        "retrieval_metrics_status": "UNKNOWN",
+        "token_metrics_status": "UNKNOWN",
+        "storage_metrics_status": "UNKNOWN",
+        "optional_provider_metric": "UNKNOWN",
+        "benchmark_families": [],
+        "evidence_paths": [],
+        **{field: False for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS},
+        **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS},
+        **{field: None for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS},
+    }
+    text = integration_file(COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+    payload = cast(dict[str, object], data)
+    if set(payload) != COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS:
+        return {**unknown, "status": "FAIL"}
+    strings = {
+        field: payload.get(field) if isinstance(payload.get(field), str) else "UNKNOWN"
+        for field in COMPREHENSIVE_BENCHMARKS_STRING_FIELDS
+    }
+    integers: dict[str, int] = {}
+    integer_valid = True
+    for field in (
+        *COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS,
+    ):
+        value = payload.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            integer_valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    numbers: dict[str, object] = {}
+    numbers_valid = True
+    for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS:
+        value = payload.get(field)
+        if value is None:
+            numbers[field] = None
+            continue
+        if not _benchmark_number(value, COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS[field]):
+            numbers_valid = False
+            numbers[field] = None
+            continue
+        numbers[field] = value
+    families_valid = _is_closed_string_set(
+        payload.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES
+    )
+    raw_paths = payload.get("evidence_paths")
+    paths_valid = (
+        isinstance(raw_paths, list)
+        and 1 <= len(cast(list[object], raw_paths)) <= COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS
+        and all(valid_comprehensive_benchmarks_evidence_path(path) for path in raw_paths)
+        and len(set(cast(list[object], raw_paths))) == len(cast(list[object], raw_paths))
+    )
+    return {
+        "status": "PASS" if integer_valid and numbers_valid and families_valid else "FAIL",
+        **strings,
+        "benchmark_families": (
+            list(cast(list[str], payload["benchmark_families"])) if families_valid else []
+        ),
+        "evidence_paths": (
+            [str(path) for path in cast(list[object], raw_paths)] if paths_valid else []
+        ),
+        **{field: payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **integers,
+        **numbers,
+    }
+
+
+def require_wo023_comprehensive_benchmarks_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order == WO023_G1_WORK_ORDER:
+        if "comprehensive_benchmarks" in integration:
+            raise ValueError(
+                f"{WO023_G1_WORK_ORDER} must not claim future comprehensive benchmarks evidence"
+            )
+        return
+    if work_order != WO023_WORK_ORDER:
+        return
+    benchmarks = integration.get("comprehensive_benchmarks")
+    if not isinstance(benchmarks, Mapping):
+        raise ValueError(f"{WO023_WORK_ORDER} missing mandatory comprehensive benchmarks evidence")
+    full = cast(Mapping[str, object], benchmarks)
+    if set(full) != COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} comprehensive benchmarks evidence must match the closed "
+            "contract exactly"
+        )
+    if full.get("status") != "PASS":
+        raise ValueError(f"{WO023_WORK_ORDER} requires passing comprehensive benchmarks evidence")
+    if full.get("evidence_file") != COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE:
+        raise ValueError(f"{WO023_WORK_ORDER} requires {COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE}")
+    if (
+        full.get("comprehensive_benchmarks_evidence_version")
+        != COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires evidence version "
+            f"{COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}"
+        )
+    if not _is_closed_string_set(full.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires the closed retrieval, token and storage families"
+        )
+    missing_true = [
+        field for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS if full.get(field) is not True
+    ]
+    if missing_true:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} missing mandatory comprehensive benchmarks evidence: "
+            + ", ".join(sorted(missing_true))
+        )
+    invalid_false = [
+        field for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS if full.get(field) is not False
+    ]
+    if invalid_false:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires bounded negative claims: "
+            + ", ".join(sorted(invalid_false))
+        )
+    for field in COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS:
+        value = full.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value != 0:
+            raise ValueError(f"{WO023_WORK_ORDER} requires {field}=0")
+    for field in COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS:
+        value = full.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{WO023_WORK_ORDER} requires bounded integer evidence for {field}")
+    corpus_tasks = cast(int, full["corpus_task_count"])
+    if not 1 <= corpus_tasks <= COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a bounded benchmark corpus")
+    if not 1 <= cast(int, full["retrieval_recall_k"]) <= COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a bounded recall depth")
+    logical = cast(int, full["storage_logical_bytes"])
+    deduplicated = cast(int, full["storage_dedup_bytes"])
+    physical = cast(int, full["storage_physical_bytes"])
+    if not logical >= deduplicated >= physical >= 0:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires logical >= deduplicated >= physical byte counts"
+        )
+    run_digest = full.get("run_digest")
+    if (
+        not isinstance(run_digest, str)
+        or COMPREHENSIVE_BENCHMARKS_RUN_DIGEST_PATTERN.fullmatch(run_digest) is None
+    ):
+        raise ValueError(f"{WO023_WORK_ORDER} requires a reproducible run digest")
+    for family, status_field in COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS.items():
+        status = full.get(status_field)
+        if status not in COMPREHENSIVE_BENCHMARKS_METRIC_STATUSES:
+            raise ValueError(f"{WO023_WORK_ORDER} requires an explicit {family} metrics status")
+        numeric = [
+            full.get(field) for field in COMPREHENSIVE_BENCHMARKS_FAMILY_NUMBER_FIELDS[family]
+        ]
+        if status == "AVAILABLE" and any(value is None for value in numeric):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires measured {family} metrics when reported AVAILABLE"
+            )
+        if status != "AVAILABLE" and any(value is not None for value in numeric):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must not report {family} values that are not AVAILABLE"
+            )
+    for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS:
+        value = full.get(field)
+        if value is None:
+            continue
+        if not _benchmark_number(value, COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS[field]):
+            raise ValueError(f"{WO023_WORK_ORDER} requires bounded numeric evidence for {field}")
+    optional_calls = cast(int, full["optional_provider_calls"])
+    optional_metric = full.get("optional_provider_metric")
+    recorded = isinstance(optional_metric, str) and optional_metric not in {"NONE", "UNKNOWN"}
+    if (optional_calls > 0) != recorded:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires optional provider usage to be recorded explicitly"
+        )
+    ground_truth = full.get("ground_truth_source")
+    if not (
+        valid_comprehensive_benchmarks_evidence_path(ground_truth)
+        or (isinstance(ground_truth, str) and ground_truth.startswith("git:HEAD-blob:"))
+    ):
+        raise ValueError(f"{WO023_WORK_ORDER} requires an auditable ground-truth source")
+    baseline = full.get("baseline_reference_version")
+    if not isinstance(baseline, str) or not baseline:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a versioned benchmark baseline")
+    if (
+        migration_head_value is not None
+        and migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+    for field, expected in (
+        ("observed_migration_head", COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD),
+        ("migration_base_head", COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD),
+    ):
+        if full.get(field) != expected:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires observed migration head "
+                f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+            )
+
+
 def _is_closed_string_set(value: object, expected: tuple[str, ...]) -> bool:
     """Return True when value is exactly one permutation of expected strings."""
 
@@ -5936,7 +6404,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-023-P", "WO-023", "WO-999"):
+    for rejected in ("WO-023-P", "WO-024", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -5968,7 +6436,7 @@ def verify_wo021_g1_governance_contract(
         f"migration_head={CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD}; migration_changed=False; "
         f"future_{WO021_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_METRICS_EVIDENCE_VERSION}_fail_closed=PASS; "
-        "metrics_implementation=False; unknown_WO-023-P_WO-023_WO-999=REJECTED; "
+        "metrics_implementation=False; unknown_WO-023-P_WO-024_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -6028,7 +6496,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-023-P", "WO-023", "WO-999"):
+    for rejected in ("WO-023-P", "WO-024", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -6061,7 +6529,7 @@ def verify_wo022_g1_governance_contract(
         f"future_{WO022_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_FULL_EVIDENCE_VERSION}_fail_closed=PASS; "
         "full_control_center_implementation=False; "
-        "unknown_WO-023-P_WO-023_WO-999=REJECTED; "
+        "unknown_WO-023-P_WO-024_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -6186,6 +6654,98 @@ def verify_wo018_governance_contract(
         "secret_leaks=0; filesystem_path_leaks=0; "
         "migration_head=0006_memory_lifecycle_provenance; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo023_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO023_G1_WORK_ORDER:
+        return None
+    require_wo023_g1_scope(work_order, base_sha, paths)
+    for rejected in ("WO-023-P", "WO-024", "WO-999"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires no canonical Project Brain changes")
+    if migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO023_G1_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO023_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo023_comprehensive_benchmarks_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO023_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO023_WORK_ORDER)
+    return (
+        f"work_order={WO023_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; "
+        f"migration_head={COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}; migration_changed=False; "
+        f"future_{WO023_WORK_ORDER}_registered=PASS; "
+        f"future_{COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}_fail_closed=PASS; "
+        "comprehensive_benchmarks_implementation=False; "
+        "unknown_WO-023-P_WO-024_WO-999=REJECTED; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo023_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO023_WORK_ORDER:
+        return None
+    require_wo023_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO023_WORK_ORDER} cannot change canonical Project Brain")
+    if migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires migration head "
+            f"{COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO023_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO023_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo023_comprehensive_benchmarks_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO023_WORK_ORDER)
+    return (
+        f"work_order={WO023_WORK_ORDER}; product_scope=PASS; project_brain_changed=False; "
+        f"migration_head={COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}; "
+        f"comprehensive_benchmarks_evidence=PASS; "
+        f"comprehensive_benchmarks_version={COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}; "
+        "retrieval_family=PASS; token_family=PASS; storage_family=PASS; "
+        "critical_context_misses=0; canonical_loss=False; "
+        "full_v01_complete_claimed=False; ruleset_unchanged=PASS; auto_merge=UNARMED; "
+        "checkpoint_promotion=False"
     )
 
 
@@ -8966,6 +9526,9 @@ def integration_evidence(
         and control_center_full["status"] == "FAIL"
     ):
         status = "FAIL"
+    comprehensive_benchmarks = comprehensive_benchmarks_evidence()
+    if work_order == WO023_WORK_ORDER and comprehensive_benchmarks["status"] == "FAIL":
+        status = "FAIL"
     integrity = retrieval_integrity(retrieval)
     evidence: dict[str, object] = {
         "status": status,
@@ -9030,6 +9593,8 @@ def integration_evidence(
         evidence["control_center_metrics"] = control_center_metrics
     if work_order in {WO022_WORK_ORDER, WO022P_G1_WORK_ORDER, WO022P_WORK_ORDER}:
         evidence["control_center_full"] = control_center_full
+    if work_order == WO023_WORK_ORDER:
+        evidence["comprehensive_benchmarks"] = comprehensive_benchmarks
     return evidence
 
 
@@ -10740,6 +11305,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         paths,
         base_branch=args.base_branch,
     )
+    require_wo023_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+    )
     require_wo019_g1_scope(
         work_order,
         base_sha,
@@ -10866,6 +11437,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo023_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     require_wo016_scope(
         work_order,
         base_sha,
@@ -10961,6 +11539,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
     require_wo020_control_center_evidence(work_order, integration, migration_head())
     require_wo021_control_center_metrics_evidence(work_order, integration, migration_head())
     require_wo022_full_control_center_evidence(work_order, integration, migration_head())
+    require_wo023_comprehensive_benchmarks_evidence(work_order, integration, migration_head())
     c2_governance_evidence = (
         verify_wo014_c2_governance_contract() if work_order == WO014_C2_WORK_ORDER else None
     )
@@ -11131,6 +11710,24 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo022_governance_evidence = verify_wo022_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo023_g1_governance_evidence = verify_wo023_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo023_governance_evidence = verify_wo023_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -11445,6 +12042,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             else []
         )
         + (
+            [f"WO-023-G1 governance evidence: {wo023_g1_governance_evidence}"]
+            if wo023_g1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-023 governance evidence: {wo023_governance_evidence}"]
+            if wo023_governance_evidence
+            else []
+        )
+        + (
             [f"WO-017-P-G1 governance evidence: {wo017p_g1_governance_evidence}"]
             if wo017p_g1_governance_evidence
             else []
@@ -11615,6 +12222,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if isinstance(manifest["base"], Mapping)
         else "main",
     )
+    require_wo023_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+    )
     require_wo019_g1_scope(
         work_order,
         cast(str, base["sha"]),
@@ -11775,6 +12390,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
         enforce_current_main=True,
         enforce_authorized_base=False,
+    )
+    require_wo023_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
     )
     require_wo016_scope(
         work_order,
@@ -12233,6 +12857,37 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if expected_entry not in negative_scope:
             raise ValueError(
                 "WO-022 evidence must record the explicit Full Control Center governance contract"
+            )
+    wo023_g1_evidence = verify_wo023_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO023_G1_WORK_ORDER:
+        expected_g1_entry = f"WO-023-G1 governance evidence: {wo023_g1_evidence}"
+        if expected_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-023-G1 evidence must record the explicit governance enablement contract"
+            )
+    wo023_evidence = verify_wo023_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO023_WORK_ORDER:
+        expected_entry = f"WO-023 governance evidence: {wo023_evidence}"
+        if expected_entry not in negative_scope:
+            raise ValueError(
+                "WO-023 evidence must record the explicit comprehensive benchmarks "
+                "governance contract"
             )
     wo017_g1_evidence = verify_wo017_g1_governance_contract(
         work_order,
