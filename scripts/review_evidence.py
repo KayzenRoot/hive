@@ -1076,6 +1076,25 @@ COMPREHENSIVE_BENCHMARKS_MIN_PRECISION_EXCLUSIVE = 0.0
 COMPREHENSIVE_BENCHMARKS_TOKEN_REDUCTION_TOLERANCE_PP = 0.5
 COMPREHENSIVE_BENCHMARKS_RATIO_TOLERANCE = 0.01
 COMPREHENSIVE_BENCHMARKS_GROUND_TRUTH_PREFIX = "git:HEAD-blob:"
+# The accepted project retrieval gate is recall@5 >= 0.90 with zero critical
+# misses, so the accepted benchmark depth is fixed at k=5 instead of accepting
+# any depth with the same threshold.
+COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K = 5
+# Retrieval context size must be measured explicitly; accepted measures are the
+# final retrieved or reranked context in bytes. A token-based measure would need
+# its own grammar decision and is therefore not accepted here.
+COMPREHENSIVE_BENCHMARKS_CONTEXT_MEASURES = (
+    "final-retrieved-context-bytes",
+    "final-reranked-context-bytes",
+)
+# Task success is preserved and the test-pass rate must not degrade at all
+# relative to the baseline; any tolerance change is a grammar decision.
+COMPREHENSIVE_BENCHMARKS_MAX_TEST_PASS_DEGRADATION = 0.0
+COMPREHENSIVE_BENCHMARKS_SIGNAL_STATUSES = ("AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED")
+COMPREHENSIVE_BENCHMARKS_BASELINE_PLACEHOLDERS = frozenset(
+    {"UNKNOWN", "UNAVAILABLE", "NOT_SUPPORTED", "NOT-SUPPORTED", "NONE"}
+)
+COMPREHENSIVE_BENCHMARKS_MAX_BASELINE_VERSION_LENGTH = 128
 COMPREHENSIVE_BENCHMARKS_MAX_EVIDENCE_PATHS = 24
 COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
     "comprehensive_benchmarks_evidence_version",
@@ -1088,6 +1107,9 @@ COMPREHENSIVE_BENCHMARKS_STRING_FIELDS = (
     "retrieval_metrics_status",
     "token_metrics_status",
     "storage_metrics_status",
+    "retrieval_context_measure",
+    "token_cache_status",
+    "token_output_status",
     "optional_provider_metric",
 )
 COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS = (
@@ -1126,6 +1148,7 @@ COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS = (
 COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS = (
     "corpus_task_count",
     "retrieval_recall_k",
+    "retrieval_context_bytes",
     "storage_logical_bytes",
     "storage_dedup_bytes",
     "storage_physical_bytes",
@@ -1136,10 +1159,20 @@ COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS = (
 COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS = (
     "retrieval_recall_at_k",
     "retrieval_precision",
+    "retrieval_baseline_mrr",
+    "retrieval_reranked_mrr",
+    "baseline_task_success_rate",
+    "optimized_task_success_rate",
+    "baseline_test_pass_rate",
+    "optimized_test_pass_rate",
     "token_reduction_percentage",
     "storage_dedup_ratio",
     "storage_compression_ratio",
     "storage_total_reduction_ratio",
+)
+COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS = (
+    "token_cached_tokens",
+    "token_output_tokens",
 )
 COMPREHENSIVE_BENCHMARKS_FAMILY_STATUS_FIELDS = {
     "retrieval": "retrieval_metrics_status",
@@ -1166,6 +1199,12 @@ COMPREHENSIVE_BENCHMARKS_EVIDENCE_PATH_ROOTS = (
 COMPREHENSIVE_BENCHMARKS_NUMBER_BOUNDS = {
     "retrieval_recall_at_k": (0.0, 1.0),
     "retrieval_precision": (0.0, 1.0),
+    "retrieval_baseline_mrr": (0.0, 1.0),
+    "retrieval_reranked_mrr": (0.0, 1.0),
+    "baseline_task_success_rate": (0.0, 1.0),
+    "optimized_task_success_rate": (0.0, 1.0),
+    "baseline_test_pass_rate": (0.0, 1.0),
+    "optimized_test_pass_rate": (0.0, 1.0),
     "token_reduction_percentage": (0.0, 100.0),
     "storage_dedup_ratio": (0.0, 1.0),
     "storage_compression_ratio": (0.0, 1.0),
@@ -1181,6 +1220,7 @@ COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS = frozenset(
         *COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS,
         *COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS,
         *COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS,
+        *COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS,
         *COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS,
     }
 )
@@ -5715,6 +5755,9 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         "retrieval_metrics_status": "UNKNOWN",
         "token_metrics_status": "UNKNOWN",
         "storage_metrics_status": "UNKNOWN",
+        "retrieval_context_measure": "UNKNOWN",
+        "token_cache_status": "UNKNOWN",
+        "token_output_status": "UNKNOWN",
         "optional_provider_metric": "UNKNOWN",
         "benchmark_families": [],
         "evidence_paths": [],
@@ -5722,6 +5765,7 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         **{field: False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
         **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_ZERO_FIELDS},
         **{field: 0 for field in COMPREHENSIVE_BENCHMARKS_INTEGER_FIELDS},
+        **{field: None for field in COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS},
         **{field: None for field in COMPREHENSIVE_BENCHMARKS_NUMBER_FIELDS},
     }
     text = integration_file(COMPREHENSIVE_BENCHMARKS_EVIDENCE_FILE)
@@ -5764,6 +5808,18 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             numbers[field] = None
             continue
         numbers[field] = value
+    nullable_integers: dict[str, int | None] = {}
+    nullable_valid = True
+    for field in COMPREHENSIVE_BENCHMARKS_NULLABLE_INTEGER_FIELDS:
+        value = payload.get(field)
+        if value is None:
+            nullable_integers[field] = None
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            nullable_valid = False
+            nullable_integers[field] = None
+            continue
+        nullable_integers[field] = value
     families_valid = _is_closed_string_set(
         payload.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES
     )
@@ -5776,7 +5832,13 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
     )
     return {
         "status": (
-            "PASS" if integer_valid and numbers_valid and families_valid and paths_valid else "FAIL"
+            "PASS"
+            if integer_valid
+            and numbers_valid
+            and families_valid
+            and paths_valid
+            and (nullable_valid)
+            else "FAIL"
         ),
         **strings,
         "benchmark_families": (
@@ -5788,6 +5850,7 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         **{field: payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
         **{field: payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
         **integers,
+        **nullable_integers,
         **numbers,
     }
 
@@ -5857,14 +5920,22 @@ def require_wo023_comprehensive_benchmarks_evidence(
     corpus_tasks = cast(int, full["corpus_task_count"])
     if not 1 <= corpus_tasks <= COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS:
         raise ValueError(f"{WO023_WORK_ORDER} requires a bounded benchmark corpus")
-    if not 1 <= cast(int, full["retrieval_recall_k"]) <= COMPREHENSIVE_BENCHMARKS_MAX_CORPUS_TASKS:
-        raise ValueError(f"{WO023_WORK_ORDER} requires a bounded recall depth")
+    if cast(int, full["retrieval_recall_k"]) != COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires the accepted recall@"
+            f"{COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K} benchmark depth"
+        )
     logical = cast(int, full["storage_logical_bytes"])
     deduplicated = cast(int, full["storage_dedup_bytes"])
     physical = cast(int, full["storage_physical_bytes"])
-    if not logical >= deduplicated >= physical >= 0:
+    if not logical >= deduplicated >= physical:
         raise ValueError(
             f"{WO023_WORK_ORDER} requires logical >= deduplicated >= physical byte counts"
+        )
+    if physical <= 0:
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a nonempty representative storage dataset with "
+            "positive logical, deduplicated and physical bytes"
         )
     run_digest = full.get("run_digest")
     if (
@@ -5903,6 +5974,66 @@ def require_wo023_comprehensive_benchmarks_evidence(
     ):
         raise ValueError(
             f"{WO023_WORK_ORDER} requires a strictly positive bounded retrieval precision"
+        )
+    baseline_mrr = full.get("retrieval_baseline_mrr")
+    reranked_mrr = full.get("retrieval_reranked_mrr")
+    for field, value in (
+        ("retrieval_baseline_mrr", baseline_mrr),
+        ("retrieval_reranked_mrr", reranked_mrr),
+    ):
+        if not _benchmark_number(value, (0.0, 1.0)):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires bounded reranking MRR evidence for {field}"
+            )
+    if float(cast(float, reranked_mrr)) < float(cast(float, baseline_mrr)):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} must not regress reranking quality below its baseline"
+        )
+    if full.get("retrieval_context_measure") not in (COMPREHENSIVE_BENCHMARKS_CONTEXT_MEASURES):
+        raise ValueError(f"{WO023_WORK_ORDER} requires an accepted retrieval context-size measure")
+    context_bytes = full.get("retrieval_context_bytes")
+    if not isinstance(context_bytes, int) or isinstance(context_bytes, bool) or context_bytes <= 0:
+        raise ValueError(f"{WO023_WORK_ORDER} requires a positive measured retrieval context size")
+    for status_field, value_field in (
+        ("token_cache_status", "token_cached_tokens"),
+        ("token_output_status", "token_output_tokens"),
+    ):
+        status = full.get(status_field)
+        if status not in COMPREHENSIVE_BENCHMARKS_SIGNAL_STATUSES:
+            raise ValueError(f"{WO023_WORK_ORDER} requires an explicit {status_field}")
+        value = full.get(value_field)
+        if status == "AVAILABLE":
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(
+                    f"{WO023_WORK_ORDER} requires measured {value_field} when reported AVAILABLE"
+                )
+        elif value is not None:
+            raise ValueError(
+                f"{WO023_WORK_ORDER} must not report {value_field} that is not AVAILABLE"
+            )
+    for field in (
+        "baseline_task_success_rate",
+        "optimized_task_success_rate",
+        "baseline_test_pass_rate",
+        "optimized_test_pass_rate",
+    ):
+        if not _benchmark_number(full.get(field), (0.0, 1.0)):
+            raise ValueError(
+                f"{WO023_WORK_ORDER} requires bounded benchmark outcome evidence for {field}"
+            )
+    if float(cast(float, full["optimized_task_success_rate"])) < float(
+        cast(float, full["baseline_task_success_rate"])
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} must not degrade benchmark task success relative to the baseline"
+        )
+    if (
+        float(cast(float, full["optimized_test_pass_rate"]))
+        < float(cast(float, full["baseline_test_pass_rate"]))
+        - COMPREHENSIVE_BENCHMARKS_MAX_TEST_PASS_DEGRADATION
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} must not materially degrade the benchmark test pass rate"
         )
     baseline_tokens = cast(int, full["token_baseline_input_tokens"])
     optimized_tokens = cast(int, full["token_optimized_input_tokens"])
@@ -5993,8 +6124,16 @@ def require_wo023_comprehensive_benchmarks_evidence(
             f"{WO023_WORK_ORDER} requires the ground-truth blob to exist at the reviewed HEAD"
         )
     baseline = full.get("baseline_reference_version")
-    if not isinstance(baseline, str) or not baseline:
+    if not isinstance(baseline, str) or not baseline.strip():
         raise ValueError(f"{WO023_WORK_ORDER} requires a versioned benchmark baseline")
+    if (
+        len(baseline) > COMPREHENSIVE_BENCHMARKS_MAX_BASELINE_VERSION_LENGTH
+        or baseline.strip().upper() in COMPREHENSIVE_BENCHMARKS_BASELINE_PLACEHOLDERS
+    ):
+        raise ValueError(
+            f"{WO023_WORK_ORDER} requires a bounded stable baseline identity instead of a "
+            "placeholder value"
+        )
     if (
         migration_head_value is not None
         and migration_head_value != COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD

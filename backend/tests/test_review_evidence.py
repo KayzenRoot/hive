@@ -684,6 +684,9 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "retrieval_metrics_status": "AVAILABLE",
         "token_metrics_status": "AVAILABLE",
         "storage_metrics_status": "AVAILABLE",
+        "retrieval_context_measure": "final-reranked-context-bytes",
+        "token_cache_status": "NOT_SUPPORTED",
+        "token_output_status": "NOT_SUPPORTED",
         "optional_provider_metric": "NONE",
         "benchmark_families": list(review_evidence.COMPREHENSIVE_BENCHMARKS_FAMILIES),
         "evidence_paths": ["backend/tests/test_review_evidence.py"],
@@ -698,8 +701,17 @@ def wo023_benchmark_payload(**overrides: object) -> dict[str, object]:
         "token_baseline_input_tokens": 40_000,
         "token_optimized_input_tokens": 25_000,
         "optional_provider_calls": 0,
+        "retrieval_context_bytes": 4096,
+        "token_cached_tokens": None,
+        "token_output_tokens": None,
         "retrieval_recall_at_k": 0.95,
         "retrieval_precision": 0.8,
+        "retrieval_baseline_mrr": 0.6,
+        "retrieval_reranked_mrr": 0.8,
+        "baseline_task_success_rate": 0.9,
+        "optimized_task_success_rate": 0.9,
+        "baseline_test_pass_rate": 1.0,
+        "optimized_test_pass_rate": 1.0,
         "token_reduction_percentage": 37.5,
         "storage_dedup_ratio": 0.4,
         "storage_compression_ratio": 0.5,
@@ -975,6 +987,95 @@ def test_wo023_comprehensive_benchmarks_contract_is_closed_and_truthful() -> Non
             "canonical repository-relative ground-truth path",
         ),
     )
+    c2_mutations: tuple[tuple[str, dict[str, object], str], ...] = (
+        ("wrong recall depth k=1", wo023_benchmark_payload(retrieval_recall_k=1), "recall@5"),
+        ("wrong recall depth k=10", wo023_benchmark_payload(retrieval_recall_k=10), "recall@5"),
+        (
+            "regressed reranking quality",
+            wo023_benchmark_payload(retrieval_baseline_mrr=0.9, retrieval_reranked_mrr=0.5),
+            "reranking quality",
+        ),
+        (
+            "missing reranking baseline",
+            wo023_benchmark_payload(retrieval_baseline_mrr=None),
+            "reranking MRR evidence",
+        ),
+        (
+            "zero context size",
+            wo023_benchmark_payload(retrieval_context_bytes=0),
+            "positive measured retrieval context size",
+        ),
+        (
+            "unknown context measure",
+            wo023_benchmark_payload(retrieval_context_measure="tokens-estimated"),
+            "context-size measure",
+        ),
+        (
+            "cache available without count",
+            wo023_benchmark_payload(token_cache_status="AVAILABLE", token_cached_tokens=None),
+            "token_cached_tokens",
+        ),
+        (
+            "cache fabricated zero",
+            wo023_benchmark_payload(token_cache_status="NOT_SUPPORTED", token_cached_tokens=0),
+            "must not report token_cached_tokens",
+        ),
+        (
+            "output available without count",
+            wo023_benchmark_payload(token_output_status="AVAILABLE", token_output_tokens=None),
+            "token_output_tokens",
+        ),
+        (
+            "output fabricated zero",
+            wo023_benchmark_payload(token_output_status="UNAVAILABLE", token_output_tokens=0),
+            "must not report token_output_tokens",
+        ),
+        (
+            "unknown cache status",
+            wo023_benchmark_payload(token_cache_status="MAYBE"),
+            "explicit token_cache_status",
+        ),
+        (
+            "degraded task success",
+            wo023_benchmark_payload(optimized_task_success_rate=0.5),
+            "must not degrade benchmark task success",
+        ),
+        (
+            "degraded test pass rate",
+            wo023_benchmark_payload(optimized_test_pass_rate=0.9),
+            "materially degrade the benchmark test pass rate",
+        ),
+        (
+            "zero storage dataset",
+            wo023_benchmark_payload(
+                storage_logical_bytes=0,
+                storage_dedup_bytes=0,
+                storage_physical_bytes=0,
+                storage_dedup_ratio=0.0,
+                storage_compression_ratio=0.0,
+                storage_total_reduction_ratio=0.0,
+            ),
+            "nonempty representative storage dataset",
+        ),
+    )
+    for _label, candidate, expected in c2_mutations:
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {"comprehensive_benchmarks": candidate},
+                migration,
+            )
+    for placeholder in ("UNKNOWN", "unavailable", "NOT_SUPPORTED", "not-supported", "NONE", "   "):
+        with pytest.raises(ValueError, match="baseline"):
+            review_evidence.require_wo023_comprehensive_benchmarks_evidence(
+                review_evidence.WO023_WORK_ORDER,
+                {
+                    "comprehensive_benchmarks": wo023_benchmark_payload(
+                        baseline_reference_version=placeholder
+                    )
+                },
+                migration,
+            )
     for _family, status_field in (
         ("retrieval", "retrieval_metrics_status"),
         ("token", "token_metrics_status"),
@@ -1096,6 +1197,9 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
     jsonschema.validate(instance=wo023_benchmark_payload(), schema=definition)
     assert set(definition["required"]) == review_evidence.COMPREHENSIVE_BENCHMARKS_ALLOWED_FIELDS
     assert definition["additionalProperties"] is False
+    # Cross-field non-regression (task success and test-pass rates) is enforced by the
+    # Python validator because JSON Schema cannot compare two properties without $data.
+    assert len(definition["allOf"]) == 2
     for invalid in (
         wo023_benchmark_payload(full_v01_complete_claimed=True),
         wo023_benchmark_payload(canonical_loss=True),
@@ -1111,6 +1215,13 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
         wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:not a path"),
         wo023_benchmark_payload(ground_truth_source="git:HEAD-blob:/etc/passwd"),
         wo023_benchmark_payload(benchmark_families=["retrieval", "token"]),
+        wo023_benchmark_payload(retrieval_recall_k=1),
+        wo023_benchmark_payload(retrieval_context_bytes=0),
+        wo023_benchmark_payload(token_cache_status="AVAILABLE", token_cached_tokens=None),
+        wo023_benchmark_payload(token_output_status="AVAILABLE", token_output_tokens=None),
+        wo023_benchmark_payload(baseline_reference_version="UNKNOWN"),
+        wo023_benchmark_payload(baseline_reference_version="none"),
+        wo023_benchmark_payload(storage_physical_bytes=0),
     ):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=invalid, schema=definition)

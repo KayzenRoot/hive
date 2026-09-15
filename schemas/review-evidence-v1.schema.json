@@ -1268,6 +1268,18 @@
         "optional_provider_calls",
         "retrieval_recall_at_k",
         "retrieval_precision",
+        "retrieval_baseline_mrr",
+        "retrieval_reranked_mrr",
+        "retrieval_context_measure",
+        "retrieval_context_bytes",
+        "baseline_task_success_rate",
+        "optimized_task_success_rate",
+        "baseline_test_pass_rate",
+        "optimized_test_pass_rate",
+        "token_cache_status",
+        "token_cached_tokens",
+        "token_output_status",
+        "token_output_tokens",
         "token_reduction_percentage",
         "storage_dedup_ratio",
         "storage_compression_ratio",
@@ -1279,7 +1291,26 @@
         "evidence_file": { "const": "comprehensive-benchmarks.json" },
         "observed_migration_head": { "const": "0007_telemetry_events" },
         "migration_base_head": { "const": "0007_telemetry_events" },
-        "baseline_reference_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "baseline_reference_version": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "\\S",
+          "not": {
+            "enum": [
+              "UNKNOWN",
+              "unknown",
+              "UNAVAILABLE",
+              "unavailable",
+              "NOT_SUPPORTED",
+              "not_supported",
+              "NOT-SUPPORTED",
+              "not-supported",
+              "NONE",
+              "none"
+            ]
+          }
+        },
         "ground_truth_source": {
           "type": "string",
           "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))git:HEAD-blob:(?:backend/app|backend/tests|dashboard/src|dashboard/tests|scripts|docs/atlas)/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
@@ -1333,24 +1364,60 @@
         "cross_project_leaks": { "const": 0 },
         "core_provider_calls": { "const": 0 },
         "corpus_task_count": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "retrieval_recall_k": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "storage_logical_bytes": { "type": "integer", "minimum": 0 },
-        "storage_dedup_bytes": { "type": "integer", "minimum": 0 },
-        "storage_physical_bytes": { "type": "integer", "minimum": 0 },
+        "retrieval_recall_k": { "const": 5 },
+        "storage_logical_bytes": { "type": "integer", "minimum": 1 },
+        "storage_dedup_bytes": { "type": "integer", "minimum": 1 },
+        "storage_physical_bytes": { "type": "integer", "minimum": 1 },
         "token_baseline_input_tokens": { "type": "integer", "minimum": 1 },
         "token_optimized_input_tokens": { "type": "integer", "minimum": 0 },
         "optional_provider_calls": { "type": "integer", "minimum": 0 },
         "retrieval_recall_at_k": { "type": "number", "minimum": 0.9, "maximum": 1 },
         "retrieval_precision": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "retrieval_baseline_mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "retrieval_reranked_mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "retrieval_context_measure": {
+          "enum": ["final-retrieved-context-bytes", "final-reranked-context-bytes"]
+        },
+        "retrieval_context_bytes": { "type": "integer", "minimum": 1 },
         "token_reduction_percentage": {
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 100
         },
+        "baseline_task_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "optimized_task_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "baseline_test_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "optimized_test_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "token_cache_status": {
+          "enum": ["AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED"]
+        },
+        "token_cached_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "token_output_status": {
+          "enum": ["AVAILABLE", "UNAVAILABLE", "UNKNOWN", "NOT_SUPPORTED"]
+        },
+        "token_output_tokens": { "type": ["integer", "null"], "minimum": 0 },
         "storage_dedup_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
         "storage_compression_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
         "storage_total_reduction_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "token_cache_status": { "const": "AVAILABLE" } },
+            "required": ["token_cache_status"]
+          },
+          "then": { "properties": { "token_cached_tokens": { "type": "integer" } } },
+          "else": { "properties": { "token_cached_tokens": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "properties": { "token_output_status": { "const": "AVAILABLE" } },
+            "required": ["token_output_status"]
+          },
+          "then": { "properties": { "token_output_tokens": { "type": "integer" } } },
+          "else": { "properties": { "token_output_tokens": { "type": "null" } } }
+        }
+      ]
     },
     "control_center_full_approved_lineage": {
       "type": "object",
