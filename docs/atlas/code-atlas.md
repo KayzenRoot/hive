@@ -41,6 +41,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_context_manager.py: Python source or test module.
 - backend/tests/test_control_center.py: Python source or test module.
 - backend/tests/test_control_center_full.py: Python source or test module.
+- backend/tests/test_control_center_full_integration.py: Python source or test module.
 - backend/tests/test_control_center_metrics.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
 - backend/tests/test_execution_orchestrator.py: Python source or test module.

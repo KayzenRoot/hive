@@ -179,6 +179,44 @@ describe("ControlCenterFull", () => {
     expect(screen.getByRole("heading", { name: "memory" })).toBeInTheDocument();
   });
 
+  it("renders unavailable canonical governance without fabricating empty sections", async () => {
+    const unavailable = {
+      ...snapshot,
+      capabilities: snapshot.capabilities.map((capability) =>
+        capability.id === "checkpoint-scope-dod"
+          ? {
+              ...capability,
+              status: "UNAVAILABLE",
+              summary:
+                "canonical checkpoint, scope and Definition of Done content is UNAVAILABLE because a mandatory governance section is missing or malformed in the project-relative Git HEAD blobs",
+              provenance: "UNAVAILABLE",
+              details: {
+                status: "UNAVAILABLE",
+                provenance: "UNAVAILABLE",
+                reason:
+                  "canonical Git HEAD blob parsing is unavailable for docs/project-brain/13-CHECKPOINT.md",
+              },
+            }
+          : capability,
+      ),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => unavailable }));
+
+    render(<ControlCenterFull selectedProjectId="project-a" />);
+
+    await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
+    const governance = screen.getByRole("region", { name: "canonical project intelligence" });
+    expect(governance).toHaveTextContent("STATUS: UNKNOWN");
+    expect(governance).toHaveTextContent("IN PROGRESS: UNKNOWN");
+    expect(governance).toHaveTextContent("PENDING (UNKNOWN): UNKNOWN");
+    expect(governance).toHaveTextContent("NEXT STEP: UNKNOWN");
+    expect(governance).not.toHaveTextContent("PENDING (0)");
+    expect(governance).not.toHaveTextContent("0 required");
+    expect(
+      screen.getAllByText(/mandatory governance section is missing or malformed/).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("refreshes the same selected tab when the existing event signal advances", async () => {
     const initial = {
       ...snapshot,

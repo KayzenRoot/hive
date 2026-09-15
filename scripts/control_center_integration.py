@@ -143,7 +143,9 @@ COST_KEY_MARKERS = ("provider_cost", "cost_usd", "exact_provider_cost", "billing
 READ_ONLY_SQL_MARKERS = ("INSERT ", "UPDATE ", "DELETE ")
 CONTROL_CENTER_EVENT_LIMIT_DEFAULT = 50
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-WO020_FIXTURE_PATH = re.compile(r"^wo020-cc-\d+-[0-9a-f]{8}-(alpha|beta)$")
+WO020_FIXTURE_PATH = re.compile(
+    r"^wo020-cc-\d+-[0-9a-f]{8}-(alpha|beta|missing-pending|missing-scope)$"
+)
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f]")
 
 

@@ -542,6 +542,97 @@ def test_project_intelligence_fails_closed_when_mandatory_section_is_blank(
     assert "13-CHECKPOINT.md" in cast(str, details["reason"])
 
 
+def test_mandatory_section_keeps_missing_and_present_but_empty_distinct() -> None:
+    document = "# Checkpoint\n## PENDING\n\n## NEXT STEP\nContinue.\n"
+
+    assert control_center_full._mandatory_section(document, "PENDING") == "\n"
+    assert control_center_full._section_bullets("\n") == []
+    assert control_center_full._mandatory_section(document, "IN PROGRESS") is None
+    assert control_center_full._mandatory_bullets(document, "PENDING") is None
+    assert control_center_full._mandatory_bullets(document, "IN PROGRESS") is None
+
+
+def test_project_intelligence_fails_closed_when_checkpoint_heading_is_malformed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, details = _project_intelligence_with_blobs(
+        monkeypatch,
+        "# Checkpoint\n## STATUS\nACTIVE\n### IN PROGRESS\n- Work\n"
+        "## PENDING\n- Follow-up\n## NEXT STEP\nContinue.\n",
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "13-CHECKPOINT.md" in cast(str, details["reason"])
+
+
+def test_project_intelligence_fails_closed_when_scope_dash_is_not_canonical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, details = _project_intelligence_with_blobs(
+        monkeypatch,
+        "# Checkpoint\n## STATUS\nACTIVE\n## IN PROGRESS\n- Work\n"
+        "## PENDING\n- Follow-up\n## NEXT STEP\nContinue.\n",
+        scope="# Scope\n## NECESSARY - V0.1\n- Required\n",
+    )
+
+    assert status is FullStatus.UNAVAILABLE
+    assert details["status"] == "UNAVAILABLE"
+    assert "03-SCOPE.md" in cast(str, details["reason"])
+
+
+def test_mandatory_section_constants_match_canonical_project_brain_headings() -> None:
+    root = Path(__file__).parents[2]
+    checkpoint = (root / "docs" / "project-brain" / "13-CHECKPOINT.md").read_text(encoding="utf-8")
+    scope = (root / "docs" / "project-brain" / "03-SCOPE.md").read_text(encoding="utf-8")
+
+    for heading in control_center_full.MANDATORY_CHECKPOINT_SECTIONS:
+        assert f"## {heading}\n" in checkpoint
+    for heading in control_center_full.MANDATORY_SCOPE_SECTIONS:
+        assert f"## {heading}\n" in scope
+
+
+def test_full_endpoint_never_claims_visibility_for_unavailable_governance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wire(monkeypatch)
+    blobs = {
+        control_center_full.FULL_DOCUMENTS[0]: (
+            "# Checkpoint\n## STATUS\nACTIVE\n## IN PROGRESS\n- Work\n## NEXT STEP\nContinue.\n"
+        ),
+        control_center_full.FULL_DOCUMENTS[1]: "# Scope\n## NECESSARY — V0.1\n- Required\n",
+        control_center_full.FULL_DOCUMENTS[2]: (
+            "# DoD\n## Functional\n- [x] Fixture validation\n- [ ] Fixture follow-up\n"
+        ),
+        control_center_full.DECISIONS_DOCUMENT: (
+            "# Decisions\n## HIVE-ADR-001 — Fixture decision\n**Status:** Accepted\n"
+        ),
+    }
+    monkeypatch.setattr(
+        control_center_full,
+        "_git_head_blob",
+        lambda _settings, _project, relative, _observation: blobs[relative],
+    )
+
+    response = TestClient(main.app).get(
+        "/api/v1/control-center/projects/00000000-0000-0000-0000-000000000022/full"
+    )
+
+    assert response.status_code == 200
+    capability = next(
+        item for item in response.json()["capabilities"] if item["id"] == "checkpoint-scope-dod"
+    )
+    assert capability["status"] == "UNAVAILABLE"
+    assert capability["provenance"] == "UNAVAILABLE"
+    assert "is visible" not in capability["summary"]
+    assert "UNAVAILABLE" in capability["summary"]
+    assert capability["details"]["reason"] == (
+        "canonical Git HEAD blob parsing is unavailable for docs/project-brain/13-CHECKPOINT.md"
+    )
+    assert "checkpoint" not in capability["details"]
+    assert "required_items_count" not in capability["details"]
+
+
 def test_canonical_project_intelligence_fails_closed_on_missing_or_malformed_blob(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

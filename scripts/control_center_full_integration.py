@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -17,12 +17,16 @@ from control_center_integration import (  # noqa: E402
     Fixture,
     cleanup_fixtures,
     compose,
+    create_fixture_repository,
     current_migration_head,
     emit_event_batch,
     event_spec,
     fetch_dashboard_bundle,
+    projects_root,
+    register_fixture,
     register_wo020_fixtures,
     require,
+    run_command,
     wait_for_api_health,
 )
 
@@ -30,6 +34,42 @@ EVIDENCE_FILE = "control-center-full.json"
 EVIDENCE_VERSION = "control-center-full-v1"
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / EVIDENCE_FILE
 MIGRATION_BASE_HEAD = "0007_telemetry_events"
+CHECKPOINT_DOCUMENT = "docs/project-brain/13-CHECKPOINT.md"
+SCOPE_DOCUMENT = "docs/project-brain/03-SCOPE.md"
+MANDATORY_CHECKPOINT_SECTIONS = ("STATUS", "IN PROGRESS", "PENDING", "NEXT STEP")
+MANDATORY_SCOPE_SECTION = "NECESSARY — V0.1"
+CHECKPOINT_SECTION_BODIES = {
+    "STATUS": "FIXTURE CONTROL CENTER ACTIVE",
+    "IN PROGRESS": "- Verify bounded project intelligence",
+    "PENDING": "- Fixture follow-up\n- Fixture audit",
+    "NEXT STEP": "Publish the next bounded fixture result.",
+}
+
+
+def incomplete_checkpoint(omitted: str) -> str:
+    """Render the fixture checkpoint without exactly one mandatory section."""
+
+    return "# Fixture checkpoint\n\n" + "".join(
+        f"## {heading}\n{CHECKPOINT_SECTION_BODIES[heading]}\n\n"
+        for heading in MANDATORY_CHECKPOINT_SECTIONS
+        if heading != omitted
+    )
+
+
+FAIL_CLOSED_FIXTURES = (
+    (
+        "missing-pending",
+        CHECKPOINT_DOCUMENT,
+        incomplete_checkpoint("PENDING"),
+        "13-CHECKPOINT.md",
+    ),
+    (
+        "missing-scope",
+        SCOPE_DOCUMENT,
+        "# Fixture scope\n\n## FUTURE\n- Not required now\n",
+        "03-SCOPE.md",
+    ),
+)
 PROJECT_CAPABILITIES = (
     "project-intelligence",
     "checkpoint-scope-dod",
@@ -196,7 +236,151 @@ def emit_full_fixture_events(fixtures: list[Fixture]) -> None:
     )
 
 
-def assert_surface(payload: dict[str, object], project_id: UUID) -> None:
+def checkpoint_capability(payload: dict[str, object]) -> dict[str, object]:
+    """Return the checkpoint/scope/DoD capability, failing closed when it is absent."""
+
+    capabilities = payload.get("capabilities")
+    require(isinstance(capabilities, list), "capabilities are missing")
+    capability = next(
+        (
+            item
+            for item in capabilities
+            if isinstance(item, dict) and item.get("id") == "checkpoint-scope-dod"
+        ),
+        None,
+    )
+    require(isinstance(capability, dict), "checkpoint/scope/DoD capability is missing")
+    return dict(capability)
+
+
+def verify_canonical_governance(payload: dict[str, object]) -> bool:
+    """Prove the canonical fixture exposes every mandatory governance section."""
+
+    checkpoint = checkpoint_capability(payload)
+    checkpoint_details = checkpoint.get("details")
+    require(isinstance(checkpoint_details, dict), "checkpoint details are missing")
+    documents = checkpoint_details.get("documents")
+    require(
+        isinstance(documents, list) and len(documents) == 3,
+        "governance documents are missing",
+    )
+    require(
+        all(
+            isinstance(document, dict)
+            and document.get("status") == "AVAILABLE"
+            and str(document.get("source", "")).startswith("git:HEAD-blob:")
+            for document in documents
+        ),
+        "governance documents are not bound to Git-tracked HEAD bytes",
+    )
+    require(
+        checkpoint.get("status") == "AVAILABLE",
+        "canonical project intelligence is unavailable",
+    )
+    checkpoint_payload = checkpoint_details.get("checkpoint")
+    require(isinstance(checkpoint_payload, dict), "checkpoint content is missing")
+    require(
+        set(checkpoint_payload)
+        == {"current_status", "in_progress", "pending", "next_step", "source", "provenance"},
+        "canonical checkpoint does not expose every mandatory section",
+    )
+    require(
+        checkpoint_payload.get("current_status") == "FIXTURE CONTROL CENTER ACTIVE",
+        "canonical checkpoint status is not visible",
+    )
+    in_progress = checkpoint_payload.get("in_progress")
+    require(
+        isinstance(in_progress, list) and "Verify bounded project intelligence" in in_progress,
+        "canonical checkpoint IN PROGRESS content is not visible",
+    )
+    pending = checkpoint_payload.get("pending")
+    require(isinstance(pending, dict), "canonical checkpoint PENDING content is missing")
+    pending_items = pending.get("items")
+    require(isinstance(pending_items, list), "canonical checkpoint PENDING items are missing")
+    require(
+        pending.get("count") == 2
+        and len(pending_items) == pending.get("count")
+        and "Fixture follow-up" in pending_items
+        and "Fixture audit" in pending_items,
+        "canonical checkpoint PENDING count is not truthful",
+    )
+    require(
+        checkpoint_payload.get("next_step") == "Publish the next bounded fixture result.",
+        "canonical checkpoint NEXT STEP is not visible",
+    )
+    scope_payload = checkpoint_details.get("scope")
+    require(isinstance(scope_payload, dict), "canonical scope content is missing")
+    required_items = scope_payload.get("required_items")
+    require(isinstance(required_items, list), "canonical scope items are missing")
+    require(
+        scope_payload.get("required_items_count") == 2
+        and len(required_items) == scope_payload.get("required_items_count")
+        and "Full HIVE Control Center." in required_items,
+        "canonical required scope content is not visible",
+    )
+    dod_payload = checkpoint_details.get("definition_of_done")
+    require(isinstance(dod_payload, dict), "Definition of Done content is missing")
+    require(
+        dod_payload.get("total_count") == 2
+        and dod_payload.get("completed_count") == 1
+        and dod_payload.get("percentage") == 50.0
+        and dod_payload.get("percentage_status") == "AVAILABLE",
+        "Definition of Done progress is not deterministic",
+    )
+    return True
+
+
+def create_fail_closed_fixture(
+    probe: ApiProbe,
+    fixtures: list[Fixture],
+    label: str,
+    document: str,
+    content: str,
+) -> Fixture:
+    """Register a fixture whose mandatory governance document loses a required section."""
+
+    name = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-{label}"
+    fixture = Fixture(label=name, relative_path=name, repository=projects_root() / name)
+    create_fixture_repository(fixture.repository, fixture.label)
+    (fixture.repository / document).write_text(content, encoding="utf-8")
+    run_command(["git", "-C", str(fixture.repository), "add", "-A"])
+    run_command(["git", "-C", str(fixture.repository), "commit", "-m", f"fixture {label}"])
+    register_fixture(probe, fixture)
+    fixtures.append(fixture)
+    return fixture
+
+
+def verify_missing_sections_fail_closed(probe: ApiProbe, fixtures: list[Fixture]) -> bool:
+    """Prove a vanished mandatory governance section is never reported as observable data."""
+
+    for label, document, content, marker in FAIL_CLOSED_FIXTURES:
+        fixture = create_fail_closed_fixture(probe, fixtures, label, document, content)
+        require(fixture.project_id is not None, f"{label} fixture registration failed")
+        capability = checkpoint_capability(full_payload(probe, fixture.project_id))
+        details = capability.get("details")
+        require(isinstance(details, dict), f"{label} fixture governance details are missing")
+        require(
+            capability.get("status") == "UNAVAILABLE"
+            and capability.get("provenance") == "UNAVAILABLE",
+            f"{label} fixture reported missing mandatory governance as observable data",
+        )
+        require(
+            marker in str(details.get("reason", "")),
+            f"{label} fixture did not fail closed on its canonical document",
+        )
+        require(
+            "checkpoint" not in details and "scope" not in details,
+            f"{label} fixture manufactured a governance payload without mandatory sections",
+        )
+        require(
+            "is visible" not in str(capability.get("summary", "")),
+            f"{label} fixture claimed governance visibility without mandatory sections",
+        )
+        print(f"[wo022] {label} fixture failed closed as required", flush=True)
+    return True
+
+
+def assert_surface(payload: dict[str, object], project_id: UUID) -> bool:
     require(payload.get("control_center_full_version") == EVIDENCE_VERSION, "full version drifted")
     require(payload.get("project_id") == str(project_id), "project identity is not scoped")
     require(payload.get("project_scoped") is True, "full response is not project scoped")
@@ -269,70 +453,7 @@ def assert_surface(payload: dict[str, object], project_id: UUID) -> None:
         alerts_by_id["checkpoint-mismatch"]["status"] == "CLEAR",
         "canonical fixture checkpoint did not qualify from Git evidence",
     )
-    checkpoint = next(
-        capability
-        for capability in capabilities
-        if isinstance(capability, dict) and capability.get("id") == "checkpoint-scope-dod"
-    )
-    checkpoint_details = checkpoint.get("details")
-    require(isinstance(checkpoint_details, dict), "checkpoint details are missing")
-    documents = checkpoint_details.get("documents")
-    require(
-        isinstance(documents, list) and len(documents) == 3,
-        "governance documents are missing",
-    )
-    require(
-        all(
-            isinstance(document, dict)
-            and document.get("status") == "AVAILABLE"
-            and str(document.get("source", "")).startswith("git:HEAD-blob:")
-            for document in documents
-        ),
-        "governance documents are not bound to Git-tracked HEAD bytes",
-    )
-    require(
-        checkpoint.get("status") == "AVAILABLE",
-        "canonical project intelligence is unavailable",
-    )
-    checkpoint_payload = checkpoint_details.get("checkpoint")
-    require(isinstance(checkpoint_payload, dict), "checkpoint content is missing")
-    require(
-        checkpoint_payload.get("current_status") == "FIXTURE CONTROL CENTER ACTIVE",
-        "canonical checkpoint status is not visible",
-    )
-    require(
-        isinstance(checkpoint_payload.get("in_progress"), list)
-        and "Verify bounded project intelligence" in checkpoint_payload["in_progress"],
-        "canonical checkpoint IN PROGRESS content is not visible",
-    )
-    pending = checkpoint_payload.get("pending")
-    require(isinstance(pending, dict), "canonical checkpoint PENDING content is missing")
-    require(pending.get("count") == 2, "canonical checkpoint PENDING count is not truthful")
-    require(
-        "Fixture follow-up" in pending.get("items", [])
-        and "Fixture audit" in pending.get("items", []),
-        "canonical checkpoint PENDING items are not visible",
-    )
-    require(
-        checkpoint_payload.get("next_step") == "Publish the next bounded fixture result.",
-        "canonical checkpoint NEXT STEP is not visible",
-    )
-    scope_payload = checkpoint_details.get("scope")
-    require(isinstance(scope_payload, dict), "canonical scope content is missing")
-    require(
-        scope_payload.get("required_items_count") == 2
-        and "Full HIVE Control Center." in scope_payload.get("required_items", []),
-        "canonical required scope content is not visible",
-    )
-    dod_payload = checkpoint_details.get("definition_of_done")
-    require(isinstance(dod_payload, dict), "Definition of Done content is missing")
-    require(
-        dod_payload.get("total_count") == 2
-        and dod_payload.get("completed_count") == 1
-        and dod_payload.get("percentage") == 50.0
-        and dod_payload.get("percentage_status") == "AVAILABLE",
-        "Definition of Done progress is not deterministic",
-    )
+    verify_canonical_governance(payload)
     decisions_memory = next(
         capability
         for capability in capabilities
@@ -364,6 +485,7 @@ def assert_surface(payload: dict[str, object], project_id: UUID) -> None:
         and memory.get("record_count") == len(memory["records"]),
         "durable memory state is not separate or truthful",
     )
+    return True
 
 
 def compare_canonical(left: dict[str, object], right: dict[str, object]) -> None:
@@ -427,8 +549,15 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
     )
     alpha_payload = full_payload(probe, alpha.project_id)
     beta_payload = full_payload(probe, beta.project_id)
-    assert_surface(alpha_payload, alpha.project_id)
+    canonical_governance_visible = assert_surface(alpha_payload, alpha.project_id)
     assert_surface(beta_payload, beta.project_id)
+    checkpoint_scope_dod_visible = canonical_governance_visible and (
+        verify_missing_sections_fail_closed(probe, fixtures)
+    )
+    require(
+        checkpoint_scope_dod_visible is True,
+        "checkpoint, scope and Definition of Done visibility is not proven",
+    )
     require(
         str(beta.project_id) not in json.dumps(alpha_payload),
         "alpha payload contains beta identity",
@@ -506,6 +635,7 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
         "migration_changed": False,
         **{field: True for field in TRUE_FIELDS},
         **{field: False for field in FALSE_FIELDS},
+        "project_checkpoint_scope_dod_visible": checkpoint_scope_dod_visible,
         "history_max_points": 100,
         "secret_leaks": secret_leaks,
         "filesystem_path_leaks": path_leaks,

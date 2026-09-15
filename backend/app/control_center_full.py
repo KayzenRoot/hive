@@ -57,6 +57,8 @@ FULL_DOCUMENTS = (
     "docs/project-brain/15-DEFINITION-OF-DONE.md",
 )
 DECISIONS_DOCUMENT = "docs/project-brain/16-DECISIONS-LEDGER.md"
+MANDATORY_CHECKPOINT_SECTIONS = ("STATUS", "IN PROGRESS", "PENDING", "NEXT STEP")
+MANDATORY_SCOPE_SECTIONS = ("NECESSARY — V0.1",)
 PROJECT_CAPABILITIES = (
     "project-intelligence",
     "checkpoint-scope-dod",
@@ -407,9 +409,9 @@ def _section_first_line(section: str | None) -> str | None:
     return None
 
 
-def _section_bullets(section: str | None) -> list[tuple[str, bool | None]]:
-    if section is None:
-        return []
+def _section_bullets(section: str) -> list[tuple[str, bool | None]]:
+    """Bullets of an explicitly present section body; a MISSING section is not accepted."""
+
     entries: list[tuple[str, bool | None]] = []
     for line in section.splitlines():
         match = re.match(r"^\s*-\s+(?:\[([ xX])\]\s+)?(\S.*)\s*$", line)
@@ -422,12 +424,42 @@ def _section_bullets(section: str | None) -> list[tuple[str, bool | None]]:
     return entries
 
 
-def _required_section_bullets(text: str, heading: str) -> list[tuple[str, bool | None]] | None:
-    section = _markdown_section(text, heading)
+def _mandatory_section(text: str, heading: str) -> str | None:
+    """Body of a mandatory section, or None when the heading is MISSING.
+
+    MISSING (None) stays distinguishable from PRESENT-BUT-EMPTY (""), so every caller has
+    to state explicitly whether the canonical grammar accepts an empty mandatory body.
+    """
+
+    return _markdown_section(text, heading)
+
+
+def _mandatory_bullets(text: str, heading: str) -> list[tuple[str, bool | None]] | None:
+    """Bullets of a mandatory section, failing closed unless the section has content.
+
+    The canonical grammar has no empty mandatory section, so MISSING and
+    PRESENT-BUT-EMPTY both fail closed instead of being manufactured into an empty list.
+    """
+
+    section = _mandatory_section(text, heading)
     if section is None:
         return None
     entries = _section_bullets(section)
     return entries if entries else None
+
+
+def _mandatory_first_line(text: str, heading: str) -> str | None:
+    """First non-blank line of a mandatory section, failing closed when absent or blank."""
+
+    return _section_first_line(_mandatory_section(text, heading))
+
+
+def _missing_mandatory_section(text: str, headings: Sequence[str]) -> str | None:
+    """First mandatory heading that is not explicitly present, or None when all are present."""
+
+    return next(
+        (heading for heading in headings if _mandatory_section(text, heading) is None), None
+    )
 
 
 def _sanitized_texts(values: list[str]) -> list[str] | None:
@@ -436,21 +468,24 @@ def _sanitized_texts(values: list[str]) -> list[str] | None:
 
 
 def _parse_checkpoint_document(blob: str) -> dict[str, object] | None:
-    status = _section_first_line(_markdown_section(blob, "STATUS"))
-    in_progress_entries = _required_section_bullets(blob, "IN PROGRESS")
-    pending_entries = _required_section_bullets(blob, "PENDING")
-    in_progress = (
-        _sanitized_texts([value for value, _checked in in_progress_entries])
-        if in_progress_entries is not None
-        else None
-    )
-    pending_items = (
-        _sanitized_texts([value for value, _checked in pending_entries])
-        if pending_entries is not None
-        else None
-    )
-    next_step = _section_first_line(_markdown_section(blob, "NEXT STEP"))
-    if status is None or next_step is None or in_progress is None or pending_items is None:
+    """Parse the canonical checkpoint, requiring every mandatory section to be present."""
+
+    if _missing_mandatory_section(blob, MANDATORY_CHECKPOINT_SECTIONS) is not None:
+        return None
+    status = _mandatory_first_line(blob, "STATUS")
+    in_progress_entries = _mandatory_bullets(blob, "IN PROGRESS")
+    pending_entries = _mandatory_bullets(blob, "PENDING")
+    next_step = _mandatory_first_line(blob, "NEXT STEP")
+    if (
+        status is None
+        or in_progress_entries is None
+        or pending_entries is None
+        or next_step is None
+    ):
+        return None
+    in_progress = _sanitized_texts([value for value, _checked in in_progress_entries])
+    pending_items = _sanitized_texts([value for value, _checked in pending_entries])
+    if in_progress is None or pending_items is None:
         return None
     status_text = _text(status)
     next_step_text = _text(next_step)
@@ -469,10 +504,14 @@ def _parse_checkpoint_document(blob: str) -> dict[str, object] | None:
 
 
 def _parse_scope_document(blob: str) -> dict[str, object] | None:
-    entries = _required_section_bullets(blob, "NECESSARY — V0.1")
-    items = (
-        _sanitized_texts([value for value, _checked in entries]) if entries is not None else None
-    )
+    """Parse the canonical scope, requiring its mandatory section to be present."""
+
+    if _missing_mandatory_section(blob, MANDATORY_SCOPE_SECTIONS) is not None:
+        return None
+    entries = _mandatory_bullets(blob, MANDATORY_SCOPE_SECTIONS[0])
+    if entries is None:
+        return None
+    items = _sanitized_texts([value for value, _checked in entries])
     if items is None:
         return None
     return {
@@ -486,7 +525,10 @@ def _parse_definition_of_done(blob: str) -> dict[str, object] | None:
     section_headings = re.findall(r"^##[ \t]+(.+?)[ \t]*$", blob, flags=re.MULTILINE)
     entries: list[tuple[str, bool | None]] = []
     for heading in section_headings:
-        entries.extend(_section_bullets(_markdown_section(blob, heading)))
+        section = _markdown_section(blob, heading)
+        if section is None:
+            continue
+        entries.extend(_section_bullets(section))
         if len(entries) >= FULL_LIST_MAX:
             entries = entries[:FULL_LIST_MAX]
             break
@@ -1805,6 +1847,10 @@ def build_full_control_center(
             (
                 "canonical checkpoint, scope and Definition of Done content is visible from "
                 "the project-relative Git HEAD blobs"
+                if checkpoint_scope_dod_status is FullStatus.AVAILABLE
+                else "canonical checkpoint, scope and Definition of Done content is "
+                "UNAVAILABLE because a mandatory governance section is missing or malformed "
+                "in the project-relative Git HEAD blobs"
             ),
             checkpoint_scope_dod_provenance,
             checkpoint_scope_dod_details,
