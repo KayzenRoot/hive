@@ -5898,6 +5898,9 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             == COMPREHENSIVE_BENCHMARKS_PROVIDER_RECEIPT_NONE
         )
     )
+    claims_valid = all(
+        payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS
+    ) and all(payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS)
     families_valid = _is_closed_string_set(
         payload.get("benchmark_families"), COMPREHENSIVE_BENCHMARKS_FAMILIES
     )
@@ -5917,6 +5920,7 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
             and paths_valid
             and nullable_valid
             and provider_valid
+            and claims_valid
             else "FAIL"
         ),
         **strings,
@@ -5926,12 +5930,12 @@ def comprehensive_benchmarks_evidence() -> dict[str, object]:
         "evidence_paths": (
             [str(path) for path in cast(list[object], raw_paths)] if paths_valid else []
         ),
-        **{field: payload.get(field) is True for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
-        **{field: payload.get(field) is False for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
+        **{field: payload.get(field) for field in COMPREHENSIVE_BENCHMARKS_TRUE_FIELDS},
+        **{field: payload.get(field) for field in COMPREHENSIVE_BENCHMARKS_FALSE_FIELDS},
         **integers,
         **nullable_integers,
         **numbers,
-        "provider_receipt_reconciled": payload.get("provider_receipt_reconciled") is True,
+        "provider_receipt_reconciled": payload.get("provider_receipt_reconciled"),
     }
 
 
