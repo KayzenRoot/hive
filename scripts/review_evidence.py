@@ -5554,11 +5554,13 @@ def require_wo022_full_control_center_evidence(
     integration: Mapping[str, object],
     migration_head_value: str | None = None,
 ) -> None:
-    if work_order in {WO022_G1_WORK_ORDER, WO022P_G1_WORK_ORDER}:
+    if work_order == WO022_G1_WORK_ORDER:
         if "control_center_full" in integration:
-            raise ValueError(f"{work_order} must not claim future Full Control Center evidence")
+            raise ValueError(
+                f"{WO022_G1_WORK_ORDER} must not claim future Full Control Center evidence"
+            )
         return
-    if work_order not in {WO022_WORK_ORDER, WO022P_WORK_ORDER}:
+    if work_order not in {WO022_WORK_ORDER, WO022P_G1_WORK_ORDER, WO022P_WORK_ORDER}:
         return
     full = integration.get("control_center_full")
     if not isinstance(full, Mapping):

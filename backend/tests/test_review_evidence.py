@@ -4175,6 +4175,27 @@ def test_wo022_approved_lineage_and_promotion_pair_fail_closed(
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
     integration = {"control_center_full": control_center_full_evidence_fixture()}
+    for promotion_work_order in (
+        review_evidence.WO022P_G1_WORK_ORDER,
+        review_evidence.WO022P_WORK_ORDER,
+    ):
+        review_evidence.require_wo022_full_control_center_evidence(
+            promotion_work_order,
+            integration,
+            "0007_telemetry_events",
+        )
+    with pytest.raises(ValueError, match="must not claim future Full Control Center"):
+        review_evidence.require_wo022_full_control_center_evidence(
+            review_evidence.WO022_G1_WORK_ORDER,
+            integration,
+            "0007_telemetry_events",
+        )
+    with pytest.raises(ValueError, match="missing mandatory Full Control Center"):
+        review_evidence.require_wo022_full_control_center_evidence(
+            review_evidence.WO022P_G1_WORK_ORDER,
+            {},
+            "0007_telemetry_events",
+        )
     g1 = review_evidence.verify_wo022p_g1_governance_contract(
         review_evidence.WO022P_G1_WORK_ORDER,
         review_evidence.WO022P_G1_BASE_SHA,
