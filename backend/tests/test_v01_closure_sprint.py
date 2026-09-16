@@ -36,13 +36,29 @@ def test_dod_scan_covers_every_canonical_requirement_once() -> None:
         assert len(str(item["sha256"])) == 64
 
 
-def test_every_dod_row_maps_to_bounded_evidence_within_authorized_roots() -> None:
-    for item in closure.canonical_dod_items():
-        path = closure.dod_evidence_path(str(item["requirement"]))
-        assert path.endswith((".json", ".md", ".py"))
-        assert not path.startswith("/")
-        assert ".." not in path
-        assert path.startswith(("backend/", "scripts/", "docs/", "dashboard/"))
+def test_every_dod_requirement_has_a_registered_deterministic_verifier() -> None:
+    items = closure.canonical_dod_items()
+    keys = [
+        closure.requirement_key(str(item["section"]), str(item["requirement"])) for item in items
+    ]
+    assert len(keys) == len(set(keys)), "a canonical requirement appears more than once"
+    missing = [key for key in keys if key not in closure.DOD_VERIFIERS]
+    assert missing == [], f"requirements without a verifier: {missing}"
+    assert closure.verifier_count() == len(keys)
+
+
+def test_missing_verifier_never_becomes_pass() -> None:
+    entry = closure.ledger_entry("Functional", "a requirement that has no verifier")
+    assert entry["status"] == "FAIL"
+    assert entry["verifier"] == "missing"
+
+
+def test_ledger_digest_is_bound_to_the_evidence_artifact_not_the_source_document() -> None:
+    entry = closure.ledger_entry("Resilience", "Backup and recovery tested.")
+    assert entry["evidence_path"] == "v01-backup-restore.json"
+    assert entry["evidence_digest"] != closure.sha256_text(closure.git_blob(closure.DOD_DOCUMENT))
+    if closure.artifact("v01-backup-restore.json"):
+        assert entry["evidence_digest"] == closure.artifact_digest("v01-backup-restore.json")
 
 
 def test_authority_order_and_negative_matrix_are_closed() -> None:

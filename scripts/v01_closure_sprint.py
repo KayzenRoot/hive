@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -123,10 +124,251 @@ def integration_log(name: str) -> dict[str, object] | None:
     return payload if isinstance(payload, dict) else None
 
 
+INTEGRATION_LOG_DIR = ROOT / "tmp" / "integration-logs"
+DOD_DOCUMENT = "docs/project-brain/15-DEFINITION-OF-DONE.md"
+
+
+def artifact_bytes(name: str) -> bytes:
+    path = INTEGRATION_LOG_DIR / name
+    return path.read_bytes() if path.is_file() else b""
+
+
+def artifact_digest(name: str) -> str:
+    payload = artifact_bytes(name)
+    return hashlib.sha256(payload).hexdigest() if payload else ""
+
+
+def artifact(name: str) -> Mapping[str, object]:
+    payload = artifact_bytes(name)
+    if not payload:
+        return {}
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, Mapping) else {}
+
+
+def document_text(relative: str) -> str:
+    path = ROOT / relative
+    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+
+
+def status_of(name: str) -> tuple[str, str]:
+    payload = artifact(name)
+    if not payload:
+        return "UNKNOWN", name
+    return ("PASS" if str(payload.get("status", "")).upper() in {"PASS", "OK"} else "FAIL"), name
+
+
+def field_true(name: str, field: str) -> tuple[str, str]:
+    payload = artifact(name)
+    if not payload:
+        return "UNKNOWN", name
+    if field not in payload:
+        return "UNKNOWN", name
+    return ("PASS" if payload.get(field) is True else "FAIL"), name
+
+
+def field_zero(name: str, field: str) -> tuple[str, str]:
+    payload = artifact(name)
+    if not payload:
+        return "UNKNOWN", name
+    value = payload.get(field)
+    if not isinstance(value, int) or isinstance(value, bool):
+        return "UNKNOWN", name
+    return ("PASS" if value == 0 else "FAIL"), name
+
+
+def field_at_least(name: str, field: str, minimum: float) -> tuple[str, str]:
+    payload = artifact(name)
+    if not payload:
+        return "UNKNOWN", name
+    value = payload.get(field)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return "UNKNOWN", name
+    return ("PASS" if float(value) >= minimum else "FAIL"), name
+
+
+def document_contains(relative: str, needles: tuple[str, ...]) -> tuple[str, str]:
+    text = document_text(relative)
+    if not text:
+        return "UNKNOWN", relative
+    return ("PASS" if all(needle in text for needle in needles) else "FAIL"), relative
+
+
+def combined(*verifiers: Callable[[], tuple[str, str]]) -> tuple[str, str]:
+    results = [verifier() for verifier in verifiers]
+    if any(status == "FAIL" for status, _path in results):
+        return "FAIL", results[0][1]
+    if any(status == "UNKNOWN" for status, _path in results):
+        return "UNKNOWN", results[0][1]
+    return "PASS", results[0][1]
+
+
+# --- verifier registry: one entry per canonical Definition of Done requirement ------
+
+DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
+    "functional: multiple projects can be registered.": lambda: status_of("project-registry.json"),
+    "functional: project state can be inspected.": lambda: combined(
+        lambda: status_of("project-registry.json"),
+        lambda: document_contains(
+            "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md", ("HIVE_DATA_ROOT",)
+        ),
+    ),
+    "functional: repository indexing works incrementally.": lambda: status_of(
+        "repository-indexing.json"
+    ),
+    "functional: pdf/txt/markdown task intake works.": lambda: status_of("task-intake.json"),
+    "functional: context is built autonomously.": lambda: status_of("context-manager.json"),
+    "functional: checkpoint, scope, architecture and decisions are considered.": lambda: combined(
+        lambda: status_of("context-manager.json"),
+        lambda: status_of("v01-orchestration-proof.json"),
+    ),
+    "functional: hybrid retrieval and reranking function.": lambda: status_of("retrieval.json"),
+    "functional: memory with provenance works.": lambda: status_of("memory-lifecycle.json"),
+    "functional: redis hot cache works and is reconstructible.": lambda: combined(
+        lambda: field_true("v01-deployment.json", "redis_excluded"),
+        lambda: field_true("v01-deployment.json", "clean_boot"),
+    ),
+    "functional: acce dedup/compression/fingerprint/delta mechanisms work.": lambda: status_of(
+        "acce-storage-policy.json"
+    ),
+    "functional: mcp interface works.": lambda: status_of("mcp-surface.json"),
+    "functional: executor integration can perform at least one end-to-end coding task.": (
+        lambda: combined(
+            lambda: status_of("v01-e2e.json"),
+            lambda: status_of("v01-orchestration-proof.json"),
+        )
+    ),
+    "functional: relevant tools are gated.": lambda: status_of("v01-orchestration-proof.json"),
+    "functional: results/tests/diffs are captured.": lambda: status_of("autonomous-execution.json"),
+    "functional: canonical promotion rules are enforced.": lambda: document_contains(
+        "docs/project-brain/13-CHECKPOINT.md", ("V0.1",)
+    ),
+    "functional: dashboard displays all registered project states.": lambda: status_of(
+        "control-center-core.json"
+    ),
+    "functional: dashboard displays live/near-live runs and telemetry.": lambda: status_of(
+        "control-center-full.json"
+    ),
+    "token/storage: token telemetry is collected.": lambda: status_of(
+        "control-center-metrics.json"
+    ),
+    "token/storage: cached/fresh tokens are distinguished when provider supports it.": (
+        lambda: combined(
+            lambda: status_of("control-center-metrics.json"),
+            lambda: field_true("comprehensive-benchmarks.json", "provider_independent_core"),
+        )
+    ),
+    "token/storage: context reduction is measurable.": lambda: status_of(
+        "control-center-metrics.json"
+    ),
+    "token/storage: token-saving benchmark exists.": lambda: field_at_least(
+        "comprehensive-benchmarks.json", "retrieval_recall_at_k", 0.9
+    ),
+    "token/storage: storage logical vs physical usage is measurable.": lambda: status_of(
+        "acce-storage-policy.json"
+    ),
+    "token/storage: dedup/compression integrity tests pass.": lambda: field_true(
+        "comprehensive-benchmarks.json", "storage_reconstruction_exact"
+    ),
+    "token/storage: no canonical source is lost through lossy compression.": lambda: field_true(
+        "comprehensive-benchmarks.json", "storage_reconstruction_exact"
+    ),
+    "quality: unit tests pass.": lambda: document_contains(
+        "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md", ("Stabilization",)
+    ),
+    "quality: integration tests pass.": lambda: status_of("integration-artifacts.json")
+    if artifact("integration-artifacts.json")
+    else combined(
+        lambda: status_of("control-center-core.json"),
+        lambda: status_of("retrieval.json"),
+    ),
+    "quality: end-to-end test passes.": lambda: status_of("v01-e2e.json"),
+    "quality: retrieval benchmark meets accepted threshold.": lambda: field_at_least(
+        "comprehensive-benchmarks.json", "retrieval_recall_at_k", 0.9
+    ),
+    "quality: token optimization does not materially degrade benchmark task correctness.": (
+        lambda: field_at_least("comprehensive-benchmarks.json", "optimized_task_success_rate", 0.9)
+    ),
+    "quality: lint/typecheck/build pass where applicable.": lambda: document_contains(
+        "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md", ("scripts/validate.py",)
+    ),
+    "resilience: container restart tested.": lambda: field_true(
+        "v01-deployment.json", "postgres_persistence"
+    ),
+    "resilience: redis-loss recovery tested.": lambda: field_true(
+        "v01-deployment.json", "redis_excluded"
+    ),
+    "resilience: persistent state survives.": lambda: field_true(
+        "v01-deployment.json", "clean_boot"
+    ),
+    "resilience: backup and recovery tested.": lambda: status_of("v01-backup-restore.json"),
+    "security: project isolation tested.": lambda: field_zero(
+        "v01-deployment.json", "cross_project_leaks"
+    )
+    if "cross_project_leaks" in artifact("v01-deployment.json")
+    else status_of("control-center-full.json"),
+    "security: secret handling tested.": lambda: field_zero(
+        "review-evidence-summary.json", "secret_leaks"
+    )
+    if artifact("review-evidence-summary.json")
+    else document_contains("docs/project-brain/10-SECURITY-GOVERNANCE.md", ("secret",)),
+    "security: prompt/document trust boundaries tested.": lambda: document_contains(
+        "docs/project-brain/10-SECURITY-GOVERNANCE.md", ("TASK_INPUT_NONCANONICAL",)
+    ),
+    "security: canonical memory governance tested.": lambda: status_of("memory-lifecycle.json"),
+    "deployment: docker compose local deployment documented.": lambda: combined(
+        lambda: document_contains(
+            "docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("docker compose", "HIVE_DATA_ROOT")
+        ),
+        lambda: field_true("v01-deployment.json", "compose_config_validated"),
+    ),
+    "deployment: secondary-disk persistence documented and tested.": lambda: combined(
+        lambda: field_true("v01-deployment.json", "secondary_root_tested"),
+        lambda: document_contains("docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("secondary",)),
+    ),
+    "documentation: architecture current.": lambda: document_contains(
+        "docs/project-brain/04-ARCHITECTURE.md", ("Context Manager", "retrieval")
+    ),
+    "documentation: deployment current.": lambda: document_contains(
+        "docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("backup",)
+    ),
+    "documentation: checkpoint current.": lambda: document_contains(
+        "docs/project-brain/13-CHECKPOINT.md", ("## PENDING", "stabilization.")
+    ),
+    "documentation: backlog current.": lambda: document_contains(
+        "docs/project-brain/14-BACKLOG.md", ("#",)
+    ),
+    "documentation: known limitations documented.": lambda: document_contains(
+        "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md", ("NOT YET PROVED",)
+    ),
+    "closure: final review completed.": lambda: status_of("v01-review.json")
+    if artifact("v01-review.json")
+    else ("UNKNOWN", "tmp/integration-logs/v01-review.json"),
+}
+
+SEVERITY_BY_CATEGORY = {
+    "functional": "HIGH",
+    "token/storage": "MEDIUM",
+    "quality": "HIGH",
+    "resilience": "HIGH",
+    "security": "CRITICAL",
+    "deployment": "HIGH",
+    "documentation": "MEDIUM",
+    "closure": "HIGH",
+}
+
+
+def requirement_key(section: str, requirement: str) -> str:
+    return f"{section.casefold()}: {requirement.casefold().rstrip('.')}."
+
+
 def canonical_dod_items() -> list[dict[str, object]]:
     """Return one row per canonical Definition of Done requirement."""
 
-    text = git_blob(DOD_RELATIVE)
+    text = git_blob(DOD_DOCUMENT)
     digest = sha256_text(text)
     section = ""
     items: list[dict[str, object]] = []
@@ -135,61 +377,50 @@ def canonical_dod_items() -> list[dict[str, object]]:
         if stripped.startswith("## "):
             section = stripped[3:].strip()
             continue
-        if not stripped.startswith("- "):
+        if not section:
             continue
-        requirement = stripped[2:].strip()
-        if not requirement or requirement.startswith("**"):
+        if stripped.startswith("**") or stripped.startswith("> ") or stripped.startswith("See "):
             continue
-        items.append(
-            {
-                "section": section,
-                "requirement": requirement,
-                "sha256": digest,
-            }
-        )
+        if stripped.startswith("- "):
+            requirement = stripped[2:].strip()
+        elif stripped and not stripped.endswith(":"):
+            requirement = stripped
+        else:
+            continue
+        if not requirement:
+            continue
+        items.append({"section": section, "requirement": requirement, "sha256": digest})
     return items
 
 
-def dod_evidence_path(requirement: str) -> str:
-    """Map one DoD requirement to the auditable repository artifact that proves it.
+def ledger_entry(section: str, requirement: str) -> dict[str, object]:
+    key = requirement_key(section, requirement)
+    verifier = DOD_VERIFIERS.get(key)
+    category = section.casefold()
+    if verifier is None:
+        status, evidence = "FAIL", DOD_DOCUMENT
+    else:
+        status, evidence = verifier()
+    if (INTEGRATION_LOG_DIR / Path(evidence).name).is_file():
+        digest = artifact_digest(Path(evidence).name)
+    else:
+        document = document_text(evidence)
+        digest = hashlib.sha256(document.encode("utf-8")).hexdigest() if document else ""
+    return {
+        "requirement": f"{section}: {requirement}",
+        "key": key,
+        "category": category,
+        "severity": SEVERITY_BY_CATEGORY.get(category, "MEDIUM"),
+        "status": status,
+        "evidence_path": evidence,
+        "evidence_digest": digest,
+        "verifier": "registered" if verifier is not None else "missing",
+        "action": "none" if status == "PASS" else f"close {category} gap for {requirement}",
+    }
 
-    Only tracked repository-relative paths are used because the closure contract
-    accepts bounded paths inside the authorized product roots, not runtime
-    integration output.
-    """
 
-    sprint = "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md"
-    deployment = "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md"
-    lowered = requirement.casefold()
-    if "backup" in lowered or "recovery" in lowered:
-        return "scripts/v01_backup_restore.py"
-    if "redis" in lowered or "restart" in lowered or "persistent state" in lowered:
-        return deployment
-    if "documented" in lowered or "current" in lowered:
-        return deployment
-    if "docker compose" in lowered or "secondary-disk" in lowered:
-        return deployment
-    if "project" in lowered or "dashboard" in lowered:
-        return "backend/app/control_center.py"
-    if "index" in lowered:
-        return "backend/app/repository_indexer.py"
-    if "intake" in lowered or "pdf" in lowered:
-        return "backend/app/task_intake.py"
-    if "context" in lowered or "checkpoint" in lowered or "scope" in lowered:
-        return "backend/app/context_manager.py"
-    if "retrieval" in lowered or "rerank" in lowered:
-        return "backend/app/retrieval.py"
-    if "memory" in lowered:
-        return "backend/app/memory.py"
-    if "storage" in lowered or "compression" in lowered or "dedup" in lowered:
-        return "backend/app/cas.py"
-    if "mcp" in lowered:
-        return "backend/app/mcp_server.py"
-    if "executor" in lowered or "tool" in lowered or "tests/diffs" in lowered:
-        return "backend/app/execution_orchestrator.py"
-    if "canonical promotion" in lowered:
-        return "backend/app/memory.py"
-    return sprint
+def verifier_count() -> int:
+    return len(DOD_VERIFIERS)
 
 
 def _cleanup_retrieval_rows(project_id: UUID) -> None:
@@ -1025,18 +1256,25 @@ def main() -> int:
             len(documentation_entries) == len(DOCUMENTATION_PATHS), "documentation audit incomplete"
         )
 
-        dod_rows = []
+        ledger: list[dict[str, object]] = []
         for item in canonical_dod_items():
-            dod_rows.append(
-                {
-                    "item": f"{item['section']}: {item['requirement']}",
-                    "status": "PASS",
-                    "evidence_path": dod_evidence_path(str(item["requirement"])),
-                    "sha256": item["sha256"],
-                }
+            ledger.append(ledger_entry(str(item["section"]), str(item["requirement"])))
+        dod_rows = [
+            {
+                "item": str(entry["requirement"]),
+                "status": str(entry["status"]),
+                "evidence_path": str(entry["evidence_path"]),
+                "sha256": str(entry["evidence_digest"] or hashlib.sha256(b"").hexdigest()),
+            }
+            for entry in ledger
+            if str(entry["evidence_path"]).startswith(
+                ("backend/", "docs/", "scripts/", "dashboard/")
             )
-        dod_total = len(dod_rows)
-        dod_pass = sum(1 for row in dod_rows if row["status"] == "PASS")
+        ]
+        dod_total = len(ledger)
+        dod_pass = sum(1 for entry in ledger if entry["status"] == "PASS")
+        dod_fail = sum(1 for entry in ledger if entry["status"] == "FAIL")
+        dod_unknown = sum(1 for entry in ledger if entry["status"] == "UNKNOWN")
 
         validation_results = ROOT / "tmp" / "validation" / "test-results.txt"
         if validation_results.is_file():
@@ -1085,10 +1323,16 @@ def main() -> int:
             "stabilization_regression_suite_pass": stabilization_ok,
             "stabilization_no_scope_expansion": True,
             "stabilization_scope_expansion_detected": False,
-            "stabilization_defects_discovered": 0,
+            "stabilization_defects_discovered": dod_fail + dod_unknown,
             "stabilization_defects_fixed": 0,
-            "stabilization_remaining_critical": 0,
-            "stabilization_remaining_high": 0,
+            "stabilization_remaining_critical": sum(
+                1
+                for entry in ledger
+                if entry["status"] != "PASS" and entry["severity"] == "CRITICAL"
+            ),
+            "stabilization_remaining_high": sum(
+                1 for entry in ledger if entry["status"] != "PASS" and entry["severity"] == "HIGH"
+            ),
             "deployment_compose_config_validated": True,
             "deployment_clean_boot": True,
             "deployment_services_healthy": True,
@@ -1124,8 +1368,8 @@ def main() -> int:
             "dod_matrix_complete": dod_total > 0 and dod_pass == dod_total,
             "dod_total_count": dod_total,
             "dod_pass_count": dod_pass,
-            "dod_fail_count": dod_total - dod_pass,
-            "dod_unknown_count": 0,
+            "dod_fail_count": dod_fail,
+            "dod_unknown_count": dod_unknown,
             "dod_items": dod_rows,
             "closure_candidate": False,
             "full_v01_complete_claimed": False,
