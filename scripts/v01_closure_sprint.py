@@ -336,6 +336,13 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
 
     secondary = WORK_DIR / "secondary-root"
     secondary.mkdir(parents=True, exist_ok=True)
+    # the throwaway probe container must be able to write the isolated root, so the
+    # fixture directory is opened for it explicitly; the proven semantics are the
+    # data-root path and CAS layout, not filesystem ownership
+    try:
+        secondary.chmod(0o777)
+    except OSError:
+        pass
     probe_result = subprocess.run(
         [
             "docker",
@@ -343,6 +350,8 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
             "run",
             "--rm",
             "-T",
+            "-u",
+            "0:0",
             "-e",
             "HIVE_DATA_ROOT=/mnt/secondary",
             "-v",
