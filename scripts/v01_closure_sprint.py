@@ -21,6 +21,7 @@ No provider or model call is made; the sprint keeps provider independence.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -339,10 +340,8 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
     # the throwaway probe container must be able to write the isolated root, so the
     # fixture directory is opened for it explicitly; the proven semantics are the
     # data-root path and CAS layout, not filesystem ownership
-    try:
+    with contextlib.suppress(OSError):
         secondary.chmod(0o777)
-    except OSError:
-        pass
     probe_result = subprocess.run(
         [
             "docker",
