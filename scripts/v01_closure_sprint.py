@@ -573,6 +573,148 @@ def _cleanup_retrieval_rows(project_id: UUID) -> None:
     )
 
 
+def _container_id(service: str) -> str:
+    output = compose("ps", "-q", service, check=False).strip()
+    return output.splitlines()[0].strip() if output else ""
+
+
+def _secondary_root_proof() -> dict[str, object]:
+    """Run an isolated Compose deployment on a host root outside the repository.
+
+    The throwaway stack uses the repository Compose contract with a generated
+    override that points the PostgreSQL durable storage and the API data root at
+    one isolated host directory. Bounded canonical state is created, PostgreSQL is
+    replaced, and the state must survive under that same root.
+    """
+
+    isolated_root = WORK_DIR / "secondary-root" / "host"
+    isolated_root.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        isolated_root.chmod(0o777)
+    override = WORK_DIR / "secondary-root" / "compose-override.yml"
+    override.parent.mkdir(parents=True, exist_ok=True)
+    override.write_text(
+        "services:\n"
+        "  postgres:\n"
+        "    volumes:\n"
+        f"      - {isolated_root.as_posix()}/postgres:/var/lib/postgresql/data\n"
+        "  api:\n"
+        "    environment:\n"
+        f"      HIVE_DATA_ROOT: /mnt/secondary\n"
+        "    volumes:\n"
+        f"      - {isolated_root.as_posix()}:/mnt/secondary\n",
+        encoding="utf-8",
+    )
+    project = "hive-secondary"
+    base = ["-p", project, "-f", "docker-compose.yml", "-f", str(override)]
+    compose(*base, "up", "-d", "postgres", check=False)
+    for _ in range(90):
+        ready = subprocess.run(
+            ["docker", "compose", *base, "exec", "-T", "postgres", "pg_isready", "-U", "hive"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=60,
+        )
+        if ready.returncode == 0:
+            break
+        time.sleep(2)
+    else:
+        raise AssertionError("isolated secondary-root PostgreSQL did not become ready")
+    inserts = (
+        "CREATE TABLE IF NOT EXISTS secondary_root_probe "
+        "(probe_id serial primary key, note text not null);"
+        "INSERT INTO secondary_root_probe (note) VALUES ('c4-secondary-root');"
+    )
+    compose(
+        *base,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-U",
+        "hive",
+        "-d",
+        "hive",
+        "-Atqc",
+        inserts,
+        check=False,
+    )
+    rows_before = compose(
+        *base,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        "hive",
+        "-d",
+        "hive",
+        "-Atqc",
+        "SELECT count(*) FROM secondary_root_probe",
+        check=False,
+    ).strip()
+    require(rows_before.isdigit() and int(rows_before) > 0, "secondary root state was not created")
+    compose(*base, "rm", "-sf", "postgres", check=False)
+    compose(*base, "up", "-d", "postgres", check=False)
+    for _ in range(90):
+        ready = subprocess.run(
+            ["docker", "compose", *base, "exec", "-T", "postgres", "pg_isready", "-U", "hive"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=60,
+        )
+        if ready.returncode == 0:
+            break
+        time.sleep(2)
+    rows_after = compose(
+        *base,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        "hive",
+        "-d",
+        "hive",
+        "-Atqc",
+        "SELECT count(*) FROM secondary_root_probe",
+        check=False,
+    ).strip()
+    host_files = subprocess.run(
+        ["find", str(isolated_root), "-maxdepth", "2"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=120,
+    ).stdout
+    compose(*base, "down", "-v", check=False)
+    require(
+        rows_after.isdigit() and int(rows_after) >= int(rows_before),
+        "secondary-root state did not survive the PostgreSQL replacement",
+    )
+    require("postgres" in host_files, "the isolated host root was not used by PostgreSQL")
+    return {
+        "isolated_root": sha256_text(str(isolated_root)),
+        "services": ["postgres"],
+        "recreated": True,
+        "state_survived": True,
+        "rows_before": int(rows_before),
+        "rows_after": int(rows_after),
+    }
+
+
 def _wait_for_postgres(attempts: int = 60) -> None:
     """Wait until postgres accepts connections before the api is restarted."""
 
@@ -662,8 +804,15 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
     digest_before = str(before["original_blob_sha256"])
     artifact_before = _artifact_bytes(probe, project_id, task_id)
 
+    postgres_before = _container_id("postgres")
+    compose("rm", "-sf", "postgres", check=False)
     compose("up", "-d", "postgres", check=False)
     _wait_for_postgres()
+    postgres_after = _container_id("postgres")
+    require(
+        postgres_before and postgres_after and postgres_before != postgres_after,
+        "the PostgreSQL container was not replaced by a new container identity",
+    )
     compose("restart", "api", check=False)
     wait_for_api_health(probe, attempts=120)
     after = probe.request("GET", f"/api/v1/projects/{project_id}/tasks/{task_id}")
@@ -695,6 +844,7 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
         "redis loss destroyed CAS bytes",
     )
 
+    secondary_evidence = _secondary_root_proof()
     secondary = WORK_DIR / "secondary-root"
     secondary.mkdir(parents=True, exist_ok=True)
     # the throwaway probe container must be able to write the isolated root, so the
@@ -755,6 +905,12 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
         "redis_excluded": True,
         "redis_canonical": False,
         "secondary_root_identity": sha256_text("/mnt/secondary"),
+        "secondary_root_isolated_root": secondary_evidence["isolated_root"],
+        "secondary_root_services": secondary_evidence["services"],
+        "secondary_root_recreated": secondary_evidence["recreated"],
+        "secondary_root_state_survived": secondary_evidence["state_survived"],
+        "postgres_container_before": postgres_before,
+        "postgres_container_after": postgres_after,
         "persistent_root_identity": sha256_text(str(secondary)),
         "project_id": str(project_id),
         "task_id": task_id,
@@ -1644,7 +1800,7 @@ def main() -> int:
                 )
             executed[stage] = artifact
         e2e = e2e_family(probe, executed)
-        quality = quality_family()
+        quality_family()
 
         e2e_stages = [str(stage) for stage in e2e["completed_stages"]]
 
