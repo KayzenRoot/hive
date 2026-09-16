@@ -7526,10 +7526,14 @@ def closure_sprint_evidence() -> dict[str, object]:
             integers[field] = 0
         else:
             integers[field] = value
+    zero_values: dict[str, int] = {}
     for field in V01_CLOSURE_SPRINT_ZERO_FIELDS:
         value = payload.get(field)
         if not isinstance(value, int) or isinstance(value, bool) or value != 0:
             valid = False
+            zero_values[field] = -1
+        else:
+            zero_values[field] = value
     lists = {field: payload.get(field) for field in V01_CLOSURE_SPRINT_LIST_FIELDS}
     for field in V01_CLOSURE_SPRINT_LIST_FIELDS:
         if not _closure_path_list(lists[field]):
@@ -7574,6 +7578,7 @@ def closure_sprint_evidence() -> dict[str, object]:
         **strings,
         **booleans,
         **integers,
+        **zero_values,
         **lists,
         "orchestration_authority_order": payload.get("orchestration_authority_order"),
         "orchestration_negative_matrix": payload.get("orchestration_negative_matrix"),
