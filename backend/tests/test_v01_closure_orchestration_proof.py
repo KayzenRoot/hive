@@ -13,6 +13,7 @@ consume measured counters instead of asserting them.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from collections.abc import Callable
@@ -27,12 +28,11 @@ import pytest
 from app.config import Settings
 from app.execution_orchestrator import (
     ExecutionOrchestrator,
-    ExecutorAdapterError,
     ExecutorRequest,
     ExecutorResult,
 )
 from app.registry import InspectionResult, ProjectResponse, ProjectState
-from app.runner import ChangeSet, ToolPolicy
+from app.runner import ChangeOperation, ChangeSet, ToolPolicy
 from app.task_intake import TaskResponse
 
 ROOT = Path(__file__).parents[2]
@@ -114,8 +114,17 @@ def inspection(*, head: str = HEAD, clean: bool | None = True) -> InspectionResu
     )
 
 
+MUTATION_RELATIVE = "src/closure_proof_note.py"
+MUTATION_CONTENT = b"CLOSURE_PROOF_NOTE = 'staged by the closure proof'" + b"\n"
+
+
 class CountingAdapter:
-    """Adapter that only records invocations, so pre-dispatch failures are provable."""
+    """Adapter that records invocations and stages one deterministic mutation.
+
+    The negative cases never reach this adapter, so the counter proves that
+    authority, identity and tool gating complete before dispatch; the positive case
+    stages exactly one bounded CREATE through the production runner.
+    """
 
     name = "closure-counting"
 
@@ -128,9 +137,19 @@ class CountingAdapter:
 
 
 def staged_result() -> ExecutorResult:
+    command = (sys.executable, "-c", "print('closure validation ok')")
     return ExecutorResult(
-        change_set=ChangeSet(operations=()),
-        summary="closure proof adapter stages a bounded empty change set",
+        change_set=ChangeSet.from_operations(
+            [ChangeOperation.create(MUTATION_RELATIVE, MUTATION_CONTENT.decode("utf-8"))],
+            model="closure-fixture",
+            effort="minimal",
+            request_id="closure-proof-request",
+        ),
+        summary="closure proof adapter stages one bounded CREATE operation",
+        decisions=("Reuse the existing Runner seam.",),
+        test_commands=(command,),
+        validation_commands=(command,),
+        risks=("No canonical promotion is performed.",),
     )
 
 
@@ -178,9 +197,17 @@ def test_closure_orchestration_proof_is_pre_dispatch_and_fail_closed(tmp_path: P
 
     positive_adapter = counting_adapter()
     orchestrator = build_orchestrator(tmp_path)
-    with pytest.raises(ExecutorAdapterError):
-        orchestrator.execute(request(), positive_adapter)
+    staged = orchestrator.execute(request(), positive_adapter)
     assert positive_adapter.invocations == 1, "the positive case must reach the adapter"
+    assert staged.status == "STAGED", "the positive case must stage a bounded change"
+    assert staged.validation_passed is True, "the staged change must pass validation"
+    assert staged.promoted is False, "a staged execution must never promote canonically"
+    assert staged.changed_files == (MUTATION_RELATIVE,), staged.changed_files
+    staged_path = tmp_path / "target" / MUTATION_RELATIVE
+    assert staged_path.is_file(), "the staged mutation was not applied to the fixture"
+    staged_bytes = staged_path.read_bytes()
+    assert staged_bytes == MUTATION_CONTENT, "the staged mutation content does not match the plan"
+    staged_digest = hashlib.sha256(staged_bytes).hexdigest()
     positive_capsule = capsule()
 
     cases: dict[str, dict[str, object]] = {
@@ -190,6 +217,13 @@ def test_closure_orchestration_proof_is_pre_dispatch_and_fail_closed(tmp_path: P
             "authority_order": list(AUTHORITY_ORDER),
             "project_bound": str(positive_capsule.project.project_id),
             "head_bound": positive_capsule.project.repository_head_sha,
+            "staged_status": staged.status,
+            "validation_passed": bool(staged.validation_passed),
+            "canonical_promotion": bool(staged.promoted),
+            "changed_paths": list(staged.changed_files),
+            "mutation_path": MUTATION_RELATIVE,
+            "mutation_sha256": staged_digest,
+            "unexpected_changed_paths": 0,
         }
     }
     negative_specs: tuple[tuple[str, dict[str, Any]], ...] = (

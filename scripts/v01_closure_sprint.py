@@ -1324,7 +1324,8 @@ def e2e_family(probe: ApiProbe, executed: dict[str, str]) -> dict[str, object]:
             "run_id": str(execution_identity["run_id"]),
             "head_sha": head_sha,
             "adapter_invocations": int(cast(int, execution_identity["adapter_invocations"])),
-            "mutation_bound": True,
+            "mutation": execution_identity["mutation"],
+            "mutation_bound": bool(execution_identity["mutation"]),
         }
         (ROOT / "tmp" / "integration-logs" / "v01-e2e.json").write_text(
             json.dumps(evidence, indent=2, sort_keys=True, default=str) + chr(10),
@@ -1479,11 +1480,24 @@ def _closure_execution_stages(
 
         def execute(self, _request: ExecutorRequest, _context: object) -> ExecutorResult:
             self.invocations += 1
-            from app.runner import ChangeSet
+            from app.runner import ChangeOperation, ChangeSet
 
+            command = (sys.executable, "-c", "print('closure e2e validation ok')")
             return ExecutorResult(
-                change_set=ChangeSet(operations=()),
-                summary="closure e2e stages a bounded empty change set",
+                change_set=ChangeSet.from_operations(
+                    [
+                        ChangeOperation.create(
+                            "src/closure_e2e_note.py",
+                            "CLOSURE_E2E_NOTE = 'staged by the closure scenario'" + chr(10),
+                        )
+                    ],
+                    model="closure-fixture",
+                    effort="minimal",
+                    request_id="closure-e2e-request",
+                ),
+                summary="closure e2e stages one bounded CREATE operation",
+                test_commands=(command,),
+                validation_commands=(command,),
             )
 
     adapter = _StagedAdapter()
@@ -1503,9 +1517,28 @@ def _closure_execution_stages(
         expected_head_sha=head_sha,
     )
     outcome = "UNKNOWN"
+    mutation: dict[str, object] = {}
     try:
         result = orchestrator.execute(request, adapter)
         outcome = str(getattr(result, "status", "UNKNOWN"))
+        changed = tuple(getattr(result, "changed_files", ()))
+        target = workspace / "src" / "closure_e2e_note.py"
+        payload = target.read_bytes() if target.is_file() else b""
+        mutation = {
+            "changed_paths": list(changed),
+            "path": "src/closure_e2e_note.py",
+            "sha256": hashlib.sha256(payload).hexdigest() if payload else "",
+            "validation_passed": bool(getattr(result, "validation_passed", False)),
+            "canonical_promotion": bool(getattr(result, "promoted", True)),
+        }
+        require(
+            outcome == "STAGED"
+            and changed == ("src/closure_e2e_note.py",)
+            and payload == b"CLOSURE_E2E_NOTE = 'staged by the closure scenario'" + b"\\n"
+            and bool(mutation["validation_passed"])
+            and mutation["canonical_promotion"] is False,
+            f"the closure execution stage did not stage and verify a bounded mutation: {mutation}",
+        )
     except ExecutorAdapterError as exc:
         outcome = f"FAIL:{type(exc).__name__}"
     return {
@@ -1518,6 +1551,7 @@ def _closure_execution_stages(
         "run_id": str(run_id),
         "adapter_invocations": adapter.invocations,
         "orchestrator_outcome": outcome,
+        "mutation": mutation,
     }
 
 
@@ -1937,7 +1971,9 @@ def main() -> int:
             "orchestration_authority_order": list(orchestration["authority_order"]),
             "orchestration_negative_matrix": list(orchestration["negative_matrix"]),
             "orchestration_deterministic_llm_calls": int(orchestration["llm_calls"]),
-            "e2e_sample_project_mutation_bounded": True,
+            "e2e_sample_project_mutation_bounded": bool(e2e.get("mutation_bound"))
+            and e2e.get("mutation", {}).get("validation_passed") is True
+            and e2e.get("mutation", {}).get("canonical_promotion") is False,
             "e2e_stage_count": len(e2e_stages),
             "e2e_completed_stages": e2e_stages,
             "docs_audited_from_repository_paths": documentation_ok,
