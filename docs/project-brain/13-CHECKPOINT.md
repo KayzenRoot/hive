@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-FULL CONTROL CENTER APPROVED / V0.1 IMPLEMENTATION ACTIVE
+COMPREHENSIVE BENCHMARKS APPROVED / V0.1 IMPLEMENTATION ACTIVE
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -233,6 +233,13 @@ See `03-SCOPE.md`.
 - mandatory governance sections fail closed as unavailable, unknown values are never rendered as zero, and missing canonical project-brain sections are never materialized as data.
 - lineage records pr #86 with audited head a870275b3ad738b789e30169d5b1fac00e2e4ae3, sol review 5204463844, squash merge 82c39025fe4e4a4a3b4664ed8e8059984fffb039 and post-merge ci 34916205113; backend 606 and dashboard 34 passed.
 - control-center-full-v1 evidence records migration head 0007_telemetry_events, zero secret/filesystem-path/cross-project leaks, zero llm/provider calls, and does not claim hive v0.1 completion.
+- comprehensive retrieval, token and storage benchmarks are approved under evidence comprehensive-benchmarks-v1 with measured recall@5 1.0, zero critical-context misses, bounded retrieval context bytes and strictly positive retrieval precision on the auditable deterministic corpus.
+- the token family compares the full-context baseline and the emitted optimized capsule of the same benchmark task identities with the deterministic estimator utf8-byte-ratio-approx-v1 and serialization context-payload-v1, and records a measured strict reduction instead of a cross-dataset comparison.
+- baseline and optimized task success are derived from one objective ground-truth-identity criterion per representation and the versioned acceptance matrix wo023-task-acceptance-matrix-v1, so neither outcome rate is a constant.
+- project isolation is measured with a bounded second project that answers its own identity queries, returns no foreign path and is never answered by a foreign path; zero secret/filesystem-path/cross-project leaks remain enforced.
+- content-addressed storage keeps exact-byte reconstruction and never double-counts savings; the measured zstd policy remains deterministic; token cache and output token claims stay not_supported with null values because no provider receipt exists.
+- lineage records pr #90 with audited head 270929c2e1428335ea9c98337c29a31d5682686d, sol review 5216010298, squash merge 25c16248211da567dbda928697862a696dcf46eb and post-merge ci 35026680687; backend 638 and dashboard 34 passed.
+- comprehensive-benchmarks-v1 evidence records migration head 0007_telemetry_events, zero secret/filesystem-path/cross-project leaks, zero llm/provider calls, proves the contract on a bounded deterministic corpus without a production-quality claim, and does not claim hive v0.1 completion.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -240,10 +247,9 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the comprehensive retrieval, token and storage benchmarks increment.
+- Preparing the stabilization increment.
 
 ## PENDING
-- comprehensive retrieval/token/storage benchmarks.
 - stabilization.
 - full local deployment validation.
 - backup/recovery validation.
@@ -252,13 +258,13 @@ Historical two-account workflow is not rewritten: `kayzenweb3` independently app
 - checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 
 ## BLOCKERS
-None known after Full Control Center approval and post-merge validation.
+None known after comprehensive benchmarks approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Prepare the comprehensive retrieval, token and storage benchmarks increment.
+Preparing the stabilization increment.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
