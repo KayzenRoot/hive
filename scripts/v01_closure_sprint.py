@@ -245,9 +245,7 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     ),
     "functional: relevant tools are gated.": lambda: status_of("v01-orchestration-proof.json"),
     "functional: results/tests/diffs are captured.": lambda: status_of("autonomous-execution.json"),
-    "functional: canonical promotion rules are enforced.": lambda: document_contains(
-        "docs/project-brain/13-CHECKPOINT.md", ("V0.1",)
-    ),
+    "functional: canonical promotion rules are enforced.": lambda: promotion_contract_check(),
     "functional: dashboard displays all registered project states.": lambda: status_of(
         "control-center-core.json"
     ),
@@ -278,9 +276,7 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     "token/storage: no canonical source is lost through lossy compression.": lambda: field_true(
         "comprehensive-benchmarks.json", "storage_reconstruction_exact"
     ),
-    "quality: unit tests pass.": lambda: document_contains(
-        "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md", ("Stabilization",)
-    ),
+    "quality: unit tests pass.": lambda: quality_check("backend_tests"),
     "quality: integration tests pass.": lambda: status_of("integration-artifacts.json")
     if artifact("integration-artifacts.json")
     else combined(
@@ -294,8 +290,9 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     "quality: token optimization does not materially degrade benchmark task correctness.": (
         lambda: field_at_least("comprehensive-benchmarks.json", "optimized_task_success_rate", 0.9)
     ),
-    "quality: lint/typecheck/build pass where applicable.": lambda: document_contains(
-        "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md", ("scripts/validate.py",)
+    "quality: lint/typecheck/build pass where applicable.": lambda: combined(
+        lambda: quality_check("lint"),
+        lambda: quality_check("typecheck"),
     ),
     "resilience: container restart tested.": lambda: field_true(
         "v01-deployment.json", "postgres_persistence"
@@ -312,13 +309,9 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     )
     if "cross_project_leaks" in artifact("v01-deployment.json")
     else status_of("control-center-full.json"),
-    "security: secret handling tested.": lambda: field_zero(
-        "review-evidence-summary.json", "secret_leaks"
-    )
-    if artifact("review-evidence-summary.json")
-    else document_contains("docs/project-brain/10-SECURITY-GOVERNANCE.md", ("secret",)),
-    "security: prompt/document trust boundaries tested.": lambda: document_contains(
-        "docs/project-brain/10-SECURITY-GOVERNANCE.md", ("TASK_INPUT_NONCANONICAL",)
+    "security: secret handling tested.": lambda: security_artifact_check("secret_scan"),
+    "security: prompt/document trust boundaries tested.": lambda: security_artifact_check(
+        "trust_boundary_tests"
     ),
     "security: canonical memory governance tested.": lambda: status_of("memory-lifecycle.json"),
     "deployment: docker compose local deployment documented.": lambda: combined(
@@ -343,8 +336,9 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     "documentation: backlog current.": lambda: document_contains(
         "docs/project-brain/14-BACKLOG.md", ("#",)
     ),
-    "documentation: known limitations documented.": lambda: document_contains(
-        "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md", ("NOT YET PROVED",)
+    "documentation: known limitations documented.": lambda: combined(
+        lambda: gap_report_current(),
+        lambda: document_contains("docs/atlas/V0.1-CLOSURE-GAP-REPORT.md", ("PROVED (bounded)",)),
     ),
     "closure: final review completed.": lambda: status_of("v01-review.json")
     if artifact("v01-review.json")
@@ -423,6 +417,130 @@ def ledger_entry(section: str, requirement: str) -> dict[str, object]:
 
 def verifier_count() -> int:
     return len(DOD_VERIFIERS)
+
+
+def _run_command(command: list[str], *, timeout: int = 3600) -> dict[str, object]:
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=timeout,
+    )
+    return {
+        "command": " ".join(command),
+        "returncode": result.returncode,
+        "passed": result.returncode == 0,
+        "tail": (result.stdout + result.stderr)[-400:],
+    }
+
+
+def quality_family() -> dict[str, object]:
+    """Run the repository quality and security commands once and record them."""
+
+    selections = {
+        "backend_tests": [sys.executable, "-m", "pytest", "backend/tests", "-q"],
+        "governance_contract_tests": [
+            sys.executable,
+            "-m",
+            "pytest",
+            "backend/tests/test_review_evidence.py",
+            "-q",
+        ],
+        "trust_boundary_tests": [
+            sys.executable,
+            "-m",
+            "pytest",
+            "backend/tests",
+            "-q",
+            "-k",
+            "trust or noncanonical",
+        ],
+        "project_isolation_tests": [
+            sys.executable,
+            "-m",
+            "pytest",
+            "backend/tests",
+            "-q",
+            "-k",
+            "isolation",
+        ],
+        "cross_project_negatives": [
+            sys.executable,
+            "-m",
+            "pytest",
+            "backend/tests",
+            "-q",
+            "-k",
+            "cross_project",
+        ],
+        "lint": [sys.executable, "-m", "ruff", "check", "backend", "scripts", "migrations"],
+        "format": [
+            sys.executable,
+            "-m",
+            "ruff",
+            "format",
+            "--check",
+            "backend",
+            "scripts",
+            "migrations",
+        ],
+        "typecheck": [sys.executable, "-m", "mypy"],
+        "secret_scan": [sys.executable, "scripts/check_secrets.py"],
+        "canonical_verifier": [sys.executable, "scripts/verify_canonical_sources.py"],
+        "generated_maps": [sys.executable, "scripts/generate_maps.py", "--check"],
+    }
+    results = {name: _run_command(command) for name, command in selections.items()}
+    governance_ok = (
+        frozenset({governance.WO024_G1_WORK_ORDER, governance.WO024P_WORK_ORDER})
+        == governance.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    quality = {
+        "status": "PASS"
+        if all(r["passed"] for r in results.values()) and governance_ok
+        else "FAIL",
+        "checks": {
+            "backend_tests": bool(results["backend_tests"]["passed"]),
+            "lint": bool(results["lint"]["passed"]) and bool(results["format"]["passed"]),
+            "typecheck": bool(results["typecheck"]["passed"]),
+            "governance_contract_tests": bool(results["governance_contract_tests"]["passed"]),
+            "promotion_pair_registered": governance_ok,
+        },
+        "commands": results,
+        "head_sha": run_command(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).strip(),
+    }
+    security = {
+        "status": "PASS"
+        if all(
+            bool(results[name]["passed"])
+            for name in (
+                "secret_scan",
+                "trust_boundary_tests",
+                "project_isolation_tests",
+                "cross_project_negatives",
+            )
+        )
+        else "FAIL",
+        "checks": {
+            "secret_scan": bool(results["secret_scan"]["passed"]),
+            "trust_boundary_tests": bool(results["trust_boundary_tests"]["passed"]),
+            "project_isolation_tests": bool(results["project_isolation_tests"]["passed"]),
+            "cross_project_negatives": bool(results["cross_project_negatives"]["passed"]),
+        },
+        "head_sha": quality["head_sha"],
+    }
+    (ROOT / "tmp" / "integration-logs" / "v01-quality.json").write_text(
+        json.dumps(quality, indent=2, sort_keys=True, default=str) + chr(10), encoding="utf-8"
+    )
+    (ROOT / "tmp" / "integration-logs" / "v01-security.json").write_text(
+        json.dumps(security, indent=2, sort_keys=True, default=str) + chr(10), encoding="utf-8"
+    )
+    require(quality["status"] == "PASS", "closure quality family failed")
+    require(security["status"] == "PASS", "closure security family failed")
+    return {"quality": quality, "security": security}
 
 
 def _cleanup_retrieval_rows(project_id: UUID) -> None:
@@ -1248,6 +1366,91 @@ def _closure_execution_stages(
     }
 
 
+def quality_artifact() -> Mapping[str, object]:
+    return artifact("v01-quality.json")
+
+
+def quality_check(name: str) -> tuple[str, str]:
+    payload = quality_artifact()
+    checks = payload.get("checks")
+    if not isinstance(checks, Mapping) or name not in checks:
+        return "UNKNOWN", "v01-quality.json"
+    return ("PASS" if checks.get(name) is True else "FAIL"), "v01-quality.json"
+
+
+def security_artifact_check(name: str) -> tuple[str, str]:
+    payload = artifact("v01-security.json")
+    checks = payload.get("checks")
+    if not isinstance(checks, Mapping) or name not in checks:
+        return "UNKNOWN", "v01-security.json"
+    return ("PASS" if checks.get(name) is True else "FAIL"), "v01-security.json"
+
+
+def promotion_contract_check() -> tuple[str, str]:
+    payload = quality_artifact()
+    checks = payload.get("checks")
+    if not isinstance(checks, Mapping):
+        return "UNKNOWN", "v01-quality.json"
+    return (
+        "PASS"
+        if checks.get("governance_contract_tests") is True
+        and checks.get("promotion_pair_registered") is True
+        else "FAIL",
+        "v01-quality.json",
+    )
+
+
+def gap_report_current() -> tuple[str, str]:
+    """The gap report must not deny families the closure proof already proved."""
+
+    report = "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md"
+    body = document_text(report)
+    if not body:
+        return "UNKNOWN", report
+    for marker in (
+        "| Backup / recovery validation | NOT YET PROVED",
+        "| Checkpoint awareness orchestration beyond checkpoint-first Context Manager "
+        "behavior | NOT YET PROVED",
+    ):
+        if marker in body:
+            return "FAIL", report
+    if "PROVED (bounded)" not in body:
+        return "FAIL", report
+    return "PASS", report
+
+
+def documentation_currentness_entry(name: str) -> dict[str, object]:
+    predicates = {
+        "architecture": (
+            "docs/project-brain/04-ARCHITECTURE.md",
+            ("Context Manager", "retrieval", "PostgreSQL"),
+        ),
+        "deployment": (
+            "docs/project-brain/12-LOCAL-DEPLOYMENT.md",
+            ("docker compose", "HIVE_DATA_ROOT", "backup"),
+        ),
+        "checkpoint": (
+            "docs/project-brain/13-CHECKPOINT.md",
+            ("## PENDING", "stabilization."),
+        ),
+        "backlog": ("docs/project-brain/14-BACKLOG.md", ("#",)),
+        "known_limitations": (
+            "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md",
+            ("PROVED (bounded)",),
+        ),
+    }
+    relative, needles = predicates[name]
+    status, _path = document_contains(relative, needles)
+    if name == "known_limitations":
+        gap_status, _gap = gap_report_current()
+        if "FAIL" in {status, gap_status}:
+            status = "FAIL"
+        elif "UNKNOWN" in {status, gap_status}:
+            status = "UNKNOWN"
+    digest = hashlib.sha256(document_text(relative).encode("utf-8")).hexdigest()
+    return {"name": name, "path": relative, "sha256": digest, "status": status}
+
+
 def measured_counters() -> dict[str, int]:
     """Derive leak and call counters from the artifacts this run produced."""
 
@@ -1441,6 +1644,7 @@ def main() -> int:
                 )
             executed[stage] = artifact
         e2e = e2e_family(probe, executed)
+        quality = quality_family()
 
         e2e_stages = [str(stage) for stage in e2e["completed_stages"]]
 

@@ -62,6 +62,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_task_intake.py: Python source or test module.
 - backend/tests/test_tasks_api.py: Python source or test module.
 - backend/tests/test_telemetry.py: Python source or test module.
+- backend/tests/test_v01_closure_orchestration_proof.py: Python source or test module.
 - backend/tests/test_v01_closure_sprint.py: Python source or test module.
 
 ## Dashboard
