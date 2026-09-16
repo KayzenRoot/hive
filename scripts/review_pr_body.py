@@ -28,6 +28,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-022-P-G1": "82c39025fe4e4a4a3b4664ed8e8059984fffb039",
     "WO-023-G1": "45bf00a78150ea0368bd4c0b173e83178b102333",
     "WO-023-P-G1": "25c16248211da567dbda928697862a696dcf46eb",
+    "WO-023-P-G1-C1": "3ca2109175b7c6842c6578c237ff798d5ce8916f",
 }
 
 
@@ -65,6 +66,7 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-023",
         "WO-023-P-G1",
         "WO-023-P",
+        "WO-023-P-G1-C1",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2840,6 +2842,80 @@ WO-023-G1 READY FOR SOL AUDIT
 """
 
 
+def _render_wo023p_g1_c1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Correção de governança mínima: o `build_manifest()` já mergeado só lia o
+marcador `HIVE-AUTHORIZED-BASE` para um conjunto explícito de work orders que
+terminava em WO-022-P, então um marcador válido de WO-023-P nunca chegava a
+`require_wo023p_scope()`. Esta PR corrige exatamente esse ponto de leitura e
+adiciona a regressão determinística correspondente. Não promove checkpoint, não
+toca os arquivos canônicos e não inicia estabilização.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}. O renderer exige a base autorizada exata,
+  lowercase 40-hex e diferente de zero; divergência falha fechado.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo fechado
+
+Somente ferramental de Review Evidence e sua regressão:
+`scripts/review_evidence.py`, `backend/tests/test_review_evidence.py` e
+`scripts/review_pr_body.py`. Project Brain, checkpoint,
+`CANONICAL-SHA256SUMS.txt`, produto, dashboard, migrations, dependências, CI,
+ruleset e release permanecem intocados. A migration head permanece
+`0007_telemetry_events`.
+
+## 4. Caminho corrigido
+
+O conjunto de work orders obrigados a portar o marcador passa a ser uma
+constante nomeada que inclui WO-023-P e o próprio work order corretivo, e
+`build_manifest()` consome essa constante por meio de um seam nomeado. A
+regressão exercita o caminho real do build-manifest com um marcador válido e
+prova que o SHA exato chega à validação de escopo; marcador ausente, duplicado,
+malformado ou divergente da base do PR continua falhando fechado.
+
+## 5. Preservação do contrato existente
+
+O contrato canônico de dois arquivos de WO-023-P não foi enfraquecido: base
+exata, exatamente dois arquivos, gramática fechada do checkpoint, digest do
+manifesto, main corrente, migration head, ruleset e auto-merge continuam
+obrigatórios. Pares históricos seguem históricos e WO-024, WO-024-P e WO-999-P
+seguem rejeitados.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+A PR #92 não foi mesclada, não foi rebaseada e não foi promovida nesta correção.
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-023-P-G1-C1 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo023p_g1_body(
     *,
     work_order: str,
@@ -4360,6 +4436,19 @@ def render_body(
         )
     if work_order == "WO-023-G1":
         return _render_wo023_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-023-P-G1-C1":
+        return _render_wo023p_g1_c1_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
