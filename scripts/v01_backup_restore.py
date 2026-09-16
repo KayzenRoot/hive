@@ -190,6 +190,43 @@ def backup_configuration(destination: Path, identity: dict[str, object]) -> dict
     return payload
 
 
+def seed_canonical_material() -> bool:
+    """Write one real canonical blob when the store is empty.
+
+    Continuous integration starts from an empty canonical store, so the proof
+    seeds its own bounded content-addressed blob through the product's own CAS
+    API instead of depending on earlier integrations having run.
+    """
+
+    found = compose(
+        "exec",
+        "-T",
+        "api",
+        "sh",
+        "-c",
+        f"find {CANONICAL_CAS_ROOT} -type f | head -1",
+    ).strip()
+    if found:
+        return False
+    seed_source = WORK_DIR / "seed-payload.bin"
+    seed_source.write_bytes(b"v01 closure backup seed payload")
+    compose("cp", str(seed_source), "api:/tmp/v01-closure-seed.bin")
+    compose(
+        "exec",
+        "-T",
+        "api",
+        "python",
+        "-c",
+        "from pathlib import Path;"
+        "from app.config import Settings;"
+        "from app.cas import CASStore;"
+        "store = CASStore(Settings());"
+        "blob = store.put(Path('/tmp/v01-closure-seed.bin'));"
+        "print(blob.sha256)",
+    )
+    return True
+
+
 def main() -> int:
     started = time.monotonic()
     try:
@@ -200,6 +237,7 @@ def main() -> int:
         shutil.rmtree(WORK_DIR, ignore_errors=True)
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         RESTORE_DIR.mkdir(parents=True, exist_ok=True)
+        seed_canonical_material()
 
         source = canonical_database_digest(POSTGRES_DB)
         identity = registry_identity(POSTGRES_DB)
