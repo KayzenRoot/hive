@@ -74,6 +74,11 @@ CLOSURE_INTEGRATIONS = (
         "autonomous-execution.json",
         "dispatch_executor",
     ),
+    (
+        "scripts/autonomous_execution_integration.py",
+        "autonomous-execution.json",
+        "dispatch_executor",
+    ),
     ("scripts/memory_lifecycle_integration.py", "memory-lifecycle.json", "stage_memory"),
     ("scripts/mcp_integration.py", "mcp-surface.json", "complete_review"),
     ("scripts/retrieval_integration.py", "retrieval.json", "capture_evidence"),
@@ -691,10 +696,11 @@ def e2e_family(probe: ApiProbe) -> dict[str, object]:
 
         # 5, 7, 8, 9, 11 come from the accepted autonomous execution scenario
         execution = integration_log("autonomous-execution.json")
-        if isinstance(execution, dict) and str(execution.get("status", "")).upper() in {
-            "PASS",
-            "OK",
-        }:
+        if (
+            isinstance(execution, dict)
+            and str(execution.get("status", "")).upper() in {"PASS", "OK"}
+            and "dispatch_executor" in executed
+        ):
             for stage in (
                 "dispatch_executor",
                 "modify_sample_project",
