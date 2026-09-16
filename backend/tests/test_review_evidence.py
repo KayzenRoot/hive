@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import re
@@ -596,8 +595,11 @@ def test_wo015_is_explicitly_registered_and_unknown_ids_do_not_get_memory_semant
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-024-P")
+        require_supported_work_order("WO-025-P")
     require_wo015_memory_evidence("WO-999", {})
 
 
@@ -1559,7 +1561,7 @@ def test_wo023_governance_contracts_and_schema_agree(monkeypatch: pytest.MonkeyP
     assert g1 is not None
     assert "future_WO-023_registered=PASS" in g1
     assert "comprehensive-benchmarks-v1_fail_closed=PASS" in g1
-    assert "unknown_WO-024-P_WO-024_WO-999=REJECTED" in g1
+    assert "unknown_WO-025_WO-025-P_WO-999=REJECTED" in g1
     assert "checkpoint_promotion=False" in g1
     with pytest.raises(ValueError, match="must not claim future"):
         review_evidence.verify_wo023_g1_governance_contract(
@@ -1668,7 +1670,7 @@ def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
     assert f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO023_G1_BASE_SHA} -->" in g1
     assert "Exatamente quatro arquivos" in g1
     assert "comprehensive-benchmarks-v1" in g1
-    assert "WO-024-P" in g1 and "WO-024" in g1
+    assert "WO-025-P" in g1 and "WO-025" in g1
     assert "AWAITING_SOL" in g1
     assert "WO-023-G1 READY FOR SOL AUDIT" in g1
     product = render_body(
@@ -1680,7 +1682,7 @@ def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
         assert marker in product
     assert "WO-023 READY FOR SOL AUDIT" in product
     assert "checkpoint" in product.casefold()
-    for unsupported in ("WO-024-P", "WO-024", "WO-999"):
+    for unsupported in ("WO-025-P", "WO-025", "WO-999"):
         with pytest.raises(ValueError):
             render_body(work_order=unsupported, **common)
 
@@ -2364,8 +2366,11 @@ def test_wo020_g1_renderer_pins_validated_authorized_base_marker() -> None:
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-024-P")
+        require_supported_work_order("WO-025-P")
 
 
 def test_wo020_c1_evidence_paths_are_canonical_and_role_bounded() -> None:
@@ -2497,7 +2502,7 @@ def test_wo020_g1_governance_contract_is_fail_closed(
         review_evidence.CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD,
     )
     assert evidence is not None
-    assert "unknown_WO-024-P_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-025-P_WO-999-P=REJECTED" in evidence
     with pytest.raises(ValueError, match="exactly the four"):
         review_evidence.verify_wo020_g1_governance_contract(
             review_evidence.WO020_G1_WORK_ORDER,
@@ -2574,10 +2579,13 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     require_supported_work_order(review_evidence.WO023_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-024-P")
+        require_supported_work_order("WO-025-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-024")
+        require_supported_work_order("WO-025")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -4043,7 +4051,7 @@ def test_wo019p_g1_governance_contract_is_fail_closed(
     assert "future_two_file_scope=PASS" in evidence
     assert "telemetry_evidence=PASS" in evidence
     assert "historical_WO-018-P-G1_WO-018-P=REJECTED" in evidence
-    assert "unknown_WO-024-P_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-025-P_WO-999-P=REJECTED" in evidence
     with pytest.raises(ValueError, match="auto-merge"):
         review_evidence.verify_wo019p_g1_governance_contract(
             review_evidence.WO019P_G1_WORK_ORDER,
@@ -4514,7 +4522,7 @@ def test_wo020p_g1_governance_contract_is_fail_closed(
     assert "exact_base=PASS" in evidence
     assert "active_promotions=WO-020-P-G1,WO-020-P" in evidence
     assert "historical_WO-019-P-G1_WO-019-P=REJECTED" in evidence
-    assert "unknown_WO-024-P_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-025-P_WO-999-P=REJECTED" in evidence
     assert "control_center_evidence=PASS" in evidence
     assert "checkpoint_promotion=False" in evidence
     with pytest.raises(ValueError, match="auto-merge"):
@@ -5286,7 +5294,7 @@ def test_wo022_approved_lineage_and_promotion_pair_fail_closed(
     assert "active_promotions=WO-022-P-G1,WO-022-P" in g1
     assert "full_control_center_evidence=PASS" in g1
     assert "historical_WO-021-P-G1_WO-021-P=REJECTED" in g1
-    assert "unknown_WO-024-P_WO-999-P=REJECTED" in g1
+    assert "unknown_WO-025-P_WO-999-P=REJECTED" in g1
     assert "checkpoint_promotion=False" in g1
     with pytest.raises(ValueError, match="approved product lineage"):
         review_evidence.verify_wo022p_g1_governance_contract(
@@ -6833,8 +6841,11 @@ def test_unknown_checkpoint_promotions_fail_closed_without_rejecting_history() -
     require_supported_work_order(review_evidence.WO022P_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-024-P")
+        require_supported_work_order("WO-025-P")
 
 
 def test_current_checkpoint_promotion_authorization_separates_history() -> None:
@@ -6850,8 +6861,16 @@ def test_current_checkpoint_promotion_authorization_separates_history() -> None:
         require_current_work_order_authorization(review_evidence.WO022P_G1_WORK_ORDER)
     with pytest.raises(ValueError, match="historical checkpoint-promotion"):
         require_current_work_order_authorization(review_evidence.WO022P_WORK_ORDER)
-    require_current_work_order_authorization(review_evidence.WO023P_G1_WORK_ORDER)
-    require_current_work_order_authorization(review_evidence.WO023P_WORK_ORDER)
+    for historical_current in (
+        review_evidence.WO023P_G1_WORK_ORDER,
+        review_evidence.WO023P_WORK_ORDER,
+        review_evidence.WO023P_G1_C1_WORK_ORDER,
+    ):
+        with pytest.raises(ValueError, match="historical checkpoint-promotion"):
+            require_current_work_order_authorization(historical_current)
+    require_current_work_order_authorization(review_evidence.WO024_G1_WORK_ORDER)
+    require_current_work_order_authorization(review_evidence.WO024_WORK_ORDER)
+    require_current_work_order_authorization(review_evidence.WO024P_WORK_ORDER)
     for historical in (
         "WO-010-P",
         "WO-011-P",
@@ -6875,7 +6894,7 @@ def test_current_checkpoint_promotion_authorization_separates_history() -> None:
     ):
         with pytest.raises(ValueError, match="historical checkpoint-promotion"):
             require_current_work_order_authorization(historical)
-    for unknown in ("WO-024-P", "WO-999-P"):
+    for unknown in ("WO-025-P", "WO-999-P"):
         with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
             require_current_work_order_authorization(unknown)
 
@@ -9193,10 +9212,13 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     require_supported_work_order(review_evidence.WO023_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_G1_WORK_ORDER)
     require_supported_work_order(review_evidence.WO023P_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_G1_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024_WORK_ORDER)
+    require_supported_work_order(review_evidence.WO024P_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
-        require_supported_work_order("WO-024-P")
+        require_supported_work_order("WO-025-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-024")
+        require_supported_work_order("WO-025")
 
     monkeypatch.setattr(
         review_evidence,
@@ -9727,263 +9749,57 @@ def test_wo023p_scope_and_renderers_are_exact_and_bounded(
 def test_wo023p_governance_contract_binds_merged_benchmarks_and_lineage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The historical WO-023 promotion family stays auditable but is never current work."""
+
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
-    sources = approved_wo023_lineage_sources_fixture()
-    result = review_evidence.verify_wo023_approved_lineage(sources)
-    assert result["prior_backend_passed"] == 638
-    assert result["prior_full_version"] == "comprehensive-benchmarks-v1"
-    assert result["post_merge_ci_run"] == review_evidence.WO023_APPROVED_POST_MERGE_CI_RUN
-    statement = review_evidence.wo023_approved_lineage_statement(result)
-    assert statement.startswith(review_evidence.WO023_APPROVED_LINEAGE_STATEMENT_PREFIX)
-    assert review_evidence.parse_wo023_approved_lineage_statement(statement) == result
-    with pytest.raises(ValueError, match="approved lineage statement is missing"):
-        review_evidence.parse_wo023_approved_lineage_statement(
-            "Approved WO-021 product lineage: {}"
-        )
-
-    lineage_mutations: tuple[Callable[[dict[str, Any]], None], ...] = (
-        lambda data: data["product_pr"].update({"merge_commit_sha": "e" * 40}),
-        lambda data: data["product_pr"].update({"base": {"ref": "main", "sha": "e" * 40}}),
-        lambda data: data["product_pr"].update(
-            {"body": "<!-- HIVE-WORK-ORDER: WO-022 -->\n\nwrong work order."}
-        ),
-        lambda data: data["product_pr"].update({"merged": False}),
-        lambda data: data.update({"product_reviews": []}),
-        lambda data: data["product_reviews"][0].update({"commit_id": "e" * 40}),
-        lambda data: data["product_reviews"][0].update({"body": "Verdict: rejected."}),
-        lambda data: data["merge_commit"].update({"parents": [{"sha": "e" * 40}]}),
-        lambda data: data["post_merge_run"].update({"conclusion": "failure"}),
-        lambda data: data["post_merge_run"].update({"event": "pull_request"}),
-        lambda data: data["post_merge_jobs"].append(
-            {"name": "Review Evidence", "status": "completed", "conclusion": "success"}
-        ),
-        lambda data: data["post_merge_jobs"].__setitem__(
-            2, {"name": "Review Evidence", "status": "completed", "conclusion": "success"}
-        ),
-        lambda data: data["prior_review_comments"][0].update(
-            {"body": data["prior_review_comments"][0]["body"].replace("638", "637")}
-        ),
-        lambda data: data.update({"prior_review_comments": []}),
-    )
-    for mutate in lineage_mutations:
-        broken = copy.deepcopy(sources)
-        mutate(broken)
-        with pytest.raises(ValueError, match="WO-023"):
-            review_evidence.verify_wo023_approved_lineage(broken)
-
-    for field, value in (
-        ("squash_merge_sha", "e" * 40),
-        ("prior_full_version", "control-center-full-v1"),
-        ("post_merge_ci_run", 1),
-        ("prior_migration_head", "0006_memory_lifecycle_provenance"),
-        ("product_pr", 89),
-        ("prior_backend_passed", 637),
-        ("product_work_order", "WO-022"),
-    ):
-        with pytest.raises(ValueError, match="closed contract|mismatch"):
-            review_evidence.require_wo023_approved_lineage_result({**result, field: value})
-    lineage_definition = review_evidence.approved_lineage_definition(
-        "comprehensive_benchmarks_approved_lineage"
-    )
-    assert lineage_definition["additionalProperties"] is False
-    with pytest.raises(ValueError, match="closed contract"):
-        review_evidence.require_wo023_approved_lineage_result({**result, "extra": True})
-
     monkeypatch.setattr(
         review_evidence,
         "canonical_change_evidence",
         lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
     )
-    governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
-    integration = {"comprehensive_benchmarks": wo023_benchmark_payload()}
-    no_canonical = {
-        "project_brain_changed": False,
-        "checkpoint_changed": False,
-        "authorized_paths": [],
-    }
-    for promotion_work_order in (
-        review_evidence.WO023P_G1_WORK_ORDER,
-        review_evidence.WO023P_WORK_ORDER,
-    ):
-        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
-            promotion_work_order,
-            integration,
-            "0007_telemetry_events",
-        )
-    with pytest.raises(ValueError, match="must not claim future comprehensive benchmarks"):
-        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
-            review_evidence.WO023_G1_WORK_ORDER,
-            integration,
-            "0007_telemetry_events",
-        )
-    with pytest.raises(ValueError, match="missing mandatory comprehensive benchmarks"):
-        review_evidence.require_wo023_comprehensive_benchmarks_evidence(
-            review_evidence.WO023P_G1_WORK_ORDER,
-            {},
-            "0007_telemetry_events",
-        )
-
-    g1 = review_evidence.verify_wo023p_g1_governance_contract(
-        review_evidence.WO023P_G1_WORK_ORDER,
-        review_evidence.WO023P_G1_BASE_SHA,
-        sorted(review_evidence.WO023P_G1_ALLOWED_PATHS),
-        no_canonical,
-        governance,
-        integration,
+    evidence = review_evidence.verify_wo023p_g1_c1_governance_contract(
+        review_evidence.WO023P_G1_C1_WORK_ORDER,
+        review_evidence.WO023P_G1_C1_BASE_SHA,
+        sorted(review_evidence.WO023P_G1_C1_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"comprehensive_benchmarks": wo023_benchmark_payload()},
         "0007_telemetry_events",
-        result,
+        review_evidence.WO023P_G1_C1_BASE_SHA,
     )
-    assert g1 is not None
-    assert "active_promotions=WO-023-P-G1,WO-023-P" in g1
-    assert "historical_WO-022-P-G1_WO-022-P=REJECTED" in g1
-    assert "unknown_WO-023-P-C1_WO-024_WO-999-P=REJECTED" in g1
-    assert "comprehensive_benchmarks_evidence=PASS" in g1
-    assert "checkpoint_promotion=False" in g1
-    with pytest.raises(ValueError, match="approved product lineage"):
-        review_evidence.verify_wo023p_g1_governance_contract(
-            review_evidence.WO023P_G1_WORK_ORDER,
-            review_evidence.WO023P_G1_BASE_SHA,
-            sorted(review_evidence.WO023P_G1_ALLOWED_PATHS),
-            no_canonical,
-            governance,
-            integration,
-            "0007_telemetry_events",
-            None,
-        )
-    with pytest.raises(ValueError, match="passing comprehensive benchmarks"):
-        review_evidence.verify_wo023p_g1_governance_contract(
-            review_evidence.WO023P_G1_WORK_ORDER,
-            review_evidence.WO023P_G1_BASE_SHA,
-            sorted(review_evidence.WO023P_G1_ALLOWED_PATHS),
-            no_canonical,
-            governance,
-            {
-                "comprehensive_benchmarks": {
-                    **integration["comprehensive_benchmarks"],
-                    "status": "FAIL",
-                }
-            },
-            "0007_telemetry_events",
-            result,
-        )
-    with pytest.raises(ValueError, match="forbids canonical changes"):
-        review_evidence.verify_wo023p_g1_governance_contract(
-            review_evidence.WO023P_G1_WORK_ORDER,
-            review_evidence.WO023P_G1_BASE_SHA,
-            sorted(review_evidence.WO023P_G1_ALLOWED_PATHS),
-            {
-                "project_brain_changed": True,
-                "checkpoint_changed": True,
-                "authorized_paths": [review_evidence.CHECKPOINT_PATH],
-            },
-            governance,
-            integration,
-            "0007_telemetry_events",
-            result,
-        )
-    with pytest.raises(ValueError, match="auto-merge to remain unarmed"):
-        review_evidence.verify_wo023p_g1_governance_contract(
-            review_evidence.WO023P_G1_WORK_ORDER,
-            review_evidence.WO023P_G1_BASE_SHA,
-            sorted(review_evidence.WO023P_G1_ALLOWED_PATHS),
-            no_canonical,
-            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": True}},
-            integration,
-            "0007_telemetry_events",
-            result,
-        )
-
-    promotion_canonical = {
-        "project_brain_changed": True,
-        "checkpoint_changed": True,
-        "authorized_paths": sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS),
-    }
-    promotion = review_evidence.verify_wo023p_governance_contract(
-        review_evidence.WO023P_WORK_ORDER,
-        "b" * 40,
-        sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS),
-        promotion_canonical,
-        governance,
-        integration,
-        "0007_telemetry_events",
-        result,
-    )
-    assert promotion is not None
-    assert "checkpoint_promotion=True" in promotion
-    assert "full_v01_complete_claimed=False" in promotion
-    assert "production_quality_claimed_from_fixture=False" in promotion
-    for broken_canonical in (
-        {**promotion_canonical, "authorized_paths": [review_evidence.CHECKPOINT_PATH]},
-        no_canonical,
-    ):
-        with pytest.raises(ValueError, match="checkpoint and manifest canonical changes"):
-            review_evidence.verify_wo023p_governance_contract(
-                review_evidence.WO023P_WORK_ORDER,
-                "b" * 40,
-                sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS),
-                broken_canonical,
-                governance,
-                integration,
-                "0007_telemetry_events",
-                result,
-            )
-    with pytest.raises(ValueError, match="approved product lineage"):
-        review_evidence.verify_wo023p_governance_contract(
-            review_evidence.WO023P_WORK_ORDER,
-            "b" * 40,
-            sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS),
-            promotion_canonical,
-            governance,
-            integration,
-            "0007_telemetry_events",
-            None,
-        )
-    with pytest.raises(ValueError, match="mandatory comprehensive benchmarks"):
-        review_evidence.verify_wo023p_governance_contract(
-            review_evidence.WO023P_WORK_ORDER,
-            "b" * 40,
-            sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS),
-            promotion_canonical,
-            governance,
-            {},
-            "0007_telemetry_events",
-            result,
-        )
-
+    assert evidence is not None
+    assert "correction_scope=PASS" in evidence
+    assert "canonical_promotion_untouched=True" in evidence
+    assert "checkpoint_promotion=False" in evidence
     assert (
-        frozenset({review_evidence.WO023P_G1_WORK_ORDER, review_evidence.WO023P_WORK_ORDER})
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
         == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     )
     assert {
-        review_evidence.WO022P_G1_WORK_ORDER,
-        review_evidence.WO022P_WORK_ORDER,
+        review_evidence.WO023P_G1_WORK_ORDER,
+        review_evidence.WO023P_WORK_ORDER,
+        review_evidence.WO023P_G1_C1_WORK_ORDER,
     }.issubset(review_evidence.HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS)
     for historical in (
-        review_evidence.WO022P_G1_WORK_ORDER,
-        review_evidence.WO022P_WORK_ORDER,
+        review_evidence.WO023P_G1_WORK_ORDER,
+        review_evidence.WO023P_WORK_ORDER,
     ):
         with pytest.raises(ValueError, match="historical checkpoint-promotion"):
             review_evidence.require_current_work_order_authorization(historical)
-    for rejected in ("WO-023-P-C1", "WO-024", "WO-999-P"):
-        with pytest.raises(ValueError, match="unsupported|historical"):
-            review_evidence.require_current_work_order_authorization(rejected)
-    for authorized in (review_evidence.WO023P_G1_WORK_ORDER, review_evidence.WO023P_WORK_ORDER):
+    for authorized in (
+        review_evidence.WO024_G1_WORK_ORDER,
+        review_evidence.WO024_WORK_ORDER,
+        review_evidence.WO024P_WORK_ORDER,
+    ):
         review_evidence.require_current_work_order_authorization(authorized)
-    assert (
-        AUTHORIZED_BASE_BY_WORK_ORDER[review_evidence.WO023P_G1_WORK_ORDER]
-        == review_evidence.WO023P_G1_BASE_SHA
-    )
-    assert (
-        review_evidence.WO023P_PROMOTION_REGISTRY[review_evidence.WO023P_WORK_ORDER]
-        == review_evidence.WO012P_PROMOTION_BASE_REF
-    )
 
 
 class _ManifestScopeReached(Exception):
-    """Sentinel used to stop a driven manifest build at the promotion scope check."""
-
-
-_REAL_WO023P_SCOPE = review_evidence.require_wo023p_scope
+    """Sentinel raised to stop a driven manifest build at the promotion scope check."""
 
 
 def wo023p_manifest_harness(
@@ -9997,7 +9813,7 @@ def wo023p_manifest_harness(
     base_sha = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
     head_sha = "f" * 40
     seen: dict[str, object] = {"scope_calls": []}
-    real_scope = _REAL_WO023P_SCOPE
+    real_scope = review_evidence.require_wo023p_scope
 
     def fake_git_value(*args: object, **kwargs: object) -> str:
         if args[:2] == ("rev-parse", review_evidence.WO012P_PROMOTION_BASE_REF):
@@ -10051,64 +9867,54 @@ def wo023p_pr_body(marker: str | None) -> str:
 def test_wo023p_build_manifest_reads_its_authorized_base_marker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base_sha = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
+    """A merged historical work order is rejected as current work by the real manifest path."""
+
     seen, args = wo023p_manifest_harness(
         monkeypatch,
-        wo023p_pr_body(base_sha),
+        wo023p_pr_body("3ca2109175b7c6842c6578c237ff798d5ce8916f"),
     )
-
-    with pytest.raises(_ManifestScopeReached):
+    with pytest.raises(ValueError, match="historical checkpoint-promotion"):
         review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
-
-    assert seen["work_order"] == review_evidence.WO023P_WORK_ORDER
-    assert seen["base_sha"] == base_sha
-    assert seen["authorized_base_sha"] == base_sha
-    assert seen["paths"] == sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS)
-    assert review_evidence.WO023P_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
-    assert (
-        review_evidence.WO023P_G1_C1_WORK_ORDER
-        in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
-    )
+    assert seen.get("scope_calls", []) == []
+    assert "authorized_base_sha" not in seen
 
 
 def test_wo023p_build_manifest_fails_closed_on_bad_authorized_base_markers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base_sha = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
-    cases = (
-        ("missing marker", wo023p_pr_body(None), "missing exactly one authorized-base marker"),
+    """The live promotion work order owns the authorized-base marker matrix."""
+
+    _ = monkeypatch
+    base_sha = review_evidence.WO024_G1_BASE_SHA
+    preferred = review_evidence.WO024P_WORK_ORDER
+    header = f"<!-- HIVE-WORK-ORDER: {preferred} -->" + chr(10)
+    marker_cases = (
+        ("missing marker", header, "missing exactly one authorized-base marker"),
         (
             "duplicate markers",
-            wo023p_pr_body(base_sha) + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->\n",
+            header
+            + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->"
+            + chr(10)
+            + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->"
+            + chr(10),
             "multiple conflicting authorized-base markers",
         ),
         (
             "malformed marker",
-            wo023p_pr_body(base_sha.upper()),
+            header + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha.upper()} -->" + chr(10),
             "lowercase 40-hex",
         ),
         (
             "truncated marker",
-            wo023p_pr_body(base_sha[:39]),
+            header + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha[:39]} -->" + chr(10),
             "lowercase 40-hex",
         ),
     )
-    for label, body, expected in cases:
-        seen, args = wo023p_manifest_harness(monkeypatch, body)
+    for _label, body, expected in marker_cases:
         with pytest.raises(ValueError, match=expected):
-            review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
-        assert "authorized_base_sha" not in seen, label
-        assert seen["scope_calls"] == [], label
-
-    mismatched = "a" * 40
-    seen, args = wo023p_manifest_harness(
-        monkeypatch,
-        wo023p_pr_body(mismatched),
-        delegate=True,
-    )
-    with pytest.raises(ValueError, match="must match the pull request base SHA"):
-        review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
-    assert seen["authorized_base_sha"] == mismatched
+            review_evidence.authorized_base_marker_sha(preferred, body)
+    valid = header + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->" + chr(10)
+    assert review_evidence.authorized_base_marker_sha(preferred, valid) == base_sha
 
 
 def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
@@ -10191,7 +9997,7 @@ def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
     assert evidence is not None
     assert "authorized_base_parser_covers_WO-023-P=PASS" in evidence
     assert "canonical_promotion_untouched=True" in evidence
-    assert "unknown_WO-024-P_WO-024_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-025_WO-025-P_WO-999-P=REJECTED" in evidence
     assert "checkpoint_promotion=False" in evidence
     with pytest.raises(ValueError, match="forbids canonical changes"):
         review_evidence.verify_wo023p_g1_c1_governance_contract(
@@ -10252,10 +10058,11 @@ def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
         AUTHORIZED_BASE_BY_WORK_ORDER[review_evidence.WO023P_G1_C1_WORK_ORDER]
         == review_evidence.WO023P_G1_C1_BASE_SHA
     )
-    review_evidence.require_current_work_order_authorization(
-        review_evidence.WO023P_G1_C1_WORK_ORDER
-    )
-    for rejected in ("WO-024", "WO-024-P", "WO-999-P"):
+    with pytest.raises(ValueError, match="historical checkpoint-promotion"):
+        review_evidence.require_current_work_order_authorization(
+            review_evidence.WO023P_G1_C1_WORK_ORDER
+        )
+    for rejected in ("WO-025", "WO-025-P", "WO-999-P"):
         with pytest.raises(ValueError, match="unsupported|historical"):
             review_evidence.require_current_work_order_authorization(rejected)
     for historical in (
@@ -10294,3 +10101,240 @@ def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
             merge_before="squash",
             merge_after="squash",
         )
+
+
+def v01_closure_evidence_fixture(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "status": "PASS",
+        "v01_closure_sprint_evidence_version": review_evidence.V01_CLOSURE_SPRINT_EVIDENCE_VERSION,
+        "evidence_file": review_evidence.V01_CLOSURE_SPRINT_EVIDENCE_FILE,
+        "observed_migration_head": review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        "migration_base_head": review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        "reviewed_base_sha": "a" * 40,
+        "reviewed_head_sha": "b" * 40,
+        "fixture_identity": "closure-fixture-v1",
+        "corpus_identity": "closure-corpus-v1",
+        "run_digest": hashlib.sha256(b"closure").hexdigest(),
+        "deployment_persistent_root_identity": "host-persistence-root-v1",
+        "backup_artifact_sha256": hashlib.sha256(b"backup").hexdigest(),
+        "dod_definition_of_done_sha256": hashlib.sha256(b"dod").hexdigest(),
+        **{field: True for field in review_evidence.V01_CLOSURE_SPRINT_TRUE_FIELDS},
+        **{field: False for field in review_evidence.V01_CLOSURE_SPRINT_FALSE_FIELDS},
+        **{field: 0 for field in review_evidence.V01_CLOSURE_SPRINT_ZERO_FIELDS},
+        "stabilization_defects_discovered": 4,
+        "stabilization_defects_fixed": 4,
+        "deployment_service_count": 4,
+        "backup_artifact_count": 2,
+        "e2e_stage_count": len(review_evidence.V01_CLOSURE_SPRINT_E2E_STAGES),
+        "dod_total_count": 12,
+        "dod_pass_count": 12,
+        "changed_paths": ["backend/app/retrieval.py", "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md"],
+        "stabilization_evidence_paths": ["docs/atlas/V0.1-CLOSURE-GAP-REPORT.md"],
+        "deployment_evidence_paths": ["docker-compose.yml"],
+        "backup_evidence_paths": ["scripts/backup_restore.py"],
+        "orchestration_evidence_paths": ["backend/app/execution_orchestrator.py"],
+        "e2e_evidence_paths": ["scripts/closure_integration.py"],
+        "orchestration_authority_order": list(review_evidence.V01_CLOSURE_SPRINT_AUTHORITY_ORDER),
+        "orchestration_negative_matrix": list(review_evidence.V01_CLOSURE_SPRINT_NEGATIVE_CASES),
+        "e2e_completed_stages": list(review_evidence.V01_CLOSURE_SPRINT_E2E_STAGES),
+        "documentation_entries": [
+            {
+                "name": name,
+                "path": "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md",
+                "sha256": hashlib.sha256(name.encode()).hexdigest(),
+                "status": "PASS",
+            }
+            for name in review_evidence.V01_CLOSURE_SPRINT_DOCUMENTATION_ENTRIES
+        ],
+        "dod_items": [
+            {
+                "item": f"Definition of Done requirement {index}",
+                "status": "PASS",
+                "evidence_path": "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md",
+                "sha256": hashlib.sha256(f"dod-{index}".encode()).hexdigest(),
+            }
+            for index in range(12)
+        ],
+        "closure_candidate": True,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_wo024_g1_scope_and_renderers_are_exact_and_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    base_sha = review_evidence.WO024_G1_BASE_SHA
+    allowed = sorted(review_evidence.WO024_G1_ALLOWED_PATHS)
+    review_evidence.require_wo024_g1_scope(
+        review_evidence.WO024_G1_WORK_ORDER, base_sha, allowed, authorized_base_sha=base_sha
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo024_g1_scope(
+            review_evidence.WO024_G1_WORK_ORDER, "f" * 40, allowed, authorized_base_sha=base_sha
+        )
+    with pytest.raises(ValueError, match="exactly the four governance files"):
+        review_evidence.require_wo024_g1_scope(
+            review_evidence.WO024_G1_WORK_ORDER,
+            base_sha,
+            [*allowed, review_evidence.CHECKPOINT_PATH],
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="exactly one authorized-base marker"):
+        review_evidence.require_wo024_g1_scope(
+            review_evidence.WO024_G1_WORK_ORDER, base_sha, allowed
+        )
+
+    governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
+    evidence = review_evidence.verify_wo024_g1_governance_contract(
+        review_evidence.WO024_G1_WORK_ORDER,
+        base_sha,
+        allowed,
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        governance,
+        {},
+        "0007_telemetry_events",
+        base_sha,
+    )
+    assert evidence is not None
+    assert "future_WO-024=REGISTERED" in evidence and "future_WO-024-P=REGISTERED" in evidence
+    assert "checkpoint_promotion=False" in evidence
+    with pytest.raises(ValueError, match="must not claim future v01 closure"):
+        review_evidence.verify_wo024_g1_governance_contract(
+            review_evidence.WO024_G1_WORK_ORDER,
+            base_sha,
+            allowed,
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            governance,
+            {"v01_closure_sprint": v01_closure_evidence_fixture()},
+            "0007_telemetry_events",
+            base_sha,
+        )
+
+    body = render_body(
+        work_order=review_evidence.WO024_G1_WORK_ORDER,
+        pr_number=95,
+        branch="governance/wo024-g1-v01-closure-sprint",
+        base_sha=base_sha,
+        head_sha="a" * 40,
+        artifact_name="hive-review-evidence-WO-024-G1",
+        ruleset_before="21934284",
+        ruleset_after="21934284",
+        merge_before="squash",
+        merge_after="squash",
+    )
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-024-G1 -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->" in body
+    assert "WO-024-G1 READY FOR SOL AUDIT" in body
+    with pytest.raises(ValueError, match="authorized base"):
+        render_body(
+            work_order=review_evidence.WO024_G1_WORK_ORDER,
+            pr_number=95,
+            branch="governance/wo024-g1-v01-closure-sprint",
+            base_sha="d" * 40,
+            head_sha="a" * 40,
+            artifact_name="hive-review-evidence-WO-024-G1",
+            ruleset_before="21934284",
+            ruleset_after="21934284",
+            merge_before="squash",
+            merge_after="squash",
+        )
+
+
+def test_wo024_closure_contract_fails_closed_on_incomplete_closure() -> None:
+    integration = {"v01_closure_sprint": v01_closure_evidence_fixture()}
+    review_evidence.require_wo024_v01_closure_sprint_evidence(
+        review_evidence.WO024_WORK_ORDER, integration, "0007_telemetry_events"
+    )
+    with pytest.raises(ValueError, match="missing mandatory v01 closure sprint evidence"):
+        review_evidence.require_wo024_v01_closure_sprint_evidence(
+            review_evidence.WO024_WORK_ORDER, {}, "0007_telemetry_events"
+        )
+
+    dod_items = cast(list[dict[str, object]], integration["v01_closure_sprint"]["dod_items"])
+    failing_items = [dict(item) for item in dod_items]
+    failing_items[0] = {**failing_items[0], "status": "FAIL"}
+    unknown_items = [dict(item) for item in dod_items]
+    unknown_items[1] = {**unknown_items[1], "status": "UNKNOWN"}
+    documented = cast(
+        list[dict[str, object]], integration["v01_closure_sprint"]["documentation_entries"]
+    )
+    stale_docs = [dict(entry) for entry in documented]
+    stale_docs[0] = {**stale_docs[0], "status": "FAIL"}
+    negative_cases = (
+        ("remaining high defect", {"stabilization_remaining_high": 1}),
+        ("remaining critical defect", {"stabilization_remaining_critical": 1}),
+        (
+            "deployment persistence failure",
+            {"deployment_postgres_persistence_after_recreation": False},
+        ),
+        ("deployment cas integrity failure", {"deployment_cas_persistence_integrity": False}),
+        ("backup mismatch", {"backup_row_equivalence": False}),
+        ("backup cas mismatch", {"backup_cas_hash_equivalence": False}),
+        ("redis canonical", {"redis_canonical_truth": True}),
+        ("checkpoint not first", {"orchestration_checkpoint_first": False}),
+        ("cross-project authority", {"orchestration_negative_matrix": ["missing_authority"]}),
+        (
+            "missing e2e stage",
+            {"e2e_completed_stages": list(review_evidence.V01_CLOSURE_SPRINT_E2E_STAGES[:-1])},
+        ),
+        ("stale docs", {"documentation_entries": stale_docs}),
+        ("dod fail", {"dod_items": failing_items}),
+        ("dod unknown", {"dod_items": unknown_items}),
+        ("completion claim in product", {"full_v01_complete_claimed": True}),
+        ("fabricated metrics", {"fabricated_metrics": True}),
+        ("secret leak", {"secret_leaks": 2}),
+        ("unbounded changed path", {"changed_paths": ["C:\\Windows\\system32"]}),
+        ("absolute evidence path", {"stabilization_evidence_paths": ["/var/lib/hive/cas"]}),
+        ("wrong dod total", {"dod_total_count": 11}),
+        ("stabilization regression", {"stabilization_regression_suite_pass": False}),
+    )
+    for label, override in negative_cases:
+        broken = {"v01_closure_sprint": v01_closure_evidence_fixture(**override)}
+        if label == "completion claim in product":
+            fixture = v01_closure_evidence_fixture(**override)
+            assert fixture["full_v01_complete_claimed"] is True
+        with pytest.raises(ValueError, match="WO-024"):
+            review_evidence.require_wo024_v01_closure_sprint_evidence(
+                review_evidence.WO024_WORK_ORDER, broken, "0007_telemetry_events"
+            )
+
+
+def test_wo024_product_scope_boundaries_are_bounded() -> None:
+    allowed = (
+        "backend/app/retrieval.py",
+        "backend/tests/test_retrieval.py",
+        "scripts/closure_integration.py",
+        "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md",
+        "dashboard/src/main.tsx",
+        "dashboard/tests/app.test.tsx",
+        "docker-compose.yml",
+        ".env.example",
+        "README.md",
+        "Dockerfile",
+    )
+    assert review_evidence.closure_product_scope(list(allowed)) == []
+    for forbidden in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        "migrations/versions/0008_closure.py",
+        ".github/workflows/ci.yml",
+        "release-assets/notes.md",
+        "requirements.txt",
+        "dashboard/package-lock.json",
+    ):
+        assert review_evidence.closure_product_scope([forbidden]) == [forbidden]
