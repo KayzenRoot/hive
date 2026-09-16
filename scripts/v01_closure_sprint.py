@@ -548,7 +548,7 @@ def orchestration_family(probe: ApiProbe) -> dict[str, object]:
         cleanup_fixtures(fixtures)
 
 
-def e2e_family(probe: ApiProbe) -> dict[str, object]:
+def e2e_family(probe: ApiProbe, executed: dict[str, str]) -> dict[str, object]:
     """Measure the canonical twelve-stage closure scenario on a bounded fixture."""
 
     fixture_label = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-alpha"
@@ -906,7 +906,6 @@ def main() -> int:
 
         deployment = deployment_family(probe)
         orchestration = orchestration_family(probe)
-        e2e = e2e_family(probe)
 
         backup = integration_log("v01-backup-restore.json")
         require(
@@ -934,6 +933,7 @@ def main() -> int:
                     file=sys.stderr,
                 )
             executed[stage] = artifact
+        e2e = e2e_family(probe, executed)
 
         e2e_stages = [str(stage) for stage in e2e["completed_stages"]]
 
