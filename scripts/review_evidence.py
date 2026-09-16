@@ -10697,7 +10697,8 @@ def integration_evidence(
         status = "FAIL"
     comprehensive_benchmarks = comprehensive_benchmarks_evidence()
     if (
-        work_order in {WO023_WORK_ORDER, WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}
+        work_order
+        in {WO023_WORK_ORDER, WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER, WO023P_G1_C1_WORK_ORDER}
         and comprehensive_benchmarks["status"] == "FAIL"
     ):
         status = "FAIL"
@@ -10765,7 +10766,12 @@ def integration_evidence(
         evidence["control_center_metrics"] = control_center_metrics
     if work_order in {WO022_WORK_ORDER, WO022P_G1_WORK_ORDER, WO022P_WORK_ORDER}:
         evidence["control_center_full"] = control_center_full
-    if work_order in {WO023_WORK_ORDER, WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}:
+    if work_order in {
+        WO023_WORK_ORDER,
+        WO023P_G1_WORK_ORDER,
+        WO023P_WORK_ORDER,
+        WO023P_G1_C1_WORK_ORDER,
+    }:
         evidence["comprehensive_benchmarks"] = comprehensive_benchmarks
     return evidence
 
