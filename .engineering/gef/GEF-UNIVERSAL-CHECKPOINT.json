@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "gef-universal-checkpoint-v1",
+  "gefVersion": "1.0.0",
+  "project": {
+    "name": "HIVE",
+    "repository": "KayzenRoot/hive",
+    "classification": "BROWNFIELD"
+  },
+  "adoption": {
+    "workOrder": "GEF-UNIVERSAL-ADOPTION-002",
+    "baselineHead": "4fb0aa111bd5b0f526df85b1897618d8eca1c0e0",
+    "branch": "governance/gef-v1-universal-adoption-002",
+    "state": "STAGED_UNIVERSAL_RECONCILIATION",
+    "stopState": "GEF_ADOPTION_EXACT_HEAD_EVIDENCE_REQUIRED",
+    "historicalAdoptionPr": 81,
+    "historicalAdoptionMerge": "2ccbf09c193ba30e78d768bb32a4e78a4f209812"
+  },
+  "completedGovernedIncrements": [
+    {
+      "id": "GEF-ADOPTION-001",
+      "kind": "HISTORICAL_GEF_BASELINE",
+      "evidence": "PR#81 / merge 2ccbf09c193ba30e78d768bb32a4e78a4f209812"
+    }
+  ],
+  "activeIncrement": {
+    "id": "WO-024",
+    "pr": 95,
+    "authorizedBase": "4fb0aa111bd5b0f526df85b1897618d8eca1c0e0",
+    "relationship": "MUST_COMPLETE_OR_BE_CANONICALLY_SUPERSEDED_BEFORE_ADOPTION_MERGE"
+  },
+  "acceptedEvidence": [
+    "protected main ruleset 21934284",
+    "required checks Validate / Integration health / Review Evidence",
+    "historical GEF adoption merge 2ccbf09c193ba30e78d768bb32a4e78a4f209812"
+  ],
+  "unresolvedRisks": [
+    {
+      "id": "GEF-U-001",
+      "severity": "HIGH",
+      "summary": "Merging universal adoption before active WO-024 terminates would move main and invalidate its exact authorized base.",
+      "mitigation": "Preserve WO-024; stage adoption only until the active exact-base dependency is resolved."
+    },
+    {
+      "id": "GEF-U-002",
+      "severity": "MEDIUM",
+      "summary": "Current Review Evidence is HIVE Work-Order-specific and does not yet define an exact-head acceptance contract for GEF-UNIVERSAL-ADOPTION-002.",
+      "mitigation": "After WO-024 closes, add the smallest compatible governance bridge or map adoption to an accepted engineering Work Order without weakening Review Evidence."
+    }
+  ],
+  "blockedItems": [],
+  "nextLegalAction": "Finish active WO-024. Then refresh this adoption branch onto accepted main, validate exact head, open/refresh adoption PR, audit and merge.",
+  "postMergeRequiredState": "GEF_V1_ADOPTED_READY_FOR_GOVERNED_DEVELOPMENT",
+  "stopCondition": "Do not claim adoption complete until the universal adoption candidate is exact-head validated, accepted, merged without invalidating active governed work, default main is verified, and this checkpoint is updated on the accepted post-merge state."
+}

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "gef-context-lock-v1",
+  "workOrder": "<STABLE-ID>",
+  "project": {
+    "name": "HIVE",
+    "repository": "KayzenRoot/hive",
+    "projectId": "<discover-or-null>"
+  },
+  "git": {
+    "authorizedBaseSha": "<40-char-sha>",
+    "expectedBranch": "<branch>",
+    "expectedHeadSha": null,
+    "defaultBranch": "main",
+    "staleHeadPolicy": "FAIL_CLOSED"
+  },
+  "authority": {
+    "checkpoint": "docs/project-brain/13-CHECKPOINT.md",
+    "decisions": "docs/project-brain/16-DECISIONS-LEDGER.md",
+    "scope": "docs/project-brain/03-SCOPE.md",
+    "definitionOfDone": "docs/project-brain/15-DEFINITION-OF-DONE.md",
+    "architecture": "docs/project-brain/04-ARCHITECTURE.md",
+    "security": "docs/project-brain/10-SECURITY-GOVERNANCE.md",
+    "requirements": "docs/project-brain/02-REQUIREMENTS.md",
+    "contradictionPolicy": "RECORD_AND_FAIL_CLOSED_WHEN_MATERIAL"
+  },
+  "scope": {
+    "allowedPaths": [],
+    "preservedPaths": [],
+    "forbiddenPaths": [],
+    "outOfScope": []
+  },
+  "executorAcceleration": {
+    "implementationSeedTree": [],
+    "fileIntentCapsules": [],
+    "brownfieldPatchIntent": [],
+    "navigationMap": [],
+    "closedDecisions": [],
+    "executionWaves": [],
+    "validationReuse": [],
+    "criticalPath": []
+  },
+  "assurance": {
+    "requiredChecks": [],
+    "risk": "<LOW|MEDIUM|HIGH|CRITICAL>",
+    "exactHeadAuditRequired": true,
+    "unknownIsPass": false,
+    "highCriticalMustBeZeroForApproval": true
+  },
+  "stopCondition": "<explicit stop condition>"
+}

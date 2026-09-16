@@ -1,54 +1,116 @@
-# GEF V1 HEDS Delta Review Protocol — HIVE
+# GEF V1 Universal Exact-Head Review Protocol — HIVE
 
-## Review pipeline
+## Principle
 
-`ANALYZE DELTA -> SOURCE CHECK -> INVALIDATED PROOFS -> SEMANTIC REVIEW -> GATE RECEIPTS -> EXACT-HEAD VERDICT`
+Review is evidence-bound, delta-first and exact-head. Executor narrative is useful context, never proof by itself.
 
-## First candidate
+## Review entry requirements
 
-The first candidate of an increment may receive broad review necessary to establish the semantic baseline. Accepted findings, frozen decisions and proof dependencies are recorded.
+Before issuing a final verdict, resolve when applicable:
 
-## Subsequent candidates
+- repository/PR identity;
+- base branch and authorized base SHA;
+- exact candidate HEAD;
+- Work Order / Context Lock;
+- changed-file inventory and diff;
+- current canonical checkpoint and applicable source hierarchy;
+- required CI/test/evidence state;
+- ruleset/merge policy;
+- unresolved review threads;
+- auto-merge state;
+- CRITICAL/HIGH findings.
 
-Review delta-first:
+If exact candidate identity cannot be established, do not approve.
 
-- compare last reviewed head to current exact head,
-- identify changed files/symbols and material toolchain/policy changes,
-- carry forward only proofs whose relevant inputs and Evidence Validity Fingerprint remain compatible,
-- invalidate proofs whose relevant inputs changed,
-- do not reopen accepted findings without a new invalidating delta.
+## Delta-first pipeline
 
-## Evidence Validity Fingerprint
+1. Read current accepted checkpoint and source authority.
+2. Confirm candidate base/head/branch/PR and stale-head status.
+3. Check Work Order scope and preservation boundaries.
+4. Inspect changed files, contracts, data flows and architecture seams.
+5. Identify accepted evidence invalidated by the diff.
+6. Audit security, canonical data, project isolation, error handling and rollback implications proportionate to risk.
+7. Inspect relevant focused checks and full candidate evidence.
+8. Inspect hosted exact-head checks.
+9. Verify review threads, ruleset and merge/auto-merge state.
+10. Issue a verdict anchored to the exact candidate SHA.
 
-A proof fingerprint may include, when material:
+If HEAD changes, repeat the exact-head audit for the new candidate.
 
-- source/blob hashes or target symbol hashes,
-- test/eval implementation hash,
-- config/toolchain versions,
-- policy/schema version,
-- OS/platform when the proof is platform-sensitive,
-- canonical source/checkpoint/ADR identity,
-- provider/runtime identity for provider-specific evidence.
+## Verdicts
 
-A matching test name is never sufficient by itself.
+### APPROVED
 
-## Exact-head rule
+Use only when all applicable facts are true:
 
-- HEDS may begin while CI is running.
-- Final verdict waits for all mandatory exact-head gates.
-- Old-head CI/evidence is historical only.
-- Gate receipts belong outside source head when possible: GitHub check/artifact/comment or equivalent.
-- Do not create an evidence-only source commit after gates merely to record run IDs.
+- candidate SHA is known and current;
+- required checks are complete and green;
+- CRITICAL=0;
+- HIGH=0;
+- scope is satisfied without unauthorized expansion;
+- no preservation violation exists;
+- no architecture/security/data-integrity defect remains;
+- evidence matches the claims it is used to prove;
+- no unresolved stale-head mismatch exists;
+- required review threads are resolved;
+- merge state complies with repository policy.
 
-## HIVE hosted gate mapping
+### CORRECTION_REQUIRED
 
-- A3 `Validate` -> deterministic validation, unit/static/build/package/compose checks.
-- A3 `Integration health` -> Docker-backed integration/recovery/system proofs.
-- A3 `Review Evidence` -> machine manifest/sticky exact-head governance evidence.
-- A4 `HEDS Delta` -> independent semantic/scope/architecture/security review.
+Use when one or more defects are fixable inside the authorized increment.
 
-Ruleset `21934284` and ADR-019 remain authoritative. Native GitHub Approve is not the semantic quality gate.
+The correction should:
 
-## Current assurance gap
+- remain on the same Work Order/PR when safe;
+- address only audited findings and directly related regressions;
+- preserve accepted evidence that remains valid;
+- use focused tests during correction;
+- finish with required full/exact-head evidence;
+- not advance the next product increment until re-audited.
 
-The active GLOBAL UADS host currently lacks a supported way to allocate the distinct reviewer sessions required by the most recent recovery. Until resolved, GEF must report `BLOCKED_EVIDENCE`; it must not reinterpret the missing independent/security reviewer as PASS. This gap does not authorize weakening UADS or HIVE governance.
+### BLOCKED
+
+Use only when a concrete external, canonical or capability constraint prevents safe continuation, such as unavailable required permissions, irreconcilable canonical contradiction, unavailable required external service with no valid substitute, or an active governance dependency that cannot be safely bypassed.
+
+Do not classify ordinary test failures, CI failures, assertion errors, implementation defects or run duration as BLOCKED when they are fixable inside scope.
+
+## Severity handling
+
+- CRITICAL unresolved: approval forbidden.
+- HIGH unresolved: approval forbidden.
+- MEDIUM: must be resolved or explicitly accepted by applicable project governance before release-critical approval.
+- LOW: may be accepted when non-blocking and recorded.
+
+Do not down-rank findings merely to progress faster.
+
+## Evidence validity
+
+A prior proof may be carried forward only when the current diff does not invalidate the behavior, contract, fixture, dependency, environment assumption or evidence lineage it proved.
+
+When uncertain, rerun the smallest relevant check. Release-critical closure may require the full candidate sweep.
+
+`UNKNOWN` is not PASS. A hash alone proves only byte integrity, not correctness or signing.
+
+## Review response
+
+A concise Sol review should report:
+
+- `VERDICT`;
+- exact PR/base/head;
+- blocking findings ordered by severity;
+- material positive evidence retained;
+- CI/tests/evidence/ruleset/thread state;
+- next legal action;
+- product progress separately from GEF/adoption progress when estimates are requested.
+
+If a correction prompt is required, generate one bounded executor prompt that closes all known in-scope findings in as few dependency-safe gates as practical.
+
+## Merge and post-merge
+
+When HIVE governance authorizes Sol direct promotion and all exact-head preconditions are green, merge using the repository's current allowed method. Immediately verify the new default-branch SHA, expected lineage and mandatory post-merge CI/evidence.
+
+Do not advance after a failed post-merge gate until the failure is understood and resolved.
+
+## Final project completion
+
+GEF cannot declare HIVE complete. HIVE V0.1 completion is governed by the canonical Definition of Done and final canonical checkpoint/review process.

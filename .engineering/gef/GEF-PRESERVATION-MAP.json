@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "gef-preservation-map-v1",
+  "workOrder": "GEF-UNIVERSAL-ADOPTION-002",
+  "repository": "KayzenRoot/hive",
+  "baselineHead": "4fb0aa111bd5b0f526df85b1897618d8eca1c0e0",
+  "collisions": [
+    {
+      "path": "docs/project-brain/**",
+      "classification": "EXISTS_PROJECT_AUTHORITY",
+      "action": "PRESERVE_AND_MAP",
+      "reason": "Canonical HIVE checkpoint, decisions, scope, DoD, architecture, requirements and policy already exist."
+    },
+    {
+      "path": ".engineering/gef/**",
+      "classification": "EXISTS_NEEDS_MERGE",
+      "action": "RECONCILE_ADDITIVELY",
+      "reason": "Prior GEF V1 adoption exists but current/adoption metadata and protocols predate Universal Adoption."
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "classification": "EXISTS_PROJECT_AUTHORITY",
+      "action": "PRESERVE",
+      "reason": "Current required checks and evidence flow are already enforced by protected-main governance."
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "classification": "EXISTS_COMPATIBLE",
+      "action": "PRESERVE",
+      "reason": "Current HIVE markers and exact-head evidence flow remain authoritative."
+    },
+    {
+      "path": "AGENTS.md",
+      "classification": "EXISTS_COMPATIBLE",
+      "action": "MERGE_MINIMALLY",
+      "reason": "Existing source-order and safety instructions are correct; add only a pointer to Universal GEF protocols."
+    },
+    {
+      "path": "README.md",
+      "classification": "EXISTS_PROJECT_AUTHORITY",
+      "action": "PRESERVE",
+      "reason": "No adoption need justifies replacing the project README."
+    },
+    {
+      "path": "backend/**",
+      "classification": "EXISTS_PROJECT_AUTHORITY",
+      "action": "PRESERVE",
+      "reason": "GEF adoption must not change product behavior."
+    },
+    {
+      "path": "dashboard/**",
+      "classification": "EXISTS_PROJECT_AUTHORITY",
+      "action": "PRESERVE",
+      "reason": "GEF adoption must not change product behavior."
+    },
+    {
+      "path": "migrations/**",
+      "classification": "EXISTS_PROJECT_AUTHORITY",
+      "action": "PRESERVE",
+      "reason": "No database migration is required for governance adoption."
+    },
+    {
+      "path": ".engineering/gef/GEF-PROJECT-MASTER.md",
+      "classification": "CREATE_SAFE",
+      "action": "CREATE",
+      "reason": "Thin source map avoids duplicating canonical Project Brain."
+    },
+    {
+      "path": ".engineering/gef/GEF-WORK-ORDER-TEMPLATE.md",
+      "classification": "CREATE_SAFE",
+      "action": "CREATE",
+      "reason": "Reusable governed execution contract required by Universal Adoption."
+    },
+    {
+      "path": ".engineering/gef/GEF-CONTEXT-LOCK-TEMPLATE.json",
+      "classification": "CREATE_SAFE",
+      "action": "CREATE",
+      "reason": "Machine-readable exact-base/context lock required for executor acceleration."
+    },
+    {
+      "path": ".engineering/gef/GEF-UNIVERSAL-CHECKPOINT.json",
+      "classification": "CREATE_SAFE",
+      "action": "CREATE",
+      "reason": "Machine-readable GEF adoption/resume state without replacing the HIVE checkpoint."
+    }
+  ],
+  "preservationConstraints": [
+    "No Project Brain mutation in adoption.",
+    "No product/runtime mutation in adoption.",
+    "No migration/dependency/release mutation in adoption.",
+    "No CI or ruleset weakening.",
+    "No historical Work Order fabrication.",
+    "No merge that invalidates active WO-024 exact-base authorization."
+  ],
+  "result": "PRESERVATION_PLAN_COMPLETE"
+}

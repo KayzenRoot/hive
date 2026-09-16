@@ -1,76 +1,128 @@
-# GEF V1 Execution Protocol — HIVE
+# GEF V1 Universal Execution Protocol — HIVE
 
 ## Pipeline
 
-`REQUEST -> Source Drift Sentinel -> Task Class -> Context Radius -> UPIR/Task Manifest -> Decision Freeze Capsule -> Context Slice -> Patch Recipe -> Budgets -> SOURCE_MATCH -> bounded implementation -> A0/A1/A2 -> one final push -> A3 hosted gates + HEDS Delta -> exact-head verdict`
+All substantial governed work follows:
 
-## Source Drift Sentinel
+`ANALYZE -> SOURCE CHECK -> NEXT NECESSARY INCREMENT -> WORK ORDER -> CONTEXT LOCK -> PREFLIGHT -> EXECUTOR -> TESTS/EVIDENCE -> PR -> EXACT-HEAD AUDIT -> CHECKPOINT DELTA -> MERGE -> NEXT`
 
-Before implementation, bind the pack to repository identity, authorized base/head, current checkpoint identity and material contracts. If any binding changed, stop `SOURCE_CONFLICT` or regenerate the pack.
+Do not jump from an idea directly to mutation when a stable execution contract is needed.
 
-## Execution Pack contract
+## 1. ANALYZE
 
-Every implementation pack contains:
+Inspect current repository state, active branches/PRs, canonical checkpoint, applicable decisions, scope, DoD and architecture. Determine whether the requested change is NECESSARY, IMPORTANT, FUTURE or OUT OF SCOPE under HIVE governance.
 
-- project, work order, branch/PR, authorized base/head
-- task class, context radius, assurance level
-- Accepted/Frozen decisions/findings
-- one Open Goal/Finding
-- resolved Root Cause / Engineering Decision
-- Patch Map with allowed files/symbols
-- Prescribed Algorithm and postconditions
-- Forbidden Shortcuts
-- required positive/negative/regression/eval tests
-- search, patch, retry and token/output budgets
-- local assurance A0-A2
-- one-shot publication target
-- compact machine output
-- exact STOP condition
+Do not start a next implementation increment while the current one is still awaiting correction or validation.
 
-## Correction Pack
+## 2. SOURCE CHECK
 
-```text
-MODE: CORRECTION
-TASK_CLASS: T1|T2
-CONTEXT_RADIUS: C0|C1
-ACCEPTED_AND_FROZEN: [...]
-ONLY_OPEN_FINDING: CR-XX
-ROOT_CAUSE: <resolved>
-DECISION: <resolved>
-TARGET_SYMBOLS: [...]
-PRESCRIBED_TRANSFORM: [...]
-FORBIDDEN: [...]
-REQUIRED_TESTS: [...]
-SEARCH_BUDGET: <count>
-PATCH_BUDGET: <files/LOC>
-RETRY_BUDGET: <count>
-LOCAL_ASSURANCE: A0-A2
-PUBLICATION: one final push
-OUTPUT: compact JSON
-STOP: COMPLETE_CANDIDATE | SOURCE_CONFLICT | SCOPE_EXPANSION_REQUIRED | BLOCKED_EVIDENCE | NEEDS_ARCHITECTURE
-```
+Resolve project authority before implementation. Use the HIVE authority order from `GEF-POLICY.md`. Record material contradictions. Do not silently choose the most convenient source.
 
-## SOURCE_MATCH
+## 3. NEXT NECESSARY INCREMENT
 
-Implementation may start only when:
+Define the smallest coherent increment that materially advances the accepted checkpoint/DoD. Prefer a larger safe increment over many tiny handoffs when dependencies allow it, but do not combine unrelated scope.
 
-- authorized base/head still match,
-- current canonical checkpoint/decisions are compatible,
-- target paths/symbols exist or the pack explicitly authorizes creation,
-- no newer accepted decision invalidates the recipe.
+## 4. WORK ORDER
 
-Failure is not permission to explore broadly. Escalate radius only with a concrete dependency or source conflict.
+Use a stable Work Order. Existing HIVE Work Orders remain valid when they already specify objective, scope, allowed paths, constraints, acceptance, tests/evidence, review and stop condition.
 
-## Assurance
+New substantial work should use `GEF-WORK-ORDER-TEMPLATE.md`.
 
-- `A0`: syntax/static/basic local checks.
-- `A1`: focused local tests.
-- `A2`: impacted tests/evals selected conservatively.
-- `A3`: hosted full CI/security/platform/release gates required by HIVE.
-- `A4`: HEDS independent semantic assurance.
+## 5. CONTEXT LOCK
 
-HIVE starts GEF with shadow assurance ON. Existing full hosted checks remain authoritative until carry-forward/test-skipping is explicitly promoted after measured shadow cycles.
+Bind the execution to project identity, authorized base SHA, expected branch/HEAD semantics, source authority, allowed/preserved paths and stale-head policy. Use `GEF-CONTEXT-LOCK-TEMPLATE.json` when a machine-readable lock is useful.
 
-## Machine output
+Fail closed when identity, HEAD, project/task binding or authority becomes stale or ambiguous.
 
-Executor output should prefer compact structured data: changed files, tests/evals, exit codes, evidence paths/digests, remaining blockers, requested/applied model where runtime exposes it, and STOP state. Long narrative is secondary and should be deterministically derivable when possible.
+## 6. PREFLIGHT
+
+Before mutation:
+
+- confirm branch/base/current HEAD;
+- inspect changed/untracked state where applicable;
+- detect active exact-base work that must be preserved;
+- resolve collision/preservation constraints;
+- identify real validation commands;
+- confirm required tools/permissions;
+- check that the increment can be rolled back safely.
+
+## 7. EXECUTOR
+
+The executor must inspect existing implementation before changes and implement only the approved increment. Local implementation choices are allowed when compatible with architecture and constraints.
+
+For large work, compile executor acceleration context:
+
+- Implementation Seed Tree;
+- File Intent Capsule;
+- Brownfield Patch Intent Capsule;
+- Executor Navigation Map;
+- Decision Closure Capsule;
+- Execution Waves;
+- Validation Reuse Plan;
+- Critical Path;
+- Marathon Execution Pack when useful.
+
+Prefer deterministic code/tools before LLM/provider calls. Do not repeatedly reread the whole repository when a smaller high-signal context is sufficient.
+
+## 8. TESTS / EVIDENCE
+
+Use real repository commands, never invented commands. Apply proportionate assurance:
+
+1. structural/static;
+2. focused/direct;
+3. impacted dependency;
+4. boundary/integration;
+5. risk expansion;
+6. full candidate assurance for release-critical work.
+
+During coding, run focused checks. After the candidate stabilizes, run the required full sweep once. If it reveals an in-scope defect, fix it, rerun affected focused checks, then run the final sweep again.
+
+Evidence must bind to Work Order, exact base/candidate SHA, commands/workflows, results, failures/corrections, security findings, changed paths and unresolved risks.
+
+## 9. PR
+
+Substantial work integrates through a PR unless repository policy explicitly permits another governed path. The PR must identify the Work Order, authorized base when required, exact current head/evidence and preservation-sensitive facts.
+
+Do not arm auto-merge when Sol/HIVE exact-head audit is still required.
+
+## 10. EXACT-HEAD AUDIT
+
+Review the exact candidate SHA. Use delta-first analysis against canonical sources and the Work Order. Inspect invalidated evidence, tests/CI, security, data integrity, architectural contracts, scope, review threads and ruleset state.
+
+Allowed verdicts: `APPROVED`, `CORRECTION_REQUIRED`, `BLOCKED`.
+
+If HEAD moves after review, audit again.
+
+## 11. CHECKPOINT DELTA
+
+After acceptance, determine whether the Work Order authorizes canonical checkpoint mutation. If not, record only a proposed delta/evidence reference. Never mutate canonical truth merely because implementation succeeded.
+
+## 12. MERGE
+
+Follow repository policy. HIVE currently uses protected main and squash-only integration. Sol may perform exact-head squash merge when canonical governance allows and all required preconditions are green.
+
+After merge, verify:
+
+- resulting default-branch SHA;
+- expected parent/lineage;
+- required post-merge CI/evidence;
+- no unintended scope drift.
+
+## 13. NEXT
+
+Only after the current increment is accepted and canonical truth is reconciled may the next necessary increment be defined.
+
+## Routine failures vs blockers
+
+Routine in-scope failures such as red tests, CI failure, assertion mismatch, lint/typecheck errors or elapsed execution time are corrections, not blockers.
+
+`BLOCKED` is reserved for a concrete external/canonical/capability condition that prevents safe continuation.
+
+## Stop conditions
+
+Every substantial prompt must contain a concrete STOP CONDITION. For Universal GEF adoption use the canonical states:
+
+- `GEF_ADOPTION_IN_PROGRESS`
+- `GEF_ADOPTION_EXACT_HEAD_EVIDENCE_REQUIRED`
+- `GEF_ADOPTION_BLOCKED_BY_CAPABILITY_GAP`
+- `GEF_V1_ADOPTED_READY_FOR_GOVERNED_DEVELOPMENT`

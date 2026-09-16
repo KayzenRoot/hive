@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "gef-discovery-receipt-v1",
+  "gefVersion": "1.0.0",
+  "workOrder": "GEF-UNIVERSAL-ADOPTION-002",
+  "repository": "KayzenRoot/hive",
+  "project": "HIVE",
+  "classification": "BROWNFIELD",
+  "assurance": "MAX_ASSURANCE",
+  "discoveredAt": "2026-09-16",
+  "baseline": {
+    "defaultBranch": "main",
+    "head": "4fb0aa111bd5b0f526df85b1897618d8eca1c0e0",
+    "rulesetId": 21934284,
+    "mergeMethods": ["squash"],
+    "requiredChecks": ["Validate", "Integration health", "Review Evidence"],
+    "threadResolutionRequired": true,
+    "bypassActors": 0
+  },
+  "stack": {
+    "backend": ["Python 3.12", "pytest", "Ruff", "mypy"],
+    "dashboard": ["React", "TypeScript", "Vite", "Vitest", "ESLint"],
+    "runtime": ["Docker Compose", "PostgreSQL", "pgvector", "Redis-compatible HOT cache", "CAS"]
+  },
+  "canonicalSources": [
+    "docs/project-brain/13-CHECKPOINT.md",
+    "docs/project-brain/16-DECISIONS-LEDGER.md",
+    "docs/project-brain/03-SCOPE.md",
+    "docs/project-brain/15-DEFINITION-OF-DONE.md",
+    "docs/project-brain/04-ARCHITECTURE.md",
+    "docs/project-brain/10-SECURITY-GOVERNANCE.md",
+    "docs/project-brain/02-REQUIREMENTS.md"
+  ],
+  "validation": {
+    "entryPoint": "python scripts/validate.py",
+    "workflow": ".github/workflows/ci.yml",
+    "reviewEvidence": "scripts/review_evidence.py"
+  },
+  "existingGEF": {
+    "present": true,
+    "historicalAdoptionPr": 81,
+    "historicalAdoptionMerge": "2ccbf09c193ba30e78d768bb32a4e78a4f209812",
+    "directory": ".engineering/gef",
+    "finding": "Existing GEF state is materially useful but contains stale adoption/current-state metadata and predates the Universal Adoption model. Reconcile additively; do not duplicate Project Brain."
+  },
+  "activeWork": [
+    {
+      "type": "pull_request",
+      "number": 95,
+      "workOrder": "WO-024",
+      "branch": "feature/wo024-v01-closure-sprint",
+      "authorizedBase": "4fb0aa111bd5b0f526df85b1897618d8eca1c0e0",
+      "preservation": "MUST_NOT_INVALIDATE"
+    },
+    {
+      "type": "pull_request",
+      "number": 37,
+      "workOrder": "ENG-PROTOCOL-ADOPTION-001",
+      "preservation": "UNTOUCHED_LEGACY_CONCURRENT_WORK"
+    }
+  ],
+  "discovery": {
+    "readmePresent": true,
+    "agentInstructionsPresent": true,
+    "ciPresent": true,
+    "dockerComposePresent": true,
+    "migrationsPresent": true,
+    "backendTestsPresent": true,
+    "dashboardTestsPresent": true,
+    "projectBrainPresent": true,
+    "gefPresent": true,
+    "activeProductDevelopment": true
+  },
+  "unknowns": [],
+  "result": "DISCOVERY_COMPLETE"
+}
