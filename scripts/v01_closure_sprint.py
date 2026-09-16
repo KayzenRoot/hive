@@ -629,6 +629,8 @@ def _secondary_root_proof() -> dict[str, object]:
         "(probe_id serial primary key, note text not null);"
         "INSERT INTO secondary_root_probe (note) VALUES ('c4-secondary-root');"
     )
+    user = os.environ.get("POSTGRES_USER", "hive")
+    database = os.environ.get("POSTGRES_DB", "hive")
     compose(
         *base,
         "exec",
@@ -638,12 +640,11 @@ def _secondary_root_proof() -> dict[str, object]:
         "-v",
         "ON_ERROR_STOP=1",
         "-U",
-        "hive",
+        user,
         "-d",
-        "hive",
+        database,
         "-Atqc",
         inserts,
-        check=False,
     )
     rows_before = compose(
         *base,
@@ -652,12 +653,11 @@ def _secondary_root_proof() -> dict[str, object]:
         "postgres",
         "psql",
         "-U",
-        "hive",
+        user,
         "-d",
-        "hive",
+        database,
         "-Atqc",
         "SELECT count(*) FROM secondary_root_probe",
-        check=False,
     ).strip()
     require(rows_before.isdigit() and int(rows_before) > 0, "secondary root state was not created")
     compose(*base, "rm", "-sf", "postgres", check=False)
@@ -683,12 +683,11 @@ def _secondary_root_proof() -> dict[str, object]:
         "postgres",
         "psql",
         "-U",
-        "hive",
+        user,
         "-d",
-        "hive",
+        database,
         "-Atqc",
         "SELECT count(*) FROM secondary_root_probe",
-        check=False,
     ).strip()
     host_files = subprocess.run(
         ["find", str(isolated_root), "-maxdepth", "2"],
