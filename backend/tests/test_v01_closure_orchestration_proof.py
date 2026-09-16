@@ -32,7 +32,7 @@ from app.execution_orchestrator import (
     ExecutorResult,
 )
 from app.registry import InspectionResult, ProjectResponse, ProjectState
-from app.runner import ToolPolicy
+from app.runner import ChangeSet, ToolPolicy
 from app.task_intake import TaskResponse
 
 ROOT = Path(__file__).parents[2]
@@ -124,11 +124,14 @@ class CountingAdapter:
 
     def execute(self, request: ExecutorRequest, context: object) -> ExecutorResult:
         self.invocations += 1
-        raise ExecutorAdapterError("closure proof adapter never produces changes")
+        return staged_result()
 
 
 def staged_result() -> ExecutorResult:
-    return ExecutorResult(status="STAGED", validation_passed=True, changed_files=[], evidence=[])
+    return ExecutorResult(
+        change_set=ChangeSet(operations=()),
+        summary="closure proof adapter stages a bounded empty change set",
+    )
 
 
 def counting_adapter() -> CountingAdapter:

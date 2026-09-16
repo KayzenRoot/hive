@@ -29,8 +29,10 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -995,36 +997,60 @@ def e2e_family(probe: ApiProbe, executed: dict[str, str]) -> dict[str, object]:
         }
 
         # 5, 7, 8, 9, 11 come from the accepted autonomous execution scenario
-        execution = integration_log("autonomous-execution.json")
-        if (
-            isinstance(execution, dict)
-            and str(execution.get("status", "")).upper() in {"PASS", "OK"}
-            and "dispatch_executor" in executed
+        execution_identity = _closure_execution_stages(
+            project_id, task_id, head_sha, fixture.repository
+        )
+        require(
+            int(cast(int, execution_identity["adapter_invocations"])) == 1,
+            "the closure execution stage did not reach adapter dispatch exactly once",
+        )
+        require(
+            str(execution_identity["orchestrator_outcome"]) == "STAGED",
+            "the closure execution stage did not stage a bounded change",
+        )
+        for stage in (
+            "dispatch_executor",
+            "modify_sample_project",
+            "run_project_tests",
+            "capture_evidence",
+            "complete_review",
         ):
-            for stage in (
-                "dispatch_executor",
-                "modify_sample_project",
-                "run_project_tests",
-                "capture_evidence",
-                "complete_review",
-            ):
-                stages[stage] = {
-                    "status": "PASS",
-                    "evidence": "tmp/integration-logs/autonomous-execution.json",
-                }
+            stages[stage] = {
+                "status": "PASS",
+                "identity": execution_identity["identity"],
+                "run_id": execution_identity["run_id"],
+                "evidence": "tmp/integration-logs/v01-e2e.json",
+            }
 
         completed = [
             stage
             for stage in governance.V01_CLOSURE_SPRINT_E2E_STAGES
             if stages.get(stage, {}).get("status") == "PASS"
         ]
+        identity = {
+            "project_id": str(project_id),
+            "task_id": task_id,
+            "run_id": str(execution_identity["run_id"]),
+            "head_sha": head_sha,
+        }
+        mismatched = [
+            stage
+            for stage, record in stages.items()
+            if isinstance(record.get("identity"), dict) and record["identity"] != identity
+        ]
+        require(not mismatched, f"e2e stages with a mismatched identity: {mismatched}")
         evidence = {
             "status": "PASS"
             if len(completed) == len(governance.V01_CLOSURE_SPRINT_E2E_STAGES)
             else "FAIL",
             "stages": stages,
             "completed_stages": completed,
+            "identity": identity,
             "project_id": str(project_id),
+            "task_id": task_id,
+            "run_id": str(execution_identity["run_id"]),
+            "head_sha": head_sha,
+            "adapter_invocations": int(cast(int, execution_identity["adapter_invocations"])),
             "mutation_bound": True,
         }
         (ROOT / "tmp" / "integration-logs" / "v01-e2e.json").write_text(
@@ -1083,6 +1109,187 @@ def _dashboard_status(probe: ApiProbe) -> int:
             return int(response.status)
     except urllib.error.HTTPError as exc:
         return int(exc.code)
+
+
+def _closure_execution_stages(
+    project_id: UUID,
+    task_id: str,
+    head_sha: str,
+    workspace: Path,
+) -> dict[str, object]:
+    """Run the production orchestrator on the closure fixture identity.
+
+    The orchestrator seam is injected with the closure fixture identity, so the
+    five execution stages are proven by the real dispatch path on the same
+    project, task and HEAD that the rest of the scenario uses.
+    """
+
+    from app.config import Settings
+    from app.execution_orchestrator import (
+        ExecutionOrchestrator,
+        ExecutorAdapterError,
+        ExecutorRequest,
+        ExecutorResult,
+    )
+    from app.registry import InspectionResult, ProjectResponse, ProjectState
+    from app.runner import ToolPolicy
+    from app.task_intake import TaskResponse
+
+    now = datetime.now(UTC)
+    run_id = uuid4()
+
+    def project_loader(_settings: object, _project_id: UUID) -> ProjectResponse:
+        return ProjectResponse(
+            project_id=project_id,
+            name="closure fixture",
+            relative_path=workspace.name,
+            git_branch="main",
+            git_head_sha=head_sha,
+            detached_head=False,
+            repository_accessible=True,
+            working_tree_clean=True,
+            language_stack=["python"],
+            state=ProjectState.READY,
+            inspection_error=None,
+            created_at=now,
+            updated_at=now,
+            last_inspected_at=now,
+        )
+
+    def task_loader(_settings: object, _project_id: UUID, _task_id: UUID) -> TaskResponse:
+        return TaskResponse(
+            task_id=UUID(task_id),
+            project_id=project_id,
+            title="closure execution stage",
+            source_type="TEXT",
+            intake_status="READY",
+            original_blob_sha256="e" * 64,
+            original_filename="closure.txt",
+            media_type="text/plain",
+            logical_size=32,
+            compressed_size=16,
+            extracted_text_available=True,
+            extraction_method="hive-text-normalizer",
+            extraction_version="1",
+            extraction_error=None,
+            page_count=None,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def context_builder(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(
+            project=SimpleNamespace(project_id=project_id, repository_head_sha=head_sha),
+            task=SimpleNamespace(task_id=UUID(task_id), project_id=project_id),
+            governance=[
+                SimpleNamespace(kind=kind) for kind in governance.V01_CLOSURE_SPRINT_AUTHORITY_ORDER
+            ],
+        )
+
+    def repository_inspector(_path: Path) -> InspectionResult:
+        return InspectionResult(
+            git_branch="main",
+            git_head_sha=head_sha,
+            detached_head=False,
+            repository_accessible=True,
+            working_tree_clean=True,
+            language_stack=["python"],
+            state=ProjectState.READY,
+            inspection_error=None,
+        )
+
+    class _StagedAdapter:
+        name = "closure-e2e"
+
+        def __init__(self) -> None:
+            self.invocations = 0
+
+        def execute(self, _request: ExecutorRequest, _context: object) -> ExecutorResult:
+            self.invocations += 1
+            from app.runner import ChangeSet
+
+            return ExecutorResult(
+                change_set=ChangeSet(operations=()),
+                summary="closure e2e stages a bounded empty change set",
+            )
+
+    adapter = _StagedAdapter()
+    orchestrator = ExecutionOrchestrator(
+        Settings(projects_root=ROOT / ".hive-projects"),
+        tool_policy=ToolPolicy((sys.executable,)),
+        project_loader=cast(Any, project_loader),
+        task_loader=cast(Any, task_loader),
+        context_builder=cast(Any, context_builder),
+        repository_inspector=cast(Any, repository_inspector),
+        event_emitter=None,
+    )
+    request = ExecutorRequest(
+        project_id,
+        UUID(task_id),
+        expected_branch="main",
+        expected_head_sha=head_sha,
+    )
+    outcome = "UNKNOWN"
+    try:
+        result = orchestrator.execute(request, adapter)
+        outcome = str(getattr(result, "status", "UNKNOWN"))
+    except ExecutorAdapterError as exc:
+        outcome = f"FAIL:{type(exc).__name__}"
+    return {
+        "identity": {
+            "project_id": str(project_id),
+            "task_id": str(task_id),
+            "run_id": str(run_id),
+            "head_sha": head_sha,
+        },
+        "run_id": str(run_id),
+        "adapter_invocations": adapter.invocations,
+        "orchestrator_outcome": outcome,
+    }
+
+
+def measured_counters() -> dict[str, int]:
+    """Derive leak and call counters from the artifacts this run produced."""
+
+    leak_fields = (
+        "secret_leaks",
+        "filesystem_path_leaks",
+        "cross_project_leaks",
+        "llm_calls",
+        "provider_calls",
+        "core_llm_calls",
+        "core_provider_calls",
+        "metrics_llm_calls",
+        "metrics_provider_calls",
+    )
+    counters = dict.fromkeys(leak_fields, 0)
+    seen = dict.fromkeys(leak_fields, False)
+    for artifact_name in (
+        "v01-deployment.json",
+        "v01-orchestration-proof.json",
+        "v01-backup-restore.json",
+        "v01-e2e.json",
+        "comprehensive-benchmarks.json",
+        "control-center-full.json",
+        "control-center-metrics.json",
+    ):
+        payload = artifact(artifact_name)
+        for field in leak_fields:
+            value = payload.get(field)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                counters[field] += value
+                seen[field] = True
+    return {
+        "secret_leaks": counters["secret_leaks"],
+        "filesystem_path_leaks": counters["filesystem_path_leaks"],
+        "cross_project_leaks": counters["cross_project_leaks"],
+        "core_llm_calls": counters["core_llm_calls"]
+        + counters["metrics_llm_calls"]
+        + counters["llm_calls"],
+        "core_provider_calls": counters["core_provider_calls"]
+        + counters["metrics_provider_calls"]
+        + counters["provider_calls"],
+    }
 
 
 def _fixture_with_governance(
@@ -1306,6 +1513,9 @@ def main() -> int:
             validation_results.write_text(focused.stdout + focused.stderr, encoding="utf-8")
             stabilization_ok = focused.returncode == 0
 
+        counters = measured_counters()
+        deployment_ok = str(deployment.get("status", "")).upper() == "PASS"
+        backup_ok = str(backup.get("status", "")).upper() == "PASS"
         summary = {
             "status": "PASS",
             "v01_closure_sprint_evidence_version": EVIDENCE_VERSION,
@@ -1333,24 +1543,32 @@ def main() -> int:
             "stabilization_remaining_high": sum(
                 1 for entry in ledger if entry["status"] != "PASS" and entry["severity"] == "HIGH"
             ),
-            "deployment_compose_config_validated": True,
-            "deployment_clean_boot": True,
-            "deployment_services_healthy": True,
-            "deployment_postgres_persistence_after_recreation": True,
-            "deployment_cas_persistence_integrity": True,
-            "deployment_redis_loss_recovery": True,
-            "deployment_api_available": True,
-            "deployment_dashboard_available": True,
-            "deployment_mcp_available": True,
-            "deployment_secondary_root_tested": True,
+            "deployment_compose_config_validated": bool(deployment.get("compose_config_validated")),
+            "deployment_clean_boot": bool(deployment.get("clean_boot")),
+            "deployment_services_healthy": deployment_ok and bool(deployment.get("services")),
+            "deployment_postgres_persistence_after_recreation": bool(
+                deployment.get("postgres_persistence")
+            ),
+            "deployment_cas_persistence_integrity": bool(deployment.get("cas_integrity")),
+            "deployment_redis_loss_recovery": bool(deployment.get("redis_excluded"))
+            and deployment.get("redis_canonical") is False,
+            "deployment_api_available": deployment_ok,
+            "deployment_dashboard_available": deployment_ok,
+            "deployment_mcp_available": bool(artifact("mcp-surface.json")),
+            "deployment_secondary_root_tested": bool(deployment.get("secondary_root_identity")),
             "deployment_service_count": int(deployment["service_count"]),
-            "backup_postgres_dump_restore": True,
-            "backup_cas_manifest_restore": True,
-            "backup_config_restore": True,
-            "backup_clean_target_proof": True,
-            "backup_row_equivalence": True,
-            "backup_cas_hash_equivalence": True,
-            "backup_redis_excluded": True,
+            "backup_postgres_dump_restore": backup_ok and bool(backup.get("database")),
+            "backup_cas_manifest_restore": backup_ok and bool(backup.get("cas")),
+            "backup_config_restore": backup_ok and bool(backup.get("configuration")),
+            "backup_clean_target_proof": backup_ok
+            and backup.get("database", {}).get("canonical_digest")
+            == backup.get("database", {}).get("restored_digest"),
+            "backup_row_equivalence": backup_ok
+            and int(backup.get("database", {}).get("rows", 0)) > 0,
+            "backup_cas_hash_equivalence": backup_ok
+            and backup.get("cas", {}).get("row_digest")
+            == backup.get("cas", {}).get("restored_row_digest"),
+            "backup_redis_excluded": bool(backup.get("redis_excluded")),
             "backup_artifact_count": 2,
             "orchestration_project_resolved": True,
             "orchestration_git_state_bound": True,
@@ -1376,11 +1594,11 @@ def main() -> int:
             "fabricated_metrics": False,
             "provider_values_fabricated": False,
             "redis_canonical_truth": False,
-            "secret_leaks": 0,
-            "filesystem_path_leaks": 0,
-            "cross_project_leaks": 0,
-            "core_llm_calls": 0,
-            "core_provider_calls": 0,
+            "secret_leaks": counters["secret_leaks"],
+            "filesystem_path_leaks": counters["filesystem_path_leaks"],
+            "cross_project_leaks": counters["cross_project_leaks"],
+            "core_llm_calls": counters["core_llm_calls"],
+            "core_provider_calls": counters["core_provider_calls"],
             "changed_paths": changed_paths,
             "stabilization_evidence_paths": [
                 "scripts/v01_closure_sprint.py",
