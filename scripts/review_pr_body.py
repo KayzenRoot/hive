@@ -29,6 +29,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-023-G1": "45bf00a78150ea0368bd4c0b173e83178b102333",
     "WO-023-P-G1": "25c16248211da567dbda928697862a696dcf46eb",
     "WO-023-P-G1-C1": "3ca2109175b7c6842c6578c237ff798d5ce8916f",
+    "WO-024-G1": "44c61e999c89a6b6ba6c28377cea415cad3d1cef",
 }
 
 
@@ -67,6 +68,9 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-023-P-G1",
         "WO-023-P",
         "WO-023-P-G1-C1",
+        "WO-024-G1",
+        "WO-024",
+        "WO-024-P",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -2821,7 +2825,7 @@ isolamento de projeto, proveniência e reprodutibilidade determinística.
 Comparação versionada baseline versus otimizado com estimativas rotuladas,
 valores indisponíveis como UNKNOWN/NOT_SUPPORTED (nunca zero fabricado) e
 guardrails de correção. Storage mede bytes lógicos, deduplicados e físicos sem
-dupla contagem, com reconstrução exata e perda canônica zero. WO-024-P, WO-024 e
+dupla contagem, com reconstrução exata e perda canônica zero. WO-025-P, WO-025 e
 work orders futuros permanecem rejeitados fail-closed.
 
 ## 5. Evidência obrigatória
@@ -2839,6 +2843,180 @@ Nenhum checkpoint foi promovido e nenhuma alegação de HIVE V0.1 completo é fe
 Sol Review State: AWAITING_SOL.
 
 WO-023-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo024_g1_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Objetivo
+
+Registrar o incremento de produto `WO-024` (V0.1 Closure Sprint) e a promoção
+canônica final `WO-024-P` em um único G1, com o contrato machine-readable
+`v01-closure-sprint-v1`. Somente governança: nenhum arquivo canônico, produto,
+dashboard, migration, dependência, CI, ruleset ou release é alterado.
+
+## 2. Identidade exata
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}. O renderer exige a base autorizada exata,
+  lowercase 40-hex e diferente de zero; divergência falha fechado.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+
+## 3. Escopo G1 fechado
+
+Exatamente quatro arquivos de governança: `backend/tests/test_review_evidence.py`,
+`schemas/review-evidence-v1.schema.json`, `scripts/review_evidence.py` e
+`scripts/review_pr_body.py`. Migration head permanece `0007_telemetry_events`;
+auto-merge permanece UNARMED e o ruleset `21934284` permanece inalterado.
+
+## 4. Contrato do WO-024
+
+O produto pode alterar apenas caminhos do sprint de fechamento (`backend/app/`,
+`backend/tests/`, `scripts/`, `docs/atlas/`, `dashboard/src/`, `dashboard/tests/`,
+`docker-compose.yml`, `.env.example`, `README.md`, `Dockerfile`) e não pode tocar
+`docs/project-brain/**`, migrations, `.github/**`, release ou manifestos de
+dependência. A evidência `v01-closure-sprint-v1` cobre estabilização, deployment
+local completo, backup/recuperação, orquestração autônoma checkpoint-aware, o
+fluxo E2E de doze estágios, documentação com proveniência e a matriz DoD item a
+item; `closure_candidate` só é verdadeiro quando não há nenhum item FAIL/UNKNOWN
+e nenhum defeito HIGH/CRITICAL remanescente. O produto não pode alegar HIVE V0.1
+completo.
+
+## 5. Contrato do futuro WO-024-P
+
+Somente `docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt` podem mudar. A admissibilidade
+exige lineage mergeado do PR de produto (HEAD auditado, review de Sol, squash
+merge da main corrente e CI de push pós-merge verde com Review Evidence pulado
+por design), a evidência `v01-closure-sprint-v1` mergeada com matriz DoD completa
+e zero FAIL/UNKNOWN, e somente essa promoção pode remover os itens PENDING
+remanescentes e registrar a conclusão da V0.1.
+
+## 6. Governança
+
+Ruleset antes: {ruleset_before}. Ruleset depois: {ruleset_after}. Merge antes:
+{merge_before}. Merge depois: {merge_after}. Auto-merge permanece UNARMED.
+WO-025, WO-025-P e WO-999 continuam rejeitados; WO-023-P-G1/WO-023-P ficam
+históricos. Não houve merge, promoção de checkpoint ou início do produto.
+
+A PR permanece aberta, Ready e não mesclada. Sol Review State: AWAITING_SOL.
+
+WO-024-G1 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo024_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Incremento de fechamento da V0.1
+
+Implementação do V0.1 Closure Sprint sob o contrato já aprovado
+`v01-closure-sprint-v1`, sem promover checkpoint e sem alegar HIVE V0.1
+completo.
+
+## 2. Famílias obrigatórias
+
+Estabilização determinística com defeitos HIGH/CRITICAL remanescentes zero;
+deployment local completo com persistência durável e raiz secundária testada;
+backup/recuperação com equivalência de linhas e hashes em alvo limpo; orquestração
+autônoma checkpoint-aware com ordem canônica de autoridade e falha fechada;
+prova E2E dos doze estágios; documentação auditada por caminho e digest; e matriz
+DoD completa item a item sem FAIL/UNKNOWN.
+
+## 3. Identidade
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes/depois: {ruleset_before} / {ruleset_after}.
+- Merge antes/depois: {merge_before} / {merge_after}.
+
+Sol Review State: AWAITING_SOL.
+
+WO-024 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo024p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção final da V0.1
+
+Promoção canônica de fechamento, restrita a
+`docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`, admitida apenas com o lineage
+mergeado do WO-024 e a evidência `v01-closure-sprint-v1` com matriz DoD completa.
+
+## 2. Contrato semântico
+
+STATUS avança para o estado de conclusão da V0.1, os oito bullets governados de
+fechamento são anexados com o lineage verificado, todos os itens PENDING
+remanescentes são removidos, IN PROGRESS/BLOCKERS/NEXT STEP refletem a conclusão
+e o digest do checkpoint no manifesto corresponde aos bytes exatos promovidos.
+
+## 3. Identidade
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes/depois: {ruleset_before} / {ruleset_after}.
+- Merge antes/depois: {merge_before} / {merge_after}.
+
+Sol Review State: AWAITING_SOL.
+
+WO-024-P READY FOR SOL AUDIT
 """
 
 
@@ -4436,6 +4614,45 @@ def render_body(
         )
     if work_order == "WO-023-G1":
         return _render_wo023_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-024-G1":
+        return _render_wo024_g1_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-024":
+        return _render_wo024_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-024-P":
+        return _render_wo024p_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

@@ -1036,6 +1036,10 @@ WO023_WORK_ORDER = "WO-023"
 WO023P_G1_BASE_SHA = "25c16248211da567dbda928697862a696dcf46eb"
 WO023P_G1_WORK_ORDER = "WO-023-P-G1"
 WO023P_WORK_ORDER = "WO-023-P"
+WO024_G1_BASE_SHA = "44c61e999c89a6b6ba6c28377cea415cad3d1cef"
+WO024_G1_WORK_ORDER = "WO-024-G1"
+WO024_WORK_ORDER = "WO-024"
+WO024P_WORK_ORDER = "WO-024-P"
 WO023_G1_ALLOWED_PATHS = frozenset(
     {
         "backend/tests/test_review_evidence.py",
@@ -1460,33 +1464,6 @@ WO022P_G1_ALLOWED_PATHS = frozenset(
     }
 )
 WO022P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
-WO023P_G1_C1_BASE_SHA = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
-WO023P_G1_C1_WORK_ORDER = "WO-023-P-G1-C1"
-WO023P_G1_C1_ALLOWED_PATHS = frozenset(
-    {
-        "backend/tests/test_review_evidence.py",
-        "scripts/review_evidence.py",
-        "scripts/review_pr_body.py",
-    }
-)
-AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
-    {
-        "WO-012-P",
-        "WO-013-P",
-        WO014P_WORK_ORDER,
-        WO015P_WORK_ORDER,
-        WO016P_WORK_ORDER,
-        WO017P_WORK_ORDER,
-        WO018P_WORK_ORDER,
-        WO019P_WORK_ORDER,
-        WO020P_WORK_ORDER,
-        WO021P_WORK_ORDER,
-        WO022P_WORK_ORDER,
-        WO023P_WORK_ORDER,
-        WO023P_G1_C1_WORK_ORDER,
-        GEF_ADOPTION_WORK_ORDER,
-    }
-)
 WO023P_G1_ALLOWED_PATHS = frozenset(
     {
         "backend/tests/test_review_evidence.py",
@@ -1672,12 +1649,15 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
         WO021P_WORK_ORDER,
         WO022P_G1_WORK_ORDER,
         WO022P_WORK_ORDER,
+        WO023P_G1_WORK_ORDER,
+        WO023P_WORK_ORDER,
+        "WO-023-P-G1-C1",
     }
 )
-ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER})
+ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO024_G1_WORK_ORDER, WO024P_WORK_ORDER})
 # Corrective governance increments repair merged tooling without joining the promotion
-# pair, so the active promotion set stays exactly the audited pair.
-CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset({WO023P_G1_C1_WORK_ORDER})
+# pair, so the active promotion set stays exactly the current audited pair.
+CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset({"WO-023-P-G1-C1-CLOSED"})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -2136,6 +2116,300 @@ WO023P_CANONICAL_COMPLETION_BULLETS = (
     "hive v0.1 completion.",
 )
 
+WO024P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+EXPECTED_WO024P_STATUS = "HIVE V0.1 COMPLETE / CLOSURE SPRINT APPROVED"
+EXPECTED_WO024P_PREVIOUS_STATUS = EXPECTED_WO023P_STATUS
+EXPECTED_WO024P_IN_PROGRESS = "None. V0.1 closure is complete and promoted."
+EXPECTED_WO024P_BLOCKERS = "None known after V0.1 closure approval and post-merge validation."
+EXPECTED_WO024P_NEXT_STEP = "Operate the approved V0.1 baseline and track the post-V0.1 backlog."
+WO024P_COMPLETED_PENDING_ITEMS = WO023P_REQUIRED_RETAINED_PENDING_ITEMS
+WO024P_COMPLETED_PENDING_ITEM_COUNT = len(WO024P_COMPLETED_PENDING_ITEMS)
+WO024P_CANONICAL_COMPLETION_BULLET_TEMPLATES = (
+    "v0.1 closure sprint is approved under evidence {version} with stabilization, full local "
+    "deployment, backup/recovery, checkpoint-aware autonomous orchestration, the twelve-step "
+    "end-to-end closure proof, documentation currency and a complete definition-of-done matrix.",
+    "the definition-of-done matrix covers every required item exactly once with pass {pass_count} "
+    "of {total_count}, zero fail and zero unknown, and any fail or unknown item would have "
+    "blocked the closure candidate.",
+    "stabilization removed every objective defect and regression found by the deterministic gap "
+    "sweep, remaining critical {critical} and high {high} defects are zero, and no unauthorized "
+    "scope expansion was performed.",
+    "full local deployment is proven from documented configuration with clean boot, service "
+    "health, host persistence outside the repository, durable postgresql and content-addressed "
+    "storage state after container recreation, redis-loss recovery and a tested secondary root.",
+    "backup and recovery prove deterministic postgresql dump/restore, content-addressed byte and "
+    "hash restoration, configuration and registry restoration into a clean target, canonical "
+    "row/hash equivalence and redis explicitly excluded as noncanonical.",
+    "checkpoint-aware autonomous orchestration resolves project and git state, processes the "
+    "checkpoint first and then scope, definition of done, architecture and decisions, keeps task "
+    "and project scoping plus tool gating, fails closed on missing, stale, untracked and "
+    "cross-project authority, and uses zero deterministic-path llm calls.",
+    "lineage records pr #{product_pr} with audited head {audited_head}, sol review {sol_review}, "
+    "squash merge {squash_merge} and post-merge ci {post_merge_ci}; backend {backend_passed} and "
+    "dashboard {dashboard_passed} passed.",
+    "v0.1 closure evidence records migration head {migration_head}, zero secret, filesystem-path "
+    "and cross-project leaks, zero core llm and provider calls, proves the bounded fixture "
+    "contract without a production-quality claim, and supports the promoted hive v0.1 claim.",
+)
+WO024P_COMPLETION_BULLET_COUNT = len(WO024P_CANONICAL_COMPLETION_BULLET_TEMPLATES)
+
+
+def wo024p_completion_bullets(
+    *,
+    version: str,
+    pass_count: int,
+    total_count: int,
+    critical: int,
+    high: int,
+    product_pr: int,
+    audited_head: str,
+    sol_review: int,
+    squash_merge: str,
+    post_merge_ci: int,
+    backend_passed: int,
+    dashboard_passed: int,
+    migration_head: str,
+) -> tuple[str, ...]:
+    """Fill the closed WO-024-P completion grammar from verified lineage values."""
+
+    values = {
+        "version": version,
+        "pass_count": pass_count,
+        "total_count": total_count,
+        "critical": critical,
+        "high": high,
+        "product_pr": product_pr,
+        "audited_head": audited_head,
+        "sol_review": sol_review,
+        "squash_merge": squash_merge,
+        "post_merge_ci": post_merge_ci,
+        "backend_passed": backend_passed,
+        "dashboard_passed": dashboard_passed,
+        "migration_head": migration_head,
+    }
+    return tuple(
+        template.format(**values) for template in WO024P_CANONICAL_COMPLETION_BULLET_TEMPLATES
+    )
+
+
+WO023P_G1_C1_BASE_SHA = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
+WO023P_G1_C1_WORK_ORDER = "WO-023-P-G1-C1"
+WO023P_G1_C1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
+    {
+        "WO-012-P",
+        "WO-013-P",
+        WO014P_WORK_ORDER,
+        WO015P_WORK_ORDER,
+        WO016P_WORK_ORDER,
+        WO017P_WORK_ORDER,
+        WO018P_WORK_ORDER,
+        WO019P_WORK_ORDER,
+        WO020P_WORK_ORDER,
+        WO021P_WORK_ORDER,
+        WO022P_WORK_ORDER,
+        WO023P_WORK_ORDER,
+        WO023P_G1_C1_WORK_ORDER,
+        WO024_G1_WORK_ORDER,
+        WO024P_WORK_ORDER,
+        GEF_ADOPTION_WORK_ORDER,
+    }
+)
+WO024_G1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+    }
+)
+V01_CLOSURE_SPRINT_PRODUCT_ALLOWED_PREFIXES = (
+    "backend/app/",
+    "backend/tests/",
+    "scripts/",
+    "docs/atlas/",
+    "dashboard/src/",
+    "dashboard/tests/",
+)
+V01_CLOSURE_SPRINT_PRODUCT_ALLOWED_EXACT_PATHS = frozenset(
+    {
+        "docker-compose.yml",
+        ".env.example",
+        "README.md",
+        "Dockerfile",
+    }
+)
+V01_CLOSURE_SPRINT_PRODUCT_FORBIDDEN_PREFIXES = (
+    "docs/project-brain/",
+    "migrations/",
+    ".github/",
+    "release-assets/",
+    "dashboard/node_modules/",
+)
+V01_CLOSURE_SPRINT_PRODUCT_FORBIDDEN_EXACT_PATHS = frozenset(
+    {
+        "requirements.txt",
+        "dashboard/package.json",
+        "dashboard/package-lock.json",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+    }
+)
+V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD = "0007_telemetry_events"
+V01_CLOSURE_SPRINT_EVIDENCE_VERSION = "v01-closure-sprint-v1"
+V01_CLOSURE_SPRINT_EVIDENCE_FILE = "v01-closure-sprint.json"
+V01_CLOSURE_SPRINT_MAX_PATHS = 64
+V01_CLOSURE_SPRINT_MAX_ITEMS = 64
+V01_CLOSURE_SPRINT_AUTHORITY_ORDER = (
+    "CHECKPOINT",
+    "SCOPE",
+    "DEFINITION_OF_DONE",
+    "ARCHITECTURE",
+    "DECISIONS",
+)
+V01_CLOSURE_SPRINT_NEGATIVE_CASES = (
+    "missing_authority",
+    "stale_authority",
+    "untracked_authority",
+    "cross_project_authority",
+)
+V01_CLOSURE_SPRINT_E2E_STAGES = (
+    "register_project",
+    "index_repository",
+    "ingest_prompt_artifact",
+    "build_context",
+    "dispatch_executor",
+    "stream_telemetry",
+    "modify_sample_project",
+    "run_project_tests",
+    "capture_evidence",
+    "stage_memory",
+    "complete_review",
+    "verify_dashboard_and_persistence",
+)
+V01_CLOSURE_SPRINT_DOCUMENTATION_ENTRIES = (
+    "architecture",
+    "deployment",
+    "checkpoint",
+    "backlog",
+    "known_limitations",
+)
+V01_CLOSURE_SPRINT_EVIDENCE_PATH_ROOTS = (
+    "backend/",
+    "scripts/",
+    "docs/",
+    "dashboard/",
+)
+V01_CLOSURE_SPRINT_EVIDENCE_PATH_FILES = frozenset(
+    {
+        "docker-compose.yml",
+        ".env.example",
+        "README.md",
+        "Dockerfile",
+    }
+)
+V01_CLOSURE_SPRINT_STRING_FIELDS = (
+    "v01_closure_sprint_evidence_version",
+    "evidence_file",
+    "observed_migration_head",
+    "migration_base_head",
+    "reviewed_base_sha",
+    "reviewed_head_sha",
+    "fixture_identity",
+    "corpus_identity",
+    "run_digest",
+    "deployment_persistent_root_identity",
+    "backup_artifact_sha256",
+    "dod_definition_of_done_sha256",
+)
+V01_CLOSURE_SPRINT_TRUE_FIELDS = (
+    "stabilization_regression_suite_pass",
+    "stabilization_no_scope_expansion",
+    "deployment_compose_config_validated",
+    "deployment_clean_boot",
+    "deployment_services_healthy",
+    "deployment_postgres_persistence_after_recreation",
+    "deployment_cas_persistence_integrity",
+    "deployment_redis_loss_recovery",
+    "deployment_api_available",
+    "deployment_dashboard_available",
+    "deployment_mcp_available",
+    "deployment_secondary_root_tested",
+    "backup_postgres_dump_restore",
+    "backup_cas_manifest_restore",
+    "backup_config_restore",
+    "backup_clean_target_proof",
+    "backup_row_equivalence",
+    "backup_cas_hash_equivalence",
+    "backup_redis_excluded",
+    "orchestration_project_resolved",
+    "orchestration_git_state_bound",
+    "orchestration_checkpoint_first",
+    "orchestration_task_project_scoped",
+    "orchestration_tool_gating",
+    "e2e_sample_project_mutation_bounded",
+    "docs_audited_from_repository_paths",
+    "dod_matrix_complete",
+)
+V01_CLOSURE_SPRINT_FALSE_FIELDS = (
+    "stabilization_scope_expansion_detected",
+    "redis_canonical_truth",
+    "fabricated_metrics",
+    "provider_values_fabricated",
+    "full_v01_complete_claimed",
+)
+V01_CLOSURE_SPRINT_ZERO_FIELDS = (
+    "stabilization_remaining_critical",
+    "stabilization_remaining_high",
+    "secret_leaks",
+    "filesystem_path_leaks",
+    "cross_project_leaks",
+    "core_llm_calls",
+    "core_provider_calls",
+    "orchestration_deterministic_llm_calls",
+    "dod_fail_count",
+    "dod_unknown_count",
+)
+V01_CLOSURE_SPRINT_INTEGER_BOUNDS = {
+    "stabilization_defects_discovered": 1_000,
+    "stabilization_defects_fixed": 1_000,
+    "deployment_service_count": 64,
+    "backup_artifact_count": 64,
+    "e2e_stage_count": len(V01_CLOSURE_SPRINT_E2E_STAGES),
+    "dod_total_count": 512,
+    "dod_pass_count": 512,
+}
+V01_CLOSURE_SPRINT_LIST_FIELDS = (
+    "changed_paths",
+    "stabilization_evidence_paths",
+    "deployment_evidence_paths",
+    "backup_evidence_paths",
+    "orchestration_evidence_paths",
+    "e2e_evidence_paths",
+)
+V01_CLOSURE_SPRINT_ALLOWED_FIELDS = frozenset(
+    {
+        "status",
+        "closure_candidate",
+        "orchestration_authority_order",
+        "orchestration_negative_matrix",
+        "e2e_completed_stages",
+        "documentation_entries",
+        "dod_items",
+        *V01_CLOSURE_SPRINT_STRING_FIELDS,
+        *V01_CLOSURE_SPRINT_TRUE_FIELDS,
+        *V01_CLOSURE_SPRINT_FALSE_FIELDS,
+        *V01_CLOSURE_SPRINT_ZERO_FIELDS,
+        *V01_CLOSURE_SPRINT_INTEGER_BOUNDS,
+        *V01_CLOSURE_SPRINT_LIST_FIELDS,
+    }
+)
+
 WO008_G1_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -2300,6 +2574,9 @@ def require_supported_work_order(work_order: str) -> None:
         WO023P_G1_WORK_ORDER,
         WO023P_WORK_ORDER,
         WO023P_G1_C1_WORK_ORDER,
+        WO024_G1_WORK_ORDER,
+        WO024_WORK_ORDER,
+        WO024P_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
         WO017_G1_WORK_ORDER,
@@ -5794,6 +6071,269 @@ def require_wo023p_g1_c1_scope(
         )
 
 
+def require_wo024_g1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_authorized_base: bool = True,
+) -> None:
+    if work_order != WO024_G1_WORK_ORDER:
+        return
+    if base_sha != WO024_G1_BASE_SHA:
+        raise ValueError(
+            f"{WO024_G1_WORK_ORDER} requires exact base {WO024_G1_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO024_G1_WORK_ORDER} requires the protected main base branch")
+    if sorted(set(paths)) != sorted(WO024_G1_ALLOWED_PATHS) or len(paths) != len(
+        WO024_G1_ALLOWED_PATHS
+    ):
+        raise ValueError(f"{WO024_G1_WORK_ORDER} requires exactly the four governance files")
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO024_G1_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError("WO-024-G1 authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO024_G1_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO024_G1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO024_G1_WORK_ORDER} cannot change migrations")
+    if migration_head() != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO024_G1_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+
+
+def closure_product_scope(paths: list[str]) -> list[str]:
+    """Return the closure-sprint paths that leave the bounded product scope."""
+
+    unauthorized: list[str] = []
+    for path in sorted(set(paths)):
+        if path in V01_CLOSURE_SPRINT_PRODUCT_FORBIDDEN_EXACT_PATHS or any(
+            path == prefix.rstrip("/") or path.startswith(prefix)
+            for prefix in V01_CLOSURE_SPRINT_PRODUCT_FORBIDDEN_PREFIXES
+        ):
+            unauthorized.append(path)
+            continue
+        if path in V01_CLOSURE_SPRINT_PRODUCT_ALLOWED_EXACT_PATHS:
+            continue
+        if any(path.startswith(prefix) for prefix in V01_CLOSURE_SPRINT_PRODUCT_ALLOWED_PREFIXES):
+            continue
+        unauthorized.append(path)
+    return unauthorized
+
+
+def require_wo024_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    enforce_current_main: bool = False,
+) -> None:
+    if work_order != WO024_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO024_WORK_ORDER} requires the protected main base branch")
+    if HEX_SHA.fullmatch(base_sha) is None or base_sha == "0" * 40:
+        raise ValueError(f"{WO024_WORK_ORDER} requires a resolved protected-main base SHA")
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) is None:
+            raise ValueError(f"{WO024_WORK_ORDER} requires a resolved current protected main SHA")
+        if base_sha != current_main:
+            raise ValueError(
+                f"{WO024_WORK_ORDER} must target current protected main {current_main}, "
+                f"observed {base_sha}"
+            )
+        base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode(
+            "utf-8"
+        )
+        if WO024_G1_WORK_ORDER not in base_review_evidence:
+            raise ValueError(
+                f"{WO024_WORK_ORDER} requires merged {WO024_G1_WORK_ORDER} support in its base"
+            )
+    unauthorized = closure_product_scope(paths)
+    if unauthorized:
+        raise ValueError(
+            f"{WO024_WORK_ORDER} changed files outside the bounded v0.1 closure sprint scope: "
+            + ", ".join(unauthorized)
+        )
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO024_WORK_ORDER} cannot change migrations")
+    if any(path == ".github" or path.startswith(".github/") for path in paths):
+        raise ValueError(f"{WO024_WORK_ORDER} cannot change CI workflows")
+
+
+def require_wo024p_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    registered_base_sha: str | None = None,
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
+    approved_lineage: Mapping[str, object] | None = None,
+    closure_evidence: Mapping[str, object] | None = None,
+) -> None:
+    if work_order != WO024P_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO024P_WORK_ORDER} requires the protected main base branch")
+    expected_base = registered_base_sha or registered_promotion_base_sha(work_order)
+    if base_sha != expected_base:
+        raise ValueError(
+            f"{WO024P_WORK_ORDER} requires current protected main base "
+            f"{expected_base}, observed {base_sha}"
+        )
+    if sorted(set(paths)) != sorted(WO024P_PROMOTION_ALLOWED_PATHS) or len(paths) != 2:
+        raise ValueError(
+            f"{WO024P_WORK_ORDER} requires exactly the checkpoint and canonical manifest files"
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO024P_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError("WO-024-P authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO024P_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and base_sha != current_main:
+            raise ValueError(
+                f"{WO024P_WORK_ORDER} must target current protected main "
+                f"{current_main}, observed {base_sha}"
+            )
+    base_review_evidence = git_blob_bytes(base_sha, "scripts/review_evidence.py").decode("utf-8")
+    if WO024_G1_WORK_ORDER not in base_review_evidence:
+        raise ValueError(
+            f"{WO024P_WORK_ORDER} requires merged {WO024_G1_WORK_ORDER} support in its base"
+        )
+    if approved_lineage is None:
+        raise ValueError(f"{WO024P_WORK_ORDER} requires approved product lineage evidence")
+    require_wo024_approved_lineage_result(approved_lineage)
+    if not isinstance(closure_evidence, Mapping):
+        raise ValueError(f"{WO024P_WORK_ORDER} requires merged v01 closure sprint evidence")
+    full_closure: Mapping[str, object] = closure_evidence
+    require_wo024_v01_closure_sprint_evidence(
+        WO024P_WORK_ORDER,
+        {"v01_closure_sprint": full_closure},
+        V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+    )
+    base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
+    base_manifest = git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8")
+    candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
+    candidate_manifest = (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
+    require_wo024p_checkpoint_semantics(
+        base_checkpoint,
+        candidate_checkpoint_bytes.decode("utf-8"),
+        approved_lineage,
+        full_closure,
+    )
+    require_wo024p_manifest_contract(
+        base_manifest,
+        candidate_manifest,
+        candidate_checkpoint_bytes,
+    )
+
+
+def require_wo024p_manifest_contract(
+    base_manifest_text: str,
+    candidate_manifest_text: str,
+    candidate_checkpoint_bytes: bytes,
+) -> None:
+    require_checkpoint_manifest_contract(
+        base_manifest_text, candidate_manifest_text, candidate_checkpoint_bytes, WO024P_WORK_ORDER
+    )
+
+
+def require_wo024p_checkpoint_semantics(
+    base_text: str,
+    candidate_text: str,
+    approved_lineage: Mapping[str, object],
+    closure_evidence: Mapping[str, object],
+) -> None:
+    base_preamble, base_ordered, base_sections = _raw_checkpoint_structure(base_text, "base")
+    candidate_preamble, candidate_ordered, candidate_sections = _raw_checkpoint_structure(
+        candidate_text, "candidate"
+    )
+    if base_preamble != candidate_preamble:
+        raise ValueError("WO-024-P candidate preamble changed byte-for-byte")
+    if tuple(section.name for section in base_ordered) != tuple(
+        section.name for section in candidate_ordered
+    ):
+        raise ValueError("WO-024-P checkpoint section sequence changed unexpectedly")
+    for position, (base_section, candidate_section) in enumerate(
+        zip(base_ordered, candidate_ordered, strict=True), 1
+    ):
+        if base_section.heading != candidate_section.heading:
+            raise ValueError(f"WO-024-P heading changed byte-for-byte at position {position}")
+    for name in tuple(section.name for section in base_ordered):
+        if (
+            name not in _WO016P_RAW_CONTROLLED_SECTIONS
+            and candidate_sections[name] != base_sections[name]
+        ):
+            raise ValueError(f"WO-024-P changed unrelated checkpoint section: {name}")
+
+    newline = "\n"
+    expected_bullets = wo024p_completion_bullets(
+        version=str(closure_evidence.get("v01_closure_sprint_evidence_version")),
+        pass_count=int(cast(int, closure_evidence.get("dod_pass_count"))),
+        total_count=int(cast(int, closure_evidence.get("dod_total_count"))),
+        critical=int(cast(int, closure_evidence.get("stabilization_remaining_critical"))),
+        high=int(cast(int, closure_evidence.get("stabilization_remaining_high"))),
+        product_pr=int(cast(int, approved_lineage.get("product_pr"))),
+        audited_head=str(approved_lineage.get("audited_product_head")),
+        sol_review=int(cast(int, approved_lineage.get("sol_review_id"))),
+        squash_merge=str(approved_lineage.get("squash_merge_sha")),
+        post_merge_ci=int(cast(int, approved_lineage.get("post_merge_ci_run"))),
+        backend_passed=int(cast(int, approved_lineage.get("prior_backend_passed"))),
+        dashboard_passed=int(cast(int, approved_lineage.get("prior_dashboard_passed"))),
+        migration_head=V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+    )
+    base_completed = base_sections["COMPLETED"]
+    if not base_completed.endswith(newline):
+        raise ValueError("WO-024-P base COMPLETED section lacks the canonical final newline")
+    expected_controlled = {
+        "STATUS": f"{EXPECTED_WO024P_STATUS}{newline}{newline}",
+        "COMPLETED": base_completed[:-1]
+        + "".join(f"- {bullet}{newline}" for bullet in expected_bullets)
+        + newline,
+        "IN PROGRESS": f"- {EXPECTED_WO024P_IN_PROGRESS}{newline}{newline}",
+        "BLOCKERS": f"{EXPECTED_WO024P_BLOCKERS}{newline}{newline}",
+        "NEXT STEP": f"{EXPECTED_WO024P_NEXT_STEP}{newline}{newline}",
+        "PENDING": f"{newline}",
+    }
+    for name, expected_body in expected_controlled.items():
+        if candidate_sections.get(name) != expected_body:
+            raise ValueError(f"WO-024-P {name} section is outside the strict raw grammar")
+
+    base_pending = checkpoint_bullets(checkpoint_sections(base_text), "PENDING")
+    if sorted(base_pending) != sorted(WO024P_COMPLETED_PENDING_ITEMS):
+        raise ValueError(
+            "WO-024-P promotion base must contain exactly the remaining closure pending items"
+        )
+    if checkpoint_bullets(checkpoint_sections(candidate_text), "PENDING"):
+        raise ValueError("WO-024-P must remove every remaining closure pending item")
+    if normalized_checkpoint_value(checkpoint_sections(base_text), "STATUS") != (
+        EXPECTED_WO024P_PREVIOUS_STATUS
+    ):
+        raise ValueError("WO-024-P promotion base has an unexpected checkpoint status")
+
+
 def memory_lifecycle_evidence() -> dict[str, object]:
     text = integration_file(WO015_MEMORY_EVIDENCE_FILE)
     unknown: dict[str, object] = {
@@ -6858,6 +7398,323 @@ def require_wo023_comprehensive_benchmarks_evidence(
             )
 
 
+def valid_closure_evidence_path(value: object) -> bool:
+    """Return True for a normalized repository-relative closure evidence path."""
+
+    if not isinstance(value, str):
+        return False
+    if value in V01_CLOSURE_SPRINT_EVIDENCE_PATH_FILES:
+        return True
+    return any(
+        canonical_repository_relative_path(value, prefix=prefix)
+        for prefix in V01_CLOSURE_SPRINT_EVIDENCE_PATH_ROOTS
+    )
+
+
+def _closure_path_list(value: object) -> bool:
+    if not isinstance(value, list) or not 1 <= len(value) <= V01_CLOSURE_SPRINT_MAX_PATHS:
+        return False
+    items = [item for item in value]
+    return all(valid_closure_evidence_path(item) for item in items) and len(set(items)) == len(
+        items
+    )
+
+
+def _closure_documentation_entries(value: object) -> bool:
+    if not isinstance(value, list) or len(value) != len(V01_CLOSURE_SPRINT_DOCUMENTATION_ENTRIES):
+        return False
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, dict) or set(raw) != {"name", "path", "sha256", "status"}:
+            return False
+        name = raw.get("name")
+        if not isinstance(name, str) or name not in V01_CLOSURE_SPRINT_DOCUMENTATION_ENTRIES:
+            return False
+        if name in seen:
+            return False
+        seen.add(name)
+        if not valid_closure_evidence_path(raw.get("path")):
+            return False
+        digest = raw.get("sha256")
+        if not isinstance(digest, str) or (
+            COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(digest) is None
+        ):
+            return False
+        if raw.get("status") != "PASS":
+            return False
+    return seen == set(V01_CLOSURE_SPRINT_DOCUMENTATION_ENTRIES)
+
+
+def _closure_dod_items(value: object) -> tuple[bool, dict[str, int]]:
+    counts = {"total": 0, "pass": 0, "fail": 0, "unknown": 0}
+    if not isinstance(value, list) or not 1 <= len(value) <= V01_CLOSURE_SPRINT_MAX_ITEMS:
+        return False, counts
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, dict) or set(raw) != {"item", "status", "evidence_path", "sha256"}:
+            return False, counts
+        item = raw.get("item")
+        if not isinstance(item, str) or not item.strip() or len(item) > 512 or item in seen:
+            return False, counts
+        seen.add(item)
+        status = raw.get("status")
+        if status not in {"PASS", "FAIL", "UNKNOWN"}:
+            return False, counts
+        if not valid_closure_evidence_path(raw.get("evidence_path")):
+            return False, counts
+        digest = raw.get("sha256")
+        if not isinstance(digest, str) or (
+            COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(digest) is None
+        ):
+            return False, counts
+        counts["total"] += 1
+        counts[str(status).casefold()] += 1
+    return True, counts
+
+
+def closure_sprint_evidence() -> dict[str, object]:
+    """Read and truthfully validate the v01-closure-sprint-v1 artifact."""
+
+    unknown: dict[str, object] = {
+        "status": "UNKNOWN",
+        "v01_closure_sprint_evidence_version": V01_CLOSURE_SPRINT_EVIDENCE_VERSION,
+        "evidence_file": V01_CLOSURE_SPRINT_EVIDENCE_FILE,
+        "closure_candidate": False,
+        "dod_matrix_complete": False,
+        "dod_total_count": 0,
+        "dod_pass_count": 0,
+        "dod_fail_count": 0,
+        "dod_unknown_count": 0,
+        "full_v01_complete_claimed": False,
+        "secret_leaks": "UNKNOWN",
+        "filesystem_path_leaks": "UNKNOWN",
+        "cross_project_leaks": "UNKNOWN",
+        "core_llm_calls": "UNKNOWN",
+        "core_provider_calls": "UNKNOWN",
+    }
+    text = integration_file(V01_CLOSURE_SPRINT_EVIDENCE_FILE)
+    if not text:
+        return unknown
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {**unknown, "status": "FAIL"}
+    if not isinstance(data, dict):
+        return {**unknown, "status": "FAIL"}
+    payload = cast(dict[str, object], data)
+    if set(payload) != V01_CLOSURE_SPRINT_ALLOWED_FIELDS:
+        return {**unknown, "status": "FAIL"}
+    strings = {
+        field: payload.get(field) if isinstance(payload.get(field), str) else "UNKNOWN"
+        for field in V01_CLOSURE_SPRINT_STRING_FIELDS
+    }
+    booleans: dict[str, object] = {}
+    valid = True
+    for field in V01_CLOSURE_SPRINT_TRUE_FIELDS:
+        value = payload.get(field)
+        booleans[field] = value
+        valid = valid and value is True
+    for field in V01_CLOSURE_SPRINT_FALSE_FIELDS:
+        value = payload.get(field)
+        booleans[field] = value
+        valid = valid and value is False
+    integers: dict[str, int] = {}
+    for field, bound in V01_CLOSURE_SPRINT_INTEGER_BOUNDS.items():
+        value = payload.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= bound:
+            valid = False
+            integers[field] = 0
+        else:
+            integers[field] = value
+    for field in V01_CLOSURE_SPRINT_ZERO_FIELDS:
+        value = payload.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value != 0:
+            valid = False
+    lists = {field: payload.get(field) for field in V01_CLOSURE_SPRINT_LIST_FIELDS}
+    for field in V01_CLOSURE_SPRINT_LIST_FIELDS:
+        if not _closure_path_list(lists[field]):
+            valid = False
+    if not _is_closed_string_set(
+        payload.get("orchestration_authority_order"), V01_CLOSURE_SPRINT_AUTHORITY_ORDER
+    ):
+        valid = False
+    if not _is_closed_string_set(
+        payload.get("e2e_completed_stages"), V01_CLOSURE_SPRINT_E2E_STAGES
+    ):
+        valid = False
+    if not _is_closed_string_set(
+        payload.get("orchestration_negative_matrix"), V01_CLOSURE_SPRINT_NEGATIVE_CASES
+    ):
+        valid = False
+    if not _closure_documentation_entries(payload.get("documentation_entries")):
+        valid = False
+    dod_valid, dod_counts = _closure_dod_items(payload.get("dod_items"))
+    if not dod_valid:
+        valid = False
+    if (
+        integers["dod_total_count"] != dod_counts["total"]
+        or integers["dod_pass_count"] != dod_counts["pass"]
+        or integers["stabilization_defects_fixed"] > integers["stabilization_defects_discovered"]
+        or integers["e2e_stage_count"] != len(V01_CLOSURE_SPRINT_E2E_STAGES)
+    ):
+        valid = False
+    if not isinstance(payload.get("closure_candidate"), bool):
+        valid = False
+    closure_expected = (
+        valid
+        and dod_counts["fail"] == 0
+        and dod_counts["unknown"] == 0
+        and dod_counts["pass"] == dod_counts["total"]
+        and payload.get("closure_candidate") is True
+    )
+    if payload.get("closure_candidate") is True and not closure_expected:
+        valid = False
+    status = "PASS" if valid and closure_expected else "FAIL"
+    return {
+        **strings,
+        **booleans,
+        **integers,
+        **lists,
+        "orchestration_authority_order": payload.get("orchestration_authority_order"),
+        "orchestration_negative_matrix": payload.get("orchestration_negative_matrix"),
+        "e2e_completed_stages": payload.get("e2e_completed_stages"),
+        "documentation_entries": payload.get("documentation_entries"),
+        "dod_items": payload.get("dod_items"),
+        "closure_candidate": payload.get("closure_candidate") is True,
+        "dod_fail_count": dod_counts["fail"],
+        "dod_unknown_count": dod_counts["unknown"],
+        "status": status,
+    }
+
+
+def require_wo024_v01_closure_sprint_evidence(
+    work_order: str,
+    integration: Mapping[str, object],
+    migration_head_value: str | None = None,
+) -> None:
+    if work_order == WO024_G1_WORK_ORDER:
+        if "v01_closure_sprint" in integration:
+            raise ValueError(
+                f"{WO024_G1_WORK_ORDER} must not claim future v01 closure sprint evidence"
+            )
+        return
+    if work_order not in {WO024_WORK_ORDER, WO024P_WORK_ORDER}:
+        return
+    closure = integration.get("v01_closure_sprint")
+    if not isinstance(closure, Mapping):
+        raise ValueError(f"{work_order} missing mandatory v01 closure sprint evidence")
+    full = cast(Mapping[str, object], closure)
+    if full.get("status") != "PASS":
+        raise ValueError(f"{work_order} requires passing v01 closure sprint evidence")
+    if (
+        full.get("v01_closure_sprint_evidence_version") != V01_CLOSURE_SPRINT_EVIDENCE_VERSION
+        or full.get("evidence_file") != V01_CLOSURE_SPRINT_EVIDENCE_FILE
+    ):
+        raise ValueError(
+            f"{work_order} requires {V01_CLOSURE_SPRINT_EVIDENCE_VERSION} evidence in "
+            f"{V01_CLOSURE_SPRINT_EVIDENCE_FILE}"
+        )
+    if full.get("closure_candidate") is not True:
+        raise ValueError(f"{work_order} requires a complete v01 closure candidate")
+    if (
+        int(cast(int, full.get("dod_fail_count", 1))) != 0
+        or int(cast(int, full.get("dod_unknown_count", 1))) != 0
+    ):
+        raise ValueError(
+            f"{work_order} requires zero failing and zero unknown definition-of-done items"
+        )
+    if int(cast(int, full.get("dod_pass_count", 0))) != int(
+        cast(int, full.get("dod_total_count", -1))
+    ):
+        raise ValueError(
+            f"{work_order} requires every definition-of-done item to pass exactly once"
+        )
+    if full.get("dod_matrix_complete") is not True:
+        raise ValueError(f"{work_order} requires a complete definition-of-done matrix")
+    for field in V01_CLOSURE_SPRINT_LIST_FIELDS:
+        if not _closure_path_list(full.get(field)):
+            raise ValueError(
+                f"{work_order} requires bounded repository-relative {field} evidence paths"
+            )
+    if not _is_closed_string_set(
+        full.get("orchestration_authority_order"), V01_CLOSURE_SPRINT_AUTHORITY_ORDER
+    ):
+        raise ValueError(f"{work_order} requires the mandatory checkpoint-first authority order")
+    if not _is_closed_string_set(
+        full.get("orchestration_negative_matrix"), V01_CLOSURE_SPRINT_NEGATIVE_CASES
+    ):
+        raise ValueError(
+            f"{work_order} requires the closed stale, untracked and cross-project authority matrix"
+        )
+    if not _is_closed_string_set(full.get("e2e_completed_stages"), V01_CLOSURE_SPRINT_E2E_STAGES):
+        raise ValueError(f"{work_order} requires every closure end-to-end stage to pass once")
+    if not _closure_documentation_entries(full.get("documentation_entries")):
+        raise ValueError(f"{work_order} requires documentation provenance for every required entry")
+    dod_valid, dod_counts = _closure_dod_items(full.get("dod_items"))
+    if not dod_valid:
+        raise ValueError(f"{work_order} requires a bounded definition-of-done matrix")
+    if (
+        dod_counts["total"] != int(cast(int, full.get("dod_total_count", -1)))
+        or dod_counts["pass"] != int(cast(int, full.get("dod_pass_count", -1)))
+        or dod_counts["fail"] != 0
+        or dod_counts["unknown"] != 0
+    ):
+        raise ValueError(
+            f"{work_order} definition-of-done matrix must match its declared counts exactly"
+        )
+    missing_closure_true = [
+        field for field in V01_CLOSURE_SPRINT_TRUE_FIELDS if full.get(field) is not True
+    ]
+    if missing_closure_true:
+        raise ValueError(
+            f"{work_order} missing mandatory closure evidence: "
+            + ", ".join(sorted(missing_closure_true))
+        )
+    invalid_closure_false = [
+        field for field in V01_CLOSURE_SPRINT_FALSE_FIELDS if full.get(field) is not False
+    ]
+    if invalid_closure_false:
+        raise ValueError(
+            f"{work_order} requires bounded negative closure claims: "
+            + ", ".join(sorted(invalid_closure_false))
+        )
+    for field in ("full_v01_complete_claimed", "fabricated_metrics", "provider_values_fabricated"):
+        if full.get(field) is not False:
+            raise ValueError(f"{work_order} requires {field}=false in product evidence")
+    if full.get("redis_canonical_truth") is not False:
+        raise ValueError(f"{work_order} must not treat redis as canonical truth")
+    for field in (
+        "secret_leaks",
+        "filesystem_path_leaks",
+        "cross_project_leaks",
+        "core_llm_calls",
+        "core_provider_calls",
+        "orchestration_deterministic_llm_calls",
+        "stabilization_remaining_critical",
+        "stabilization_remaining_high",
+    ):
+        if full.get(field) != 0:
+            raise ValueError(f"{work_order} requires {field}=0")
+    if migration_head_value is not None and (
+        migration_head_value != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD
+        or full.get("observed_migration_head") != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD
+    ):
+        raise ValueError(
+            f"{work_order} requires migration head {V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+    for field in ("reviewed_base_sha", "reviewed_head_sha"):
+        value = full.get(field)
+        if not isinstance(value, str) or HEX_SHA.fullmatch(value) is None:
+            raise ValueError(f"{work_order} requires a resolved {field}")
+    digest = full.get("run_digest")
+    if not isinstance(digest, str) or (
+        COMPREHENSIVE_BENCHMARKS_PROVIDER_SHA256_PATTERN.fullmatch(digest) is None
+    ):
+        raise ValueError(f"{work_order} requires a deterministic closure run digest")
+    if not isinstance(full.get("changed_paths"), list):
+        raise ValueError(f"{work_order} requires bounded closure changed paths")
+
+
 def _is_closed_string_set(value: object, expected: tuple[str, ...]) -> bool:
     """Return True when value is exactly one permutation of expected strings."""
 
@@ -7263,7 +8120,7 @@ def verify_wo020_g1_governance_contract(
     if work_order != WO020_G1_WORK_ORDER:
         return None
     require_wo020_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-024-P", "WO-999-P"):
+    for rejected in ("WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -7295,7 +8152,7 @@ def verify_wo020_g1_governance_contract(
         f"migration_head={CONTROL_CENTER_CORE_MIGRATION_BASE_HEAD}; migration_changed=False; "
         f"future_{WO020_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_CORE_EVIDENCE_VERSION}_fail_closed=PASS; "
-        "control_center_implementation=False; unknown_WO-024-P_WO-999-P=REJECTED; "
+        "control_center_implementation=False; unknown_WO-025-P_WO-999-P=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -7354,7 +8211,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-024-P", "WO-024", "WO-999"):
+    for rejected in ("WO-025", "WO-025-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -7386,7 +8243,7 @@ def verify_wo021_g1_governance_contract(
         f"migration_head={CONTROL_CENTER_METRICS_MIGRATION_BASE_HEAD}; migration_changed=False; "
         f"future_{WO021_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_METRICS_EVIDENCE_VERSION}_fail_closed=PASS; "
-        "metrics_implementation=False; unknown_WO-024-P_WO-024_WO-999=REJECTED; "
+        "metrics_implementation=False; unknown_WO-025_WO-025-P_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -7446,7 +8303,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-024-P", "WO-024", "WO-999"):
+    for rejected in ("WO-025", "WO-025-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -7479,7 +8336,7 @@ def verify_wo022_g1_governance_contract(
         f"future_{WO022_WORK_ORDER}_registered=PASS; "
         f"future_{CONTROL_CENTER_FULL_EVIDENCE_VERSION}_fail_closed=PASS; "
         "full_control_center_implementation=False; "
-        "unknown_WO-024-P_WO-024_WO-999=REJECTED; "
+        "unknown_WO-025_WO-025-P_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -7619,7 +8476,7 @@ def verify_wo023_g1_governance_contract(
     if work_order != WO023_G1_WORK_ORDER:
         return None
     require_wo023_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-024-P", "WO-024", "WO-999"):
+    for rejected in ("WO-025", "WO-025-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -7652,7 +8509,7 @@ def verify_wo023_g1_governance_contract(
         f"future_{WO023_WORK_ORDER}_registered=PASS; "
         f"future_{COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}_fail_closed=PASS; "
         "comprehensive_benchmarks_implementation=False; "
-        "unknown_WO-024-P_WO-024_WO-999=REJECTED; "
+        "unknown_WO-025_WO-025-P_WO-999=REJECTED; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
     )
 
@@ -7813,7 +8670,7 @@ def verify_wo018p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-024-P", "WO-999-P"):
+    for rejected in ("WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -7844,7 +8701,7 @@ def verify_wo018p_g1_governance_contract(
         f"work_order={WO018P_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO018P_G1_WORK_ORDER},{WO018P_WORK_ORDER}; "
-        "historical_WO-017-P-G1_WO-017-P=REJECTED; unknown_WO-024-P_WO-999-P=REJECTED; "
+        "historical_WO-017-P-G1_WO-017-P=REJECTED; unknown_WO-025-P_WO-999-P=REJECTED; "
         "authorized_base_parser=PASS; future_two_file_scope=PASS; checkpoint_semantics=PASS; "
         "manifest_contract=PASS; autonomous_evidence=PASS; ruleset_unchanged=PASS; "
         "auto_merge=UNARMED; checkpoint_promotion=False"
@@ -7920,7 +8777,7 @@ def verify_wo019p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-024-P", "WO-999-P"):
+    for rejected in ("WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -7951,7 +8808,7 @@ def verify_wo019p_g1_governance_contract(
         f"work_order={WO019P_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO019P_G1_WORK_ORDER},{WO019P_WORK_ORDER}; "
-        "historical_WO-018-P-G1_WO-018-P=REJECTED; unknown_WO-024-P_WO-999-P=REJECTED; "
+        "historical_WO-018-P-G1_WO-018-P=REJECTED; unknown_WO-025-P_WO-999-P=REJECTED; "
         "authorized_base_parser=PASS; future_two_file_scope=PASS; checkpoint_semantics=PASS; "
         "manifest_contract=PASS; telemetry_evidence=PASS; ruleset_unchanged=PASS; "
         "auto_merge=UNARMED; checkpoint_promotion=False"
@@ -8027,7 +8884,7 @@ def verify_wo020p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-024-P", "WO-999-P"):
+    for rejected in ("WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -8061,7 +8918,7 @@ def verify_wo020p_g1_governance_contract(
         f"work_order={WO020P_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO020P_G1_WORK_ORDER},{WO020P_WORK_ORDER}; "
-        "historical_WO-019-P-G1_WO-019-P=REJECTED; unknown_WO-024-P_WO-999-P=REJECTED; "
+        "historical_WO-019-P-G1_WO-019-P=REJECTED; unknown_WO-025-P_WO-999-P=REJECTED; "
         "authorized_base_parser=PASS; future_two_file_scope=PASS; checkpoint_semantics=PASS; "
         "manifest_contract=PASS; control_center_evidence=PASS; ruleset_unchanged=PASS; "
         "auto_merge=UNARMED; checkpoint_promotion=False"
@@ -8146,7 +9003,7 @@ def verify_wo021p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-024-P", "WO-999-P"):
+    for rejected in ("WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -8184,7 +9041,7 @@ def verify_wo021p_g1_governance_contract(
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO021P_G1_WORK_ORDER},{WO021P_WORK_ORDER}; "
         "historical_WO-020-P-G1_WO-020-P=REJECTED; "
-        "unknown_WO-024-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
+        "unknown_WO-025-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
         "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
         "control_center_metrics_evidence=PASS; metrics_version=control-center-metrics-v1; "
         f"approved_lineage=PASS,PR#{approved_lineage['product_pr']},"
@@ -8280,7 +9137,7 @@ def verify_wo022p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-024-P", "WO-999-P"):
+    for rejected in ("WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -8318,7 +9175,7 @@ def verify_wo022p_g1_governance_contract(
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO022P_G1_WORK_ORDER},{WO022P_WORK_ORDER}; "
         "historical_WO-021-P-G1_WO-021-P=REJECTED; "
-        "unknown_WO-024-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
+        "unknown_WO-025-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
         "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
         f"full_control_center_evidence=PASS; "
         f"full_control_center_version={CONTROL_CENTER_FULL_EVIDENCE_VERSION}; "
@@ -8391,10 +9248,10 @@ def verify_wo023p_g1_governance_contract(
     if work_order != WO023P_G1_WORK_ORDER:
         return None
     require_wo023p_g1_scope(work_order, base_sha, paths)
-    if frozenset({WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}) != (
-        ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    if not frozenset({WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}).issubset(
+        CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
-        raise ValueError(f"{WO023P_G1_WORK_ORDER} requires active promotion pair")
+        raise ValueError(f"{WO023P_G1_WORK_ORDER} requires registered promotion pair")
     for stale in (
         WO016P_G1_WORK_ORDER,
         WO016P_WORK_ORDER,
@@ -8417,15 +9274,15 @@ def verify_wo023p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-023-P-C1", "WO-024", "WO-999-P"):
+    for rejected in ("WO-023-P-C1", "WO-025", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
             pass
         else:
             raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
-    require_current_work_order_authorization(WO023P_G1_WORK_ORDER)
-    require_current_work_order_authorization(WO023P_WORK_ORDER)
+    require_supported_work_order(WO023P_G1_WORK_ORDER)
+    require_supported_work_order(WO023P_WORK_ORDER)
     if canonical_changes != {
         "project_brain_changed": False,
         "checkpoint_changed": False,
@@ -8455,7 +9312,7 @@ def verify_wo023p_g1_governance_contract(
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         f"active_promotions={WO023P_G1_WORK_ORDER},{WO023P_WORK_ORDER}; "
         "historical_WO-022-P-G1_WO-022-P=REJECTED; "
-        "unknown_WO-023-P-C1_WO-024_WO-999-P=REJECTED; authorized_base_parser=PASS; "
+        "unknown_WO-023-P-C1_WO-025_WO-025-P_WO-999-P=REJECTED; authorized_base_parser=PASS; "
         "future_two_file_scope=PASS; checkpoint_semantics=PASS; manifest_contract=PASS; "
         f"comprehensive_benchmarks_evidence=PASS; "
         f"comprehensive_benchmarks_version={COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}; "
@@ -8534,10 +9391,8 @@ def verify_wo023p_g1_c1_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    if frozenset({WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}) != (
-        ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
-    ):
-        raise ValueError(f"{WO023P_G1_C1_WORK_ORDER} must preserve the active promotion pair")
+    if WO023P_G1_C1_WORK_ORDER in ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(f"{WO023P_G1_C1_WORK_ORDER} must not join the active promotion pair")
     if WO023P_G1_C1_WORK_ORDER in ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS:
         raise ValueError(f"{WO023P_G1_C1_WORK_ORDER} must not join the active promotion pair")
     fresh_marker_work_orders = {WO023P_WORK_ORDER, WO023P_G1_C1_WORK_ORDER}
@@ -8546,7 +9401,7 @@ def verify_wo023p_g1_c1_governance_contract(
             f"{WO023P_G1_C1_WORK_ORDER} requires the authorized-base marker parser to cover "
             "WO-023-P and the corrective work order"
         )
-    for rejected in ("WO-024-P", "WO-024", "WO-999-P"):
+    for rejected in ("WO-025", "WO-025-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -8560,9 +9415,9 @@ def verify_wo023p_g1_c1_governance_contract(
             pass
         else:
             raise ValueError(f"{historical} unexpectedly authorizes a fresh current PR")
-    require_current_work_order_authorization(WO023P_G1_WORK_ORDER)
-    require_current_work_order_authorization(WO023P_WORK_ORDER)
-    require_current_work_order_authorization(WO023P_G1_C1_WORK_ORDER)
+    require_supported_work_order(WO023P_G1_WORK_ORDER)
+    require_supported_work_order(WO023P_WORK_ORDER)
+    require_supported_work_order(WO023P_G1_C1_WORK_ORDER)
     if canonical_changes != {
         "project_brain_changed": False,
         "checkpoint_changed": False,
@@ -8590,7 +9445,7 @@ def verify_wo023p_g1_c1_governance_contract(
         "authorized_base_parser_covers_WO-023-P=PASS; "
         f"migration_head={COMPREHENSIVE_BENCHMARKS_MIGRATION_BASE_HEAD}; "
         f"active_promotions={WO023P_G1_WORK_ORDER},{WO023P_WORK_ORDER}; "
-        "historical_WO-022-P-G1_WO-022-P=REJECTED; unknown_WO-024-P_WO-024_WO-999-P=REJECTED; "
+        "historical_WO-022-P-G1_WO-022-P=REJECTED; unknown_WO-025_WO-025-P_WO-999-P=REJECTED; "
         f"comprehensive_benchmarks_evidence=PASS; "
         f"comprehensive_benchmarks_version={COMPREHENSIVE_BENCHMARKS_EVIDENCE_VERSION}; "
         "ruleset_unchanged=PASS; auto_merge=UNARMED; canonical_promotion_untouched=True; "
@@ -10696,6 +11551,11 @@ def integration_evidence(
         and control_center_full["status"] == "FAIL"
     ):
         status = "FAIL"
+    v01_closure_sprint = closure_sprint_evidence()
+    if work_order in {WO024_WORK_ORDER, WO024P_WORK_ORDER} and (
+        v01_closure_sprint["status"] == "FAIL"
+    ):
+        status = "FAIL"
     comprehensive_benchmarks = comprehensive_benchmarks_evidence()
     if (
         work_order
@@ -10774,6 +11634,8 @@ def integration_evidence(
         WO023P_G1_C1_WORK_ORDER,
     }:
         evidence["comprehensive_benchmarks"] = comprehensive_benchmarks
+    if work_order in {WO024_WORK_ORDER, WO024P_WORK_ORDER}:
+        evidence["v01_closure_sprint"] = v01_closure_sprint
     return evidence
 
 
@@ -12183,6 +13045,480 @@ def parse_wo023_approved_lineage_statement(entry: object) -> dict[str, object]:
     return result
 
 
+def require_wo024_approved_lineage_result(result: Mapping[str, object]) -> None:
+    """Validate the closed WO-024 closure-sprint lineage statement."""
+
+    expected_keys = {
+        "status",
+        "product_work_order",
+        "product_pr",
+        "audited_product_head",
+        "sol_review_id",
+        "sol_review_commit",
+        "squash_merge_sha",
+        "product_pr_merged",
+        "squash_lineage_compatible",
+        "post_merge_ci_run",
+        "post_merge_ci_event",
+        "post_merge_ci_head_sha",
+        "post_merge_ci_conclusion",
+        "post_merge_validate",
+        "post_merge_integration_health",
+        "post_merge_review_evidence",
+        "prior_review_evidence_head",
+        "prior_backend_passed",
+        "prior_dashboard_passed",
+        "prior_closure_status",
+        "prior_closure_version",
+        "prior_closure_candidate",
+        "prior_dod_pass_count",
+        "prior_dod_total_count",
+        "prior_migration_head",
+        "prior_closure_leaks",
+        "prior_closure_calls",
+    }
+    errors = sorted(
+        jsonschema.Draft202012Validator(
+            approved_lineage_definition("v01_closure_sprint_approved_lineage")
+        ).iter_errors(dict(result)),
+        key=str,
+    )
+    if errors or set(result) != expected_keys:
+        raise ValueError(
+            "WO-024 approved lineage statement is outside its closed contract"
+            + (": " + errors[0].message if errors else "")
+        )
+    if result.get("status") != "PASS" or result.get("product_work_order") != WO024_WORK_ORDER:
+        raise ValueError("WO-024 approved lineage statement must describe a passing WO-024 product")
+    if result.get("product_pr_merged") is not True or (
+        result.get("squash_lineage_compatible") is not True
+    ):
+        raise ValueError("WO-024 approved lineage requires a merged squash-compatible product PR")
+    if result.get("post_merge_ci_event") != "push" or (
+        result.get("post_merge_ci_conclusion") != "success"
+    ):
+        raise ValueError("WO-024 approved lineage requires a successful post-merge push CI run")
+    if result.get("post_merge_validate") != "success" or (
+        result.get("post_merge_integration_health") != "success"
+    ):
+        raise ValueError("WO-024 post-merge validate and integration health must succeed")
+    if result.get("post_merge_review_evidence") != "skipped":
+        raise ValueError("WO-024 post-merge Review Evidence must be skipped by design on push")
+    if result.get("post_merge_ci_head_sha") != result.get("squash_merge_sha"):
+        raise ValueError("WO-024 post-merge CI must run on the approved squash merge SHA")
+    if result.get("prior_review_evidence_head") != result.get("audited_product_head"):
+        raise ValueError("WO-024 prior evidence must be bound to the audited product HEAD")
+    if result.get("prior_closure_status") != "PASS" or (
+        result.get("prior_closure_version") != V01_CLOSURE_SPRINT_EVIDENCE_VERSION
+    ):
+        raise ValueError("WO-024 approved lineage requires passing v01 closure sprint evidence")
+    if result.get("prior_closure_candidate") is not True:
+        raise ValueError("WO-024 approved lineage requires a complete closure candidate")
+    pass_count = result.get("prior_dod_pass_count")
+    total_count = result.get("prior_dod_total_count")
+    for field, value in (
+        ("prior_dod_pass_count", pass_count),
+        ("prior_dod_total_count", total_count),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"WO-024 approved lineage requires a bounded {field}")
+    if pass_count != total_count:
+        raise ValueError("WO-024 approved lineage requires every definition-of-done item to pass")
+    if result.get("prior_migration_head") != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError("WO-024 approved lineage requires the closure migration head")
+    if result.get("prior_closure_leaks") != "0/0/0" or result.get("prior_closure_calls") != "0/0":
+        raise ValueError("WO-024 approved lineage requires zero closure leaks and calls")
+    for field in ("audited_product_head", "sol_review_commit", "squash_merge_sha"):
+        value = result.get(field)
+        if not isinstance(value, str) or HEX_SHA.fullmatch(value) is None:
+            raise ValueError(f"WO-024 approved lineage requires a resolved {field}")
+    for field in ("product_pr", "sol_review_id", "post_merge_ci_run", "prior_backend_passed"):
+        value = result.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"WO-024 approved lineage requires a bounded {field}")
+
+
+def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, object]:
+    """Validate the merged WO-024 closure sprint lineage from bounded GitHub sources."""
+
+    product_pr = _lineage_mapping(sources.get("product_pr"), "product PR data")
+    base = _lineage_mapping(product_pr.get("base"), "product PR base")
+    head = _lineage_mapping(product_pr.get("head"), "product PR head")
+    squash_merge = product_pr.get("merge_commit_sha")
+    if product_pr.get("state") != "closed" or product_pr.get("merged") is not True:
+        raise ValueError("WO-024 approved lineage requires a merged product PR")
+    if base.get("ref") != "main":
+        raise ValueError("WO-024 approved lineage requires the protected main base branch")
+    if not isinstance(squash_merge, str) or HEX_SHA.fullmatch(squash_merge) is None:
+        raise ValueError("WO-024 approved lineage requires a resolved squash merge SHA")
+    if squash_merge != git_value("rev-parse", WO012P_PROMOTION_BASE_REF, fallback=""):
+        raise ValueError("WO-024 approved lineage squash merge must be the current protected main")
+    if not isinstance(head.get("sha"), str) or HEX_SHA.fullmatch(str(head.get("sha"))) is None:
+        raise ValueError("WO-024 approved lineage requires the audited product HEAD")
+    audited_head = str(head.get("sha"))
+    product_body = _normalized_lineage_text(product_pr.get("body"), "product PR body")
+    if f"<!-- hive-work-order: {WO024_WORK_ORDER.casefold()} -->" not in product_body:
+        raise ValueError("WO-024 approved lineage requires the product work-order marker")
+
+    reviews = _lineage_list(sources.get("product_reviews"), "product PR reviews")
+    approved_reviews = [
+        _lineage_mapping(review, "product review")
+        for review in reviews
+        if _lineage_mapping(review, "product review").get("commit_id") == audited_head
+        and _lineage_mapping(review, "product review").get("state") in {"APPROVED", "COMMENTED"}
+    ]
+    if len(approved_reviews) != 1:
+        raise ValueError(
+            "WO-024 approved lineage requires exactly one Sol review at the audited HEAD"
+        )
+    sol_review = approved_reviews[0]
+    review_id = sol_review.get("id")
+    if not isinstance(review_id, int) or isinstance(review_id, bool) or review_id <= 0:
+        raise ValueError("WO-024 approved lineage requires a resolved Sol review identity")
+    review_text = _normalized_lineage_text(sol_review.get("body"), "Sol review body")
+    for marker in ("verdict:", "approved", audited_head):
+        if marker.casefold() not in review_text:
+            raise ValueError("WO-024 Sol review does not express the approved result")
+
+    merge_commit = _lineage_mapping(sources.get("merge_commit"), "squash merge commit")
+    if merge_commit.get("sha") != squash_merge:
+        raise ValueError("WO-024 squash merge commit identity is not verified")
+    parents = _lineage_list(merge_commit.get("parents"), "squash merge parents")
+    if len(parents) != 1:
+        raise ValueError("WO-024 approved merge is not compatible with a squash lineage")
+
+    post_merge_run = _lineage_mapping(sources.get("post_merge_run"), "post-merge CI run")
+    run_id = post_merge_run.get("id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id <= 0:
+        raise ValueError("WO-024 approved lineage requires a resolved post-merge CI run")
+    if (
+        post_merge_run.get("event") != "push"
+        or post_merge_run.get("head_sha") != squash_merge
+        or post_merge_run.get("status") != "completed"
+        or post_merge_run.get("conclusion") != "success"
+    ):
+        raise ValueError("WO-024 post-merge CI run is not a successful push on the merge SHA")
+
+    jobs = _lineage_list(sources.get("post_merge_jobs"), "post-merge CI jobs")
+    by_name: dict[str, Mapping[str, Any]] = {}
+    for raw_job in jobs:
+        job = _lineage_mapping(raw_job, "post-merge CI job")
+        name = job.get("name")
+        if isinstance(name, str):
+            by_name[name] = job
+    for name in ("Validate", "Integration health", "Review Evidence"):
+        if name not in by_name:
+            raise ValueError(f"WO-024 post-merge CI is missing {name}")
+    for name in ("Validate", "Integration health"):
+        job = by_name[name]
+        if job.get("status") != "completed" or job.get("conclusion") != "success":
+            raise ValueError(f"WO-024 post-merge {name} did not succeed")
+    review_job = by_name["Review Evidence"]
+    if review_job.get("status") != "completed" or review_job.get("conclusion") != "skipped":
+        raise ValueError("WO-024 post-push Review Evidence is not skipped by design")
+
+    comments = _lineage_list(sources.get("prior_review_comments"), "prior Review Evidence comments")
+    sticky_comments = []
+    for raw_comment in comments:
+        comment = _lineage_mapping(raw_comment, "prior Review Evidence comment")
+        body = comment.get("body")
+        if (
+            isinstance(body, str)
+            and f"<!-- hive-review-evidence:{WO024_WORK_ORDER.casefold()} -->" in body.casefold()
+        ):
+            sticky_comments.append(body)
+    if len(sticky_comments) != 1:
+        raise ValueError("WO-024 requires exactly one prior exact-head Review Evidence comment")
+    prior_text = _normalized_lineage_text(sticky_comments[0], "prior Review Evidence body")
+    closure = cast(Mapping[str, object], sources.get("closure_evidence", {}))
+    required_prior_fragments = (
+        f"exact head sha: `{audited_head}`",
+        "validate result: **pass**",
+        "integration health result: **pass**",
+        "review evidence result: **pass**",
+        f"v0.1 closure sprint evidence: `pass`; version `{V01_CLOSURE_SPRINT_EVIDENCE_VERSION}`",
+        f"dod matrix `{closure.get('dod_pass_count')}/{closure.get('dod_total_count')}`",
+        "fail `0`, unknown `0`",
+        f"migration head: `{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}`",
+        "canonical verifier: **pass**",
+        "canonical changes: project_brain_changed `false`, checkpoint_changed `false`",
+    )
+    missing_prior = [
+        fragment for fragment in required_prior_fragments if fragment not in prior_text
+    ]
+    if missing_prior:
+        raise ValueError("WO-024 prior Review Evidence is incomplete: " + ", ".join(missing_prior))
+    backend_match = re.search(r"backend tests: `(\d+) passed, 0 failed", prior_text)
+    dashboard_match = re.search(r"dashboard tests: `(\d+) passed, 0 failed", prior_text)
+    if backend_match is None or dashboard_match is None:
+        raise ValueError("WO-024 prior Review Evidence lacks the test counts")
+    backend_passed = int(backend_match.group(1))
+    dashboard_passed = int(dashboard_match.group(1))
+    result: dict[str, object] = {
+        "status": "PASS",
+        "product_work_order": WO024_WORK_ORDER,
+        "product_pr": int(cast(int, product_pr.get("number"))),
+        "audited_product_head": audited_head,
+        "sol_review_id": review_id,
+        "sol_review_commit": audited_head,
+        "squash_merge_sha": squash_merge,
+        "product_pr_merged": True,
+        "squash_lineage_compatible": True,
+        "post_merge_ci_run": run_id,
+        "post_merge_ci_event": "push",
+        "post_merge_ci_head_sha": squash_merge,
+        "post_merge_ci_conclusion": "success",
+        "post_merge_validate": "success",
+        "post_merge_integration_health": "success",
+        "post_merge_review_evidence": "skipped",
+        "prior_review_evidence_head": audited_head,
+        "prior_backend_passed": backend_passed,
+        "prior_dashboard_passed": dashboard_passed,
+        "prior_closure_status": "PASS",
+        "prior_closure_version": V01_CLOSURE_SPRINT_EVIDENCE_VERSION,
+        "prior_closure_candidate": True,
+        "prior_dod_pass_count": int(cast(int, closure.get("dod_pass_count"))),
+        "prior_dod_total_count": int(cast(int, closure.get("dod_total_count"))),
+        "prior_migration_head": V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        "prior_closure_leaks": "0/0/0",
+        "prior_closure_calls": "0/0",
+    }
+    require_wo024_approved_lineage_result(result)
+    return result
+
+
+def fetch_wo024_approved_lineage(
+    repository: str, closure_evidence: Mapping[str, object]
+) -> dict[str, object]:
+    """Discover and validate the merged WO-024 product lineage for the current main."""
+
+    main_sha = git_value("rev-parse", WO012P_PROMOTION_BASE_REF, fallback="")
+    if HEX_SHA.fullmatch(main_sha) is None:
+        raise ValueError("WO-024 approved lineage requires a resolved protected main SHA")
+    prs = _lineage_list(
+        _gh_json(repository, f"commits/{main_sha}/pulls"), "main merge pull requests"
+    )
+    merged = [
+        _lineage_mapping(pr, "main merge pull request")
+        for pr in prs
+        if _lineage_mapping(pr, "main merge pull request").get("merge_commit_sha") == main_sha
+        and _lineage_mapping(pr, "main merge pull request").get("merged_at")
+    ]
+    if len(merged) != 1:
+        raise ValueError("WO-024 requires exactly one merged product pull request for current main")
+    product_pr = merged[0]
+    number = int(cast(int, product_pr.get("number")))
+    jobs_response = _gh_json(repository, "actions/runs?branch=main&event=push&per_page=20")
+    runs = _lineage_list(
+        cast(Mapping[str, object], jobs_response).get("workflow_runs"), "main push runs"
+    )
+    run = next(
+        (
+            _lineage_mapping(candidate, "main push run")
+            for candidate in runs
+            if _lineage_mapping(candidate, "main push run").get("head_sha") == main_sha
+            and _lineage_mapping(candidate, "main push run").get("conclusion") == "success"
+        ),
+        None,
+    )
+    if run is None:
+        raise ValueError("WO-024 approved lineage requires a successful post-merge push CI run")
+    run_jobs = _gh_json(repository, f"actions/runs/{run.get('id')}/jobs")
+    return verify_wo024_approved_lineage(
+        {
+            "product_pr": product_pr,
+            "product_reviews": _gh_json(repository, f"pulls/{number}/reviews"),
+            "merge_commit": _gh_json(repository, f"commits/{main_sha}"),
+            "post_merge_run": run,
+            "post_merge_jobs": cast(Mapping[str, object], run_jobs).get("jobs"),
+            "prior_review_comments": _gh_json(repository, f"issues/{number}/comments"),
+            "closure_evidence": closure_evidence,
+        }
+    )
+
+
+def wo024_approved_lineage_statement(result: Mapping[str, object]) -> str:
+    require_wo024_approved_lineage_result(result)
+    return "Approved WO-024 product lineage: " + json.dumps(
+        dict(result), sort_keys=True, separators=(",", ":")
+    )
+
+
+def parse_wo024_approved_lineage_statement(entry: object) -> dict[str, object]:
+    prefix = "Approved WO-024 product lineage: "
+    if not isinstance(entry, str) or not entry.startswith(prefix):
+        raise ValueError("WO-024 approved lineage statement is missing")
+    try:
+        result = json.loads(entry[len(prefix) :])
+    except json.JSONDecodeError:
+        raise ValueError("WO-024 approved lineage statement is not valid JSON") from None
+    if not isinstance(result, dict):
+        raise ValueError("WO-024 approved lineage statement has an invalid shape")
+    require_wo024_approved_lineage_result(result)
+    return result
+
+
+def verify_wo024_g1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+    authorized_base_sha: str | None = None,
+) -> str | None:
+    if work_order != WO024_G1_WORK_ORDER:
+        return None
+    require_wo024_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        authorized_base_sha=authorized_base_sha,
+        enforce_authorized_base=authorized_base_sha is not None,
+    )
+    if frozenset({WO024_G1_WORK_ORDER, WO024P_WORK_ORDER}) != (
+        ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    ):
+        raise ValueError(f"{WO024_G1_WORK_ORDER} requires the active WO-024 promotion pair")
+    for rejected in ("WO-025", "WO-025-P", "WO-999"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    for historical in (WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER):
+        try:
+            require_current_work_order_authorization(historical)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{historical} unexpectedly authorizes a fresh current PR")
+    require_current_work_order_authorization(WO024_G1_WORK_ORDER)
+    require_current_work_order_authorization(WO024_WORK_ORDER)
+    require_current_work_order_authorization(WO024P_WORK_ORDER)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO024_G1_WORK_ORDER} forbids canonical changes")
+    if migration_head_value != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO024_G1_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO024_G1_WORK_ORDER} requires an unchanged ruleset")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO024_G1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo024_v01_closure_sprint_evidence(work_order, integration, migration_head_value)
+    return (
+        f"work_order={WO024_G1_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
+        f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
+        f"future_{WO024_WORK_ORDER}=REGISTERED; future_{WO024P_WORK_ORDER}=REGISTERED; "
+        f"closure_evidence_version={V01_CLOSURE_SPRINT_EVIDENCE_VERSION}; "
+        "historical_WO-023-P-G1_WO-023-P=REJECTED; unknown_WO-025_WO-025-P_WO-999=REJECTED; "
+        "closure_implementation=False; full_v01_complete_claimed=False; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo024_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+) -> str | None:
+    if work_order != WO024_WORK_ORDER:
+        return None
+    require_wo024_scope(work_order, base_sha, paths)
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO024_WORK_ORDER} cannot change canonical Project Brain")
+    if migration_head_value != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO024_WORK_ORDER} requires migration head {V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO024_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO024_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo024_v01_closure_sprint_evidence(work_order, integration, migration_head_value)
+    require_current_work_order_authorization(WO024_WORK_ORDER)
+    return (
+        f"work_order={WO024_WORK_ORDER}; product_scope=PASS; project_brain_changed=False; "
+        f"closure_evidence=PASS; closure_evidence_version={V01_CLOSURE_SPRINT_EVIDENCE_VERSION}; "
+        f"migration_head={V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}; "
+        "closure_candidate=True; full_v01_complete_claimed=False; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; checkpoint_promotion=False"
+    )
+
+
+def verify_wo024p_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+    approved_lineage: Mapping[str, object] | None = None,
+) -> str | None:
+    if work_order != WO024P_WORK_ORDER:
+        return None
+    closure = integration.get("v01_closure_sprint")
+    require_wo024p_scope(
+        work_order,
+        base_sha,
+        paths,
+        approved_lineage=approved_lineage,
+        closure_evidence=closure if isinstance(closure, Mapping) else None,
+    )
+    if canonical_changes != {
+        "project_brain_changed": True,
+        "checkpoint_changed": True,
+        "authorized_paths": sorted(WO024P_PROMOTION_ALLOWED_PATHS),
+    }:
+        raise ValueError(
+            f"{WO024P_WORK_ORDER} requires exactly the checkpoint and manifest canonical changes"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO024P_WORK_ORDER} requires the protected ruleset to be unchanged")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO024P_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo024_v01_closure_sprint_evidence(
+        WO024P_WORK_ORDER,
+        integration,
+        V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+    )
+    lineage = cast(Mapping[str, object], approved_lineage)
+    return (
+        f"work_order={WO024P_WORK_ORDER}; promotion_scope=PASS; checkpoint_semantics=PASS; "
+        "manifest_contract=PASS; closure_evidence=PASS; "
+        f"closure_evidence_version={V01_CLOSURE_SPRINT_EVIDENCE_VERSION}; "
+        f"migration_head={V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}; "
+        f"approved_lineage=PASS,PR#{lineage['product_pr']},"
+        f"audited_head={lineage['audited_product_head']},"
+        f"squash_merge={lineage['squash_merge_sha']},"
+        f"post_merge_ci={lineage['post_merge_ci_run']}; "
+        "dod_matrix=PASS; full_v01_complete_claimed=True; "
+        "production_quality_claimed_from_fixture=False; ruleset_unchanged=PASS; "
+        "auto_merge=UNARMED; checkpoint_promotion=True"
+    )
+
+
 def auto_merge_evidence(auto_merge: Mapping[str, Any] | None) -> dict[str, object]:
     owner = auto_merge.get("enabled_by") if isinstance(auto_merge, Mapping) else None
     owner = owner if isinstance(owner, Mapping) else {}
@@ -12846,6 +14182,20 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_branch=args.base_branch,
         authorized_base_sha=authorized_base_sha,
     )
+    require_wo024_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_wo024_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        enforce_current_main=True,
+    )
     require_wo016_scope(
         work_order,
         base_sha,
@@ -12974,6 +14324,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         if work_order in {WO022P_G1_WORK_ORDER, WO022P_WORK_ORDER}
         else fetch_wo023_approved_lineage(repository)
         if work_order in {WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}
+        else fetch_wo024_approved_lineage(
+            repository,
+            cast(
+                Mapping[str, object],
+                integration.get("v01_closure_sprint", {}),
+            ),
+        )
+        if work_order == WO024P_WORK_ORDER
         else None
     )
     g1_governance_evidence = verify_wo014p_g1_governance_contract(
@@ -13141,6 +14499,35 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
     )
     wo023p_g1_governance_evidence = verify_wo023p_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+        approved_lineage,
+    )
+    wo024_g1_governance_evidence = verify_wo024_g1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+        authorized_base_sha,
+    )
+    wo024_governance_evidence = verify_wo024_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+    )
+    wo024p_governance_evidence = verify_wo024p_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -13568,6 +14955,27 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             else []
         )
         + (
+            [f"WO-024-G1 governance evidence: {wo024_g1_governance_evidence}"]
+            if wo024_g1_governance_evidence
+            else []
+        )
+        + (
+            [wo024_approved_lineage_statement(approved_lineage)]
+            if work_order in {WO024_G1_WORK_ORDER, WO024P_WORK_ORDER}
+            and approved_lineage is not None
+            else []
+        )
+        + (
+            [f"WO-024 governance evidence: {wo024_governance_evidence}"]
+            if wo024_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-024-P governance evidence: {wo024p_governance_evidence}"]
+            if wo024p_governance_evidence
+            else []
+        )
+        + (
             [wo023_approved_lineage_statement(approved_lineage)]
             if work_order in {WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}
             and approved_lineage is not None
@@ -13874,6 +15282,24 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         else "main",
         enforce_authorized_base=False,
     )
+    require_wo024_g1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_authorized_base=False,
+    )
+    require_wo024_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, manifest["base"].get("branch", "main"))
+        if isinstance(manifest["base"], Mapping)
+        else "main",
+        enforce_current_main=True,
+    )
     require_wo016_scope(
         work_order,
         cast(str, base["sha"]),
@@ -14091,6 +15517,15 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if len(lineage_entries) != 1:
             raise ValueError("WO-023 evidence must include exactly one approved lineage statement")
         approved_lineage = parse_wo023_approved_lineage_statement(lineage_entries[0])
+    elif work_order == WO024P_WORK_ORDER:
+        lineage_entries = [
+            entry
+            for entry in negative_scope
+            if isinstance(entry, str) and entry.startswith("Approved WO-024 product lineage: ")
+        ]
+        if len(lineage_entries) != 1:
+            raise ValueError("WO-024 evidence must include exactly one approved lineage statement")
+        approved_lineage = parse_wo024_approved_lineage_statement(lineage_entries[0])
     g1_evidence = verify_wo014p_g1_governance_contract(
         work_order,
         cast(str, base["sha"]),
@@ -14388,6 +15823,49 @@ def validate_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(
                 "WO-023-P-G1 evidence must record the explicit promotion governance contract"
             )
+    wo024_g1_evidence = verify_wo024_g1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+        None,
+    )
+    if work_order == WO024_G1_WORK_ORDER:
+        expected_wo024_g1_entry = f"WO-024-G1 governance evidence: {wo024_g1_evidence}"
+        if expected_wo024_g1_entry not in negative_scope:
+            raise ValueError(
+                "WO-024-G1 evidence must record the explicit closure governance contract"
+            )
+    wo024_evidence = verify_wo024_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+    )
+    if work_order == WO024_WORK_ORDER:
+        expected_wo024_entry = f"WO-024 governance evidence: {wo024_evidence}"
+        if expected_wo024_entry not in negative_scope:
+            raise ValueError("WO-024 evidence must record the explicit closure sprint contract")
+    wo024p_evidence = verify_wo024p_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+        approved_lineage,
+    )
+    if work_order == WO024P_WORK_ORDER:
+        expected_wo024p_entry = f"WO-024-P governance evidence: {wo024p_evidence}"
+        if expected_wo024p_entry not in negative_scope:
+            raise ValueError("WO-024-P evidence must record the explicit final promotion contract")
     wo023p_g1_c1_evidence = verify_wo023p_g1_c1_governance_contract(
         work_order,
         cast(str, base["sha"]),
@@ -15318,6 +16796,25 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
         f"{control_center_metrics_evidence_value.get('metrics_llm_calls', 'UNKNOWN')}/"
         f"{control_center_metrics_evidence_value.get('metrics_provider_calls', 'UNKNOWN')}`"
     )
+    closure_evidence_value = cast(dict[str, Any], integration.get("v01_closure_sprint", {}))
+    closure_evidence_text = (
+        f"`{closure_evidence_value.get('status', 'NOT_REQUIRED')}`; version `"
+        f"{closure_evidence_value.get('v01_closure_sprint_evidence_version', 'NOT_REQUIRED')}`, "
+        f"closure candidate `{closure_evidence_value.get('closure_candidate', False)}`, "
+        "dod matrix `"
+        f"{closure_evidence_value.get('dod_pass_count', 'UNKNOWN')}/"
+        f"{closure_evidence_value.get('dod_total_count', 'UNKNOWN')}`, "
+        f"fail `{closure_evidence_value.get('dod_fail_count', 'UNKNOWN')}`, "
+        f"unknown `{closure_evidence_value.get('dod_unknown_count', 'UNKNOWN')}`, "
+        "remaining HIGH/CRITICAL `"
+        f"{closure_evidence_value.get('stabilization_remaining_high', 'UNKNOWN')}/"
+        f"{closure_evidence_value.get('stabilization_remaining_critical', 'UNKNOWN')}`, "
+        f"leaks/calls `{closure_evidence_value.get('secret_leaks', 'UNKNOWN')}/"
+        f"{closure_evidence_value.get('filesystem_path_leaks', 'UNKNOWN')}/"
+        f"{closure_evidence_value.get('cross_project_leaks', 'UNKNOWN')}/"
+        f"{closure_evidence_value.get('core_llm_calls', 'UNKNOWN')}/"
+        f"{closure_evidence_value.get('core_provider_calls', 'UNKNOWN')}`"
+    )
     control_center_full_evidence_value = cast(
         dict[str, Any], integration.get("control_center_full", {})
     )
@@ -15403,6 +16900,7 @@ def summary_markdown(manifest: dict[str, object], workflow_url: str) -> str:
 - Telemetry/Event Bus evidence: {telemetry_event_bus_text}
 - Control Center Metrics evidence: {control_center_metrics_text}
 - Full Control Center evidence: {control_center_full_text}
+- V0.1 Closure Sprint evidence: {closure_evidence_text}
 - WO-014-C2 governance evidence: {c2_governance_text}
 - WO-014-P-G1 governance evidence: {g1_governance_text}
 - WO-015-G1 governance evidence: {wo015_g1_governance_text}
