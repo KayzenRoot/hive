@@ -8532,6 +8532,7 @@ def verify_wo023p_g1_c1_governance_contract(
         base_sha,
         paths,
         authorized_base_sha=authorized_base_sha,
+        enforce_authorized_base=authorized_base_sha is not None,
     )
     if frozenset({WO023P_G1_WORK_ORDER, WO023P_WORK_ORDER}) != (
         ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
