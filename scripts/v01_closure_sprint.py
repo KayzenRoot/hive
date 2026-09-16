@@ -29,6 +29,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -424,7 +425,55 @@ def _artifact_bytes(probe: ApiProbe, project_id: UUID, task_id: str) -> bytes:
 
 
 def orchestration_family(probe: ApiProbe) -> dict[str, object]:
-    """Measure the checkpoint-first authority order and the fail-closed matrix."""
+    """Measure the checkpoint-first authority order and the fail-closed matrix.
+
+    The production orchestrator proof is executed first so the adapter-invocation
+    counters come from a real dispatch seam, then the bounded Context Manager
+    probe confirms the same authority order through the running API.
+    """
+
+    proof_run = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "backend/tests/test_v01_closure_orchestration_proof.py",
+            "-q",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=1800,
+    )
+    require(proof_run.returncode == 0, f"orchestrator proof failed: {proof_run.stdout[-300:]}")
+    proof = integration_log("v01-orchestration-proof.json")
+    require(isinstance(proof, dict), "orchestrator proof artifact missing")
+    cases = proof.get("cases")
+    require(isinstance(cases, dict) and cases, "orchestrator proof has no cases")
+    positive = cases.get("positive")
+    require(
+        isinstance(positive, dict) and int(positive.get("adapter_invocations", 0)) == 1,
+        "the positive orchestrator case did not reach adapter dispatch exactly once",
+    )
+    for label, case in cases.items():
+        if label == "positive" or not isinstance(case, dict):
+            continue
+        require(
+            int(case.get("adapter_invocations", -1)) == 0,
+            f"orchestrator negative {label} reached the adapter before failing closed",
+        )
+    negatives = sorted(label for label in cases if label != "positive")
+    require(
+        negatives
+        == sorted(governance.V01_CLOSURE_SPRINT_NEGATIVE_CASES)
+        + ["cross_project_task_mismatch", "wrong_head_binding", "unsafe_identity"]
+        or set(governance.V01_CLOSURE_SPRINT_NEGATIVE_CASES).issubset(set(negatives)),
+        f"orchestrator negative matrix is incomplete: {negatives}",
+    )
+    proof_order = tuple(str(kind) for kind in proof.get("authority_order") or [])
 
     fixtures: list[Fixture] = []
     negatives: list[str] = []
@@ -537,15 +586,32 @@ def orchestration_family(probe: ApiProbe) -> dict[str, object]:
             sorted(negatives) == sorted(governance.V01_CLOSURE_SPRINT_NEGATIVE_CASES),
             "negative matrix is incomplete",
         )
+        require(
+            tuple(deduped) == proof_order == governance.V01_CLOSURE_SPRINT_AUTHORITY_ORDER,
+            "the API authority order disagrees with the orchestrator proof order",
+        )
+        measured_negatives = sorted(
+            label for label in governance.V01_CLOSURE_SPRINT_NEGATIVE_CASES if label in cases
+        )
+        require(
+            measured_negatives == sorted(governance.V01_CLOSURE_SPRINT_NEGATIVE_CASES),
+            "the required fail-closed matrix is incomplete",
+        )
         return {
             "status": "PASS",
             "authority_order": list(deduped),
-            "negative_matrix": negatives,
+            "negative_matrix": measured_negatives,
             "project_id": str(governed.project_id),
             "head_sha": governed.head_sha,
             "checkpoint_first": deduped[0] == "CHECKPOINT",
-            "llm_calls": 0,
-            "provider_calls": 0,
+            "llm_calls": int(cast(int, proof.get("llm_calls", -1))),
+            "provider_calls": int(cast(int, proof.get("provider_calls", -1))),
+            "adapter_positive_invocations": int(cast(int, positive["adapter_invocations"])),
+            "adapter_negative_invocations": sum(
+                int(cast(dict[str, object], case).get("adapter_invocations", -1))
+                for label, case in cases.items()
+                if label != "positive"
+            ),
         }
     finally:
         cleanup_fixtures(fixtures)
