@@ -206,7 +206,7 @@ def test_closure_orchestration_proof_is_pre_dispatch_and_fail_closed(tmp_path: P
             {"context": capsule(governance=("CHECKPOINT",))},
         ),
         (
-            "cross_project_task_mismatch",
+            "cross_project_authority",
             {"task_project_id": OTHER_PROJECT_ID},
         ),
         (
