@@ -689,8 +689,10 @@ def _secondary_root_proof() -> dict[str, object]:
         "-Atqc",
         "SELECT count(*) FROM secondary_root_probe",
     ).strip()
-    host_files = subprocess.run(
-        ["find", str(isolated_root), "-maxdepth", "2"],
+    container_id = compose(*base, "ps", "-q", "postgres", check=False).strip()
+    inspect = subprocess.run(
+        ["docker", "inspect", container_id, "--format", "{{json .Mounts}}"],
+        cwd=ROOT,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -700,10 +702,14 @@ def _secondary_root_proof() -> dict[str, object]:
     ).stdout
     compose(*base, "down", "-v", check=False)
     require(
+        isolated_root.name in inspect.replace(chr(92), "/"),
+        "the isolated host root was not mounted into the PostgreSQL container",
+    )
+    require(
         rows_after.isdigit() and int(rows_after) >= int(rows_before),
         "secondary-root state did not survive the PostgreSQL replacement",
     )
-    require("postgres" in host_files, "the isolated host root was not used by PostgreSQL")
+
     return {
         "isolated_root": sha256_text(str(isolated_root)),
         "services": ["postgres"],
