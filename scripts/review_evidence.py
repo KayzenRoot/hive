@@ -7598,15 +7598,15 @@ def require_wo024_v01_closure_sprint_evidence(
     migration_head_value: str | None = None,
 ) -> None:
     if work_order == WO024_G1_WORK_ORDER:
-        if "v01_closure_sprint" in integration:
+        if integration_file(V01_CLOSURE_SPRINT_EVIDENCE_FILE):
             raise ValueError(
                 f"{WO024_G1_WORK_ORDER} must not claim future v01 closure sprint evidence"
             )
         return
     if work_order not in {WO024_WORK_ORDER, WO024P_WORK_ORDER}:
         return
-    closure = integration.get("v01_closure_sprint")
-    if not isinstance(closure, Mapping):
+    closure = closure_sprint_evidence()
+    if not closure or closure.get("status") == "UNKNOWN":
         raise ValueError(f"{work_order} missing mandatory v01 closure sprint evidence")
     full = cast(Mapping[str, object], closure)
     if full.get("status") != "PASS":
@@ -11639,8 +11639,6 @@ def integration_evidence(
         WO023P_G1_C1_WORK_ORDER,
     }:
         evidence["comprehensive_benchmarks"] = comprehensive_benchmarks
-    if work_order in {WO024_WORK_ORDER, WO024P_WORK_ORDER}:
-        evidence["v01_closure_sprint"] = v01_closure_sprint
     return evidence
 
 
@@ -13482,7 +13480,7 @@ def verify_wo024p_governance_contract(
 ) -> str | None:
     if work_order != WO024P_WORK_ORDER:
         return None
-    closure = integration.get("v01_closure_sprint")
+    closure = closure_sprint_evidence()
     require_wo024p_scope(
         work_order,
         base_sha,
