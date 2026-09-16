@@ -24,15 +24,24 @@ import sys
 import tarfile
 import time
 from pathlib import Path
+from uuid import UUID, uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import review_evidence as governance  # noqa: E402
 from control_center_integration import (  # noqa: E402
+    ApiProbe,
+    Fixture,
     compose,
+    create_fixture_repository,
     current_migration_head,
+    emit_event_batch,
+    event_spec,
+    register_fixture,
     require,
+    run_command,
+    wait_for_api_health,
 )
 
 WORK_DIR = ROOT / "tmp" / "v01-closure" / "backup-restore"
@@ -190,41 +199,66 @@ def backup_configuration(destination: Path, identity: dict[str, object]) -> dict
     return payload
 
 
-def seed_canonical_material() -> bool:
-    """Write one real canonical blob when the store is empty.
+def seed_canonical_material() -> dict[str, object]:
+    """Create representative canonical product state through normal product paths.
 
     Continuous integration starts from an empty canonical store, so the proof
-    seeds its own bounded content-addressed blob through the product's own CAS
-    API instead of depending on earlier integrations having run.
+    creates one bounded fixture project, one ingested task artifact and one durable
+    telemetry event through the real API, CAS and telemetry seams. The returned
+    identity binds the PostgreSQL rows and the content-addressed bytes to the same
+    fixture instead of relying on a raw filesystem blob.
     """
 
-    found = compose(
-        "exec",
-        "-T",
-        "api",
-        "sh",
-        "-c",
-        f"find {CANONICAL_CAS_ROOT} -type f | head -1",
-    ).strip()
-    if found:
-        return False
-    seed_source = WORK_DIR / "seed-payload.bin"
-    seed_source.write_bytes(b"v01 closure backup seed payload")
-    compose("cp", str(seed_source), "api:/tmp/v01-closure-seed.bin")
-    compose(
-        "exec",
-        "-T",
-        "api",
-        "python",
-        "-c",
-        "from pathlib import Path;"
-        "from app.config import Settings;"
-        "from app.cas import CASStore;"
-        "store = CASStore(Settings());"
-        "blob = store.put(Path('/tmp/v01-closure-seed.bin'));"
-        "print(blob.sha256)",
+    project_rows = int(psql(POSTGRES_DB, "SELECT count(*) FROM projects").strip() or "0")
+    task_rows = int(psql(POSTGRES_DB, "SELECT count(*) FROM tasks").strip() or "0")
+    telemetry_rows = int(psql(POSTGRES_DB, "SELECT count(*) FROM telemetry_events").strip() or "0")
+    if project_rows > 0 and task_rows > 0 and telemetry_rows > 0:
+        return {"created": False}
+
+    label = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-alpha"
+    fixture = Fixture(label=label, relative_path=label, repository=ROOT / ".hive-projects" / label)
+    create_fixture_repository(fixture.repository, label)
+    (fixture.repository / "src").mkdir(parents=True, exist_ok=True)
+    (fixture.repository / "src" / "closure_backup.py").write_text(
+        "def closure_backup() -> str:\n    return 'closure-backup'\n", encoding="utf-8"
     )
-    return True
+    run_command(["git", "-C", str(fixture.repository), "add", "-A"])
+    run_command(["git", "-C", str(fixture.repository), "commit", "-m", "closure backup fixture"])
+    probe = ApiProbe(
+        f"http://127.0.0.1:{os.environ.get('HIVE_API_PORT', '8000')}",
+        f"http://127.0.0.1:{os.environ.get('HIVE_DASHBOARD_PORT', '3000')}/",
+    )
+    wait_for_api_health(probe, attempts=90)
+    register_fixture(probe, fixture)
+    require(fixture.project_id is not None, "backup fixture registration failed")
+    task = probe.request(
+        "POST",
+        f"/api/v1/projects/{fixture.project_id}/tasks/text",
+        payload={
+            "title": "closure backup payload",
+            "text": "closure backup payload",
+            "format": "text",
+        },
+        expected=201,
+    )
+    emit_event_batch(
+        fixture.project_id,
+        [
+            event_spec(
+                event_type="validation.passed",
+                run_id=UUID("00000000-0000-0000-0000-000000000024"),
+                emission_key=f"{label}-backup",
+                payload={"suite": "v01-backup-restore"},
+                task_id=UUID(str(task["task_id"])),
+            )
+        ],
+    )
+    return {
+        "created": True,
+        "project_id": str(fixture.project_id),
+        "task_id": str(task["task_id"]),
+        "task_sha256": str(task["original_blob_sha256"]),
+    }
 
 
 def main() -> int:
@@ -237,9 +271,30 @@ def main() -> int:
         shutil.rmtree(WORK_DIR, ignore_errors=True)
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         RESTORE_DIR.mkdir(parents=True, exist_ok=True)
-        seed_canonical_material()
+        seeded = seed_canonical_material()
 
         source = canonical_database_digest(POSTGRES_DB)
+        representative = {
+            table: int(psql(POSTGRES_DB, f"SELECT count(*) FROM {table}").strip() or "0")
+            for table in (
+                "projects",
+                "tasks",
+                "task_extractions",
+                "telemetry_events",
+                "cas_blobs",
+            )
+        }
+        for table, rows in representative.items():
+            require(rows > 0, f"backup source has no representative {table} state")
+        linked = int(
+            psql(
+                POSTGRES_DB,
+                "SELECT count(*) FROM cas_blobs WHERE sha256 IN "
+                "(SELECT original_blob_sha256 FROM tasks)",
+            ).strip()
+            or "0"
+        )
+        require(linked > 0, "backup CAS bytes are not linked to canonical task rows")
         identity = registry_identity(POSTGRES_DB)
         dump = compose(
             "exec",
@@ -326,8 +381,20 @@ def main() -> int:
         ).strip()
         require(blob_rows == restored_blob_rows, "restored CAS rows do not match the source")
 
+        seeded_identity = (
+            {
+                "project_id": str(seeded["project_id"]),
+                "task_id": str(seeded["task_id"]),
+                "task_sha256": str(seeded["task_sha256"]),
+            }
+            if isinstance(seeded, dict) and seeded.get("created")
+            else {"created": False}
+        )
         summary: dict[str, object] = {
             "status": "PASS",
+            "representative_rows": representative,
+            "cas_linked_tasks": linked,
+            "seeded_identity": seeded_identity,
             "database": {
                 "canonical_digest": source["digest"],
                 "restored_digest": restored["digest"],
