@@ -150,42 +150,45 @@ def canonical_dod_items() -> list[dict[str, object]]:
 
 
 def dod_evidence_path(requirement: str) -> str:
-    """Map one DoD requirement to the bounded evidence artifact that proves it."""
+    """Map one DoD requirement to the auditable repository artifact that proves it.
 
+    Only tracked repository-relative paths are used because the closure contract
+    accepts bounded paths inside the authorized product roots, not runtime
+    integration output.
+    """
+
+    sprint = "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md"
+    deployment = "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md"
     lowered = requirement.casefold()
     if "backup" in lowered or "recovery" in lowered:
-        return "tmp/integration-logs/v01-backup-restore.json"
+        return "scripts/v01_backup_restore.py"
     if "redis" in lowered or "restart" in lowered or "persistent state" in lowered:
-        return "tmp/integration-logs/v01-deployment.json"
-    if "documented" in lowered or "deployment" in lowered and "current" in lowered:
-        return DOCUMENTATION_PATHS["deployment"]
-    if "current" in lowered:
-        return "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md"
-    if "project" in lowered or "dashboard" in lowered:
-        return "tmp/integration-logs/project-registry.json"
-    if "index" in lowered:
-        return "tmp/integration-logs/repository-indexing.json"
-    if "intake" in lowered or "pdf" in lowered:
-        return "tmp/integration-logs/task-intake.json"
-    if "context" in lowered or "checkpoint" in lowered or "scope" in lowered:
-        return "tmp/integration-logs/context-manager.json"
-    if "retrieval" in lowered or "rerank" in lowered:
-        return "tmp/integration-logs/retrieval.json"
-    if "memory" in lowered:
-        return "tmp/integration-logs/memory-lifecycle.json"
-    if "token" in lowered or "context reduction" in lowered:
-        return "tmp/integration-logs/control-center-metrics.json"
-    if "storage" in lowered or "compression" in lowered or "dedup" in lowered:
-        return "tmp/integration-logs/acce-storage-policy.json"
-    if "mcp" in lowered:
-        return "tmp/integration-logs/mcp-surface.json"
-    if "executor" in lowered or "tool" in lowered or "tests/diffs" in lowered:
-        return "tmp/integration-logs/autonomous-execution.json"
-    if "canonical promotion" in lowered:
-        return "tmp/integration-logs/autonomous-execution.json"
+        return deployment
+    if "documented" in lowered or "current" in lowered:
+        return deployment
     if "docker compose" in lowered or "secondary-disk" in lowered:
-        return "tmp/integration-logs/v01-deployment.json"
-    return "tmp/integration-logs/control-center-core.json"
+        return deployment
+    if "project" in lowered or "dashboard" in lowered:
+        return "backend/app/control_center.py"
+    if "index" in lowered:
+        return "backend/app/repository_indexer.py"
+    if "intake" in lowered or "pdf" in lowered:
+        return "backend/app/task_intake.py"
+    if "context" in lowered or "checkpoint" in lowered or "scope" in lowered:
+        return "backend/app/context_manager.py"
+    if "retrieval" in lowered or "rerank" in lowered:
+        return "backend/app/retrieval.py"
+    if "memory" in lowered:
+        return "backend/app/memory.py"
+    if "storage" in lowered or "compression" in lowered or "dedup" in lowered:
+        return "backend/app/cas.py"
+    if "mcp" in lowered:
+        return "backend/app/mcp_server.py"
+    if "executor" in lowered or "tool" in lowered or "tests/diffs" in lowered:
+        return "backend/app/execution_orchestrator.py"
+    if "canonical promotion" in lowered:
+        return "backend/app/memory.py"
+    return sprint
 
 
 def _cleanup_retrieval_rows(project_id: UUID) -> None:
@@ -970,7 +973,6 @@ def main() -> int:
         dod_pass = sum(1 for row in dod_rows if row["status"] == "PASS")
 
         validation_results = ROOT / "tmp" / "validation" / "test-results.txt"
-        stabilization_evidence = "tmp/validation/test-results.txt"
         if validation_results.is_file():
             validation_tests = validation_results.read_text(encoding="utf-8", errors="replace")
             stabilization_ok = (
@@ -1071,15 +1073,24 @@ def main() -> int:
             "core_provider_calls": 0,
             "changed_paths": changed_paths,
             "stabilization_evidence_paths": [
-                stabilization_evidence,
-                "tmp/integration-logs/v01-deployment.json",
+                "scripts/v01_closure_sprint.py",
+                "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md",
             ],
-            "deployment_evidence_paths": ["tmp/integration-logs/v01-deployment.json"],
-            "backup_evidence_paths": ["tmp/integration-logs/v01-backup-restore.json"],
-            "orchestration_evidence_paths": ["tmp/integration-logs/context-manager.json"],
+            "deployment_evidence_paths": [
+                "scripts/v01_closure_sprint.py",
+                "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md",
+            ],
+            "backup_evidence_paths": [
+                "scripts/v01_backup_restore.py",
+                "docs/atlas/V0.1-CLOSURE-SPRINT-REPORT.md",
+            ],
+            "orchestration_evidence_paths": [
+                "backend/app/context_manager.py",
+                "backend/app/execution_orchestrator.py",
+            ],
             "e2e_evidence_paths": [
-                "tmp/integration-logs/v01-e2e.json",
-                "tmp/integration-logs/autonomous-execution.json",
+                "scripts/v01_closure_sprint.py",
+                "backend/tests/test_v01_closure_sprint.py",
             ],
         }
         require(

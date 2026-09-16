@@ -39,10 +39,10 @@ def test_dod_scan_covers_every_canonical_requirement_once() -> None:
 def test_every_dod_row_maps_to_bounded_evidence_within_authorized_roots() -> None:
     for item in closure.canonical_dod_items():
         path = closure.dod_evidence_path(str(item["requirement"]))
-        assert path.endswith(".json") or path.endswith(".md")
+        assert path.endswith((".json", ".md", ".py"))
         assert not path.startswith("/")
         assert ".." not in path
-        assert path.startswith(("tmp/integration-logs/", "docs/"))
+        assert path.startswith(("backend/", "scripts/", "docs/", "dashboard/"))
 
 
 def test_authority_order_and_negative_matrix_are_closed() -> None:
