@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from itertools import permutations
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import jsonschema
@@ -9976,3 +9977,320 @@ def test_wo023p_governance_contract_binds_merged_benchmarks_and_lineage(
         review_evidence.WO023P_PROMOTION_REGISTRY[review_evidence.WO023P_WORK_ORDER]
         == review_evidence.WO012P_PROMOTION_BASE_REF
     )
+
+
+class _ManifestScopeReached(Exception):
+    """Sentinel used to stop a driven manifest build at the promotion scope check."""
+
+
+_REAL_WO023P_SCOPE = review_evidence.require_wo023p_scope
+
+
+def wo023p_manifest_harness(
+    monkeypatch: pytest.MonkeyPatch,
+    pr_body: str,
+    *,
+    delegate: bool = False,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Drive the real build_manifest path up to the WO-023-P promotion scope check."""
+
+    base_sha = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
+    head_sha = "f" * 40
+    seen: dict[str, object] = {"scope_calls": []}
+    real_scope = _REAL_WO023P_SCOPE
+
+    def fake_git_value(*args: object, **kwargs: object) -> str:
+        if args[:2] == ("rev-parse", review_evidence.WO012P_PROMOTION_BASE_REF):
+            return base_sha
+        return head_sha
+
+    def spy(work_order: str, scope_base: str, paths: list[str], **kwargs: object) -> None:
+        cast(list[object], seen["scope_calls"]).append((work_order, kwargs))
+        seen["work_order"] = work_order
+        seen["base_sha"] = scope_base
+        seen["paths"] = list(paths)
+        seen["authorized_base_sha"] = kwargs.get("authorized_base_sha")
+        if delegate:
+            real_scope(work_order, scope_base, paths, **kwargs)  # type: ignore[arg-type]
+            return
+        raise _ManifestScopeReached
+
+    monkeypatch.setattr(review_evidence, "pull_request_body", lambda repository, number: pr_body)
+    monkeypatch.setattr(review_evidence, "read_text", lambda path: "")
+    monkeypatch.setattr(review_evidence, "git_value", fake_git_value)
+    monkeypatch.setattr(
+        review_evidence,
+        "changed_paths",
+        lambda *args: sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS),
+    )
+    monkeypatch.setattr(review_evidence, "require_wo023p_scope", spy)
+    args = SimpleNamespace(
+        repository="KayzenRoot/hive",
+        pr_number=92,
+        work_order=review_evidence.WO023P_WORK_ORDER,
+        base_branch="main",
+        base_sha=base_sha,
+        head_branch="governance/wo023-p-checkpoint-promotion",
+        head_sha=head_sha,
+        server_url="https://github.com",
+        run_id="35040299812",
+        integration_status="PASS",
+        ready=True,
+        draft=False,
+    )
+    return seen, vars(args)
+
+
+def wo023p_pr_body(marker: str | None) -> str:
+    body = f"<!-- HIVE-WORK-ORDER: {review_evidence.WO023P_WORK_ORDER} -->\n"
+    if marker is not None:
+        body += f"<!-- HIVE-AUTHORIZED-BASE: {marker} -->\n"
+    return body
+
+
+def test_wo023p_build_manifest_reads_its_authorized_base_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_sha = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
+    seen, args = wo023p_manifest_harness(
+        monkeypatch,
+        wo023p_pr_body(base_sha),
+    )
+
+    with pytest.raises(_ManifestScopeReached):
+        review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
+
+    assert seen["work_order"] == review_evidence.WO023P_WORK_ORDER
+    assert seen["base_sha"] == base_sha
+    assert seen["authorized_base_sha"] == base_sha
+    assert seen["paths"] == sorted(review_evidence.WO023P_PROMOTION_ALLOWED_PATHS)
+    assert review_evidence.WO023P_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    assert (
+        review_evidence.WO023P_G1_C1_WORK_ORDER
+        in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+
+
+def test_wo023p_build_manifest_fails_closed_on_bad_authorized_base_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_sha = "3ca2109175b7c6842c6578c237ff798d5ce8916f"
+    cases = (
+        ("missing marker", wo023p_pr_body(None), "missing exactly one authorized-base marker"),
+        (
+            "duplicate markers",
+            wo023p_pr_body(base_sha) + f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->\n",
+            "multiple conflicting authorized-base markers",
+        ),
+        (
+            "malformed marker",
+            wo023p_pr_body(base_sha.upper()),
+            "lowercase 40-hex",
+        ),
+        (
+            "truncated marker",
+            wo023p_pr_body(base_sha[:39]),
+            "lowercase 40-hex",
+        ),
+    )
+    for label, body, expected in cases:
+        seen, args = wo023p_manifest_harness(monkeypatch, body)
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
+        assert "authorized_base_sha" not in seen, label
+        assert seen["scope_calls"] == [], label
+
+    mismatched = "a" * 40
+    seen, args = wo023p_manifest_harness(
+        monkeypatch,
+        wo023p_pr_body(mismatched),
+        delegate=True,
+    )
+    with pytest.raises(ValueError, match="must match the pull request base SHA"):
+        review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
+    assert seen["authorized_base_sha"] == mismatched
+
+
+def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
+    base_sha = review_evidence.WO023P_G1_C1_BASE_SHA
+    allowed = sorted(review_evidence.WO023P_G1_C1_ALLOWED_PATHS)
+    review_evidence.require_wo023p_g1_c1_scope(
+        review_evidence.WO023P_G1_C1_WORK_ORDER,
+        base_sha,
+        allowed,
+        authorized_base_sha=base_sha,
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo023p_g1_c1_scope(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            "f" * 40,
+            allowed,
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="protected main base branch"):
+        review_evidence.require_wo023p_g1_c1_scope(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="exactly the review evidence tooling"):
+        review_evidence.require_wo023p_g1_c1_scope(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            [*allowed, review_evidence.CHECKPOINT_PATH],
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="exactly one authorized-base marker"):
+        review_evidence.require_wo023p_g1_c1_scope(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+        )
+    with pytest.raises(ValueError, match="lowercase 40-hex"):
+        review_evidence.require_wo023p_g1_c1_scope(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            authorized_base_sha=base_sha.upper(),
+        )
+    with pytest.raises(ValueError, match="must match the pull request base SHA"):
+        review_evidence.require_wo023p_g1_c1_scope(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            authorized_base_sha="b" * 40,
+        )
+
+    governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
+    integration = {"comprehensive_benchmarks": wo023_benchmark_payload()}
+    no_canonical = {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }
+    evidence = review_evidence.verify_wo023p_g1_c1_governance_contract(
+        review_evidence.WO023P_G1_C1_WORK_ORDER,
+        base_sha,
+        allowed,
+        no_canonical,
+        governance,
+        integration,
+        "0007_telemetry_events",
+        base_sha,
+    )
+    assert evidence is not None
+    assert "authorized_base_parser_covers_WO-023-P=PASS" in evidence
+    assert "canonical_promotion_untouched=True" in evidence
+    assert "unknown_WO-024-P_WO-024_WO-999-P=REJECTED" in evidence
+    assert "checkpoint_promotion=False" in evidence
+    with pytest.raises(ValueError, match="forbids canonical changes"):
+        review_evidence.verify_wo023p_g1_c1_governance_contract(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            {
+                "project_brain_changed": True,
+                "checkpoint_changed": True,
+                "authorized_paths": [review_evidence.CHECKPOINT_PATH],
+            },
+            governance,
+            integration,
+            "0007_telemetry_events",
+            base_sha,
+        )
+    with pytest.raises(ValueError, match="auto-merge to remain unarmed"):
+        review_evidence.verify_wo023p_g1_c1_governance_contract(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            no_canonical,
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": True}},
+            integration,
+            "0007_telemetry_events",
+            base_sha,
+        )
+    with pytest.raises(ValueError, match="mandatory comprehensive benchmarks"):
+        review_evidence.verify_wo023p_g1_c1_governance_contract(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            no_canonical,
+            governance,
+            {},
+            "0007_telemetry_events",
+            base_sha,
+        )
+    with pytest.raises(ValueError, match="authorized-base marker parser"):
+        monkeypatch.setattr(
+            review_evidence,
+            "AUTHORIZED_BASE_MARKER_WORK_ORDERS",
+            frozenset({review_evidence.GEF_ADOPTION_WORK_ORDER}),
+        )
+        review_evidence.verify_wo023p_g1_c1_governance_contract(
+            review_evidence.WO023P_G1_C1_WORK_ORDER,
+            base_sha,
+            allowed,
+            no_canonical,
+            governance,
+            integration,
+            "0007_telemetry_events",
+            base_sha,
+        )
+    monkeypatch.undo()
+
+    assert (
+        AUTHORIZED_BASE_BY_WORK_ORDER[review_evidence.WO023P_G1_C1_WORK_ORDER]
+        == review_evidence.WO023P_G1_C1_BASE_SHA
+    )
+    review_evidence.require_current_work_order_authorization(
+        review_evidence.WO023P_G1_C1_WORK_ORDER
+    )
+    for rejected in ("WO-024", "WO-024-P", "WO-999-P"):
+        with pytest.raises(ValueError, match="unsupported|historical"):
+            review_evidence.require_current_work_order_authorization(rejected)
+    for historical in (
+        review_evidence.WO022P_G1_WORK_ORDER,
+        review_evidence.WO022P_WORK_ORDER,
+    ):
+        with pytest.raises(ValueError, match="historical checkpoint-promotion"):
+            review_evidence.require_current_work_order_authorization(historical)
+
+    body = render_body(
+        work_order=review_evidence.WO023P_G1_C1_WORK_ORDER,
+        pr_number=93,
+        branch="governance/wo023-p-g1-c1-authorized-base-parser",
+        base_sha=base_sha,
+        head_sha="a" * 40,
+        artifact_name="hive-review-evidence-WO-023-P-G1-C1",
+        ruleset_before="21934284",
+        ruleset_after="21934284",
+        merge_before="squash",
+        merge_after="squash",
+    )
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-023-P-G1-C1 -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->" in body
+    assert "WO-023-P-G1-C1 READY FOR SOL AUDIT" in body
+    assert "#92" in body
+    with pytest.raises(ValueError, match="authorized base"):
+        render_body(
+            work_order=review_evidence.WO023P_G1_C1_WORK_ORDER,
+            pr_number=93,
+            branch="governance/wo023-p-g1-c1-authorized-base-parser",
+            base_sha="d" * 40,
+            head_sha="a" * 40,
+            artifact_name="hive-review-evidence-WO-023-P-G1-C1",
+            ruleset_before="21934284",
+            ruleset_after="21934284",
+            merge_before="squash",
+            merge_after="squash",
+        )
