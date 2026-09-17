@@ -1813,6 +1813,7 @@ def main() -> int:
         unauthorized = governance.closure_product_scope(changed_paths)
         require(not unauthorized, f"closure sprint touched unauthorized paths: {unauthorized}")
 
+        quality_family()
         deployment = deployment_family(probe)
         orchestration = orchestration_family(probe)
 
@@ -1843,7 +1844,6 @@ def main() -> int:
                 )
             executed[stage] = artifact
         e2e = e2e_family(probe, executed)
-        quality_family()
 
         e2e_stages = [str(stage) for stage in e2e["completed_stages"]]
 
