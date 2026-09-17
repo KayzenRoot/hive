@@ -13574,45 +13574,27 @@ def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
 def fetch_wo024_approved_lineage(
     repository: str, closure_evidence: Mapping[str, object]
 ) -> dict[str, object]:
-    """Discover and validate the merged WO-024 product lineage for the current main."""
+    """Resolve and validate the approved WO-024 product lineage.
+
+    Every source is addressed by immutable approved identity: the product pull
+    request by its approved number, the post-merge CI run and its jobs by the
+    approved run id, and the squash commit by the approved merge SHA. Current
+    protected main is resolved only to prove that the approved squash merge is an
+    ancestor, so a later governance correction on main can neither redirect nor
+    invalidate the lineage. There is deliberately no fallback that discovers the
+    product through the pull requests associated with current main.
+    """
 
     main_sha = git_value("rev-parse", WO012P_PROMOTION_BASE_REF, fallback="")
     if HEX_SHA.fullmatch(main_sha) is None:
         raise ValueError("WO-024 approved lineage requires a resolved protected main SHA")
-    prs = _lineage_list(
-        _gh_json(repository, f"commits/{main_sha}/pulls"), "main merge pull requests"
-    )
-    merged = [
-        _lineage_mapping(pr, "main merge pull request")
-        for pr in prs
-        if _lineage_mapping(pr, "main merge pull request").get("merge_commit_sha")
-        == WO024_APPROVED_SQUASH_MERGE_SHA
-        and _lineage_mapping(pr, "main merge pull request").get("merged_at")
-    ]
-    if len(merged) != 1:
-        raise ValueError("WO-024 requires exactly one merged product pull request for current main")
-    number = int(cast(int, merged[0].get("number")))
-    # commits/{sha}/pulls carries the association only; the full pull-request
-    # resource is required because it is the payload that exposes merged state.
+    number = WO024_APPROVED_PRODUCT_PR
+    # the full pull-request resource is the payload that exposes merged state
     product_pr = _lineage_mapping(_gh_json(repository, f"pulls/{number}"), "product pull request")
-    run = next(
-        (
-            _lineage_mapping(candidate, "main push run")
-            for candidate in _lineage_list(
-                cast(
-                    Mapping[str, object],
-                    _gh_json(repository, "actions/runs?branch=main&event=push&per_page=50"),
-                ).get("workflow_runs"),
-                "main push runs",
-            )
-            if _lineage_mapping(candidate, "main push run").get("id")
-            == WO024_APPROVED_POST_MERGE_CI_RUN
-        ),
-        None,
-    )
+    run_jobs = _gh_json(repository, f"actions/runs/{WO024_APPROVED_POST_MERGE_CI_RUN}/jobs")
+    run = _gh_json(repository, f"actions/runs/{WO024_APPROVED_POST_MERGE_CI_RUN}")
     if run is None:
         raise ValueError("WO-024 approved lineage requires the approved post-merge push CI run")
-    run_jobs = _gh_json(repository, f"actions/runs/{run.get('id')}/jobs")
     return verify_wo024_approved_lineage(
         {
             "product_pr": product_pr,

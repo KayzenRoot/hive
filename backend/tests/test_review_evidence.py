@@ -10461,16 +10461,124 @@ def test_wo024_approved_lineage_uses_full_pr_and_audited_test_counts() -> None:
     )
 
 
-def test_wo024_approved_lineage_fetcher_reads_the_full_pull_request_resource() -> None:
-    """commits/{sha}/pulls omits ``merged``; the fetch layer must request the PR."""
+def wo024_lineage_endpoints(current_main: str) -> dict[str, object]:
+    """Bounded API fixtures addressed only by immutable approved identity."""
 
-    import inspect
+    sources = wo024_approved_lineage_sources()
+    squash = review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA
+    number = review_evidence.WO024_APPROVED_PRODUCT_PR
+    run_id = review_evidence.WO024_APPROVED_POST_MERGE_CI_RUN
+    return {
+        f"pulls/{number}": sources["product_pr"],
+        f"pulls/{number}/reviews": sources["product_reviews"],
+        f"issues/{number}/comments": sources["prior_review_comments"],
+        f"commits/{squash}": sources["merge_commit"],
+        f"compare/{squash}...{current_main}": sources["ancestry"],
+        f"actions/runs/{run_id}": sources["post_merge_run"],
+        f"actions/runs/{run_id}/jobs": {"jobs": sources["post_merge_jobs"]},
+    }
 
-    source = inspect.getsource(review_evidence.fetch_wo024_approved_lineage)
-    assert 'f"pulls/{number}"' in source
-    assert "WO024_APPROVED_SQUASH_MERGE_SHA" in source
-    assert "WO024_APPROVED_POST_MERGE_CI_RUN" in source
-    assert 'f"pulls/{number}/reviews"' in source
+
+def wo024_lineage_overrides(case: str, current_main: str) -> dict[str, object]:
+    """Return the divergent payload for one fetch-layer negative case."""
+
+    endpoints = wo024_lineage_endpoints(current_main)
+    number = review_evidence.WO024_APPROVED_PRODUCT_PR
+    squash = review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA
+    run_id = review_evidence.WO024_APPROVED_POST_MERGE_CI_RUN
+    product_pr = cast("dict[str, object]", endpoints[f"pulls/{number}"])
+    compare_key = f"compare/{squash}...{current_main}"
+    if case == "wrong-pull-request":
+        return {f"pulls/{number}": {**product_pr, "number": 94}}
+    if case == "unmerged-pull-request":
+        return {f"pulls/{number}": {**product_pr, "merged": False, "state": "open"}}
+    if case == "wrong-audited-head":
+        return {f"pulls/{number}": {**product_pr, "head": {"sha": "1" * 40}}}
+    if case == "wrong-authorized-base":
+        return {f"pulls/{number}": {**product_pr, "base": {"ref": "main", "sha": "2" * 40}}}
+    if case == "wrong-squash-merge":
+        return {f"pulls/{number}": {**product_pr, "merge_commit_sha": "5" * 40}}
+    if case == "diverged-ancestry":
+        return {compare_key: {"status": "diverged", "merge_base_commit": {"sha": "3" * 40}}}
+    if case == "different-merge-base":
+        return {compare_key: {"status": "ahead", "merge_base_commit": {"sha": "4" * 40}}}
+    if case == "divergent-sol-review":
+        review = cast("list[dict[str, object]]", endpoints[f"pulls/{number}/reviews"])[0]
+        return {f"pulls/{number}/reviews": [{**review, "id": 42}]}
+    if case == "divergent-post-merge-run":
+        run = cast("dict[str, object]", endpoints[f"actions/runs/{run_id}"])
+        return {f"actions/runs/{run_id}": {**run, "id": 42}}
+    raise AssertionError(f"unknown divergence case: {case}")
+
+
+def wo024_lineage_fetch_fake(
+    current_main: str, overrides: dict[str, object] | None = None
+) -> tuple[Callable[[str, str], object], list[str]]:
+    endpoints = wo024_lineage_endpoints(current_main)
+    replacements = overrides or {}
+    calls: list[str] = []
+
+    def fake(_repository: str, endpoint: str) -> object:
+        calls.append(endpoint)
+        if endpoint not in endpoints:
+            raise AssertionError(f"unexpected lineage endpoint: {endpoint}")
+        return replacements.get(endpoint, endpoints[endpoint])
+
+    return fake, calls
+
+
+def test_wo024_lineage_fetch_is_direct_and_survives_a_later_correction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later governance correction moves main; the fetch must stay identity addressed."""
+
+    later_main = "d" * 40
+    fake, calls = wo024_lineage_fetch_fake(later_main)
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: later_main)
+    monkeypatch.setattr(review_evidence, "_gh_json", fake)
+
+    result = review_evidence.fetch_wo024_approved_lineage(
+        "KayzenRoot/hive", v01_closure_evidence_fixture()
+    )
+
+    assert result["status"] == "PASS"
+    assert result["prior_backend_passed"] == 676
+    assert result["prior_dashboard_passed"] == 34
+    assert result["squash_merge_sha"] == review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA
+    assert f"pulls/{review_evidence.WO024_APPROVED_PRODUCT_PR}" in calls
+    assert f"compare/{review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA}...{later_main}" in calls
+    assert f"actions/runs/{review_evidence.WO024_APPROVED_POST_MERGE_CI_RUN}" in calls
+    assert f"commits/{review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA}" in calls
+    # the product is never discovered through the pull request associated with main
+    assert not any(endpoint.startswith(f"commits/{later_main}") for endpoint in calls)
+    assert not any("actions/runs?" in endpoint for endpoint in calls)
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "wrong-pull-request",
+        "unmerged-pull-request",
+        "wrong-audited-head",
+        "wrong-authorized-base",
+        "wrong-squash-merge",
+        "diverged-ancestry",
+        "different-merge-base",
+        "divergent-sol-review",
+        "divergent-post-merge-run",
+    ),
+)
+def test_wo024_lineage_fetch_fails_closed_on_divergent_sources(
+    monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    later_main = "d" * 40
+    fake, _calls = wo024_lineage_fetch_fake(later_main, wo024_lineage_overrides(case, later_main))
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: later_main)
+    monkeypatch.setattr(review_evidence, "_gh_json", fake)
+    with pytest.raises(ValueError):
+        review_evidence.fetch_wo024_approved_lineage(
+            "KayzenRoot/hive", v01_closure_evidence_fixture()
+        )
 
 
 def test_wo024_approved_squash_may_be_an_ancestor_of_a_later_correction() -> None:
