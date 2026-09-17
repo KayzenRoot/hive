@@ -10372,3 +10372,324 @@ def test_wo024_product_scope_boundaries_are_bounded() -> None:
         "dashboard/package-lock.json",
     ):
         assert review_evidence.closure_product_scope([forbidden]) == [forbidden]
+
+
+def wo024_approved_lineage_sources(**overrides: object) -> dict[str, object]:
+    """Bounded GitHub sources shaped like the approved WO-024 product run.
+
+    ``product_pr`` carries the full pull-request resource, which is the payload
+    that exposes ``merged``; the commit-associated payload does not.
+    """
+
+    payload: dict[str, object] = {
+        "product_pr": {
+            "number": review_evidence.WO024_APPROVED_PRODUCT_PR,
+            "state": "closed",
+            "merged": True,
+            "merge_commit_sha": review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA,
+            "base": {"ref": "main", "sha": review_evidence.WO024_APPROVED_PRODUCT_BASE_SHA},
+            "head": {"sha": review_evidence.WO024_APPROVED_PRODUCT_HEAD_SHA},
+            "body": f"<!-- HIVE-WORK-ORDER: {review_evidence.WO024_WORK_ORDER} -->",
+        },
+        "product_reviews": [
+            {
+                "id": review_evidence.WO024_APPROVED_SOL_REVIEW_ID,
+                "state": "COMMENTED",
+                "commit_id": review_evidence.WO024_APPROVED_PRODUCT_HEAD_SHA,
+                "body": (
+                    "**VERDICT: APPROVED**\n"
+                    f"Exact HEAD audited: `{review_evidence.WO024_APPROVED_PRODUCT_HEAD_SHA}`\n"
+                    f"Authorized base: `{review_evidence.WO024_APPROVED_PRODUCT_BASE_SHA}`\n"
+                    "- Backend: 676 passed\n"
+                    "- Dashboard: 34 passed\n"
+                ),
+            }
+        ],
+        "ancestry": {
+            "status": "ahead",
+            "merge_base_commit": {"sha": review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA},
+        },
+        "merge_commit": {
+            "sha": review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA,
+            "parents": [{"sha": "0" * 40}],
+        },
+        "post_merge_run": {
+            "id": review_evidence.WO024_APPROVED_POST_MERGE_CI_RUN,
+            "event": "push",
+            "head_sha": review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA,
+            "status": "completed",
+            "conclusion": "success",
+        },
+        "post_merge_jobs": [
+            {"name": "Validate", "status": "completed", "conclusion": "success"},
+            {"name": "Integration health", "status": "completed", "conclusion": "success"},
+            {"name": "Review Evidence", "status": "completed", "conclusion": "skipped"},
+        ],
+        "prior_review_comments": [
+            {
+                "body": (
+                    f"<!-- hive-review-evidence:{review_evidence.WO024_WORK_ORDER.casefold()} -->\n"
+                    f"Exact HEAD SHA: `{review_evidence.WO024_APPROVED_PRODUCT_HEAD_SHA}`\n"
+                    "Validate result: **PASS**\n"
+                    "Integration health result: **PASS**\n"
+                    "Review Evidence result: **PASS**\n"
+                    f"Migration head: `{review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}`\n"
+                    "Canonical verifier: **PASS**\n"
+                    "Canonical changes: project_brain_changed `False`, checkpoint_changed `False`\n"
+                    "Thread resolution `True`\n"
+                    "Auto-merge armed: `False` / `none`\n"
+                )
+            }
+        ],
+        "closure_evidence": v01_closure_evidence_fixture(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_wo024_approved_lineage_uses_full_pr_and_audited_test_counts() -> None:
+    result = review_evidence.verify_wo024_approved_lineage(wo024_approved_lineage_sources())
+    assert result["status"] == "PASS"
+    assert result["product_pr"] == review_evidence.WO024_APPROVED_PRODUCT_PR
+    assert result["sol_review_id"] == review_evidence.WO024_APPROVED_SOL_REVIEW_ID
+    assert result["squash_merge_sha"] == review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA
+    assert result["post_merge_ci_run"] == review_evidence.WO024_APPROVED_POST_MERGE_CI_RUN
+    assert result["prior_backend_passed"] == 676
+    assert result["prior_dashboard_passed"] == 34
+    assert review_evidence.wo024_approved_lineage_statement(result).startswith(
+        "Approved WO-024 product lineage: "
+    )
+
+
+def test_wo024_approved_lineage_fetcher_reads_the_full_pull_request_resource() -> None:
+    """commits/{sha}/pulls omits ``merged``; the fetch layer must request the PR."""
+
+    import inspect
+
+    source = inspect.getsource(review_evidence.fetch_wo024_approved_lineage)
+    assert 'f"pulls/{number}"' in source
+    assert "WO024_APPROVED_SQUASH_MERGE_SHA" in source
+    assert "WO024_APPROVED_POST_MERGE_CI_RUN" in source
+    assert 'f"pulls/{number}/reviews"' in source
+
+
+def test_wo024_approved_squash_may_be_an_ancestor_of_a_later_correction() -> None:
+    for status in ("ahead", "identical"):
+        sources = wo024_approved_lineage_sources(
+            ancestry={
+                "status": status,
+                "merge_base_commit": {"sha": review_evidence.WO024_APPROVED_SQUASH_MERGE_SHA},
+            }
+        )
+        assert review_evidence.verify_wo024_approved_lineage(sources)["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        pytest.param(
+            lambda sources: sources["product_pr"].__setitem__("number", 94),
+            id="wrong-product-pr",
+        ),
+        pytest.param(
+            lambda sources: sources["product_pr"]["base"].__setitem__("sha", "0" * 40),
+            id="wrong-authorized-base",
+        ),
+        pytest.param(
+            lambda sources: sources["product_pr"]["head"].__setitem__("sha", "1" * 40),
+            id="wrong-audited-head",
+        ),
+        pytest.param(
+            lambda sources: sources["product_reviews"][0].__setitem__("id", 42),
+            id="wrong-sol-review",
+        ),
+        pytest.param(
+            lambda sources: sources["product_pr"].__setitem__("merge_commit_sha", "2" * 40),
+            id="wrong-squash-merge",
+        ),
+        pytest.param(
+            lambda sources: sources["post_merge_run"].__setitem__("id", 42),
+            id="wrong-post-merge-run",
+        ),
+        pytest.param(
+            lambda sources: sources.__setitem__(
+                "ancestry", {"status": "diverged", "merge_base_commit": {"sha": "3" * 40}}
+            ),
+            id="non-ancestor-lineage",
+        ),
+        pytest.param(
+            lambda sources: sources["product_pr"].__setitem__("merged", None),
+            id="association-payload-without-merged",
+        ),
+        pytest.param(
+            lambda sources: sources["product_reviews"][0].__setitem__(
+                "body", "**VERDICT: APPROVED**\nno audited counts here\n"
+            ),
+            id="malformed-audited-counts",
+        ),
+    ),
+)
+def test_wo024_approved_lineage_fails_closed(
+    mutate: Callable[[dict[str, object]], None],
+) -> None:
+    sources = wo024_approved_lineage_sources()
+    mutate(sources)
+    with pytest.raises(ValueError):
+        review_evidence.verify_wo024_approved_lineage(sources)
+
+
+def test_wo024_sol_review_counts_fail_closed_without_zero_substitution() -> None:
+    with pytest.raises(ValueError):
+        review_evidence._sol_review_test_counts("**verdict: approved**")
+    with pytest.raises(ValueError):
+        review_evidence._sol_review_test_counts("- backend: 0 passed\n- dashboard: 34 passed")
+    assert review_evidence._sol_review_test_counts(
+        "- backend: 676 passed\n- dashboard: 34 passed"
+    ) == (
+        676,
+        34,
+    )
+
+
+def test_wo024p_promotion_base_registry_tracks_current_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert review_evidence.WO024P_PROMOTION_REGISTRY == {
+        review_evidence.WO024P_WORK_ORDER: review_evidence.WO012P_PROMOTION_BASE_REF
+    }
+    monkeypatch.setattr(review_evidence, "git_value", lambda *_args, **_kwargs: "c" * 40)
+    assert review_evidence.registered_promotion_base_sha(review_evidence.WO024P_WORK_ORDER) == (
+        "c" * 40
+    )
+    with pytest.raises(ValueError):
+        review_evidence.registered_promotion_base_sha("WO-024-P-G1-C1")
+
+
+def test_closure_sprint_scope_is_promotion_aware() -> None:
+    pair = sorted(review_evidence.WO024P_PROMOTION_ALLOWED_PATHS)
+    assert review_evidence.closure_sprint_scope(list(pair)) == []
+    assert review_evidence.closure_sprint_scope(pair + ["scripts/v01_closure_sprint.py"]) == pair
+    for single in pair:
+        assert review_evidence.closure_sprint_scope([single]) == [single]
+    assert review_evidence.closure_sprint_scope(["backend/app/context_manager.py"]) == []
+    assert review_evidence.closure_product_scope(list(pair)) == pair
+
+
+def test_wo024p_g1_c1_scope_is_bounded_and_fails_closed() -> None:
+    allowed = sorted(review_evidence.WO024P_G1_C1_ALLOWED_PATHS)
+    review_evidence.require_wo024p_g1_c1_scope(
+        review_evidence.WO024P_G1_C1_WORK_ORDER,
+        review_evidence.WO024P_G1_C1_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO024P_G1_C1_BASE_SHA,
+    )
+    for paths in (
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+        ["migrations/versions/0008_correction.py"],
+        [".github/workflows/ci.yml"],
+        ["schemas/review-evidence-v1.schema.json"],
+        ["requirements.txt"],
+        ["dashboard/package-lock.json"],
+        ["VERSION"],
+        ["CHANGELOG.md"],
+        ["backend/app/context_manager.py"],
+        [],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo024p_g1_c1_scope(
+                review_evidence.WO024P_G1_C1_WORK_ORDER,
+                review_evidence.WO024P_G1_C1_BASE_SHA,
+                paths,
+                authorized_base_sha=review_evidence.WO024P_G1_C1_BASE_SHA,
+            )
+    for base_sha, marker in (
+        ("c" * 40, review_evidence.WO024P_G1_C1_BASE_SHA),
+        (review_evidence.WO024P_G1_C1_BASE_SHA, None),
+        (review_evidence.WO024P_G1_C1_BASE_SHA, "not-a-sha"),
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo024p_g1_c1_scope(
+                review_evidence.WO024P_G1_C1_WORK_ORDER,
+                base_sha,
+                allowed,
+                authorized_base_sha=marker,
+            )
+
+
+def test_wo024p_g1_c1_is_self_hosted_with_governance_evidence() -> None:
+    assert review_evidence.WO024P_G1_C1_WORK_ORDER in (
+        review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+    assert review_evidence.WO024P_G1_C1_WORK_ORDER not in (
+        review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert (
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
+        == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    review_evidence.require_supported_work_order(review_evidence.WO024P_G1_C1_WORK_ORDER)
+    evidence = review_evidence.verify_wo024p_g1_c1_governance_contract(
+        review_evidence.WO024P_G1_C1_WORK_ORDER,
+        review_evidence.WO024P_G1_C1_BASE_SHA,
+        sorted(review_evidence.WO024P_G1_C1_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"v01_closure_sprint": v01_closure_evidence_fixture()},
+        review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        review_evidence.WO024P_G1_C1_BASE_SHA,
+    )
+    assert evidence is not None
+    assert "work_order=WO-024-P-G1-C1" in evidence
+    assert "corrective_outside_active_pair=True" in evidence
+    assert "promotion_pair_plus_extra_path=REJECTED" in evidence
+    assert "squash_merge_ancestry=REQUIRED" in evidence
+    assert "v0.1_completion_claim=False" in evidence
+    assert (
+        review_evidence.verify_wo024p_g1_c1_governance_contract(
+            review_evidence.WO024_WORK_ORDER,
+            review_evidence.WO024P_G1_C1_BASE_SHA,
+            sorted(review_evidence.WO024P_G1_C1_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"v01_closure_sprint": v01_closure_evidence_fixture()},
+            review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+            None,
+        )
+        is None
+    )
+
+
+def test_wo024p_g1_c1_is_the_current_work_order_and_stays_bounded() -> None:
+    review_evidence.require_current_work_order_authorization(
+        review_evidence.WO024P_G1_C1_WORK_ORDER
+    )
+    for rejected in (
+        review_evidence.WO023P_G1_C1_WORK_ORDER,
+        review_evidence.WO023P_WORK_ORDER,
+        review_evidence.WO023P_G1_WORK_ORDER,
+        "WO-025",
+        "WO-025-P",
+        "WO-999",
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_current_work_order_authorization(rejected)
+    body = (
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C1 -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO024P_G1_C1_BASE_SHA} -->\n"
+    )
+    assert review_evidence.parse_work_order_marker(body) == (
+        review_evidence.WO024P_G1_C1_WORK_ORDER
+    )
+    assert (
+        review_evidence.authorized_base_marker_sha(review_evidence.WO024P_G1_C1_WORK_ORDER, body)
+        == review_evidence.WO024P_G1_C1_BASE_SHA
+    )
