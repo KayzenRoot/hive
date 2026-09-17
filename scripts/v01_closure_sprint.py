@@ -1391,6 +1391,10 @@ def _dashboard_status(probe: ApiProbe) -> int:
         return int(exc.code)
 
 
+E2E_MUTATION_RELATIVE = "src/closure_e2e_note.py"
+E2E_MUTATION_CONTENT = "CLOSURE_E2E_NOTE = 'staged by the closure scenario'" + chr(10)
+
+
 def _closure_execution_stages(
     project_id: UUID,
     task_id: str,
@@ -1528,19 +1532,19 @@ def _closure_execution_stages(
         result = orchestrator.execute(request, adapter)
         outcome = str(getattr(result, "status", "UNKNOWN"))
         changed = tuple(getattr(result, "changed_files", ()))
-        target = workspace / "src" / "closure_e2e_note.py"
+        target = workspace / E2E_MUTATION_RELATIVE
         payload = target.read_bytes() if target.is_file() else b""
         mutation = {
             "changed_paths": list(changed),
-            "path": "src/closure_e2e_note.py",
+            "path": E2E_MUTATION_RELATIVE,
             "sha256": hashlib.sha256(payload).hexdigest() if payload else "",
             "validation_passed": bool(getattr(result, "validation_passed", False)),
             "canonical_promotion": bool(getattr(result, "promoted", True)),
         }
         require(
             outcome == "STAGED"
-            and changed == ("src/closure_e2e_note.py",)
-            and payload == b"CLOSURE_E2E_NOTE = 'staged by the closure scenario'" + b"\\n"
+            and changed == (E2E_MUTATION_RELATIVE,)
+            and payload == E2E_MUTATION_CONTENT.encode("utf-8")
             and bool(mutation["validation_passed"])
             and mutation["canonical_promotion"] is False,
             f"the closure execution stage did not stage and verify a bounded mutation: {mutation}",
