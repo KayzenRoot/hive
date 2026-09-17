@@ -105,3 +105,39 @@ def test_backup_configuration_identity_never_contains_secret_keys() -> None:
     source = inspect.getsource(backup.backup_configuration)
     assert "password" in source and "token" in source
     assert "redis_excluded" in source
+
+
+def test_no_closure_function_shadows_a_module_helper_it_calls() -> None:
+    """A local binding that reuses a helper name makes the evidence run crash.
+
+    ``main`` unpacked a loop variable named ``artifact`` while still calling the
+    module-level ``artifact()`` reader, so the closure sprint died with
+    ``TypeError: 'str' object is not callable`` instead of writing evidence.
+    """
+
+    import ast
+
+    tree = ast.parse(SCRIPT_PATH.read_text(encoding="utf-8"))
+    helpers = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+    }
+    shadowed: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        bound: set[str] = {argument.arg for argument in node.args.args}
+        called: set[str] = set()
+        pending: list[ast.AST] = list(node.body)
+        while pending:
+            current = pending.pop()
+            if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+                continue
+            if isinstance(current, ast.Name) and isinstance(current.ctx, ast.Store):
+                bound.add(current.id)
+            if isinstance(current, ast.Call) and isinstance(current.func, ast.Name):
+                called.add(current.func.id)
+            pending.extend(ast.iter_child_nodes(current))
+        shadowed.extend(sorted(bound & called & helpers))
+    assert shadowed == []

@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1824,7 +1825,7 @@ def main() -> int:
         )
 
         executed: dict[str, str] = {}
-        for script, artifact, stage in CLOSURE_INTEGRATIONS:
+        for script, artifact_name, stage in CLOSURE_INTEGRATIONS:
             if not (ROOT / script).is_file():
                 continue
             result = subprocess.run(
@@ -1842,7 +1843,7 @@ def main() -> int:
                     f"[wo024] closure integration {script} failed: {result.stderr[-400:]}",
                     file=sys.stderr,
                 )
-            executed[stage] = artifact
+            executed[stage] = artifact_name
         e2e = e2e_family(probe, executed)
 
         e2e_stages = [str(stage) for stage in e2e["completed_stages"]]
@@ -2060,6 +2061,7 @@ def main() -> int:
         )
         return 0
     except Exception as exc:
+        traceback.print_exc()
         print(
             f"[wo024] closure sprint FAIL: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True
         )
