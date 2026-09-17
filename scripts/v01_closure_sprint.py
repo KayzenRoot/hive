@@ -183,6 +183,49 @@ def field_at_least(name: str, field: str, minimum: float) -> tuple[str, str]:
     return ("PASS" if float(value) >= minimum else "FAIL"), name
 
 
+def checkpoint_current() -> tuple[str, str]:
+    """The canonical checkpoint must be coherent in either legitimate state.
+
+    Before the final WO-024-P promotion the checkpoint is the active closure
+    checkpoint that still lists the remaining closure items. After it, the
+    checkpoint is the strict promoted checkpoint. An unknown status, a promoted
+    status that still lists pending work, an active checkpoint that lost its
+    remaining items, or a checkpoint missing canonical sections fails closed.
+
+    The raw final-promotion grammar stays authoritative in
+    ``governance.require_wo024p_checkpoint_semantics``; this verifier only has to
+    be truthful about the state the repository is actually in.
+    """
+
+    relative = "docs/project-brain/13-CHECKPOINT.md"
+    text = document_text(relative)
+    if not text:
+        return "UNKNOWN", relative
+    sections = governance.checkpoint_sections(text)
+    required = {"STATUS", "COMPLETED", "IN PROGRESS", "PENDING", "BLOCKERS", "NEXT STEP"}
+    if not required.issubset(sections):
+        return "FAIL", relative
+    status = governance.normalized_checkpoint_value(sections, "STATUS")
+    pending = governance.checkpoint_bullets(sections, "PENDING")
+
+    def controlled(name: str) -> str:
+        value = governance.normalized_checkpoint_value(sections, name)
+        return value[2:].strip() if value.startswith("- ") else value
+
+    if status == governance.EXPECTED_WO024P_STATUS:
+        promoted = (
+            not pending
+            and controlled("IN PROGRESS") == governance.EXPECTED_WO024P_IN_PROGRESS
+            and controlled("BLOCKERS") == governance.EXPECTED_WO024P_BLOCKERS
+            and controlled("NEXT STEP") == governance.EXPECTED_WO024P_NEXT_STEP
+        )
+        return ("PASS" if promoted else "FAIL"), relative
+    if status == governance.EXPECTED_WO024P_PREVIOUS_STATUS:
+        active = sorted(pending) == sorted(governance.WO024P_COMPLETED_PENDING_ITEMS)
+        return ("PASS" if active else "FAIL"), relative
+    return "FAIL", relative
+
+
 def document_contains(relative: str, needles: tuple[str, ...]) -> tuple[str, str]:
     text = document_text(relative).casefold()
     if not text:
@@ -361,9 +404,7 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     "documentation: deployment current.": lambda: document_contains(
         "docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("backup",)
     ),
-    "documentation: checkpoint current.": lambda: document_contains(
-        "docs/project-brain/13-CHECKPOINT.md", ("## PENDING", "stabilization.")
-    ),
+    "documentation: checkpoint current.": lambda: checkpoint_current(),
     "documentation: backlog current.": lambda: document_contains(
         "docs/project-brain/14-BACKLOG.md", ("#",)
     ),
@@ -1785,6 +1826,8 @@ def documentation_currentness_entry(name: str) -> dict[str, object]:
     }
     relative, needles = predicates[name]
     status, _path = document_contains(relative, needles)
+    if name == "checkpoint":
+        status, _path = checkpoint_current()
     if name == "known_limitations":
         gap_status, _gap = gap_report_current()
         if "FAIL" in {status, gap_status}:
@@ -1955,7 +1998,7 @@ def main() -> int:
         head_sha = run_command(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).strip()
         changed = run_command(["git", "-C", str(ROOT), "diff", "--name-only", base_sha, head_sha])
         changed_paths = [line.strip() for line in changed.splitlines() if line.strip()]
-        unauthorized = governance.closure_product_scope(changed_paths)
+        unauthorized = governance.closure_sprint_scope(changed_paths)
         require(not unauthorized, f"closure sprint touched unauthorized paths: {unauthorized}")
 
         quality_family()

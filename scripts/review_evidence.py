@@ -1657,7 +1657,7 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
 ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO024_G1_WORK_ORDER, WO024P_WORK_ORDER})
 # Corrective governance increments repair merged tooling without joining the promotion
 # pair, so the active promotion set stays exactly the current audited pair.
-CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset({"WO-023-P-G1-C1-CLOSED"})
+CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset({"WO-024-P-G1-C1", "WO-023-P-G1-C1-CLOSED"})
 CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS | ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
 )
@@ -2117,6 +2117,48 @@ WO023P_CANONICAL_COMPLETION_BULLETS = (
 )
 
 WO024P_PROMOTION_ALLOWED_PATHS = frozenset({CHECKPOINT_PATH, CANONICAL_MANIFEST_PATH})
+WO024P_PROMOTION_REGISTRY = {WO024P_WORK_ORDER: WO012P_PROMOTION_BASE_REF}
+# Immutable approved WO-024 product identities. A later governance correction on
+# main must never be able to move, restate or silently re-derive them, and the
+# promotion must prove the approved squash merge is an ancestor of current main
+# instead of assuming it is still the tip.
+WO024_APPROVED_PRODUCT_PR = 95
+WO024_APPROVED_PRODUCT_BASE_SHA = "4fb0aa111bd5b0f526df85b1897618d8eca1c0e0"
+WO024_APPROVED_PRODUCT_HEAD_SHA = "649e7f90fc4f2d4e3cbc17ca0f38d5f2c9dd46ad"
+WO024_APPROVED_SOL_REVIEW_ID = 5233591627
+WO024_APPROVED_SQUASH_MERGE_SHA = "05d142511f849d002c4ec8558fe4f43dca3e788b"
+WO024_APPROVED_POST_MERGE_CI_RUN = 35204484706
+WO024P_G1_C1_BASE_SHA = "05d142511f849d002c4ec8558fe4f43dca3e788b"
+WO024P_G1_C1_WORK_ORDER = "WO-024-P-G1-C1"
+WO024P_G1_C1_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "backend/tests/test_v01_closure_regression_lock.py",
+        "backend/tests/test_v01_closure_sprint.py",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "scripts/review_evidence.py",
+        "scripts/v01_closure_sprint.py",
+    }
+)
+WO024P_G1_C1_FORBIDDEN_PREFIXES = frozenset(
+    {
+        ".github/",
+        "docs/project-brain/",
+        "migrations/",
+        "schemas/",
+    }
+)
+DEPENDENCY_MANIFEST_PATHS = frozenset(
+    {
+        "dashboard/package-lock.json",
+        "dashboard/package.json",
+        "pyproject.toml",
+        "requirements-dev.txt",
+        "requirements.txt",
+    }
+)
+RELEASE_PATH_IDENTIFIER = re.compile(r"^(?:CHANGELOG|RELEASE|VERSION)", re.IGNORECASE)
 EXPECTED_WO024P_STATUS = "HIVE V0.1 COMPLETE / CLOSURE SPRINT APPROVED"
 EXPECTED_WO024P_PREVIOUS_STATUS = EXPECTED_WO023P_STATUS
 EXPECTED_WO024P_IN_PROGRESS = "None. V0.1 closure is complete and promoted."
@@ -2218,6 +2260,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO023P_G1_C1_WORK_ORDER,
         WO024_G1_WORK_ORDER,
         WO024P_WORK_ORDER,
+        WO024P_G1_C1_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
     }
 )
@@ -2577,6 +2620,7 @@ def require_supported_work_order(work_order: str) -> None:
         WO024_G1_WORK_ORDER,
         WO024_WORK_ORDER,
         WO024P_WORK_ORDER,
+        WO024P_G1_C1_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
         WO017_G1_WORK_ORDER,
@@ -4276,6 +4320,7 @@ def registered_promotion_base_sha(work_order: str) -> str:
         | WO021P_PROMOTION_REGISTRY
         | WO022P_PROMOTION_REGISTRY
         | WO023P_PROMOTION_REGISTRY
+        | WO024P_PROMOTION_REGISTRY
     ).get(work_order)
     if base_ref is None:
         raise ValueError(f"no registered promotion base for {work_order}")
@@ -6071,6 +6116,73 @@ def require_wo023p_g1_c1_scope(
         )
 
 
+def require_wo024p_g1_c1_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_authorized_base: bool = True,
+) -> None:
+    if work_order != WO024P_G1_C1_WORK_ORDER:
+        return
+    if base_sha != WO024P_G1_C1_BASE_SHA:
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} requires exact base {WO024P_G1_C1_BASE_SHA}, "
+            f"observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} requires the protected main base branch")
+    if not paths:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} requires a bounded correction delta")
+    unauthorized = sorted(set(paths) - WO024P_G1_C1_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} changed files outside the bounded correction scope: "
+            + ", ".join(unauthorized)
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(
+                f"{WO024P_G1_C1_WORK_ORDER} requires exactly one authorized-base marker"
+            )
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError("WO-024-P-G1-C1 authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO024P_G1_C1_WORK_ORDER} authorized-base marker must match the pull request "
+                "base SHA"
+            )
+    for prefix in sorted(WO024P_G1_C1_FORBIDDEN_PREFIXES):
+        offenders = sorted(path for path in paths if path.startswith(prefix))
+        if offenders:
+            raise ValueError(
+                f"{WO024P_G1_C1_WORK_ORDER} cannot change {prefix}: " + ", ".join(offenders)
+            )
+    for manifest in sorted(set(paths) & DEPENDENCY_MANIFEST_PATHS):
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} cannot change the dependency manifest {manifest}"
+        )
+    for path in sorted(set(paths)):
+        if RELEASE_PATH_IDENTIFIER.search(path):
+            raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} cannot change release assets: {path}")
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} cannot change migrations")
+    if work_order in ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} must not join the active promotion pair")
+    if WO024P_G1_C1_WORK_ORDER in ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} must not join the active promotion pair")
+    if migration_head() != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+
+
 def require_wo024_g1_scope(
     work_order: str,
     base_sha: str,
@@ -6130,6 +6242,24 @@ def closure_product_scope(paths: list[str]) -> list[str]:
             continue
         unauthorized.append(path)
     return unauthorized
+
+
+def closure_sprint_scope(paths: list[str]) -> list[str]:
+    """Return the paths that leave the scope the closure sprint may observe.
+
+    Ordinary WO-024 product increments stay inside the bounded product scope and
+    therefore keep rejecting Project Brain paths. The final WO-024-P promotion
+    run observes exactly the two canonical promotion files as a promotion-only
+    delta: that exact pair is allowed, while the pair plus any third path falls
+    back to the ordinary product scope and fails closed, as does either
+    canonical path on its own.
+    """
+
+    if sorted(set(paths)) == sorted(WO024P_PROMOTION_ALLOWED_PATHS) and len(set(paths)) == len(
+        WO024P_PROMOTION_ALLOWED_PATHS
+    ):
+        return []
+    return closure_product_scope(paths)
 
 
 def require_wo024_scope(
@@ -9458,6 +9588,108 @@ def verify_wo023p_g1_c1_governance_contract(
     )
 
 
+def verify_wo024p_g1_c1_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+    authorized_base_sha: str | None = None,
+) -> str | None:
+    """Self-host the WO-024-P deadlock correction as bounded governance evidence."""
+
+    if work_order != WO024P_G1_C1_WORK_ORDER:
+        return None
+    require_wo024p_g1_c1_scope(
+        work_order,
+        base_sha,
+        paths,
+        authorized_base_sha=authorized_base_sha,
+        enforce_authorized_base=authorized_base_sha is not None,
+    )
+    if frozenset({WO024_G1_WORK_ORDER, WO024P_WORK_ORDER}) != (
+        ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    ):
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} requires the active WO-024 promotion pair to be unchanged"
+        )
+    for rejected in ("WO-025", "WO-025-P", "WO-999"):
+        try:
+            require_current_work_order_authorization(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected} unexpectedly authorizes a fresh current PR")
+    for historical in (WO023P_G1_WORK_ORDER, WO023P_G1_C1_WORK_ORDER, WO023P_WORK_ORDER):
+        try:
+            require_current_work_order_authorization(historical)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{historical} unexpectedly authorizes a fresh current PR")
+    for supported in (
+        WO024_G1_WORK_ORDER,
+        WO024_WORK_ORDER,
+        WO024P_WORK_ORDER,
+        WO024P_G1_C1_WORK_ORDER,
+    ):
+        require_supported_work_order(supported)
+    if WO024P_G1_C1_WORK_ORDER not in AUTHORIZED_BASE_MARKER_WORK_ORDERS:
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} requires the authorized-base marker parser to cover it"
+        )
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} forbids canonical changes")
+    if migration_head_value != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO024P_G1_C1_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} requires an unchanged ruleset")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO024P_G1_C1_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo024_v01_closure_sprint_evidence(
+        WO024_WORK_ORDER,
+        integration,
+        migration_head_value,
+    )
+    promoted = (
+        f"{sorted(WO024P_PROMOTION_ALLOWED_PATHS)[0]},{sorted(WO024P_PROMOTION_ALLOWED_PATHS)[1]}"
+    )
+    return (
+        f"work_order={WO024P_G1_C1_WORK_ORDER}; exact_base=PASS; correction_scope=PASS; "
+        "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
+        "dependency_changed=False; workflow_changed=False; release_changed=False; "
+        "authorized_base_marker_supported=True; "
+        f"migration_head={V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}; "
+        f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
+        f"corrective_outside_active_pair=True; "
+        f"promotion_aware_closure_scope={promoted}=ALLOWED_EXACT_PAIR; "
+        "promotion_pair_plus_extra_path=REJECTED; ordinary_product_scope=PROJECT_BRAIN_REJECTED; "
+        f"wo024p_promotion_base_registry=PASS; "
+        f"approved_product_pr={WO024_APPROVED_PRODUCT_PR}; "
+        f"approved_product_head={WO024_APPROVED_PRODUCT_HEAD_SHA}; "
+        f"approved_sol_review={WO024_APPROVED_SOL_REVIEW_ID}; "
+        f"approved_squash_merge={WO024_APPROVED_SQUASH_MERGE_SHA}; "
+        f"approved_post_merge_ci={WO024_APPROVED_POST_MERGE_CI_RUN}; "
+        "squash_merge_ancestry=REQUIRED; sol_review_audited_test_counts=REQUIRED; "
+        "historical_WO-023-P-G1_WO-023-P-G1-C1_WO-023-P=REJECTED; "
+        "unknown_WO-025_WO-025-P_WO-999=REJECTED; "
+        f"v01_closure_sprint_evidence=PASS; "
+        f"v01_closure_sprint_version={V01_CLOSURE_SPRINT_EVIDENCE_VERSION}; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; canonical_promotion_untouched=True; "
+        "checkpoint_promotion=False; v0.1_completion_claim=False"
+    )
+
+
 def verify_wo017p_g1_governance_contract(
     work_order: str,
     base_sha: str,
@@ -11557,9 +11789,11 @@ def integration_evidence(
     ):
         status = "FAIL"
     v01_closure_sprint = closure_sprint_evidence()
-    if work_order in {WO024_WORK_ORDER, WO024P_WORK_ORDER} and (
+    if work_order in {WO024_WORK_ORDER, WO024P_WORK_ORDER, WO024P_G1_C1_WORK_ORDER} and (
         v01_closure_sprint["status"] == "FAIL"
     ):
+        # the closure family stays a gating input rather than an undeclared
+        # manifest property, but it still gates the integration status
         status = "FAIL"
     comprehensive_benchmarks = comprehensive_benchmarks_evidence()
     if (
@@ -13141,6 +13375,44 @@ def require_wo024_approved_lineage_result(result: Mapping[str, object]) -> None:
             raise ValueError(f"WO-024 approved lineage requires a bounded {field}")
 
 
+def _sol_review_test_counts(review_text: str) -> tuple[int, int]:
+    """Return the human-audited backend and dashboard counts from the Sol review.
+
+    The exact-head Sol approval review is the source of truth for audited test
+    counts. A missing or malformed count fails closed rather than silently
+    degrading to zero, which is what the stale Review Evidence extraction did.
+    """
+
+    backend_match = re.search(r"- backend: (\d+) passed", review_text)
+    dashboard_match = re.search(r"- dashboard: (\d+) passed", review_text)
+    if backend_match is None or dashboard_match is None:
+        raise ValueError("WO-024 Sol review must record the audited backend and dashboard counts")
+    backend_passed = int(backend_match.group(1))
+    dashboard_passed = int(dashboard_match.group(1))
+    if backend_passed <= 0 or dashboard_passed <= 0:
+        raise ValueError("WO-024 Sol review test counts must be positive")
+    return backend_passed, dashboard_passed
+
+
+def require_wo024_squash_ancestry(ancestry: Mapping[str, object]) -> None:
+    """Require the approved squash merge to be an ancestor of current protected main.
+
+    The approved product squash merge is immutable, while a later governance
+    correction legitimately moves protected main forward. Ancestry replaces the
+    old equality assumption without weakening the approved lineage.
+    """
+
+    status = ancestry.get("status")
+    if status not in {"ahead", "identical"}:
+        raise ValueError("WO-024 approved lineage requires the approved squash merge on main")
+    merge_base = ancestry.get("merge_base_commit")
+    if not isinstance(merge_base, Mapping):
+        raise ValueError("WO-024 approved lineage requires a resolved merge base")
+    merge_base_sha = cast(Mapping[str, object], merge_base).get("sha")
+    if merge_base_sha != WO024_APPROVED_SQUASH_MERGE_SHA:
+        raise ValueError("WO-024 approved lineage merge base is not the approved squash merge")
+
+
 def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, object]:
     """Validate the merged WO-024 closure sprint lineage from bounded GitHub sources."""
 
@@ -13150,15 +13422,22 @@ def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
     squash_merge = product_pr.get("merge_commit_sha")
     if product_pr.get("state") != "closed" or product_pr.get("merged") is not True:
         raise ValueError("WO-024 approved lineage requires a merged product PR")
+    if product_pr.get("number") != WO024_APPROVED_PRODUCT_PR:
+        raise ValueError("WO-024 approved lineage requires the approved product pull request")
     if base.get("ref") != "main":
         raise ValueError("WO-024 approved lineage requires the protected main base branch")
+    if base.get("sha") != WO024_APPROVED_PRODUCT_BASE_SHA:
+        raise ValueError("WO-024 approved lineage requires the authorized product base")
     if not isinstance(squash_merge, str) or HEX_SHA.fullmatch(squash_merge) is None:
         raise ValueError("WO-024 approved lineage requires a resolved squash merge SHA")
-    if squash_merge != git_value("rev-parse", WO012P_PROMOTION_BASE_REF, fallback=""):
-        raise ValueError("WO-024 approved lineage squash merge must be the current protected main")
+    if squash_merge != WO024_APPROVED_SQUASH_MERGE_SHA:
+        raise ValueError("WO-024 approved lineage requires the approved squash merge SHA")
+    require_wo024_squash_ancestry(_lineage_mapping(sources.get("ancestry"), "squash ancestry"))
     if not isinstance(head.get("sha"), str) or HEX_SHA.fullmatch(str(head.get("sha"))) is None:
         raise ValueError("WO-024 approved lineage requires the audited product HEAD")
     audited_head = str(head.get("sha"))
+    if audited_head != WO024_APPROVED_PRODUCT_HEAD_SHA:
+        raise ValueError("WO-024 approved lineage requires the audited product HEAD SHA")
     product_body = _normalized_lineage_text(product_pr.get("body"), "product PR body")
     if f"<!-- hive-work-order: {WO024_WORK_ORDER.casefold()} -->" not in product_body:
         raise ValueError("WO-024 approved lineage requires the product work-order marker")
@@ -13178,10 +13457,13 @@ def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
     review_id = sol_review.get("id")
     if not isinstance(review_id, int) or isinstance(review_id, bool) or review_id <= 0:
         raise ValueError("WO-024 approved lineage requires a resolved Sol review identity")
+    if review_id != WO024_APPROVED_SOL_REVIEW_ID:
+        raise ValueError("WO-024 approved lineage requires the approved Sol review identity")
     review_text = _normalized_lineage_text(sol_review.get("body"), "Sol review body")
-    for marker in ("verdict:", "approved", audited_head):
+    for marker in ("verdict:", "approved", audited_head, WO024_APPROVED_PRODUCT_BASE_SHA):
         if marker.casefold() not in review_text:
             raise ValueError("WO-024 Sol review does not express the approved result")
+    backend_passed, dashboard_passed = _sol_review_test_counts(review_text)
 
     merge_commit = _lineage_mapping(sources.get("merge_commit"), "squash merge commit")
     if merge_commit.get("sha") != squash_merge:
@@ -13194,6 +13476,8 @@ def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
     run_id = post_merge_run.get("id")
     if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id <= 0:
         raise ValueError("WO-024 approved lineage requires a resolved post-merge CI run")
+    if run_id != WO024_APPROVED_POST_MERGE_CI_RUN:
+        raise ValueError("WO-024 approved lineage requires the approved post-merge CI run")
     if (
         post_merge_run.get("event") != "push"
         or post_merge_run.get("head_sha") != squash_merge
@@ -13234,29 +13518,26 @@ def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
         raise ValueError("WO-024 requires exactly one prior exact-head Review Evidence comment")
     prior_text = _normalized_lineage_text(sticky_comments[0], "prior Review Evidence body")
     closure = cast(Mapping[str, object], sources.get("closure_evidence", {}))
+    # The approved product comment was rendered before the closure family was
+    # attached to the integration evidence, so the closure fragment itself is not
+    # required here: the promotion run re-derives the closure evidence and
+    # require_wo024_v01_closure_sprint_evidence enforces it independently.
     required_prior_fragments = (
         f"exact head sha: `{audited_head}`",
         "validate result: **pass**",
         "integration health result: **pass**",
         "review evidence result: **pass**",
-        f"v0.1 closure sprint evidence: `pass`; version `{V01_CLOSURE_SPRINT_EVIDENCE_VERSION}`",
-        f"dod matrix `{closure.get('dod_pass_count')}/{closure.get('dod_total_count')}`",
-        "fail `0`, unknown `0`",
         f"migration head: `{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}`",
         "canonical verifier: **pass**",
         "canonical changes: project_brain_changed `false`, checkpoint_changed `false`",
+        "thread resolution `true`",
+        "auto-merge armed: `false`",
     )
     missing_prior = [
         fragment for fragment in required_prior_fragments if fragment not in prior_text
     ]
     if missing_prior:
         raise ValueError("WO-024 prior Review Evidence is incomplete: " + ", ".join(missing_prior))
-    backend_match = re.search(r"backend tests: `(\d+) passed, 0 failed", prior_text)
-    dashboard_match = re.search(r"dashboard tests: `(\d+) passed, 0 failed", prior_text)
-    if backend_match is None or dashboard_match is None:
-        raise ValueError("WO-024 prior Review Evidence lacks the test counts")
-    backend_passed = int(backend_match.group(1))
-    dashboard_passed = int(dashboard_match.group(1))
     result: dict[str, object] = {
         "status": "PASS",
         "product_work_order": WO024_WORK_ORDER,
@@ -13293,45 +13574,35 @@ def verify_wo024_approved_lineage(sources: Mapping[str, object]) -> dict[str, ob
 def fetch_wo024_approved_lineage(
     repository: str, closure_evidence: Mapping[str, object]
 ) -> dict[str, object]:
-    """Discover and validate the merged WO-024 product lineage for the current main."""
+    """Resolve and validate the approved WO-024 product lineage.
+
+    Every source is addressed by immutable approved identity: the product pull
+    request by its approved number, the post-merge CI run and its jobs by the
+    approved run id, and the squash commit by the approved merge SHA. Current
+    protected main is resolved only to prove that the approved squash merge is an
+    ancestor, so a later governance correction on main can neither redirect nor
+    invalidate the lineage. There is deliberately no fallback that discovers the
+    product through the pull requests associated with current main.
+    """
 
     main_sha = git_value("rev-parse", WO012P_PROMOTION_BASE_REF, fallback="")
     if HEX_SHA.fullmatch(main_sha) is None:
         raise ValueError("WO-024 approved lineage requires a resolved protected main SHA")
-    prs = _lineage_list(
-        _gh_json(repository, f"commits/{main_sha}/pulls"), "main merge pull requests"
-    )
-    merged = [
-        _lineage_mapping(pr, "main merge pull request")
-        for pr in prs
-        if _lineage_mapping(pr, "main merge pull request").get("merge_commit_sha") == main_sha
-        and _lineage_mapping(pr, "main merge pull request").get("merged_at")
-    ]
-    if len(merged) != 1:
-        raise ValueError("WO-024 requires exactly one merged product pull request for current main")
-    product_pr = merged[0]
-    number = int(cast(int, product_pr.get("number")))
-    jobs_response = _gh_json(repository, "actions/runs?branch=main&event=push&per_page=20")
-    runs = _lineage_list(
-        cast(Mapping[str, object], jobs_response).get("workflow_runs"), "main push runs"
-    )
-    run = next(
-        (
-            _lineage_mapping(candidate, "main push run")
-            for candidate in runs
-            if _lineage_mapping(candidate, "main push run").get("head_sha") == main_sha
-            and _lineage_mapping(candidate, "main push run").get("conclusion") == "success"
-        ),
-        None,
-    )
+    number = WO024_APPROVED_PRODUCT_PR
+    # the full pull-request resource is the payload that exposes merged state
+    product_pr = _lineage_mapping(_gh_json(repository, f"pulls/{number}"), "product pull request")
+    run_jobs = _gh_json(repository, f"actions/runs/{WO024_APPROVED_POST_MERGE_CI_RUN}/jobs")
+    run = _gh_json(repository, f"actions/runs/{WO024_APPROVED_POST_MERGE_CI_RUN}")
     if run is None:
-        raise ValueError("WO-024 approved lineage requires a successful post-merge push CI run")
-    run_jobs = _gh_json(repository, f"actions/runs/{run.get('id')}/jobs")
+        raise ValueError("WO-024 approved lineage requires the approved post-merge push CI run")
     return verify_wo024_approved_lineage(
         {
             "product_pr": product_pr,
             "product_reviews": _gh_json(repository, f"pulls/{number}/reviews"),
-            "merge_commit": _gh_json(repository, f"commits/{main_sha}"),
+            "ancestry": _gh_json(
+                repository, f"compare/{WO024_APPROVED_SQUASH_MERGE_SHA}...{main_sha}"
+            ),
+            "merge_commit": _gh_json(repository, f"commits/{WO024_APPROVED_SQUASH_MERGE_SHA}"),
             "post_merge_run": run,
             "post_merge_jobs": cast(Mapping[str, object], run_jobs).get("jobs"),
             "prior_review_comments": _gh_json(repository, f"issues/{number}/comments"),
@@ -14550,6 +14821,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         migration_head(),
         authorized_base_sha,
     )
+    wo024p_g1_c1_governance_evidence = verify_wo024p_g1_c1_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+        authorized_base_sha,
+    )
     wo023p_governance_evidence = verify_wo023p_governance_contract(
         work_order,
         base_sha,
@@ -14955,6 +15236,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         + (
             [f"WO-023-P-G1-C1 governance evidence: {wo023p_g1_c1_governance_evidence}"]
             if wo023p_g1_c1_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-024-P-G1-C1 governance evidence: {wo024p_g1_c1_governance_evidence}"]
+            if wo024p_g1_c1_governance_evidence
             else []
         )
         + (
@@ -15884,6 +16170,22 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         if expected_c1_entry not in negative_scope:
             raise ValueError(
                 "WO-023-P-G1-C1 evidence must record the explicit parser correction contract"
+            )
+    wo024p_g1_c1_evidence = verify_wo024p_g1_c1_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+        None,
+    )
+    if work_order == WO024P_G1_C1_WORK_ORDER:
+        expected_c1_wo024p_entry = f"WO-024-P-G1-C1 governance evidence: {wo024p_g1_c1_evidence}"
+        if expected_c1_wo024p_entry not in negative_scope:
+            raise ValueError(
+                "WO-024-P-G1-C1 evidence must record the explicit promotion deadlock correction"
             )
     wo023p_evidence = verify_wo023p_governance_contract(
         work_order,
