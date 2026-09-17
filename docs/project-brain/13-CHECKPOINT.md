@@ -1,7 +1,7 @@
 # 13 — CHECKPOINT
 
 ## STATUS
-COMPREHENSIVE BENCHMARKS APPROVED / V0.1 IMPLEMENTATION ACTIVE
+HIVE V0.1 COMPLETE / CLOSURE SPRINT APPROVED
 
 ## VERSION
 HIVE V0.1 — Foundation
@@ -240,6 +240,14 @@ See `03-SCOPE.md`.
 - content-addressed storage keeps exact-byte reconstruction and never double-counts savings; the measured zstd policy remains deterministic; token cache and output token claims stay not_supported with null values because no provider receipt exists.
 - lineage records pr #90 with audited head 270929c2e1428335ea9c98337c29a31d5682686d, sol review 5216010298, squash merge 25c16248211da567dbda928697862a696dcf46eb and post-merge ci 35026680687; backend 638 and dashboard 34 passed.
 - comprehensive-benchmarks-v1 evidence records migration head 0007_telemetry_events, zero secret/filesystem-path/cross-project leaks, zero llm/provider calls, proves the contract on a bounded deterministic corpus without a production-quality claim, and does not claim hive v0.1 completion.
+- v0.1 closure sprint is approved under evidence v01-closure-sprint-v1 with stabilization, full local deployment, backup/recovery, checkpoint-aware autonomous orchestration, the twelve-step end-to-end closure proof, documentation currency and a complete definition-of-done matrix.
+- the definition-of-done matrix covers every required item exactly once with pass 46 of 46, zero fail and zero unknown, and any fail or unknown item would have blocked the closure candidate.
+- stabilization removed every objective defect and regression found by the deterministic gap sweep, remaining critical 0 and high 0 defects are zero, and no unauthorized scope expansion was performed.
+- full local deployment is proven from documented configuration with clean boot, service health, host persistence outside the repository, durable postgresql and content-addressed storage state after container recreation, redis-loss recovery and a tested secondary root.
+- backup and recovery prove deterministic postgresql dump/restore, content-addressed byte and hash restoration, configuration and registry restoration into a clean target, canonical row/hash equivalence and redis explicitly excluded as noncanonical.
+- checkpoint-aware autonomous orchestration resolves project and git state, processes the checkpoint first and then scope, definition of done, architecture and decisions, keeps task and project scoping plus tool gating, fails closed on missing, stale, untracked and cross-project authority, and uses zero deterministic-path llm calls.
+- lineage records pr #95 with audited head 649e7f90fc4f2d4e3cbc17ca0f38d5f2c9dd46ad, sol review 5233591627, squash merge 05d142511f849d002c4ec8558fe4f43dca3e788b and post-merge ci 35204484706; backend 676 and dashboard 34 passed.
+- v0.1 closure evidence records migration head 0007_telemetry_events, zero secret, filesystem-path and cross-project leaks, zero core llm and provider calls, proves the bounded fixture contract without a production-quality claim, and supports the promoted hive v0.1 claim.
 
 ## GOVERNANCE
 Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational GitHub identity: `KayzenRoot`. Executor and Sol remain logical roles. The executor handoff requires Ready PR, exact HEAD, green required checks and native auto-merge disabled. Sol audits that exact HEAD and authorizes the merge action: a clean, mergeable PR with all required checks green is directly SQUASH-merged at the audited HEAD; native user-owned SQUASH auto-merge is permitted only when legitimate required checks are still pending and is not required for a clean PR. The expected audited HEAD, safe base, mergeability, ruleset baseline, checks, zero unresolved threads and SQUASH method are rechecked immediately before action; any mismatch fails closed. Post-merge push CI on the exact new `main` SHA is mandatory before checkpoint progression. Protect main remains active with the three required checks, squash-only merge, thread resolution and zero bypass. Native required approvals are 0.
@@ -247,24 +255,18 @@ Active model: HIVE-ADR-019 single-account stage-gated review. Sole operational G
 Historical two-account workflow is not rewritten: `kayzenweb3` independently approved earlier PRs including #27, #29 and #32. Progressive Disclosure (WO-010) was approved and merged later under the unchanged ADR-019 single-account flow.
 
 ## IN PROGRESS
-- Preparing the stabilization increment.
+- None. V0.1 closure is complete and promoted.
 
 ## PENDING
-- stabilization.
-- full local deployment validation.
-- backup/recovery validation.
-- final documentation.
-- final V0.1 review.
-- checkpoint awareness orchestration beyond current checkpoint-first Context Manager behavior.
 
 ## BLOCKERS
-None known after comprehensive benchmarks approval and post-merge validation.
+None known after V0.1 closure approval and post-merge validation.
 
 ## DECISIONS
 See `16-DECISIONS-LEDGER.md`.
 
 ## NEXT STEP
-Preparing the stabilization increment.
+Operate the approved V0.1 baseline and track the post-V0.1 backlog.
 
 ## DEFINITION OF DONE
 See `15-DEFINITION-OF-DONE.md`.
