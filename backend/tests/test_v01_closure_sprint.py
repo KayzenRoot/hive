@@ -47,18 +47,102 @@ def test_every_dod_requirement_has_a_registered_deterministic_verifier() -> None
     assert closure.verifier_count() == len(keys)
 
 
+def test_every_dod_row_cites_tracked_evidence_that_exists_at_head() -> None:
+    """Each matrix row must cite a repository artifact a reviewer can re-run."""
+
+    import scripts.review_evidence as governance
+
+    rows = [
+        closure.ledger_entry(str(item["section"]), str(item["requirement"]))
+        for item in closure.canonical_dod_items()
+    ]
+    assert len(rows) == len(closure.canonical_dod_items())
+    for row in rows:
+        path = str(row["evidence_path"])
+        assert governance.valid_closure_evidence_path(path), (row["requirement"], path)
+        assert path in closure.DOD_EVIDENCE_PATHS.values() or path == closure.DOD_DOCUMENT
+        assert len(str(row["evidence_digest"])) == 64, (row["requirement"], path)
+    assert set(closure.DOD_EVIDENCE_PATHS) == set(closure.DOD_VERIFIERS)
+
+
+def test_dod_verifiers_never_cite_an_artifact_the_integrations_do_not_write() -> None:
+    """Verifier evidence must be an artifact a deterministic script actually produces."""
+
+    produced = set(closure.MEASURED_ARTIFACTS) | {"telemetry-event-bus.json"}
+    for name, path in (
+        ("control-center-core.json", "scripts/control_center_integration.py"),
+        ("control-center-full.json", "scripts/control_center_integration.py"),
+        ("control-center-metrics.json", "scripts/control_center_integration.py"),
+        ("comprehensive-benchmarks.json", "scripts/comprehensive_benchmarks.py"),
+        ("acce-storage-policy.json", "scripts/task_intake_integration.py"),
+        ("context-manager.json", "scripts/context_manager_integration.py"),
+        ("autonomous-execution.json", "scripts/autonomous_execution_integration.py"),
+        ("memory-lifecycle.json", "scripts/memory_lifecycle_integration.py"),
+        ("mcp-surface.json", "scripts/mcp_integration.py"),
+        ("retrieval-benchmark.json", "scripts/retrieval_integration.py"),
+        ("v01-deployment.json", "scripts/v01_closure_sprint.py"),
+        ("v01-e2e.json", "scripts/v01_closure_sprint.py"),
+        ("v01-orchestration-proof.json", "scripts/v01_closure_sprint.py"),
+        ("v01-backup-restore.json", "scripts/v01_backup_restore.py"),
+    ):
+        assert name in produced, name
+        assert (Path(__file__).parents[2] / path).is_file(), path
+
+
 def test_missing_verifier_never_becomes_pass() -> None:
     entry = closure.ledger_entry("Functional", "a requirement that has no verifier")
     assert entry["status"] == "FAIL"
     assert entry["verifier"] == "missing"
 
 
-def test_ledger_digest_is_bound_to_the_evidence_artifact_not_the_source_document() -> None:
+def test_ledger_digest_is_bound_to_the_tracked_evidence_not_the_source_document() -> None:
     entry = closure.ledger_entry("Resilience", "Backup and recovery tested.")
-    assert entry["evidence_path"] == "v01-backup-restore.json"
+    assert entry["evidence_path"] == "scripts/v01_backup_restore.py"
+    assert entry["evidence_digest"] == closure.tracked_evidence_digest(
+        "scripts/v01_backup_restore.py"
+    )
     assert entry["evidence_digest"] != closure.sha256_text(closure.git_blob(closure.DOD_DOCUMENT))
-    if closure.artifact("v01-backup-restore.json"):
-        assert entry["evidence_digest"] == closure.artifact_digest("v01-backup-restore.json")
+
+
+def test_e2e_stage_verifier_fails_closed_without_a_measured_stage() -> None:
+    original = closure.artifact
+    closure.artifact = lambda _name: {}
+    try:
+        assert closure.e2e_stage("capture_evidence")[0] == "UNKNOWN"
+        assert closure.e2e_stage("index_repository", "indexed_file_count", 1)[0] == "UNKNOWN"
+    finally:
+        closure.artifact = original
+    closure.artifact = lambda _name: {"stages": {"capture_evidence": {"status": "FAIL"}}}
+    try:
+        assert closure.e2e_stage("capture_evidence")[0] == "FAIL"
+    finally:
+        closure.artifact = original
+
+
+def test_integration_suite_verifier_requires_every_run_to_pass() -> None:
+    original = closure.INTEGRATION_RUN_RESULTS
+    try:
+        closure.INTEGRATION_RUN_RESULTS = {}
+        assert closure.integration_suite_check()[0] == "UNKNOWN"
+        closure.INTEGRATION_RUN_RESULTS = {"one": 1}
+        assert closure.integration_suite_check()[0] == "UNKNOWN"
+        closure.INTEGRATION_RUN_RESULTS = {
+            f"{index:02d}": 0 for index, _entry in enumerate(closure.CLOSURE_INTEGRATIONS)
+        }
+        assert closure.integration_suite_check()[0] == "PASS"
+        closure.INTEGRATION_RUN_RESULTS["00"] = 1
+        assert closure.integration_suite_check()[0] == "FAIL"
+    finally:
+        closure.INTEGRATION_RUN_RESULTS = original
+
+
+def test_document_needles_are_case_insensitive() -> None:
+    assert (
+        closure.document_contains("docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("DOCKER COMPOSE",))[
+            0
+        ]
+        == "PASS"
+    )
 
 
 def test_authority_order_and_negative_matrix_are_closed() -> None:

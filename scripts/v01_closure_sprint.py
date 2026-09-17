@@ -70,15 +70,10 @@ DOCUMENTATION_PATHS = {
     "known_limitations": "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md",
 }
 CLOSURE_INTEGRATIONS = (
-    ("scripts/project_registry_integration.py", "project-registry.json", "register_project"),
-    ("scripts/repository_indexing_integration.py", "repository-indexing.json", "index_repository"),
-    ("scripts/task_intake_integration.py", "task-intake.json", "ingest_prompt_artifact"),
+    ("scripts/project_registry_integration.py", "control-center-core.json", "register_project"),
+    ("scripts/repository_indexing_integration.py", "control-center-core.json", "index_repository"),
+    ("scripts/task_intake_integration.py", "acce-storage-policy.json", "ingest_prompt_artifact"),
     ("scripts/context_manager_integration.py", "context-manager.json", "build_context"),
-    (
-        "scripts/autonomous_execution_integration.py",
-        "autonomous-execution.json",
-        "dispatch_executor",
-    ),
     (
         "scripts/autonomous_execution_integration.py",
         "autonomous-execution.json",
@@ -86,22 +81,8 @@ CLOSURE_INTEGRATIONS = (
     ),
     ("scripts/memory_lifecycle_integration.py", "memory-lifecycle.json", "stage_memory"),
     ("scripts/mcp_integration.py", "mcp-surface.json", "complete_review"),
-    ("scripts/retrieval_integration.py", "retrieval.json", "capture_evidence"),
+    ("scripts/retrieval_integration.py", "retrieval-benchmark.json", "capture_evidence"),
 )
-E2E_STAGE_ARTIFACTS = {
-    "register_project": "tmp/integration-logs/project-registry.json",
-    "index_repository": "tmp/integration-logs/repository-indexing.json",
-    "ingest_prompt_artifact": "tmp/integration-logs/task-intake.json",
-    "build_context": "tmp/integration-logs/context-manager.json",
-    "dispatch_executor": "tmp/integration-logs/autonomous-execution.json",
-    "stream_telemetry": "tmp/integration-logs/telemetry-event-bus.json",
-    "modify_sample_project": "tmp/integration-logs/autonomous-execution.json",
-    "run_project_tests": "tmp/integration-logs/autonomous-execution.json",
-    "capture_evidence": "tmp/integration-logs/autonomous-execution.json",
-    "stage_memory": "tmp/integration-logs/memory-lifecycle.json",
-    "complete_review": "tmp/integration-logs/mcp-surface.json",
-    "verify_dashboard_and_persistence": "tmp/integration-logs/control-center-core.json",
-}
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -128,12 +109,21 @@ def integration_log(name: str) -> dict[str, object] | None:
 
 
 INTEGRATION_LOG_DIR = ROOT / "tmp" / "integration-logs"
+VALIDATION_LOG_DIR = ROOT / "tmp" / "validation"
 DOD_DOCUMENT = "docs/project-brain/15-DEFINITION-OF-DONE.md"
+# runtime evidence written by the deterministic integrations; the closure sprint
+# reads the same bytes the hosted evidence bundle ships
+ARTIFACT_DIRS = (INTEGRATION_LOG_DIR, VALIDATION_LOG_DIR)
+# stage -> exit code of every deterministic integration this run executed
+INTEGRATION_RUN_RESULTS: dict[str, int] = {}
 
 
 def artifact_bytes(name: str) -> bytes:
-    path = INTEGRATION_LOG_DIR / name
-    return path.read_bytes() if path.is_file() else b""
+    for directory in ARTIFACT_DIRS:
+        path = directory / name
+        if path.is_file():
+            return path.read_bytes()
+    return b""
 
 
 def artifact_digest(name: str) -> str:
@@ -194,10 +184,10 @@ def field_at_least(name: str, field: str, minimum: float) -> tuple[str, str]:
 
 
 def document_contains(relative: str, needles: tuple[str, ...]) -> tuple[str, str]:
-    text = document_text(relative)
+    text = document_text(relative).casefold()
     if not text:
         return "UNKNOWN", relative
-    return ("PASS" if all(needle in text for needle in needles) else "FAIL"), relative
+    return ("PASS" if all(needle.casefold() in text for needle in needles) else "FAIL"), relative
 
 
 def combined(*verifiers: Callable[[], tuple[str, str]]) -> tuple[str, str]:
@@ -209,30 +199,69 @@ def combined(*verifiers: Callable[[], tuple[str, str]]) -> tuple[str, str]:
     return "PASS", results[0][1]
 
 
+def e2e_stage(stage: str, field: str | None = None, minimum: float = 0.0) -> tuple[str, str]:
+    """Read one identity-bound stage of the closure end-to-end artifact."""
+
+    evidence = f"v01-e2e.json#{stage}"
+    stages = artifact("v01-e2e.json").get("stages")
+    if not isinstance(stages, Mapping) or stage not in stages:
+        return "UNKNOWN", evidence
+    entry = stages[stage]
+    if not isinstance(entry, Mapping):
+        return "FAIL", evidence
+    if field is None:
+        return ("PASS" if entry.get("status") == "PASS" else "FAIL"), evidence
+    value = entry.get(field)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return "UNKNOWN", evidence
+    return ("PASS" if float(value) >= minimum else "FAIL"), evidence
+
+
+def integration_suite_check() -> tuple[str, str]:
+    """Every deterministic closure integration must have run in this process and passed."""
+
+    evidence = "scripts/integration_health.py"
+    if len(INTEGRATION_RUN_RESULTS) != len(CLOSURE_INTEGRATIONS):
+        return "UNKNOWN", evidence
+    failed = sorted(name for name, code in INTEGRATION_RUN_RESULTS.items() if code != 0)
+    return ("FAIL" if failed else "PASS"), evidence
+
+
 # --- verifier registry: one entry per canonical Definition of Done requirement ------
 
 DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
-    "functional: multiple projects can be registered.": lambda: status_of("project-registry.json"),
+    "functional: multiple projects can be registered.": lambda: combined(
+        lambda: field_true("control-center-core.json", "project_fleet_visible"),
+        lambda: field_true("control-center-core.json", "project_state_counts_truthful"),
+    ),
     "functional: project state can be inspected.": lambda: combined(
-        lambda: status_of("project-registry.json"),
+        lambda: field_true("control-center-core.json", "selected_project_detail_available"),
         lambda: document_contains(
             "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md", ("HIVE_DATA_ROOT",)
         ),
     ),
-    "functional: repository indexing works incrementally.": lambda: status_of(
-        "repository-indexing.json"
+    "functional: repository indexing works incrementally.": lambda: combined(
+        lambda: e2e_stage("index_repository", "indexed_file_count", 1),
+        lambda: integration_suite_check(),
     ),
-    "functional: pdf/txt/markdown task intake works.": lambda: status_of("task-intake.json"),
+    "functional: pdf/txt/markdown task intake works.": lambda: combined(
+        lambda: e2e_stage("ingest_prompt_artifact"),
+        lambda: status_of("acce-storage-policy.json"),
+    ),
     "functional: context is built autonomously.": lambda: status_of("context-manager.json"),
     "functional: checkpoint, scope, architecture and decisions are considered.": lambda: combined(
         lambda: status_of("context-manager.json"),
         lambda: status_of("v01-orchestration-proof.json"),
     ),
-    "functional: hybrid retrieval and reranking function.": lambda: status_of("retrieval.json"),
+    "functional: hybrid retrieval and reranking function.": lambda: combined(
+        lambda: field_at_least("retrieval-benchmark.json", "recall_at_5", 0.9),
+        lambda: field_true("retrieval-benchmark.json", "cross_project_isolation"),
+    ),
     "functional: memory with provenance works.": lambda: status_of("memory-lifecycle.json"),
     "functional: redis hot cache works and is reconstructible.": lambda: combined(
         lambda: field_true("v01-deployment.json", "redis_excluded"),
-        lambda: field_true("v01-deployment.json", "clean_boot"),
+        lambda: field_true("control-center-core.json", "redis_loss_recovery"),
+        lambda: field_true("control-center-core.json", "redis_noncanonical"),
     ),
     "functional: acce dedup/compression/fingerprint/delta mechanisms work.": lambda: status_of(
         "acce-storage-policy.json"
@@ -278,11 +307,9 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
         "comprehensive-benchmarks.json", "storage_reconstruction_exact"
     ),
     "quality: unit tests pass.": lambda: quality_check("backend_tests"),
-    "quality: integration tests pass.": lambda: status_of("integration-artifacts.json")
-    if artifact("integration-artifacts.json")
-    else combined(
+    "quality: integration tests pass.": lambda: combined(
+        lambda: integration_suite_check(),
         lambda: status_of("control-center-core.json"),
-        lambda: status_of("retrieval.json"),
     ),
     "quality: end-to-end test passes.": lambda: status_of("v01-e2e.json"),
     "quality: retrieval benchmark meets accepted threshold.": lambda: field_at_least(
@@ -298,31 +325,34 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
     "resilience: container restart tested.": lambda: field_true(
         "v01-deployment.json", "postgres_persistence"
     ),
-    "resilience: redis-loss recovery tested.": lambda: field_true(
-        "v01-deployment.json", "redis_excluded"
+    "resilience: redis-loss recovery tested.": lambda: combined(
+        lambda: field_true("v01-deployment.json", "redis_excluded"),
+        lambda: field_true("control-center-core.json", "redis_loss_recovery"),
     ),
-    "resilience: persistent state survives.": lambda: field_true(
-        "v01-deployment.json", "clean_boot"
+    "resilience: persistent state survives.": lambda: combined(
+        lambda: field_true("v01-deployment.json", "clean_boot"),
+        lambda: field_true("v01-deployment.json", "cas_integrity"),
     ),
     "resilience: backup and recovery tested.": lambda: status_of("v01-backup-restore.json"),
-    "security: project isolation tested.": lambda: field_zero(
-        "v01-deployment.json", "cross_project_leaks"
-    )
-    if "cross_project_leaks" in artifact("v01-deployment.json")
-    else status_of("control-center-full.json"),
+    "security: project isolation tested.": lambda: combined(
+        lambda: field_zero("control-center-core.json", "cross_project_leaks"),
+        lambda: field_true("control-center-core.json", "project_isolation"),
+    ),
     "security: secret handling tested.": lambda: security_artifact_check("secret_scan"),
     "security: prompt/document trust boundaries tested.": lambda: security_artifact_check(
         "trust_boundary_tests"
     ),
     "security: canonical memory governance tested.": lambda: status_of("memory-lifecycle.json"),
     "deployment: docker compose local deployment documented.": lambda: combined(
+        lambda: document_contains("docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("docker compose",)),
         lambda: document_contains(
-            "docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("docker compose", "HIVE_DATA_ROOT")
+            "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md", ("HIVE_DATA_ROOT",)
         ),
         lambda: field_true("v01-deployment.json", "compose_config_validated"),
     ),
     "deployment: secondary-disk persistence documented and tested.": lambda: combined(
-        lambda: field_true("v01-deployment.json", "secondary_root_tested"),
+        lambda: field_true("v01-deployment.json", "secondary_root_recreated"),
+        lambda: field_true("v01-deployment.json", "secondary_root_state_survived"),
         lambda: document_contains("docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("secondary",)),
     ),
     "documentation: architecture current.": lambda: document_contains(
@@ -341,10 +371,121 @@ DOD_VERIFIERS: dict[str, Callable[[], tuple[str, str]]] = {
         lambda: gap_report_current(),
         lambda: document_contains("docs/atlas/V0.1-CLOSURE-GAP-REPORT.md", ("PROVED (bounded)",)),
     ),
-    "closure: final review completed.": lambda: status_of("v01-review.json")
-    if artifact("v01-review.json")
-    else ("UNKNOWN", "tmp/integration-logs/v01-review.json"),
+    "closure: final review completed.": lambda: combined(
+        lambda: e2e_stage("capture_evidence"),
+        lambda: e2e_stage("complete_review"),
+    ),
 }
+
+# Tracked provenance for every DoD row: the repository artifact a reviewer reads
+# and re-runs at the reviewed HEAD. Runtime artifact names stay in the verifiers
+# above and are bound to the run digest, but the matrix itself must cite
+# repository-relative evidence.
+DOD_EVIDENCE_PATHS: dict[str, str] = {
+    "functional: multiple projects can be registered.": "scripts/control_center_integration.py",
+    "functional: project state can be inspected.": "scripts/control_center_integration.py",
+    "functional: repository indexing works incrementally.": (
+        "scripts/repository_indexing_integration.py"
+    ),
+    "functional: pdf/txt/markdown task intake works.": "scripts/task_intake_integration.py",
+    "functional: context is built autonomously.": "scripts/context_manager_integration.py",
+    "functional: checkpoint, scope, architecture and decisions are considered.": (
+        "scripts/context_manager_integration.py"
+    ),
+    "functional: hybrid retrieval and reranking function.": "scripts/retrieval_integration.py",
+    "functional: memory with provenance works.": "scripts/memory_lifecycle_integration.py",
+    "functional: redis hot cache works and is reconstructible.": "scripts/v01_closure_sprint.py",
+    "functional: acce dedup/compression/fingerprint/delta mechanisms work.": (
+        "scripts/task_intake_integration.py"
+    ),
+    "functional: mcp interface works.": "scripts/mcp_integration.py",
+    "functional: executor integration can perform at least one end-to-end coding task.": (
+        "scripts/v01_closure_sprint.py"
+    ),
+    "functional: relevant tools are gated.": (
+        "backend/tests/test_v01_closure_orchestration_proof.py"
+    ),
+    "functional: results/tests/diffs are captured.": (
+        "scripts/autonomous_execution_integration.py"
+    ),
+    "functional: canonical promotion rules are enforced.": "backend/app/execution_orchestrator.py",
+    "functional: dashboard displays all registered project states.": (
+        "scripts/control_center_integration.py"
+    ),
+    "functional: dashboard displays live/near-live runs and telemetry.": (
+        "dashboard/src/ControlCenter.tsx"
+    ),
+    "token/storage: token telemetry is collected.": "scripts/control_center_integration.py",
+    "token/storage: cached/fresh tokens are distinguished when provider supports it.": (
+        "scripts/comprehensive_benchmarks.py"
+    ),
+    "token/storage: context reduction is measurable.": "scripts/control_center_integration.py",
+    "token/storage: token-saving benchmark exists.": "scripts/comprehensive_benchmarks.py",
+    "token/storage: storage logical vs physical usage is measurable.": (
+        "scripts/task_intake_integration.py"
+    ),
+    "token/storage: dedup/compression integrity tests pass.": "scripts/comprehensive_benchmarks.py",
+    "token/storage: no canonical source is lost through lossy compression.": (
+        "scripts/comprehensive_benchmarks.py"
+    ),
+    "quality: unit tests pass.": "scripts/v01_closure_sprint.py",
+    "quality: integration tests pass.": "scripts/integration_health.py",
+    "quality: end-to-end test passes.": "scripts/v01_closure_sprint.py",
+    "quality: retrieval benchmark meets accepted threshold.": "scripts/retrieval_integration.py",
+    "quality: token optimization does not materially degrade benchmark task correctness.": (
+        "scripts/comprehensive_benchmarks.py"
+    ),
+    "quality: lint/typecheck/build pass where applicable.": "scripts/validate.py",
+    "resilience: container restart tested.": "scripts/v01_closure_sprint.py",
+    "resilience: redis-loss recovery tested.": "scripts/v01_closure_sprint.py",
+    "resilience: persistent state survives.": "scripts/v01_closure_sprint.py",
+    "resilience: backup and recovery tested.": "scripts/v01_backup_restore.py",
+    "security: project isolation tested.": "scripts/v01_closure_sprint.py",
+    "security: secret handling tested.": "scripts/check_secrets.py",
+    "security: prompt/document trust boundaries tested.": "scripts/v01_closure_sprint.py",
+    "security: canonical memory governance tested.": "scripts/memory_lifecycle_integration.py",
+    "deployment: docker compose local deployment documented.": (
+        "docs/project-brain/12-LOCAL-DEPLOYMENT.md"
+    ),
+    "deployment: secondary-disk persistence documented and tested.": (
+        "docs/atlas/V0.1-DEPLOYMENT-VALIDATION-REPORT.md"
+    ),
+    "documentation: architecture current.": "docs/project-brain/04-ARCHITECTURE.md",
+    "documentation: deployment current.": "docs/project-brain/12-LOCAL-DEPLOYMENT.md",
+    "documentation: checkpoint current.": "docs/project-brain/13-CHECKPOINT.md",
+    "documentation: backlog current.": "docs/project-brain/14-BACKLOG.md",
+    "documentation: known limitations documented.": "docs/atlas/V0.1-CLOSURE-GAP-REPORT.md",
+    "closure: final review completed.": "backend/tests/test_v01_closure_sprint.py",
+}
+
+# every runtime artifact the DoD verifiers measure, bound into the run digest
+MEASURED_ARTIFACTS = (
+    "acce-storage-policy.json",
+    "autonomous-execution.json",
+    "comprehensive-benchmarks.json",
+    "context-manager.json",
+    "control-center-core.json",
+    "control-center-full.json",
+    "control-center-metrics.json",
+    "mcp-surface.json",
+    "memory-lifecycle.json",
+    "retrieval-benchmark.json",
+    "telemetry-event-bus.json",
+    "v01-backup-restore.json",
+    "v01-deployment.json",
+    "v01-e2e.json",
+    "v01-orchestration-proof.json",
+    "v01-quality.json",
+    "v01-security.json",
+)
+SELF_MEASURED_ARTIFACTS = (
+    "v01-backup-restore.json",
+    "v01-deployment.json",
+    "v01-e2e.json",
+    "v01-orchestration-proof.json",
+    "v01-quality.json",
+    "v01-security.json",
+)
 
 SEVERITY_BY_CATEGORY = {
     "functional": "HIGH",
@@ -390,19 +531,22 @@ def canonical_dod_items() -> list[dict[str, object]]:
     return items
 
 
+def tracked_evidence_digest(relative: str) -> str:
+    """Digest of the tracked evidence file at the reviewed HEAD."""
+
+    text = git_blob(relative)
+    return sha256_text(text) if text else ""
+
+
 def ledger_entry(section: str, requirement: str) -> dict[str, object]:
     key = requirement_key(section, requirement)
     verifier = DOD_VERIFIERS.get(key)
     category = section.casefold()
     if verifier is None:
-        status, evidence = "FAIL", DOD_DOCUMENT
+        status = "FAIL"
     else:
-        status, evidence = verifier()
-    if (INTEGRATION_LOG_DIR / Path(evidence).name).is_file():
-        digest = artifact_digest(Path(evidence).name)
-    else:
-        document = document_text(evidence)
-        digest = hashlib.sha256(document.encode("utf-8")).hexdigest() if document else ""
+        status, _artifact = verifier()
+    evidence = DOD_EVIDENCE_PATHS.get(key, DOD_DOCUMENT)
     return {
         "requirement": f"{section}: {requirement}",
         "key": key,
@@ -410,7 +554,7 @@ def ledger_entry(section: str, requirement: str) -> dict[str, object]:
         "severity": SEVERITY_BY_CATEGORY.get(category, "MEDIUM"),
         "status": status,
         "evidence_path": evidence,
-        "evidence_digest": digest,
+        "evidence_digest": tracked_evidence_digest(evidence),
         "verifier": "registered" if verifier is not None else "missing",
         "action": "none" if status == "PASS" else f"close {category} gap for {requirement}",
     }
@@ -1825,9 +1969,11 @@ def main() -> int:
         )
 
         executed: dict[str, str] = {}
-        for script, artifact_name, stage in CLOSURE_INTEGRATIONS:
-            if not (ROOT / script).is_file():
-                continue
+        for index, (script, artifact_name, stage) in enumerate(CLOSURE_INTEGRATIONS):
+            require(
+                (ROOT / script).is_file(),
+                f"closure integration script is missing from the repository: {script}",
+            )
             result = subprocess.run(
                 [sys.executable, script],
                 cwd=ROOT,
@@ -1838,6 +1984,7 @@ def main() -> int:
                 check=False,
                 timeout=3600,
             )
+            INTEGRATION_RUN_RESULTS[f"{index:02d}:{script}:{stage}"] = result.returncode
             if result.returncode != 0:
                 print(
                     f"[wo024] closure integration {script} failed: {result.stderr[-400:]}",
@@ -1870,18 +2017,30 @@ def main() -> int:
         ledger: list[dict[str, object]] = []
         for item in canonical_dod_items():
             ledger.append(ledger_entry(str(item["section"]), str(item["requirement"])))
+        require(
+            len(ledger) == len(canonical_dod_items()),
+            "the DoD ledger does not cover the canonical requirements exactly once",
+        )
+        require(
+            all(len(str(entry["evidence_digest"])) == 64 for entry in ledger),
+            "a DoD row cites tracked evidence that is absent from the reviewed HEAD",
+        )
         dod_rows = [
             {
                 "item": str(entry["requirement"]),
                 "status": str(entry["status"]),
                 "evidence_path": str(entry["evidence_path"]),
-                "sha256": str(entry["evidence_digest"] or hashlib.sha256(b"").hexdigest()),
+                "sha256": str(entry["evidence_digest"]),
             }
             for entry in ledger
             if str(entry["evidence_path"]).startswith(
                 ("backend/", "docs/", "scripts/", "dashboard/")
             )
         ]
+        require(
+            len(dod_rows) == len(ledger),
+            "the DoD matrix dropped rows whose evidence is not repository-relative",
+        )
         dod_total = len(ledger)
         dod_pass = sum(1 for entry in ledger if entry["status"] == "PASS")
         dod_fail = sum(1 for entry in ledger if entry["status"] == "FAIL")
@@ -2031,12 +2190,17 @@ def main() -> int:
             set(summary) == governance.V01_CLOSURE_SPRINT_ALLOWED_FIELDS,
             "closure evidence drifted from the contract",
         )
+        require(
+            all(artifact_digest(name) for name in SELF_MEASURED_ARTIFACTS),
+            "the closure sprint is missing one of its own measured artifacts",
+        )
         core = {
             "deployment": deployment,
             "orchestration": orchestration,
             "dod": [summary["dod_total_count"], summary["dod_pass_count"]],
             "e2e": e2e_stages,
             "changed_paths": changed_paths,
+            "artifacts": {name: artifact_digest(name) for name in MEASURED_ARTIFACTS},
         }
         summary["run_digest"] = sha256_text(json.dumps(core, sort_keys=True, default=str))
         summary["closure_candidate"] = (
