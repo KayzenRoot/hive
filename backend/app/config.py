@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "HIVE API"
-    version: str = "0.0.1-bootstrap"
+    version: str = "1.0.0"
     environment: str = Field(default="development", validation_alias="HIVE_ENVIRONMENT")
     data_root: Path = Field(default=Path(".hive-data"), validation_alias="HIVE_DATA_ROOT")
     projects_root: Path = Field(

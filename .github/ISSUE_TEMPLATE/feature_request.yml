@@ -12,16 +12,35 @@ body:
     validations:
       required: true
   - type: textarea
-    id: proposal
+    id: outcome
     attributes:
-      label: Proposed change
-      description: Describe a focused proposal and its boundaries.
+      label: Proposed outcome
+      description: Describe the smallest useful outcome and its boundaries.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope classification
+      description: Which release class would this change belong to?
+      options:
+        - "1.0.x patch - backward-compatible fix or bounded operational improvement"
+        - "1.x.0 minor - backward-compatible capability"
+        - "2.0.0 major - breaking public contract change"
+        - Unsure - needs triage
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility
+      description: API, schema, migration or operational compatibility impact.
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence and risks
-      description: Include evidence, alternatives, and possible scope impact.
+      label: Acceptance evidence
+      description: How should success be verified deterministically?
     validations:
       required: true

@@ -49,6 +49,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_mcp_server.py: Python source or test module.
 - backend/tests/test_memory.py: Python source or test module.
+- backend/tests/test_prepare_release.py: Python source or test module.
 - backend/tests/test_progressive_disclosure.py: Python source or test module.
 - backend/tests/test_projects_api.py: Python source or test module.
 - backend/tests/test_provider_prompt_cache.py: Python source or test module.
@@ -65,6 +66,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_v01_closure_orchestration_proof.py: Python source or test module.
 - backend/tests/test_v01_closure_regression_lock.py: Python source or test module.
 - backend/tests/test_v01_closure_sprint.py: Python source or test module.
+- backend/tests/test_verify_release_metadata.py: Python source or test module.
 
 ## Dashboard
 
@@ -129,3 +131,4 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/v01_closure_sprint.py: deterministic maintenance or validation script.
 - scripts/validate.py: deterministic maintenance or validation script.
 - scripts/verify_canonical_sources.py: deterministic maintenance or validation script.
+- scripts/verify_release_metadata.py: deterministic maintenance or validation script.

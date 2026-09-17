@@ -1,11 +1,17 @@
 changelog:
   categories:
+    - title: Security
+      labels:
+        - type:security
     - title: Features
       labels:
         - type:feature
     - title: Fixes
       labels:
         - type:bug
+    - title: Maintenance
+      labels:
+        - type:maintenance
     - title: Documentation and infrastructure
       labels:
         - type:docs
