@@ -10947,3 +10947,330 @@ def test_wo024p_g1_c2_governance_evidence_is_emitted(
         )
         is None
     )
+
+
+def wo024p_benchmark_fixture() -> dict[str, object]:
+    """Minimal benchmark mapping sufficient for integration_evidence()."""
+
+    return {
+        "status": "PASS",
+        "redis_restart": True,
+        "api_restart": True,
+        "rerank": {"status": "PASS"},
+        "query_count": 4,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "critical_context_misses": 0,
+        "two_run_reproducibility": True,
+        "cross_project_isolation": True,
+        "semantic": {"status": "PASS"},
+        "hybrid": {"status": "PASS"},
+        "hybrid_recall_at_5_gte_extended_lexical": True,
+        "semantic_challenge_recovered": True,
+        "semantic_integrity": {},
+        "fallback": {},
+    }
+
+
+def measured_closure_fixture() -> dict[str, object]:
+    """The measured v01 closure payload shape consumed by the final-promotion lineage."""
+
+    return v01_closure_evidence_fixture(
+        dod_pass_count=46,
+        dod_total_count=46,
+    )
+
+
+class _ClosureSeamReached(Exception):
+    """Sentinel raised when the driven manifest build reaches the WO-024-P lineage seam."""
+
+    def __init__(self, payload: object) -> None:
+        super().__init__("closure seam reached")
+        self.payload = payload
+
+
+def wo024p_final_promotion_harness(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    closure_payload: object,
+) -> dict[str, object]:
+    """Drive the real build_manifest path to the WO-024-P closure-to-lineage seam.
+
+    The integration manifest mapping is deliberately left as the real (closure-free) evidence
+    mapping, so the regression proves the lineage payload cannot come from it.
+    """
+
+    base_sha = review_evidence.WO024P_G1_C3_BASE_SHA
+    head_sha = "a" * 40
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(review_evidence, "read_text", lambda path: "")
+    monkeypatch.setattr(
+        review_evidence,
+        "pull_request_body",
+        lambda repository, number: (
+            f"<!-- HIVE-WORK-ORDER: {review_evidence.WO024P_WORK_ORDER} -->\n"
+            f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->\n"
+        ),
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "git_value",
+        lambda *args, **kwargs: (
+            base_sha
+            if args[:2] == ("rev-parse", review_evidence.WO012P_PROMOTION_BASE_REF)
+            else head_sha
+        ),
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "changed_paths",
+        lambda *args: sorted(review_evidence.WO024P_PROMOTION_ALLOWED_PATHS),
+    )
+    monkeypatch.setattr(
+        review_evidence,
+        "governance_evidence",
+        lambda repository, number: {
+            "ruleset_unchanged": True,
+            "pull_request": {"auto_merge_armed": False},
+        },
+    )
+    monkeypatch.setattr(
+        review_evidence, "benchmark_fields", lambda *args, **kwargs: wo024p_benchmark_fixture()
+    )
+    monkeypatch.setattr(review_evidence, "closure_sprint_evidence", lambda: closure_payload)
+
+    def seam(repository: str, payload: object) -> object:
+        seen["payload"] = payload
+        seen["repository"] = repository
+        raise _ClosureSeamReached(payload)
+
+    monkeypatch.setattr(review_evidence, "fetch_wo024_approved_lineage", seam)
+    seen["args"] = {
+        "repository": "KayzenRoot/hive",
+        "pr_number": 98,
+        "work_order": review_evidence.WO024P_WORK_ORDER,
+        "base_branch": "main",
+        "base_sha": base_sha,
+        "head_branch": "governance/wo024-p-final-canonical-promotion",
+        "head_sha": head_sha,
+        "server_url": "https://github.com",
+        "run_id": "35246912961",
+        "integration_status": "PASS",
+        "ready": True,
+        "draft": False,
+    }
+    return seen
+
+
+def test_wo024p_final_promotion_lineage_receives_validated_closure_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The final-promotion seam must consume the validated closure payload, not the manifest."""
+
+    payload = measured_closure_fixture()
+    seen = wo024p_final_promotion_harness(monkeypatch, closure_payload=payload)
+    args = cast(dict[str, object], seen["args"])
+    with pytest.raises(_ClosureSeamReached) as reached:
+        review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
+    received = cast(dict[str, object], reached.value.payload)
+    assert received["dod_pass_count"] == 46
+    assert received["dod_total_count"] == 46
+    assert received["status"] == "PASS"
+    assert received is payload, "the lineage must receive the validated payload itself"
+
+    # The schema-bound integration manifest still must not expose the closure family.
+    integration = review_evidence.integration_evidence(
+        wo024p_benchmark_fixture(), work_order=review_evidence.WO024P_WORK_ORDER
+    )
+    assert "v01_closure_sprint" not in integration
+    schema_text = review_evidence.SCHEMA_PATH.read_text(encoding="utf-8")
+    assert '"v01_closure_sprint": {' not in schema_text
+
+
+def test_wo024p_closure_payload_fails_closed_before_any_conversion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing, failing or incomplete closure evidence must raise a governance error."""
+
+    cases: tuple[tuple[str, object, str], ...] = (
+        ("empty payload", {}, "requires validated v01 closure"),
+        ("not passing", {"status": "FAIL", "dod_pass_count": 46, "dod_total_count": 46}, "passing"),
+        ("unknown", {"status": "UNKNOWN"}, "passing"),
+        ("missing counts", {"status": "PASS"}, "measured v01 closure dod_pass_count"),
+        (
+            "non-integer counts",
+            {"status": "PASS", "dod_pass_count": "46", "dod_total_count": "46"},
+            "measured v01 closure dod_pass_count",
+        ),
+        (
+            "boolean counts",
+            {"status": "PASS", "dod_pass_count": True, "dod_total_count": 46},
+            "measured v01 closure dod_pass_count",
+        ),
+    )
+    for _label, payload, expected in cases:
+        monkeypatch.setattr(review_evidence, "closure_sprint_evidence", lambda value=payload: value)
+        # pytest.raises(ValueError) already proves no raw TypeError can escape.
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.wo024p_closure_payload()
+        # ...and through the whole manifest seam, never as a raw TypeError.
+        seen = wo024p_final_promotion_harness(monkeypatch, closure_payload=payload)
+        args = cast(dict[str, object], seen["args"])
+        with pytest.raises(ValueError, match=expected):
+            review_evidence.build_manifest(SimpleNamespace(**args))  # type: ignore[arg-type]
+
+
+def test_wo024p_lineage_verifier_fails_closed_on_incomplete_closure_payload() -> None:
+    """The verifier itself must reject an incomplete closure payload by design."""
+
+    for _label, payload in (
+        ("empty", {}),
+        ("status only", {"status": "PASS"}),
+        ("counts without status", {"dod_pass_count": 46, "dod_total_count": 46}),
+    ):
+        sources = wo024_approved_lineage_sources(closure_evidence=payload)
+        # pytest.raises(ValueError) already proves no raw TypeError can escape.
+        with pytest.raises(ValueError):
+            review_evidence.verify_wo024_approved_lineage(sources)
+
+
+def test_wo024p_g1_c3_scope_is_bounded_and_fails_closed() -> None:
+    allowed = sorted(review_evidence.WO024P_G1_C3_ALLOWED_PATHS)
+    review_evidence.require_wo024p_g1_c3_scope(
+        review_evidence.WO024P_G1_C3_WORK_ORDER,
+        review_evidence.WO024P_G1_C3_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO024P_G1_C3_BASE_SHA,
+    )
+    for paths in (
+        [],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+        ["schemas/review-evidence-v1.schema.json"],
+        ["migrations/versions/0009_wiring.py"],
+        [".github/workflows/ci.yml"],
+        ["requirements.txt"],
+        ["VERSION"],
+        ["backend/app/context_manager.py"],
+        ["backend/tests/test_v01_closure_sprint.py"],
+        allowed + ["docs/project-brain/13-CHECKPOINT.md"],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo024p_g1_c3_scope(
+                review_evidence.WO024P_G1_C3_WORK_ORDER,
+                review_evidence.WO024P_G1_C3_BASE_SHA,
+                paths,
+                authorized_base_sha=review_evidence.WO024P_G1_C3_BASE_SHA,
+            )
+    for base_sha, marker in (
+        ("b" * 40, review_evidence.WO024P_G1_C3_BASE_SHA),
+        (review_evidence.WO024P_G1_C3_BASE_SHA, None),
+        (review_evidence.WO024P_G1_C3_BASE_SHA, "nope"),
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo024p_g1_c3_scope(
+                review_evidence.WO024P_G1_C3_WORK_ORDER,
+                base_sha,
+                allowed,
+                authorized_base_sha=marker,
+            )
+
+
+def test_wo024p_g1_c3_is_self_hosted_and_never_promotes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert review_evidence.WO024P_G1_C3_WORK_ORDER in (
+        review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+    assert review_evidence.WO024P_G1_C3_WORK_ORDER not in (
+        review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert (
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
+        == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    review_evidence.require_current_work_order_authorization(
+        review_evidence.WO024P_G1_C3_WORK_ORDER
+    )
+    review_evidence.require_supported_work_order(review_evidence.WO024P_G1_C3_WORK_ORDER)
+    body = (
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C3 -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO024P_G1_C3_BASE_SHA} -->\n"
+    )
+    assert review_evidence.parse_work_order_marker(body) == (
+        review_evidence.WO024P_G1_C3_WORK_ORDER
+    )
+    assert (
+        review_evidence.authorized_base_marker_sha(review_evidence.WO024P_G1_C3_WORK_ORDER, body)
+        == review_evidence.WO024P_G1_C3_BASE_SHA
+    )
+    for malformed in (
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C3 -->\n",
+        body + f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO024P_G1_C3_BASE_SHA} -->\n",
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C3 -->\n<!-- HIVE-AUTHORIZED-BASE: nope -->\n",
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.authorized_base_marker_sha(
+                review_evidence.WO024P_G1_C3_WORK_ORDER, malformed
+            )
+    # The contract proves the schema-bound manifest keeps the closure family out and that the
+    # lineage source is the validated reader.
+    monkeypatch.setattr(review_evidence, "closure_sprint_evidence", measured_closure_fixture)
+    evidence = review_evidence.verify_wo024p_g1_c3_governance_contract(
+        review_evidence.WO024P_G1_C3_WORK_ORDER,
+        review_evidence.WO024P_G1_C3_BASE_SHA,
+        sorted(review_evidence.WO024P_G1_C3_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"comprehensive_benchmarks": {}},
+        review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        review_evidence.WO024P_G1_C3_BASE_SHA,
+    )
+    assert evidence is not None
+    assert "work_order=WO-024-P-G1-C3" in evidence
+    assert "closure_lineage_wiring_source=closure_sprint_evidence" in evidence
+    assert "closure_payload_dod=46/46" in evidence
+    assert "incomplete_closure_fails_closed=ValueError" in evidence
+    assert "schema_bound_manifest_omits_v01_closure_sprint=True" in evidence
+    assert "current_main_association_rediscovery=False" in evidence
+    assert "active_promotion_pair_unchanged=True" in evidence
+    assert "v0.1_promotion_performed=False" in evidence
+    assert "auto_merge=UNARMED" in evidence
+    # A manifest integration mapping that (wrongly) exposes the family is refused.
+    with pytest.raises(ValueError, match="schema-bound manifest"):
+        review_evidence.verify_wo024p_g1_c3_governance_contract(
+            review_evidence.WO024P_G1_C3_WORK_ORDER,
+            review_evidence.WO024P_G1_C3_BASE_SHA,
+            sorted(review_evidence.WO024P_G1_C3_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"v01_closure_sprint": v01_closure_evidence_fixture()},
+            review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+            review_evidence.WO024P_G1_C3_BASE_SHA,
+        )
+    assert (
+        review_evidence.verify_wo024p_g1_c3_governance_contract(
+            review_evidence.WO024_WORK_ORDER,
+            review_evidence.WO024P_G1_C3_BASE_SHA,
+            sorted(review_evidence.WO024P_G1_C3_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"comprehensive_benchmarks": {}},
+            review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+            None,
+        )
+        is None
+    )
