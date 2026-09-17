@@ -1,6 +1,6 @@
 alembic==1.15.1
 fastapi==0.115.8
-python-multipart==0.0.20
+python-multipart==0.0.31
 pypdf==6.16.2
 zstandard==0.25.0
 annotated-types==0.8.0
