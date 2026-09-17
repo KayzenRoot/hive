@@ -2322,6 +2322,30 @@ HIVE_REL_001_FORBIDDEN_PREFIXES = (
     ".git/",
 )
 HIVE_REL_001_FORBIDDEN_EXACT_PATHS = frozenset({"docs/releases/v0.0.1-bootstrap.md"})
+RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS = frozenset(
+    {
+        "VERSION",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "dashboard/package.json",
+        "dashboard/package-lock.json",
+    }
+)
+RELEASE_ENGINEERING_ALLOWED_PREFIXES = (
+    ".github/",
+    ".engineering/release/",
+    "docs/",
+)
+RELEASE_ENGINEERING_FORBIDDEN_PREFIXES = (
+    "docs/project-brain/",
+    ".engineering/gef/",
+    "migrations/",
+)
 AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
     {
         "WO-012-P",
@@ -6477,13 +6501,35 @@ def closure_sprint_scope(paths: list[str]) -> list[str]:
     delta: that exact pair is allowed, while the pair plus any third path falls
     back to the ordinary product scope and fails closed, as does either
     canonical path on its own.
+
+    A path is observable when it is inside either the bounded product scope or
+    the registered release-engineering surface; a path has to leave both scopes
+    to fail closed. Project Brain, GEF artifacts and migrations remain rejected
+    even when they sit under a release-engineering prefix.
     """
 
-    if sorted(set(paths)) == sorted(WO024P_PROMOTION_ALLOWED_PATHS) and len(set(paths)) == len(
+    unique = sorted(set(paths))
+    if unique == sorted(WO024P_PROMOTION_ALLOWED_PATHS) and len(unique) == len(
         WO024P_PROMOTION_ALLOWED_PATHS
     ):
         return []
-    return closure_product_scope(paths)
+    return sorted(set(closure_product_scope(paths)) & set(release_engineering_scope(paths)))
+
+
+def release_engineering_scope(paths: list[str]) -> list[str]:
+    """Return the paths that leave the registered release-engineering surface."""
+
+    unauthorized: list[str] = []
+    for path in sorted(set(paths)):
+        if path.startswith(RELEASE_ENGINEERING_FORBIDDEN_PREFIXES):
+            unauthorized.append(path)
+            continue
+        if path in RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS:
+            continue
+        if any(path.startswith(prefix) for prefix in RELEASE_ENGINEERING_ALLOWED_PREFIXES):
+            continue
+        unauthorized.append(path)
+    return unauthorized
 
 
 def require_wo024_scope(

@@ -10782,6 +10782,44 @@ def test_closure_sprint_scope_is_promotion_aware() -> None:
     assert review_evidence.closure_product_scope(list(pair)) == pair
 
 
+def test_closure_sprint_scope_admits_registered_release_engineering_surface() -> None:
+    release_paths = [
+        "VERSION",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "dashboard/package.json",
+        "dashboard/package-lock.json",
+        "docs/VERSIONING.md",
+        "docs/releases/v1.0.0.md",
+        ".github/workflows/release.yml",
+        ".github/ISSUE_TEMPLATE/maintenance.yml",
+        ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json",
+    ]
+    assert review_evidence.release_engineering_scope(release_paths) == []
+    assert review_evidence.closure_sprint_scope(release_paths) == []
+    assert (
+        review_evidence.closure_sprint_scope([*release_paths, "backend/app/context_manager.py"])
+        == []
+    )
+    for rejected in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ".engineering/gef/GEF-POLICY.md",
+        "migrations/versions/0008_release.py",
+        "backend/app.py",
+        "secrets/credentials.txt",
+        "tmp/release-dry-run/hive-v1.0.0.zip",
+        "release-assets/hive-v1.0.0.zip",
+    ):
+        assert review_evidence.release_engineering_scope([rejected]) == [rejected]
+        assert review_evidence.closure_sprint_scope([rejected]) == [rejected]
+
+
 def test_wo024p_g1_c1_scope_is_bounded_and_fails_closed() -> None:
     allowed = sorted(review_evidence.WO024P_G1_C1_ALLOWED_PATHS)
     review_evidence.require_wo024p_g1_c1_scope(
