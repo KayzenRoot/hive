@@ -10617,7 +10617,19 @@ def test_wo024p_g1_c1_scope_is_bounded_and_fails_closed() -> None:
             )
 
 
-def test_wo024p_g1_c1_is_self_hosted_with_governance_evidence() -> None:
+def test_wo024p_g1_c1_is_self_hosted_with_governance_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # the closure gate reads the integration artifact from disk; inject the
+    # contract fixture so the regression holds without any local evidence file
+    closure_text = json.dumps(v01_closure_evidence_fixture())
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda name: (
+            closure_text if name == review_evidence.V01_CLOSURE_SPRINT_EVIDENCE_FILE else ""
+        ),
+    )
     assert review_evidence.WO024P_G1_C1_WORK_ORDER in (
         review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
     )
