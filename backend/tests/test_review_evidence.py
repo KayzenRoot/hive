@@ -10161,6 +10161,19 @@ def v01_closure_evidence_fixture(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def test_wo024_manifest_stays_schema_valid_without_closure_property() -> None:
+    """The closure artifact is a gating input, never an undeclared manifest property."""
+
+    import inspect
+
+    source = inspect.getsource(review_evidence.integration_evidence)
+    assert 'evidence["v01_closure_sprint"]' not in source
+    schema_text = review_evidence.SCHEMA_PATH.read_text(encoding="utf-8")
+    assert '"v01_closure_sprint": {' not in schema_text
+    # the approved lineage definition stays declared and closed
+    assert '"v01_closure_sprint_approved_lineage": {' in schema_text
+
+
 def test_wo024_g1_scope_and_renderers_are_exact_and_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -10192,6 +10205,7 @@ def test_wo024_g1_scope_and_renderers_are_exact_and_fail_closed(
         )
 
     governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
+    monkeypatch.setattr(review_evidence, "integration_file", lambda name: "")
     evidence = review_evidence.verify_wo024_g1_governance_contract(
         review_evidence.WO024_G1_WORK_ORDER,
         base_sha,
@@ -10209,6 +10223,7 @@ def test_wo024_g1_scope_and_renderers_are_exact_and_fail_closed(
     assert evidence is not None
     assert "future_WO-024=REGISTERED" in evidence and "future_WO-024-P=REGISTERED" in evidence
     assert "checkpoint_promotion=False" in evidence
+    monkeypatch.setattr(review_evidence, "integration_file", lambda name: '{"status": "PASS"}')
     with pytest.raises(ValueError, match="must not claim future v01 closure"):
         review_evidence.verify_wo024_g1_governance_contract(
             review_evidence.WO024_G1_WORK_ORDER,
@@ -10220,10 +10235,17 @@ def test_wo024_g1_scope_and_renderers_are_exact_and_fail_closed(
                 "authorized_paths": [],
             },
             governance,
-            {"v01_closure_sprint": v01_closure_evidence_fixture()},
+            {},
             "0007_telemetry_events",
             base_sha,
         )
+    monkeypatch.undo()
+    monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
+    monkeypatch.setattr(
+        review_evidence,
+        "canonical_change_evidence",
+        lambda _paths, _work_order: {"project_brain_changed": False, "checkpoint_changed": False},
+    )
 
     body = render_body(
         work_order=review_evidence.WO024_G1_WORK_ORDER,
@@ -10255,24 +10277,29 @@ def test_wo024_g1_scope_and_renderers_are_exact_and_fail_closed(
         )
 
 
+_original_closure_reader = review_evidence.closure_sprint_evidence
+
+
 def test_wo024_closure_contract_fails_closed_on_incomplete_closure() -> None:
-    integration = {"v01_closure_sprint": v01_closure_evidence_fixture()}
+    integration: dict[str, object] = {}
+    payload = v01_closure_evidence_fixture()
+    review_evidence.closure_sprint_evidence = lambda: payload
     review_evidence.require_wo024_v01_closure_sprint_evidence(
         review_evidence.WO024_WORK_ORDER, integration, "0007_telemetry_events"
     )
+    review_evidence.closure_sprint_evidence = lambda: {}
     with pytest.raises(ValueError, match="missing mandatory v01 closure sprint evidence"):
         review_evidence.require_wo024_v01_closure_sprint_evidence(
-            review_evidence.WO024_WORK_ORDER, {}, "0007_telemetry_events"
+            review_evidence.WO024_WORK_ORDER, integration, "0007_telemetry_events"
         )
+    review_evidence.closure_sprint_evidence = lambda: v01_closure_evidence_fixture()
 
-    dod_items = cast(list[dict[str, object]], integration["v01_closure_sprint"]["dod_items"])
+    dod_items = cast(list[dict[str, object]], payload["dod_items"])
     failing_items = [dict(item) for item in dod_items]
     failing_items[0] = {**failing_items[0], "status": "FAIL"}
     unknown_items = [dict(item) for item in dod_items]
     unknown_items[1] = {**unknown_items[1], "status": "UNKNOWN"}
-    documented = cast(
-        list[dict[str, object]], integration["v01_closure_sprint"]["documentation_entries"]
-    )
+    documented = cast(list[dict[str, object]], payload["documentation_entries"])
     stale_docs = [dict(entry) for entry in documented]
     stale_docs[0] = {**stale_docs[0], "status": "FAIL"}
     negative_cases = (
@@ -10304,7 +10331,13 @@ def test_wo024_closure_contract_fails_closed_on_incomplete_closure() -> None:
         ("stabilization regression", {"stabilization_regression_suite_pass": False}),
     )
     for label, override in negative_cases:
-        broken = {"v01_closure_sprint": v01_closure_evidence_fixture(**override)}
+        mutation = v01_closure_evidence_fixture(**override)
+
+        def _closure_reader(mutation: dict[str, object] = mutation) -> dict[str, object]:
+            return mutation
+
+        review_evidence.closure_sprint_evidence = _closure_reader
+        broken: dict[str, object] = {}
         if label == "completion claim in product":
             fixture = v01_closure_evidence_fixture(**override)
             assert fixture["full_v01_complete_claimed"] is True
@@ -10312,6 +10345,7 @@ def test_wo024_closure_contract_fails_closed_on_incomplete_closure() -> None:
             review_evidence.require_wo024_v01_closure_sprint_evidence(
                 review_evidence.WO024_WORK_ORDER, broken, "0007_telemetry_events"
             )
+    review_evidence.closure_sprint_evidence = _original_closure_reader
 
 
 def test_wo024_product_scope_boundaries_are_bounded() -> None:
