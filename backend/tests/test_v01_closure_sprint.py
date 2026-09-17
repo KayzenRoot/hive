@@ -165,15 +165,51 @@ def test_authority_order_and_negative_matrix_are_closed() -> None:
     assert len(governance.V01_CLOSURE_SPRINT_E2E_STAGES) == 12
 
 
-def promoted_checkpoint_text() -> str:
-    """Synthesize the strict promoted checkpoint the WO-024-P contract demands."""
+CHECKPOINT_RELATIVE = "docs/project-brain/13-CHECKPOINT.md"
+
+
+def wo024p_lineage_fixture() -> dict[str, object]:
+    """The approved WO-024 lineage values the promotion contract consumes."""
 
     import scripts.review_evidence as governance
 
-    relative = "docs/project-brain/13-CHECKPOINT.md"
-    root = Path(__file__).parents[2]
-    base_text = (root / relative).read_text(encoding="utf-8")
-    _preamble, _ordered, sections = governance._raw_checkpoint_structure(base_text, "base")
+    return {
+        "product_pr": governance.WO024_APPROVED_PRODUCT_PR,
+        "audited_product_head": governance.WO024_APPROVED_PRODUCT_HEAD_SHA,
+        "sol_review_id": governance.WO024_APPROVED_SOL_REVIEW_ID,
+        "squash_merge_sha": governance.WO024_APPROVED_SQUASH_MERGE_SHA,
+        "post_merge_ci_run": governance.WO024_APPROVED_POST_MERGE_CI_RUN,
+        "prior_backend_passed": 676,
+        "prior_dashboard_passed": 34,
+    }
+
+
+def wo024p_closure_fixture() -> dict[str, object]:
+    """The measured closure values the promotion contract consumes."""
+
+    import scripts.review_evidence as governance
+
+    return {
+        "v01_closure_sprint_evidence_version": governance.V01_CLOSURE_SPRINT_EVIDENCE_VERSION,
+        "dod_pass_count": 46,
+        "dod_total_count": 46,
+        "stabilization_remaining_critical": 0,
+        "stabilization_remaining_high": 0,
+    }
+
+
+def synthesized_checkpoint_pair() -> tuple[str, str]:
+    """Build a pre-promotion checkpoint and its promoted successor deterministically.
+
+    Both texts are synthesized from the contract's own expectations, so this regression holds
+    whether the working tree currently holds the pre-promotion checkpoint or the final promoted
+    checkpoint. The live checkpoint is never used as a promotion base, and the promoted
+    checkpoint is never presented to the contract as that base.
+    """
+
+    import scripts.review_evidence as governance
+
+    newline = "\n"
     bullets = governance.wo024p_completion_bullets(
         version=governance.V01_CLOSURE_SPRINT_EVIDENCE_VERSION,
         pass_count=46,
@@ -189,10 +225,59 @@ def promoted_checkpoint_text() -> str:
         dashboard_passed=34,
         migration_head=governance.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
     )
-    newline = "\n"
+    base_text = "".join(
+        [
+            "# 13 — CHECKPOINT",
+            newline,
+            newline,
+            "## STATUS",
+            newline,
+            governance.EXPECTED_WO024P_PREVIOUS_STATUS,
+            newline,
+            newline,
+            "## VERSION",
+            newline,
+            "HIVE V0.1 — Foundation",
+            newline,
+            newline,
+            "## COMPLETED",
+            newline,
+            "- historical entry preserved byte-for-byte.",
+            newline,
+            newline,
+            "## GOVERNANCE",
+            newline,
+            "See `16-DECISIONS-LEDGER.md`.",
+            newline,
+            newline,
+            "## IN PROGRESS",
+            newline,
+            "- Preparing the stabilization increment.",
+            newline,
+            newline,
+            "## PENDING",
+            newline,
+        ]
+    )
+    base_text += "".join(f"- {item}{newline}" for item in governance.WO024P_COMPLETED_PENDING_ITEMS)
+    base_text += "".join(
+        [
+            newline,
+            "## BLOCKERS",
+            newline,
+            "None known before promotion.",
+            newline,
+            newline,
+            "## NEXT STEP",
+            newline,
+            "Preparing the stabilization increment.",
+            newline,
+        ]
+    )
+    _preamble, _ordered, base_sections = governance._raw_checkpoint_structure(base_text, "base")
     controlled = {
         "STATUS": f"{governance.EXPECTED_WO024P_STATUS}{newline}{newline}",
-        "COMPLETED": sections["COMPLETED"][:-1]
+        "COMPLETED": base_sections["COMPLETED"][:-1]
         + "".join(f"- {bullet}{newline}" for bullet in bullets)
         + newline,
         "IN PROGRESS": f"- {governance.EXPECTED_WO024P_IN_PROGRESS}{newline}{newline}",
@@ -200,13 +285,13 @@ def promoted_checkpoint_text() -> str:
         "NEXT STEP": f"{governance.EXPECTED_WO024P_NEXT_STEP}{newline}{newline}",
         "PENDING": newline,
     }
-    text = base_text
+    candidate = base_text
     for name, body in controlled.items():
-        _p, _o, current = governance._raw_checkpoint_structure(text, "candidate")
+        _p, _o, sections = governance._raw_checkpoint_structure(candidate, "candidate")
         marker = f"## {name}{newline}"
-        start = text.index(marker) + len(marker)
-        text = text[:start] + body + text[start + len(current[name]) :]
-    return text
+        start = candidate.index(marker) + len(marker)
+        candidate = candidate[:start] + body + candidate[start + len(sections[name]) :]
+    return base_text, candidate
 
 
 def with_checkpoint(text: str) -> Any:
@@ -214,42 +299,38 @@ def with_checkpoint(text: str) -> Any:
 
     original = closure.document_text
     closure.document_text = lambda relative: (
-        text if relative == "docs/project-brain/13-CHECKPOINT.md" else original(relative)
+        text if relative == CHECKPOINT_RELATIVE else original(relative)
     )
     return original
 
 
-def test_checkpoint_current_accepts_both_legitimate_states() -> None:
+def assert_promotion_contract_holds_for_the_synthesized_pair() -> None:
+    """The synthesized base and its promoted successor must satisfy the strict contract."""
+
     import scripts.review_evidence as governance
 
+    base_text, promoted = synthesized_checkpoint_pair()
+    governance.require_wo024p_checkpoint_semantics(
+        base_text,
+        promoted,
+        wo024p_lineage_fixture(),
+        wo024p_closure_fixture(),
+    )
+
+
+def assert_checkpoint_verifier_accepts_both_states() -> None:
+    """`checkpoint_current` must accept the pre-promotion and the promoted checkpoint."""
+
+    base_text, promoted = synthesized_checkpoint_pair()
     original = closure.document_text
     try:
-        assert closure.checkpoint_current()[0] == "PASS"
-        promoted = promoted_checkpoint_text()
-        governance.require_wo024p_checkpoint_semantics(
-            closure.document_text("docs/project-brain/13-CHECKPOINT.md"),
-            promoted,
-            {
-                "product_pr": governance.WO024_APPROVED_PRODUCT_PR,
-                "audited_product_head": governance.WO024_APPROVED_PRODUCT_HEAD_SHA,
-                "sol_review_id": governance.WO024_APPROVED_SOL_REVIEW_ID,
-                "squash_merge_sha": governance.WO024_APPROVED_SQUASH_MERGE_SHA,
-                "post_merge_ci_run": governance.WO024_APPROVED_POST_MERGE_CI_RUN,
-                "prior_backend_passed": 676,
-                "prior_dashboard_passed": 34,
-            },
-            {
-                "v01_closure_sprint_evidence_version": (
-                    governance.V01_CLOSURE_SPRINT_EVIDENCE_VERSION
-                ),
-                "dod_pass_count": 46,
-                "dod_total_count": 46,
-                "stabilization_remaining_critical": 0,
-                "stabilization_remaining_high": 0,
-            },
-        )
         closure.document_text = lambda relative: (
-            promoted if relative == "docs/project-brain/13-CHECKPOINT.md" else original(relative)
+            base_text if relative == CHECKPOINT_RELATIVE else original(relative)
+        )
+        assert closure.checkpoint_current()[0] == "PASS"
+        assert closure.documentation_currentness_entry("checkpoint")["status"] == "PASS"
+        closure.document_text = lambda relative: (
+            promoted if relative == CHECKPOINT_RELATIVE else original(relative)
         )
         assert closure.checkpoint_current()[0] == "PASS"
         assert closure.documentation_currentness_entry("checkpoint")["status"] == "PASS"
@@ -257,13 +338,19 @@ def test_checkpoint_current_accepts_both_legitimate_states() -> None:
         closure.document_text = original
 
 
-def test_checkpoint_current_fails_closed_on_malformed_or_stale_states() -> None:
+def malformed_checkpoint_matrix() -> dict[str, str]:
+    """Malformed and stale variants, all derived from the synthesized pair."""
+
     import scripts.review_evidence as governance
 
-    original = closure.document_text
-    active = closure.document_text("docs/project-brain/13-CHECKPOINT.md")
-    promoted = promoted_checkpoint_text()
-    cases = {
+    base_text, promoted = synthesized_checkpoint_pair()
+    first_pending = governance.WO024P_COMPLETED_PENDING_ITEMS[0]
+    without_one_pending = base_text.replace(f"- {first_pending}\n", "", 1)
+    # A negative fixture must actually change the document: a no-op replacement would leave the
+    # legitimate state in place and make the case vacuous.
+    assert without_one_pending != base_text
+    assert f"- {first_pending}\n" not in without_one_pending
+    return {
         "promoted status with pending work": promoted.replace(
             "## PENDING\n\n", "## PENDING\n- leftover.\n\n"
         ),
@@ -272,21 +359,54 @@ def test_checkpoint_current_fails_closed_on_malformed_or_stale_states() -> None:
         "promoted status with stale next step": promoted.replace(
             governance.EXPECTED_WO024P_NEXT_STEP, "Preparing the stabilization increment."
         ),
-        "active status without pending items": active.replace("- stabilization.\n", ""),
+        "active status without one pending item": without_one_pending,
+        "active status without any pending items": base_text.replace(
+            "".join(f"- {item}\n" for item in governance.WO024P_COMPLETED_PENDING_ITEMS),
+            "",
+            1,
+        ),
         "empty checkpoint": "",
     }
-    try:
-        for label, text in cases.items():
-            closure.document_text = lambda relative, value=text: (
-                value if relative == "docs/project-brain/13-CHECKPOINT.md" else original(relative)
-            )
+
+
+def assert_malformed_matrix_fails_closed() -> None:
+    """Every malformed or stale variant must stay FAIL/UNKNOWN and never become PASS."""
+
+    for label, text in malformed_checkpoint_matrix().items():
+        original = with_checkpoint(text)
+        try:
             status = closure.checkpoint_current()[0]
-            assert status in {"FAIL", "UNKNOWN"}, (label, status)
-        closure.document_text = lambda relative: (
-            "## STATUS\nSOMETHING ELSE\n\n## PENDING\n- stabilization.\n\n"
-            if relative == "docs/project-brain/13-CHECKPOINT.md"
-            else original(relative)
-        )
+            expected = {"UNKNOWN"} if text == "" else {"FAIL", "UNKNOWN"}
+            assert status in expected, (label, status)
+        finally:
+            closure.document_text = original
+
+
+def test_checkpoint_current_accepts_both_legitimate_states() -> None:
+    assert_promotion_contract_holds_for_the_synthesized_pair()
+    assert_checkpoint_verifier_accepts_both_states()
+    # Whatever legitimate state the working tree is in must remain accepted.
+    assert closure.checkpoint_current()[0] == "PASS"
+
+
+def test_checkpoint_regressions_hold_with_a_promoted_working_tree() -> None:
+    """The same regressions must hold when the tree already holds the promoted checkpoint."""
+
+    _base_text, promoted = synthesized_checkpoint_pair()
+    original = with_checkpoint(promoted)
+    try:
+        assert_promotion_contract_holds_for_the_synthesized_pair()
+        assert_checkpoint_verifier_accepts_both_states()
+        assert_malformed_matrix_fails_closed()
+    finally:
+        closure.document_text = original
+
+
+def test_checkpoint_current_fails_closed_on_malformed_or_stale_states() -> None:
+    assert_malformed_matrix_fails_closed()
+    # An unknown status value must stay FAIL even when a pending item is present.
+    original = with_checkpoint("## STATUS\nSOMETHING ELSE\n\n## PENDING\n- stabilization.\n\n")
+    try:
         assert closure.checkpoint_current()[0] == "FAIL"
         assert closure.documentation_currentness_entry("checkpoint")["status"] == "FAIL"
     finally:

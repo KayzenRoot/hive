@@ -10813,3 +10813,137 @@ def test_wo024p_g1_c1_is_the_current_work_order_and_stays_bounded() -> None:
         review_evidence.authorized_base_marker_sha(review_evidence.WO024P_G1_C1_WORK_ORDER, body)
         == review_evidence.WO024P_G1_C1_BASE_SHA
     )
+
+
+def test_wo024p_g1_c2_scope_is_bounded_and_fails_closed() -> None:
+    allowed = sorted(review_evidence.WO024P_G1_C2_ALLOWED_PATHS)
+    review_evidence.require_wo024p_g1_c2_scope(
+        review_evidence.WO024P_G1_C2_WORK_ORDER,
+        review_evidence.WO024P_G1_C2_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO024P_G1_C2_BASE_SHA,
+    )
+    for paths in (
+        [],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+        ["migrations/versions/0008_stateful.py"],
+        [".github/workflows/ci.yml"],
+        ["schemas/review-evidence-v1.schema.json"],
+        ["requirements.txt"],
+        ["dashboard/package-lock.json"],
+        ["VERSION"],
+        ["CHANGELOG.md"],
+        ["backend/app/context_manager.py"],
+        allowed + ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo024p_g1_c2_scope(
+                review_evidence.WO024P_G1_C2_WORK_ORDER,
+                review_evidence.WO024P_G1_C2_BASE_SHA,
+                paths,
+                authorized_base_sha=review_evidence.WO024P_G1_C2_BASE_SHA,
+            )
+    for base_sha, marker in (
+        ("f" * 40, review_evidence.WO024P_G1_C2_BASE_SHA),
+        (review_evidence.WO024P_G1_C2_BASE_SHA, None),
+        (review_evidence.WO024P_G1_C2_BASE_SHA, "not-a-sha"),
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo024p_g1_c2_scope(
+                review_evidence.WO024P_G1_C2_WORK_ORDER,
+                base_sha,
+                allowed,
+                authorized_base_sha=marker,
+            )
+
+
+def test_wo024p_g1_c2_is_self_hosted_and_never_promotes() -> None:
+    assert review_evidence.WO024P_G1_C2_WORK_ORDER in (
+        review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+    assert review_evidence.WO024P_G1_C2_WORK_ORDER not in (
+        review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert (
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
+        == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    review_evidence.require_current_work_order_authorization(
+        review_evidence.WO024P_G1_C2_WORK_ORDER
+    )
+    review_evidence.require_supported_work_order(review_evidence.WO024P_G1_C2_WORK_ORDER)
+    body = (
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C2 -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO024P_G1_C2_BASE_SHA} -->\n"
+    )
+    assert review_evidence.parse_work_order_marker(body) == (
+        review_evidence.WO024P_G1_C2_WORK_ORDER
+    )
+    assert (
+        review_evidence.authorized_base_marker_sha(review_evidence.WO024P_G1_C2_WORK_ORDER, body)
+        == review_evidence.WO024P_G1_C2_BASE_SHA
+    )
+    for malformed in (
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C2 -->\n",
+        body + f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO024P_G1_C2_BASE_SHA} -->\n",
+        "<!-- HIVE-WORK-ORDER: WO-024-P-G1-C2 -->\n<!-- HIVE-AUTHORIZED-BASE: nope -->\n",
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.authorized_base_marker_sha(
+                review_evidence.WO024P_G1_C2_WORK_ORDER, malformed
+            )
+
+
+def test_wo024p_g1_c2_governance_evidence_is_emitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closure_text = json.dumps(v01_closure_evidence_fixture())
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda name: (
+            closure_text if name == review_evidence.V01_CLOSURE_SPRINT_EVIDENCE_FILE else ""
+        ),
+    )
+    evidence = review_evidence.verify_wo024p_g1_c2_governance_contract(
+        review_evidence.WO024P_G1_C2_WORK_ORDER,
+        review_evidence.WO024P_G1_C2_BASE_SHA,
+        sorted(review_evidence.WO024P_G1_C2_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"v01_closure_sprint": v01_closure_evidence_fixture()},
+        review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        review_evidence.WO024P_G1_C2_BASE_SHA,
+    )
+    assert evidence is not None
+    assert "work_order=WO-024-P-G1-C2" in evidence
+    assert "checkpoint_regressions_state_independent=True" in evidence
+    assert "live_checkpoint_never_a_promotion_base=True" in evidence
+    assert "guards_unchanged=require_wo024p_checkpoint_semantics,checkpoint_current" in evidence
+    assert "active_promotion_pair_unchanged=True" in evidence
+    assert "corrective_outside_active_pair=True" in evidence
+    assert "v0.1_promotion_performed=False" in evidence
+    assert "v0.1_completion_claim=False" in evidence
+    # A different work order is not this contract's business.
+    assert (
+        review_evidence.verify_wo024p_g1_c2_governance_contract(
+            review_evidence.WO024_WORK_ORDER,
+            review_evidence.WO024P_G1_C2_BASE_SHA,
+            sorted(review_evidence.WO024P_G1_C2_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"v01_closure_sprint": v01_closure_evidence_fixture()},
+            review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+            None,
+        )
+        is None
+    )
