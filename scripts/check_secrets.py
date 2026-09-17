@@ -30,6 +30,10 @@ def main() -> int:
     files = tracked_files()
     findings: list[str] = []
     for path in files:
+        if path.is_dir():
+            # nested runtime fixtures (registered project repositories under the
+            # projects root) are not repository content and must not crash the scan
+            continue
         if path.name in {".env", ".env.local"} or path.name.endswith(".pem"):
             findings.append(f"forbidden tracked secret file: {path}")
             continue
