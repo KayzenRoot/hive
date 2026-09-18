@@ -72,7 +72,7 @@ jobs:
               "product": "HIVE",
               "version": version,
               "tag": tag,
-              "work_order": "HIVE-REL-002",
+              "work_order": "HIVE-REL-003",
           }
           for key, value in expected.items():
               if request.get(key) != value:
@@ -162,6 +162,10 @@ jobs:
       - name: Run deterministic validation
         if: steps.guard.outputs.publish == 'true'
         run: python scripts/validate.py
+
+      - name: Prepare host project workspace
+        if: steps.guard.outputs.publish == 'true'
+        run: mkdir -p .hive-projects
 
       - name: Start services for release smoke test
         if: steps.guard.outputs.publish == 'true'
