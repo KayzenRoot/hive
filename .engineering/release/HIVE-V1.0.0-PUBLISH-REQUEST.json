@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "armed",
+  "product": "HIVE",
+  "version": "1.0.0",
+  "tag": "v1.0.0",
+  "work_order": "HIVE-REL-002",
+  "issue": 115,
+  "authorized_parent": "e7d661a7547fa12c5410c4e3334286f3bdc6686c",
+  "required_post_merge_ci": {
+    "workflow": "CI",
+    "event": "push",
+    "branch": "main",
+    "conclusion": "success"
+  },
+  "publication": {
+    "tag_type": "annotated",
+    "release_state": "stable",
+    "source_distribution_only": true,
+    "final_receipt_asset": "hive-v1.0.0.release-receipt.json"
+  },
+  "note": "This request is non-circular: the eventual squash release-publisher commit must have authorized_parent as its direct parent. The publisher also requires that commit to remain current protected main after successful push CI."
+}
