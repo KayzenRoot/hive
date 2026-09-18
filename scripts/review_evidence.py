@@ -2302,6 +2302,8 @@ HIVE_REL_001_ALLOWED_EXACT_PATHS = frozenset(
         "dashboard/src/App.tsx",
         "dashboard/src/App.test.tsx",
         "dashboard/src/ControlCenter.test.tsx",
+        "requirements.txt",
+        "requirements-dev.txt",
     }
 )
 HIVE_REL_001_ALLOWED_PREFIXES = (
@@ -2334,6 +2336,8 @@ RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS = frozenset(
         "SUPPORT.md",
         "dashboard/package.json",
         "dashboard/package-lock.json",
+        "requirements.txt",
+        "requirements-dev.txt",
     }
 )
 RELEASE_ENGINEERING_ALLOWED_PREFIXES = (

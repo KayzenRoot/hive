@@ -16,7 +16,7 @@ after the professionalization PR is accepted, the exact-head audit passes and
 the `v1.0.0` GitHub Release is published from the accepted commit. Until that tag
 exists, v1.0.0 is not a published release.
 
-Latest stable release: v1.0.0 (target). See [CHANGELOG.md](CHANGELOG.md) and
+Target stable release: v1.0.0. See [CHANGELOG.md](CHANGELOG.md) and
 [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md).
 
 HIVE v1.0.0 is the stable public distribution of the product baseline accepted

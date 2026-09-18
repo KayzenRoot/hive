@@ -66,7 +66,7 @@ def build_release_tree(
         "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-09-17\n\n- Stable release.\n\n"
         "## 0.0.1-bootstrap - Released 2026-08-31\n\n- Historical bootstrap entry.\n",
     )
-    write_text(root, "README.md", f"# HIVE\n\nLatest stable release: v{version}\n")
+    write_text(root, "README.md", f"# HIVE\n\nTarget stable release: v{version}\n")
 
 
 def test_coherent_release_tree_passes(tmp_path: Path) -> None:
@@ -129,10 +129,11 @@ def test_readme_identity_drift_and_stale_bootstrap_fail_closed(tmp_path: Path) -
     write_text(
         tmp_path,
         "README.md",
-        "# HIVE\n\nLatest stable release: v0.9.0\n\nThe bootstrap target is v0.0.1-bootstrap.\n",
+        "# HIVE\n\nLatest stable release: v1.0.0\n\nThe bootstrap target is v0.0.1-bootstrap.\n",
     )
     failures = verify_release_metadata(tmp_path)
-    assert any("latest stable identity" in failure for failure in failures)
+    assert any("target stable identity" in failure for failure in failures)
+    assert any("before publication" in failure for failure in failures)
     assert any("stale bootstrap identity" in failure for failure in failures)
 
 
@@ -152,6 +153,11 @@ def test_published_claim_requires_final_receipt_evidence(tmp_path: Path) -> None
         ".engineering/release/HIVE-V1.0.0-RELEASE-RECEIPT.json",
         {"release_published": True, "tag": "v1.0.0", "release_url": "https://example.invalid"},
     )
+    assert any(
+        "published stable identity" in failure for failure in verify_release_metadata(tmp_path)
+    )
+
+    write_text(tmp_path, "README.md", "# HIVE\n\nLatest stable release: v1.0.0\n")
     assert verify_release_metadata(tmp_path) == []
 
 

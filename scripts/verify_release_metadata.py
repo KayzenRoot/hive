@@ -19,6 +19,7 @@ BACKEND_CONFIG_VERSION = re.compile(r'^\s*version: str = "([^"]+)"\s*$', re.MULT
 RELEASE_NOTE_STATUS = re.compile(r"^Status:\s*(.+?)\s*$", re.MULTILINE)
 CANDIDATE_STATUS = re.compile(r"^release candidate\b", re.IGNORECASE)
 PUBLISHED_STATUS = re.compile(r"^published\b", re.IGNORECASE)
+README_TARGET_PREFIX = "Target stable release: "
 README_LATEST_PREFIX = "Latest stable release: "
 STALE_BOOTSTRAP_IDENTITY = "0.0.1-bootstrap"
 
@@ -112,6 +113,7 @@ def verify_release_metadata(root: Path) -> list[str]:
 
     notes_path = root / "docs" / "releases" / f"{tag}.md"
     notes = read_text(notes_path, failures)
+    published = False
     if notes:
         status_match = RELEASE_NOTE_STATUS.search(notes)
         if status_match is None:
@@ -119,6 +121,7 @@ def verify_release_metadata(root: Path) -> list[str]:
         else:
             status = status_match.group(1)
             if PUBLISHED_STATUS.match(status):
+                published = True
                 receipt_path = (
                     root / ".engineering" / "release" / f"HIVE-V{version}-RELEASE-RECEIPT.json"
                 )
@@ -155,9 +158,18 @@ def verify_release_metadata(root: Path) -> list[str]:
 
     readme = read_text(root / "README.md", failures)
     if readme:
+        target = f"{README_TARGET_PREFIX}v{version}"
         latest = f"{README_LATEST_PREFIX}v{version}"
-        if latest not in readme:
-            failures.append(f"README.md must contain the latest stable identity {latest!r}")
+        if published:
+            if latest not in readme:
+                failures.append(f"README.md must contain the published stable identity {latest!r}")
+        else:
+            if target not in readme:
+                failures.append(f"README.md must contain the target stable identity {target!r}")
+            if latest in readme:
+                failures.append(
+                    "README.md must not claim a latest stable published identity before publication"
+                )
         if STALE_BOOTSTRAP_IDENTITY in readme:
             failures.append(
                 "README.md still presents the stale bootstrap identity "

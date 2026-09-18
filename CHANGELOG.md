@@ -59,8 +59,17 @@ added, and the accepted V0.1 closure evidence is unchanged.
 
 ### Security
 
+- Remediated all 16 open HIGH Dependabot advisories affecting the candidate by
+  pinning patched versions in `requirements.txt`: `fastapi==0.133.0` (required
+  to allow the patched `starlette==1.3.1`), `python-multipart==0.0.31` and
+  `Mako==1.3.12`. The compatible `sse-starlette` and `mcp` pins already accept
+  the patched Starlette line; the full backend suite and integration health
+  verify the transition.
 - CodeQL and Dependency Review added without weakening `scripts/check_secrets.py`,
   the Validate/Integration health/Review Evidence gates or ruleset 21934284.
+- Remaining open dependency alerts are three MEDIUM development-only advisories
+  (`vitest`, `@vitest/mocker`, `pytest`), documented in
+  `.engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json`; no LOW alerts remain.
 - No secrets, credentials, private keys, `.env` files or user runtime data are
   included in the release diff or package.
 

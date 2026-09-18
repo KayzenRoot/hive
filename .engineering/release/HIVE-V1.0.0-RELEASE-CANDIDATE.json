@@ -41,6 +41,33 @@
     "final_main": "90cc1b91b48d628dfb3e4773e1672535b4cb8991",
     "post_merge_ci": 35278763114
   },
+  "dependency_security": {
+    "source": "GitHub Dependabot open alerts collected 2026-09-18",
+    "open_alerts_before": { "critical": 0, "high": 16, "moderate": 11, "low": 8 },
+    "remediated_in_candidate": {
+      "critical": 0,
+      "high": 16,
+      "moderate": 8,
+      "low": 8,
+      "packages": [
+        "fastapi==0.133.0",
+        "starlette==1.3.1",
+        "python-multipart==0.0.31",
+        "Mako==1.3.12"
+      ]
+    },
+    "remaining_open": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 3,
+      "low": 0,
+      "detail": "vitest and @vitest/mocker (npm, development-only) and pytest (pip, development-only); no runtime exposure"
+    },
+    "runtime_high_critical_remaining": false,
+    "release_gate": "PASS",
+    "triage_receipt": ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json",
+    "note": "Historical V0.1 product defect counts (HIGH/CRITICAL 0/0) cover product defects and remain distinct from dependency advisories."
+  },
   "rollback": {
     "previous_release": "v0.0.1-bootstrap",
     "procedure": "docs/UPGRADING.md#rollback",
