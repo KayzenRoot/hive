@@ -1,0 +1,316 @@
+name: Release Publisher
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hive-release-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish stable release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      POST_MERGE_CI_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Check out exact successful main head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Resolve guarded release request
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [[ "$current_main" != "$SOURCE_SHA" ]]; then
+            echo "main moved after CI; release publisher will no-op"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          version="$(tr -d '[:space:]' < VERSION)"
+          tag="v${version}"
+          request=".engineering/release/HIVE-V${version}-PUBLISH-REQUEST.json"
+          candidate=".engineering/release/HIVE-V${version}-RELEASE-CANDIDATE.json"
+
+          if [[ ! -f "$request" || ! -f "$candidate" ]]; then
+            echo "no release request/candidate for ${tag}; publisher will no-op"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python - "$request" "$candidate" "$version" "$tag" "$SOURCE_SHA" <<'PY'
+          import json
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          request_path, candidate_path, version, tag, source_sha = sys.argv[1:]
+          if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
+              raise SystemExit(f"stable publisher requires strict SemVer, observed {version!r}")
+          request = json.loads(Path(request_path).read_text(encoding="utf-8"))
+          candidate = json.loads(Path(candidate_path).read_text(encoding="utf-8"))
+          expected = {
+              "status": "armed",
+              "product": "HIVE",
+              "version": version,
+              "tag": tag,
+              "work_order": "HIVE-REL-002",
+          }
+          for key, value in expected.items():
+              if request.get(key) != value:
+                  raise SystemExit(
+                      f"release request {key} mismatch: {request.get(key)!r} != {value!r}"
+                  )
+          if candidate.get("status") != "release-candidate":
+              raise SystemExit("candidate receipt is not in release-candidate state")
+          if candidate.get("release_published") is not False:
+              raise SystemExit("candidate receipt unexpectedly claims publication")
+          if candidate.get("version") != version or candidate.get("tag") != tag:
+              raise SystemExit("candidate receipt version/tag mismatch")
+          security = candidate.get("dependency_security", {})
+          if security.get("release_gate") != "PASS":
+              raise SystemExit("dependency-security release gate is not PASS")
+          if security.get("runtime_high_critical_remaining") is not False:
+              raise SystemExit("runtime HIGH/CRITICAL dependency blocker remains")
+          remaining = security.get("remaining_open", {})
+          if remaining.get("critical") != 0 or remaining.get("high") != 0:
+              raise SystemExit("applicable unresolved CRITICAL/HIGH dependency alert remains")
+          authorized_parent = request.get("authorized_parent")
+          if not isinstance(authorized_parent, str) or re.fullmatch(
+              r"[0-9a-f]{40}", authorized_parent
+          ) is None:
+              raise SystemExit("release request authorized_parent is invalid")
+          observed_parent = subprocess.check_output(
+              ["git", "rev-parse", f"{source_sha}^"],
+              text=True,
+          ).strip()
+          if observed_parent != authorized_parent:
+              raise SystemExit(
+                  "publisher commit parent mismatch: "
+                  f"{observed_parent} != {authorized_parent}"
+              )
+          PY
+
+          tag_exists=false
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/${tag}:refs/tags/${tag}" --force
+            test "$(git cat-file -t "refs/tags/${tag}")" = "tag"
+            test "$(git rev-parse "${tag}^{commit}")" = "$SOURCE_SHA"
+            tag_exists=true
+          fi
+
+          release_exists=false
+          receipt_name="hive-${tag}.release-receipt.json"
+          if gh release view "$tag" --json assets >/tmp/release-existing.json 2>/dev/null; then
+            release_exists=true
+            if python - "$receipt_name" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          name = sys.argv[1]
+          data = json.loads(Path("/tmp/release-existing.json").read_text(encoding="utf-8"))
+          raise SystemExit(0 if name in {item["name"] for item in data.get("assets", [])} else 1)
+          PY
+            then
+              echo "${tag} is already fully published with final receipt"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "release_exists=$release_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: steps.guard.outputs.publish == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install backend tooling
+        if: steps.guard.outputs.publish == 'true'
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Verify release metadata coherence
+        if: steps.guard.outputs.publish == 'true'
+        run: python scripts/verify_release_metadata.py
+
+      - name: Run deterministic validation
+        if: steps.guard.outputs.publish == 'true'
+        run: python scripts/validate.py
+
+      - name: Start services for release smoke test
+        if: steps.guard.outputs.publish == 'true'
+        run: docker compose up -d --build
+
+      - name: Run integration smoke test
+        if: steps.guard.outputs.publish == 'true'
+        run: python scripts/integration_health.py
+
+      - name: Stop services without deleting data
+        if: always() && steps.guard.outputs.publish == 'true'
+        run: docker compose down --remove-orphans
+
+      - name: Prepare release package, checksum and manifest
+        if: steps.guard.outputs.publish == 'true'
+        run: >-
+          python scripts/prepare_release.py
+          --tag "${{ steps.guard.outputs.tag }}"
+          --ref "$SOURCE_SHA"
+          --output-dir release-assets
+
+      - name: Verify package checksum
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum --check "hive-${{ steps.guard.outputs.tag }}.zip.sha256"
+
+      - name: Generate release review bundle
+        if: steps.guard.outputs.publish == 'true'
+        run: python scripts/review_bundle.py --work-order RELEASE
+
+      - name: Prepare published release notes
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          python - "${{ steps.guard.outputs.tag }}" <<'PY'
+          import sys
+          from pathlib import Path
+          tag = sys.argv[1]
+          source = Path("docs/releases") / f"{tag}.md"
+          text = source.read_text(encoding="utf-8")
+          expected = "Status: Release candidate (not published)."
+          if expected not in text:
+              raise SystemExit("release notes do not contain the expected candidate status")
+          text = text.replace(expected, "Status: Published stable release.", 1)
+          Path("tmp/published-release-notes.md").write_text(text, encoding="utf-8")
+          PY
+
+      - name: Create annotated immutable release tag
+        if: steps.guard.outputs.publish == 'true' && steps.guard.outputs.tag_exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.guard.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "tag appeared concurrently; refusing to overwrite it"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$SOURCE_SHA" -m "HIVE $tag"
+          test "$(git cat-file -t "refs/tags/$tag")" = "tag"
+          test "$(git rev-parse "$tag^{commit}")" = "$SOURCE_SHA"
+          git push origin "refs/tags/$tag"
+
+      - name: Verify annotated tag after create or resume
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.guard.outputs.tag }}"
+          git fetch origin "refs/tags/$tag:refs/tags/$tag" --force
+          test "$(git cat-file -t "refs/tags/$tag")" = "tag"
+          test "$(git rev-parse "$tag^{commit}")" = "$SOURCE_SHA"
+
+      - name: Publish stable GitHub Release
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.guard.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release already exists; resuming final receipt verification"
+          else
+            gh release create "$tag"               "release-assets/hive-${tag}.zip"               "release-assets/hive-${tag}.zip.sha256"               "release-assets/hive-${tag}.manifest.json"               review-bundles/*.zip review-bundles/*.sha256               --title "HIVE $tag"               --notes-file tmp/published-release-notes.md
+          fi
+
+      - name: Generate final immutable release receipt
+        if: steps.guard.outputs.publish == 'true'
+        id: receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.guard.outputs.tag }}"
+          gh release view "$tag"             --json url,publishedAt,isDraft,isPrerelease,tagName             > tmp/release-view.json
+          python - "${{ steps.guard.outputs.tag }}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          tag = sys.argv[1]
+          data = json.loads(Path("tmp/release-view.json").read_text(encoding="utf-8"))
+          if data.get("isDraft") is not False:
+              raise SystemExit("stable release must not be a draft")
+          if data.get("isPrerelease") is not False:
+              raise SystemExit("stable release must not be a prerelease")
+          if data.get("tagName") != tag:
+              raise SystemExit("published release tag mismatch")
+          Path("tmp/release-url.txt").write_text(data["url"], encoding="utf-8")
+          Path("tmp/published-at.txt").write_text(data["publishedAt"], encoding="utf-8")
+          PY
+          tag_object="$(git rev-parse "refs/tags/$tag")"
+          python scripts/finalize_release_receipt.py             --candidate "${{ steps.guard.outputs.candidate }}"             --publish-request ".engineering/release/HIVE-V${{ steps.guard.outputs.version }}-PUBLISH-REQUEST.json"             --tag "$tag"             --release-commit "$SOURCE_SHA"             --tag-object "$tag_object"             --release-url "$(cat tmp/release-url.txt)"             --published-at "$(cat tmp/published-at.txt)"             --publisher-run-id "$GITHUB_RUN_ID"             --post-merge-ci-run-id "$POST_MERGE_CI_RUN_ID"             --asset-dir release-assets             --review-bundle-dir review-bundles             --output "tmp/hive-${tag}.release-receipt.json"
+          echo "path=tmp/hive-${tag}.release-receipt.json" >> "$GITHUB_OUTPUT"
+
+      - name: Attach final release receipt
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.guard.outputs.tag }}" "${{ steps.receipt.outputs.path }}" --clobber
+
+      - name: Verify published release assets
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.guard.outputs.tag }}"
+          gh release view "$tag" --json assets,isDraft,isPrerelease,tagName,url             > tmp/release-final.json
+          python - "$tag" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          tag = sys.argv[1]
+          data = json.loads(Path("tmp/release-final.json").read_text(encoding="utf-8"))
+          if data.get("isDraft") or data.get("isPrerelease"):
+              raise SystemExit("release is not stable/published")
+          names = {asset["name"] for asset in data.get("assets", [])}
+          required = {
+              f"hive-{tag}.zip",
+              f"hive-{tag}.zip.sha256",
+              f"hive-{tag}.manifest.json",
+              f"hive-{tag}.release-receipt.json",
+          }
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit("published release is missing required assets: " + ", ".join(missing))
+          print(json.dumps({"release_url": data["url"], "required_assets": sorted(required)}, indent=2))
+          PY
