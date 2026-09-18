@@ -30,6 +30,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-023-P-G1": "25c16248211da567dbda928697862a696dcf46eb",
     "WO-023-P-G1-C1": "3ca2109175b7c6842c6578c237ff798d5ce8916f",
     "WO-024-G1": "44c61e999c89a6b6ba6c28377cea415cad3d1cef",
+    "WO-025-G1": "a53b5b9fcf55c32a5696180fb1b1ef80ccd1edcf",
 }
 
 
@@ -71,6 +72,8 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-024-G1",
         "WO-024",
         "WO-024-P",
+        "WO-025-G1",
+        "WO-025",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"

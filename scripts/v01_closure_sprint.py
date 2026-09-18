@@ -1985,6 +1985,21 @@ CLOSURE_GOVERNANCE = {
 }
 
 
+def closure_scope_check(changed_paths: list[str], work_order: str | None) -> list[str]:
+    """Return the unauthorized paths this closure run must fail on.
+
+    The historical WO-024 changed-path scope belongs to the work orders that produced this harness:
+    those keep the strict product/promotion scope. Any other explicitly resolved work order runs the
+    same closure capability suite as **regression evidence**, so an unrelated post-1.0 diff is not
+    rejected merely for sitting outside the WO-024 product allowlist. An unresolvable work order
+    (no pull-request context, local runs, push events) keeps the historical fail-closed default.
+    """
+
+    if work_order is not None and work_order not in governance.CLOSURE_STRICT_SCOPE_WORK_ORDERS:
+        return []
+    return governance.closure_sprint_scope(changed_paths)
+
+
 def main() -> int:
     started = time.monotonic()
     api_port = os.environ.get("HIVE_API_PORT", "8000")
@@ -1998,7 +2013,20 @@ def main() -> int:
         head_sha = run_command(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).strip()
         changed = run_command(["git", "-C", str(ROOT), "diff", "--name-only", base_sha, head_sha])
         changed_paths = [line.strip() for line in changed.splitlines() if line.strip()]
-        unauthorized = governance.closure_sprint_scope(changed_paths)
+        work_order = governance.pull_request_work_order_from_event()
+        unauthorized = closure_scope_check(changed_paths, work_order)
+        if work_order is None or work_order in governance.CLOSURE_STRICT_SCOPE_WORK_ORDERS:
+            print(
+                f"[wo024] closure sprint strict WO-024 product scope "
+                f"(work_order={work_order or 'UNRESOLVED'})",
+                flush=True,
+            )
+        else:
+            print(
+                f"[wo024] closure sprint regression run for {work_order}: "
+                "WO-024 product path scope is not applied to this diff",
+                flush=True,
+            )
         require(not unauthorized, f"closure sprint touched unauthorized paths: {unauthorized}")
 
         quality_family()

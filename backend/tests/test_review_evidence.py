@@ -1694,7 +1694,7 @@ def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
         assert marker in product
     assert "WO-023 READY FOR SOL AUDIT" in product
     assert "checkpoint" in product.casefold()
-    for unsupported in ("WO-025-P", "WO-025", "WO-999"):
+    for unsupported in ("WO-025-P", "WO-026", "WO-999"):
         with pytest.raises(ValueError):
             render_body(work_order=unsupported, **common)
 
@@ -2597,7 +2597,7 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-025-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-025")
+        require_supported_work_order("WO-026")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -9479,7 +9479,7 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-025-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-025")
+        require_supported_work_order("WO-026")
 
     monkeypatch.setattr(
         review_evidence,
@@ -10323,7 +10323,7 @@ def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
         review_evidence.require_current_work_order_authorization(
             review_evidence.WO023P_G1_C1_WORK_ORDER
         )
-    for rejected in ("WO-025", "WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026", "WO-025-P", "WO-999-P"):
         with pytest.raises(ValueError, match="unsupported|historical"):
             review_evidence.require_current_work_order_authorization(rejected)
     for historical in (
@@ -11922,3 +11922,201 @@ def test_wo024p_g1_c4_is_self_hosted_and_never_promotes(
         )
         is None
     )
+
+
+def wo025_planning_paths_fixture() -> list[str]:
+    """Representative post-1.0 planning documentation paths from the planning frontier."""
+
+    return [
+        "docs/project-brain/17-POST-1.0-EVOLUTION-ROADMAP.md",
+        "docs/project-brain/19-DECISION-FABRIC-1.1-SPEC.md",
+        "docs/project-brain/21-DECISION-FABRIC-CONTRACTS-BENCHMARKS.md",
+        "docs/project-brain/49-DECISION-FABRIC-1.1-PLANNING-FREEZE.md",
+        "docs/project-brain/work-orders/WO-1.1-01-DECISION-CONTRACT-DETERMINISTIC-RESOLVER.md",
+    ]
+
+
+def test_wo025_g1_scope_is_bounded_and_base_bound() -> None:
+    allowed = sorted(review_evidence.WO025_G1_ALLOWED_PATHS)
+    review_evidence.require_wo025_g1_scope(
+        review_evidence.WO025_G1_WORK_ORDER,
+        review_evidence.WO025_G1_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO025_G1_BASE_SHA,
+    )
+    for paths in (
+        [],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+        ["migrations/versions/0010_bridge.py"],
+        [".github/workflows/ci.yml"],
+        ["requirements.txt"],
+        ["VERSION"],
+        ["backend/app/decision_resolver.py"],
+        allowed + ["backend/app/main.py"],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo025_g1_scope(
+                review_evidence.WO025_G1_WORK_ORDER,
+                review_evidence.WO025_G1_BASE_SHA,
+                paths,
+                authorized_base_sha=review_evidence.WO025_G1_BASE_SHA,
+            )
+    for base_sha, marker in (
+        ("f" * 40, review_evidence.WO025_G1_BASE_SHA),
+        (review_evidence.WO025_G1_BASE_SHA, None),
+        (review_evidence.WO025_G1_BASE_SHA, "nope"),
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo025_g1_scope(
+                review_evidence.WO025_G1_WORK_ORDER,
+                base_sha,
+                allowed,
+                authorized_base_sha=marker,
+            )
+
+
+def test_wo025_g1_is_self_hosted_and_keeps_the_historical_pair() -> None:
+    assert review_evidence.WO025_G1_WORK_ORDER in (
+        review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G1_WORK_ORDER not in (
+        review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert (
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
+        == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    review_evidence.require_current_work_order_authorization(review_evidence.WO025_G1_WORK_ORDER)
+    review_evidence.require_supported_work_order(review_evidence.WO025_G1_WORK_ORDER)
+    body = (
+        "<!-- HIVE-WORK-ORDER: WO-025-G1 -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO025_G1_BASE_SHA} -->\n"
+    )
+    assert review_evidence.parse_work_order_marker(body) == (review_evidence.WO025_G1_WORK_ORDER)
+    assert (
+        review_evidence.authorized_base_marker_sha(review_evidence.WO025_G1_WORK_ORDER, body)
+        == review_evidence.WO025_G1_BASE_SHA
+    )
+
+
+def test_wo025_planning_scope_accepts_planning_documentation_only() -> None:
+    planning = wo025_planning_paths_fixture()
+    assert review_evidence.wo025_planning_scope(planning) == []
+    rejected = (
+        "backend/app/retrieval.py",
+        "dashboard/src/App.tsx",
+        "migrations/versions/0008_planning.py",
+        "requirements.txt",
+        "pyproject.toml",
+        ".github/workflows/ci.yml",
+        "VERSION",
+        "CHANGELOG.md",
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/16-DECISIONS-LEDGER.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        "docs/project-brain/50-future-plan.md",
+        "docs/project-brain/work-orders/notes.txt",
+    )
+    for path in rejected:
+        assert review_evidence.wo025_planning_scope([path]) == [path], path
+
+
+def test_wo025_is_registered_as_planning_only_promotion() -> None:
+    assert review_evidence.WO025_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    review_evidence.require_supported_work_order(review_evidence.WO025_WORK_ORDER)
+    assert review_evidence.WO025_WORK_ORDER not in (
+        review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert review_evidence.registered_promotion_base_sha(review_evidence.WO025_WORK_ORDER)
+    planning = wo025_planning_paths_fixture()
+    base_sha = review_evidence.registered_promotion_base_sha(review_evidence.WO025_WORK_ORDER)
+    review_evidence.require_wo025_scope(
+        review_evidence.WO025_WORK_ORDER,
+        base_sha,
+        planning,
+        registered_base_sha=base_sha,
+        authorized_base_sha=base_sha,
+    )
+    with pytest.raises(ValueError, match="outside the post-1.0 planning surface"):
+        review_evidence.require_wo025_scope(
+            review_evidence.WO025_WORK_ORDER,
+            base_sha,
+            planning + ["backend/app/main.py"],
+            registered_base_sha=base_sha,
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError):
+        review_evidence.require_wo025_scope(
+            review_evidence.WO025_WORK_ORDER,
+            "0" * 40,
+            planning,
+            registered_base_sha=base_sha,
+            authorized_base_sha="0" * 40,
+        )
+    for overrides in ({"ruleset_unchanged": False}, {"pull_request": {"auto_merge_armed": True}}):
+        governance = {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}}
+        governance.update(overrides)
+        with pytest.raises(ValueError):
+            review_evidence.verify_wo025_governance_contract(
+                review_evidence.WO025_WORK_ORDER,
+                base_sha,
+                planning,
+                {
+                    "project_brain_changed": True,
+                    "checkpoint_changed": False,
+                    "authorized_paths": [],
+                },
+                governance,
+                {},
+                review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+                base_sha,
+            )
+
+
+def test_unknown_future_work_orders_stay_fail_closed() -> None:
+    # WO-025 is registered (supported) but explicitly not authorized as a current work order yet.
+    review_evidence.require_supported_work_order(review_evidence.WO025_WORK_ORDER)
+    with pytest.raises(ValueError, match="not authorized as a current work order"):
+        review_evidence.require_current_work_order_authorization(review_evidence.WO025_WORK_ORDER)
+    for unknown in ("WO-026", "WO-026-P", "WO-999-P"):
+        with pytest.raises(ValueError):
+            review_evidence.require_current_work_order_authorization(unknown)
+
+
+def test_pull_request_work_order_resolves_from_the_event_payload(
+    tmp_path: Path,
+) -> None:
+    payload = tmp_path / "event.json"
+    payload.write_text(
+        json.dumps({"pull_request": {"body": "<!-- HIVE-WORK-ORDER: WO-025 -->"}}),
+        encoding="utf-8",
+    )
+    assert review_evidence.pull_request_work_order_from_event(str(payload)) == (
+        review_evidence.WO025_WORK_ORDER
+    )
+
+    missing_marker = tmp_path / "missing.json"
+    missing_marker.write_text(
+        json.dumps({"pull_request": {"body": "no marker here"}}), encoding="utf-8"
+    )
+    assert review_evidence.pull_request_work_order_from_event(str(missing_marker)) is None
+
+    non_pr = tmp_path / "push.json"
+    non_pr.write_text(json.dumps({"ref": "refs/heads/main"}), encoding="utf-8")
+    assert review_evidence.pull_request_work_order_from_event(str(non_pr)) is None
+
+    duplicated = tmp_path / "duplicated.json"
+    duplicated.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "body": "<!-- HIVE-WORK-ORDER: WO-025 -->\n<!-- HIVE-WORK-ORDER: WO-025-G1 -->"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert review_evidence.pull_request_work_order_from_event(str(duplicated)) is None
+
+    assert review_evidence.pull_request_work_order_from_event(str(tmp_path / "absent.json")) is None
