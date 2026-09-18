@@ -163,6 +163,10 @@ jobs:
         if: steps.guard.outputs.publish == 'true'
         run: python scripts/validate.py
 
+      - name: Prepare host project workspace
+        if: steps.guard.outputs.publish == 'true'
+        run: mkdir -p .hive-projects
+
       - name: Start services for release smoke test
         if: steps.guard.outputs.publish == 'true'
         run: docker compose up -d --build
