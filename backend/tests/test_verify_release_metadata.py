@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -24,6 +25,10 @@ def write_text(root: Path, relative: str, content: str) -> None:
 
 def write_json(root: Path, relative: str, document: dict[str, object]) -> None:
     write_text(root, relative, json.dumps(document, indent=2) + "\n")
+
+
+def sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def build_release_tree(
@@ -58,7 +63,69 @@ def build_release_tree(
             "packages": {"": {"name": "hive-dashboard", "version": version}},
         },
     )
-    write_text(root, f"docs/releases/{tag}.md", f"# HIVE {tag} release\n\nStatus: {status}\n")
+    write_text(
+        root,
+        "requirements.txt",
+        "\n".join(
+            (
+                "fastapi==0.133.0",
+                "starlette==1.3.1",
+                "python-multipart==0.0.31",
+                "Mako==1.3.12",
+                "",
+            )
+        ),
+    )
+    write_text(root, "requirements-dev.txt", "-r requirements.txt\npytest==8.3.4\n")
+    triage_path = f".engineering/release/HIVE-V{version}-SECURITY-TRIAGE.json"
+    triage = {
+        "schema_version": 2,
+        "inventory_source_head": "3" * 40,
+        "repository": "KayzenRoot/hive",
+        "release_version": version,
+        "critical_high_applicable_open": 0,
+        "runtime_high_critical_remaining": False,
+        "release_gate": "PASS",
+        "candidate_dependency_state": {
+            "requirements.txt": {
+                "sha256": sha256_path(root / "requirements.txt"),
+                "packages": {
+                    "fastapi": "0.133.0",
+                    "starlette": "1.3.1",
+                    "python-multipart": "0.0.31",
+                    "Mako": "1.3.12",
+                },
+            },
+            "requirements-dev.txt": {
+                "sha256": sha256_path(root / "requirements-dev.txt"),
+            },
+            "dashboard/package-lock.json": {
+                "sha256": sha256_path(root / "dashboard/package-lock.json"),
+            },
+        },
+    }
+    write_json(root, triage_path, triage)
+    write_json(
+        root,
+        f".engineering/release/HIVE-V{version}-RELEASE-CANDIDATE.json",
+        {
+            "version": version,
+            "release_published": False,
+            "dependency_security": {
+                "triage_receipt": triage_path,
+                "triage_schema_version": 2,
+                "release_gate": "PASS",
+                "runtime_high_critical_remaining": False,
+                "remaining_open": {"critical": 0, "high": 0, "moderate": 3, "low": 0},
+                "provenance": {"inventory_source_head": "3" * 40},
+            },
+        },
+    )
+    write_text(
+        root,
+        f"docs/releases/{tag}.md",
+        f"# HIVE {tag} release\n\nStatus: {status}\n\nSecurity: {triage_path}\n",
+    )
     write_text(root, "docs/releases/v0.0.1-bootstrap.md", HISTORICAL_NOTE)
     write_text(
         root,
@@ -173,3 +240,73 @@ def test_historical_bootstrap_notes_remain_historical_and_are_not_current(
     (tmp_path / "docs/releases/v1.0.0.md").unlink()
     failures = verify_release_metadata(tmp_path)
     assert any("v1.0.0.md" in failure for failure in failures)
+
+
+def test_security_triage_manifest_hash_drift_fails_closed(tmp_path: Path) -> None:
+    build_release_tree(tmp_path)
+    write_text(
+        tmp_path,
+        "requirements.txt",
+        "fastapi==0.133.0\nstarlette==1.3.1\npython-multipart==0.0.31\nMako==1.3.12\n# drift\n",
+    )
+    failures = verify_release_metadata(tmp_path)
+    assert any("requirements.txt sha256 drift" in failure for failure in failures)
+
+
+def test_security_triage_wrong_remediated_version_fails_closed(tmp_path: Path) -> None:
+    build_release_tree(tmp_path)
+    triage_path = tmp_path / ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json"
+    triage = json.loads(triage_path.read_text(encoding="utf-8"))
+    triage["candidate_dependency_state"]["requirements.txt"]["packages"]["starlette"] = "0.45.3"
+    write_json(tmp_path, ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json", triage)
+    failures = verify_release_metadata(tmp_path)
+    assert any("expected remediated v1.0.0 version" in failure for failure in failures)
+
+
+def test_security_triage_release_gate_and_high_state_fail_closed(tmp_path: Path) -> None:
+    build_release_tree(tmp_path)
+    triage_path = tmp_path / ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json"
+    triage = json.loads(triage_path.read_text(encoding="utf-8"))
+    triage["release_gate"] = "BLOCKED"
+    triage["critical_high_applicable_open"] = 1
+    triage["runtime_high_critical_remaining"] = True
+    write_json(tmp_path, ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json", triage)
+    failures = verify_release_metadata(tmp_path)
+    assert any("release_gate must be PASS" in failure for failure in failures)
+    assert any("zero applicable unresolved CRITICAL/HIGH" in failure for failure in failures)
+    assert any("runtime_high_critical_remaining must be false" in failure for failure in failures)
+
+
+def test_security_triage_missing_or_wrong_candidate_binding_fails_closed(tmp_path: Path) -> None:
+    build_release_tree(tmp_path)
+    (tmp_path / ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json").unlink()
+    failures = verify_release_metadata(tmp_path)
+    assert any("HIVE-V1.0.0-SECURITY-TRIAGE.json" in failure for failure in failures)
+
+    build_release_tree(tmp_path)
+    candidate_path = tmp_path / ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json"
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    candidate["dependency_security"]["triage_receipt"] = ".engineering/release/wrong.json"
+    write_json(tmp_path, ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json", candidate)
+    failures = verify_release_metadata(tmp_path)
+    assert any("triage_receipt must point" in failure for failure in failures)
+
+
+def test_security_triage_rejects_ambiguous_generated_for_head(tmp_path: Path) -> None:
+    build_release_tree(tmp_path)
+    triage_path = tmp_path / ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json"
+    triage = json.loads(triage_path.read_text(encoding="utf-8"))
+    triage["generated_for_head"] = "3" * 40
+    write_json(tmp_path, ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json", triage)
+    failures = verify_release_metadata(tmp_path)
+    assert any("generated_for_head" in failure for failure in failures)
+
+
+def test_security_triage_inventory_source_must_match_candidate_receipt(tmp_path: Path) -> None:
+    build_release_tree(tmp_path)
+    candidate_path = tmp_path / ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json"
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    candidate["dependency_security"]["provenance"]["inventory_source_head"] = "4" * 40
+    write_json(tmp_path, ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json", candidate)
+    failures = verify_release_metadata(tmp_path)
+    assert any("inventory_source_head must match" in failure for failure in failures)
