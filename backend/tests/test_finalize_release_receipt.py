@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 from scripts.finalize_release_receipt import build_receipt, sha256_file
@@ -87,8 +88,10 @@ def test_build_receipt_binds_publication_and_artifacts(tmp_path: Path) -> None:
     assert receipt["tag_object"] == "2" * 40
     assert receipt["publisher_workflow_run"] == 123
     assert receipt["post_merge_ci_run"] == 456
-    assert receipt["candidate_receipt"]["sha256"] == sha256_file(candidate)
-    assert {item["name"] for item in receipt["artifacts"]} == {
+    candidate_receipt = cast(dict[str, object], receipt["candidate_receipt"])
+    artifacts = cast(list[dict[str, object]], receipt["artifacts"])
+    assert candidate_receipt["sha256"] == sha256_file(candidate)
+    assert {item["name"] for item in artifacts} == {
         "hive-v1.0.0.zip",
         "hive-v1.0.0.zip.sha256",
         "hive-v1.0.0.manifest.json",
