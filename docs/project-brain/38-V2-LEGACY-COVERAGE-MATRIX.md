@@ -184,3 +184,46 @@ No recovered frozen NECESSARY capability is currently marked DROPPED. Several ar
 
 ## Stop condition
 This matrix cannot become FINAL while any recoverable source item lacks a disposition or any frozen NECESSARY item remains PARTIAL without an implementation-grade specification.
+
+
+## I. Recovered exact legacy names — reconciliation pass 2
+
+This section resolves only names supported by prior planning records. It does not infer missing semantics.
+
+| Legacy token | Exact recovered name | Coverage disposition |
+|---|---|---|
+| SDIR | Semantic Delta Intermediate Representation | PARTIAL → HUE/C3 seam; exact implementation contract still required |
+| MCSO | Minimal Change Surface Optimizer | PARTIAL → HUE/Orchestration/Test Intelligence |
+| PEGR | Pre-Execution Grounding Readiness Gate | PARTIAL → Orchestration/Verification |
+| VCC | Verified Context Cache | PARTIAL → C3/cache validity; note: unrelated projects may reuse the acronym, HIVE meaning is this planning record |
+| NKC | Negative Knowledge Cache | PARTIAL → C3/Verified Learning/negative evidence |
+| AIG | Architecture Integrity Gate | MAPPED → Architecture Immune System / Cognitive CI |
+| LVS | Live Verification Stream | PARTIAL → Verification/Telemetry/Control Center |
+| PCP | Predictive Context Prefetch | EXPERIMENT → C3; already preserved in Architecture Improvement Register |
+| RPCache | Retrieval Plan Cache | EXPERIMENT → HUE/C3 retrieval planning |
+| FTI | Flaky Test Intelligence | PARTIAL → Test Intelligence. This corrects the earlier ambiguous expansion in this matrix; Feature Verification Contract Registry remains a capability but must not reuse FTI without a distinct stable id. |
+| SFC | Shadow Full-Suite Calibration | MAPPED → Test Intelligence |
+| RUF | Real-Use Fixture & Journey Layer | MAPPED → Test Intelligence / release validation |
+| RBG | Resource Behavior Guard | MAPPED → Test Intelligence / Resource Intelligence |
+| BCR | Behavioral Contract Replay | MAPPED → Test + Debug Intelligence |
+| DGS | Defect Genome Store | MAPPED → Debug Intelligence / governed defect memory |
+
+### Semantic notes recovered
+- SFC periodically runs the full suite hidden in calibration/shadow mode.
+- RUF verifies real installation/product journeys, not only isolated functions.
+- RBG covers resource behavior including agents/conversations/retries/tokens/quota/CPU/RAM/fan-out.
+- BCR turns a real user bug into a permanent reproducible behavioral scenario.
+- DGS is structured defect/bug memory.
+
+### Conflict resolution
+An earlier planning pass expanded FTI as Feature Verification Contract Registry. A later exact legacy record identifies FTI as Flaky Test Intelligence. The registry capability itself remains valuable and preserved, but it must receive a non-conflicting stable identifier before freeze. No data/model/API contract may ship with the ambiguous acronym.
+
+## J. Jev audit disposition
+- Jev-compatible remote provider: SCREENED / OPTIONAL.
+- local direct-logit scorer: LAB_CANDIDATE.
+- prefix/shared-state scorer: LAB_CANDIDATE / SHADOW mandatory.
+- no Jev implementation is a mandatory core dependency.
+- HIVE owns deterministic policy, calibration, evidence, routing and fallback.
+
+## K. Updated coverage blockers
+The legacy-name blocker is materially reduced. Remaining work is no longer to guess acronyms; it is to write compact implementation contracts for PARTIAL capabilities that are required by the final release train, resolve the FTI identifier collision, and perform the canonical cross-audit before any 1.1 implementation prompt.
