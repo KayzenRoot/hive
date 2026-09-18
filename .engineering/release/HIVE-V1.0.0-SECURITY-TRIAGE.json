@@ -183,10 +183,10 @@
       }
     },
     "requirements-dev.txt": {
-      "sha256": "5d41f545832e0bf22188f77ab27e78712095c0b134f1b4f7dd1a6a7c79186f8f"
+      "sha256": "8fd51832462ad4a2802fc50fd8cdb1dd44ae8c4246b4f26db87050a268a8d6cd"
     },
     "dashboard/package-lock.json": {
-      "sha256": "61ddf2463ef4fe87193cacf98789f100b42ba779ae7833f088e9dd2f7be522f2"
+      "sha256": "60dcb5079e3e07250036fe95116af489930fa3b6b530db8faed48c83de80232e"
     }
   }
 }
