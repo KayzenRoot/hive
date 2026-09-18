@@ -6,7 +6,31 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Remove secrets and personal data before submitting logs.
+      value: >-
+        Remove secrets, credentials and personal data before submitting logs.
+        Security vulnerabilities must be reported privately (see SECURITY.md),
+        not through this form.
+  - type: input
+    id: hive_version
+    attributes:
+      label: HIVE version
+      description: Release tag or exact commit, for example v1.0.0.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: OS and version, for example Windows 11 or Ubuntu 24.04.
+    validations:
+      required: true
+  - type: input
+    id: docker
+    attributes:
+      label: Docker and Compose
+      description: Docker Engine/Desktop and Compose versions.
+    validations:
+      required: true
   - type: textarea
     id: steps
     attributes:
@@ -26,10 +50,21 @@ body:
       label: Actual behavior
     validations:
       required: true
-  - type: input
-    id: environment
+  - type: textarea
+    id: logs
     attributes:
-      label: Environment
-      description: OS, Docker version, commit, and relevant configuration.
+      label: Redacted logs
+      description: Bounded service logs with secrets and personal data removed.
+    validations:
+      required: false
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression status
+      description: Did this work in an earlier release?
+      options:
+        - Unknown
+        - "Yes - worked before"
+        - "No - never worked"
     validations:
       required: true

@@ -1,0 +1,192 @@
+{
+  "schema_version": 2,
+  "repository": "KayzenRoot/hive",
+  "release_version": "1.0.0",
+  "source": "GitHub Dependabot open alerts (state=open, paginated per_page=100) collected 2026-09-18",
+  "open_alerts_before": {
+    "critical": 0,
+    "high": 16,
+    "moderate": 11,
+    "low": 8,
+    "total": 35
+  },
+  "critical_high_applicable_open": 0,
+  "critical_high_remediated_in_candidate": {
+    "count": 16,
+    "alert_numbers": [
+      4,
+      5,
+      8,
+      9,
+      10,
+      13,
+      17,
+      19,
+      21,
+      22,
+      24,
+      25,
+      26,
+      29,
+      33,
+      35
+    ],
+    "packages": [
+      {
+        "package": "starlette",
+        "ecosystem": "pip",
+        "manifests": [
+          "requirements.txt",
+          "requirements-dev.txt"
+        ],
+        "from": "0.45.3",
+        "to": "1.3.1",
+        "alerts": [
+          4,
+          13,
+          19,
+          21,
+          29,
+          35
+        ],
+        "note": "Highest advisory requires starlette>=1.3.1; no 0.4x version satisfies all advisories."
+      },
+      {
+        "package": "fastapi",
+        "ecosystem": "pip",
+        "manifests": [
+          "requirements.txt"
+        ],
+        "from": "0.115.8",
+        "to": "0.133.0",
+        "alerts": [],
+        "note": "Required compatibility transition: previous pin capped starlette<0.46.0; 0.133.0 is the lowest FastAPI release that permits starlette>=1.3.1 while retaining the existing pydantic 2.x stack."
+      },
+      {
+        "package": "python-multipart",
+        "ecosystem": "pip",
+        "manifests": [
+          "requirements.txt",
+          "requirements-dev.txt"
+        ],
+        "from": "0.0.20",
+        "to": "0.0.31",
+        "alerts": [
+          5,
+          10,
+          17,
+          22,
+          26,
+          33
+        ]
+      },
+      {
+        "package": "Mako",
+        "ecosystem": "pip",
+        "manifests": [
+          "requirements.txt",
+          "requirements-dev.txt"
+        ],
+        "from": "1.3.9",
+        "to": "1.3.12",
+        "alerts": [
+          8,
+          9,
+          24,
+          25
+        ],
+        "note": "Runtime dependency of Alembic; no version cap in alembic==1.15.1."
+      }
+    ]
+  },
+  "critical_high_non_applicable": [],
+  "remediated_medium_low": {
+    "moderate": 8,
+    "moderate_alert_numbers": [
+      3,
+      7,
+      11,
+      12,
+      20,
+      23,
+      27,
+      28
+    ],
+    "low": 8,
+    "low_alert_numbers": [
+      14,
+      15,
+      16,
+      18,
+      30,
+      31,
+      32,
+      34
+    ],
+    "note": "Covered transitively by the same starlette and python-multipart upgrades."
+  },
+  "remaining_medium_low": {
+    "moderate": 3,
+    "low": 0,
+    "alerts": [
+      {
+        "number": 1,
+        "package": "@vitest/mocker",
+        "ecosystem": "npm",
+        "manifest": "dashboard/package-lock.json",
+        "scope": "development",
+        "disposition": "not remediated in this increment; requires a breaking vitest major (3.x to 4.x/5.x) in a dev-only tool"
+      },
+      {
+        "number": 2,
+        "package": "vitest",
+        "ecosystem": "npm",
+        "manifest": "dashboard/package-lock.json",
+        "scope": "development",
+        "disposition": "same as alert 1; npm audit --audit-level=high remains green"
+      },
+      {
+        "number": 6,
+        "package": "pytest",
+        "ecosystem": "pip",
+        "manifest": "requirements-dev.txt",
+        "scope": "development",
+        "disposition": "not remediated in this increment; requires a pytest major upgrade in the dev toolchain"
+      }
+    ]
+  },
+  "runtime_high_critical_remaining": false,
+  "release_gate": "PASS",
+  "compatibility_verification": {
+    "resolver": "python -m pip install -r requirements-dev.txt succeeded; python -m pip check reported no broken requirements",
+    "backend_suite": "737 passed, 5 skipped, 0 failed with the upgraded pins",
+    "integration": "Hosted Integration health exercises the upgraded runtime stack end to end",
+    "non_blocking_warning": "StarletteDeprecationWarning: httpx with starlette.testclient is deprecated (httpx2 migration deferred)"
+  },
+  "notes": [
+    "Alert numbers correspond to the GitHub Dependabot alert list for the repository at collection time.",
+    "GitHub may keep the remediated alerts open on the default branch until this release candidate is merged; Dependabot re-evaluates the default branch after merge.",
+    "No credentials, raw API responses or exploit-sensitive details are recorded in this receipt.",
+    "Historical V0.1 product defect counts (HIGH/CRITICAL 0/0) are product defects and are distinct from dependency advisories.",
+    "inventory_source_head identifies the pre-remediation default-branch state used to collect the alert inventory; it does not claim that commit contains the remediation.",
+    "candidate_dependency_state binds PASS to deterministic SHA-256 hashes and parsed target versions of the candidate manifests, avoiding circular self-reference to the commit containing this receipt."
+  ],
+  "inventory_source_head": "3d36990316f21b9b31d513eae6a7868f7d284852",
+  "candidate_dependency_state": {
+    "requirements.txt": {
+      "sha256": "5edba8e75b2cc2d9411e091a6a2dc9768cbec39b7e8061b8e29928728bc3d3e7",
+      "packages": {
+        "fastapi": "0.133.0",
+        "starlette": "1.3.1",
+        "python-multipart": "0.0.31",
+        "Mako": "1.3.12"
+      }
+    },
+    "requirements-dev.txt": {
+      "sha256": "8fd51832462ad4a2802fc50fd8cdb1dd44ae8c4246b4f26db87050a268a8d6cd"
+    },
+    "dashboard/package-lock.json": {
+      "sha256": "60dcb5079e3e07250036fe95116af489930fa3b6b530db8faed48c83de80232e"
+    }
+  }
+}

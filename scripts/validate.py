@@ -35,6 +35,11 @@ def command_steps() -> list[Step]:
             bucket="lint",
         ),
         Step(
+            "release metadata verification",
+            [python, "scripts/verify_release_metadata.py"],
+            bucket="lint",
+        ),
+        Step(
             "release package dry-run",
             [
                 python,

@@ -1041,7 +1041,7 @@ function App() {
       </section>
 
       <footer className="footer">
-        <span>Version {health?.version ?? "0.0.1-bootstrap"}</span>
+        <span>Version {health?.version ?? "1.0.0"}</span>
         <span>{health ? "Last API update " + formatTimestamp(health.timestamp) : "No API data"}</span>
         <span>{health?.environment ?? "local"}</span>
       </footer>

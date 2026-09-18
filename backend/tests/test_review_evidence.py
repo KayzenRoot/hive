@@ -20,6 +20,9 @@ from scripts.review_evidence import (
     ACCE_STORAGE_POLICY_EVIDENCE_VERSION,
     ACCE_STORAGE_POLICY_REQUIRED_FIELDS,
     CONTEXT_MANAGER_REQUIRED_FIELDS,
+    HIVE_REL_001_ALLOWED_EXACT_PATHS,
+    HIVE_REL_001_BASE_SHA,
+    HIVE_REL_001_WORK_ORDER,
     MCP_CORE_SURFACE_EVIDENCE_FILE,
     MCP_CORE_SURFACE_EVIDENCE_VERSION,
     MCP_CORE_SURFACE_FALSE_FIELDS,
@@ -104,6 +107,7 @@ from scripts.review_evidence import (
     parse_work_order_marker,
     require_current_work_order_authorization,
     require_hive_final_handoff,
+    require_hive_rel_001_scope,
     require_supported_work_order,
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
@@ -6217,6 +6221,101 @@ def test_work_order_marker_parser_rejects_missing_conflicting_and_untrusted_ids(
         parse_work_order_marker(f"<!-- HIVE-WORK-ORDER: {'WO-' + '9' * 70} -->")
 
 
+def test_hive_rel_001_marker_is_bounded_and_registered() -> None:
+    marker = f"<!-- HIVE-WORK-ORDER: {HIVE_REL_001_WORK_ORDER} -->"
+    assert parse_work_order_marker(marker) == HIVE_REL_001_WORK_ORDER
+    require_supported_work_order(HIVE_REL_001_WORK_ORDER)
+    require_current_work_order_authorization(HIVE_REL_001_WORK_ORDER)
+    assert HIVE_REL_001_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    assert (
+        parse_authorized_base_marker(f"<!-- HIVE-AUTHORIZED-BASE: {HIVE_REL_001_BASE_SHA} -->")
+        == HIVE_REL_001_BASE_SHA
+    )
+    with pytest.raises(ValueError, match="unsupported release-engineering"):
+        require_supported_work_order("HIVE-REL-002")
+    with pytest.raises(ValueError, match="unsupported release-engineering"):
+        require_supported_work_order("HIVE-REL-999")
+    with pytest.raises(ValueError, match="invalid or unbounded"):
+        parse_work_order_marker("<!-- HIVE-WORK-ORDER: HIVE-OTHER-001 -->")
+
+
+def test_hive_rel_001_scope_requires_exact_base_authorization_and_registered_paths() -> None:
+    allowed_paths = sorted(HIVE_REL_001_ALLOWED_EXACT_PATHS)
+    require_hive_rel_001_scope(
+        HIVE_REL_001_WORK_ORDER,
+        HIVE_REL_001_BASE_SHA,
+        allowed_paths,
+        authorized_base_sha=HIVE_REL_001_BASE_SHA,
+    )
+    require_hive_rel_001_scope(
+        HIVE_REL_001_WORK_ORDER,
+        HIVE_REL_001_BASE_SHA,
+        [
+            "docs/VERSIONING.md",
+            ".github/workflows/codeql.yml",
+            ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json",
+            "backend/tests/test_verify_release_metadata.py",
+        ],
+        authorized_base_sha=HIVE_REL_001_BASE_SHA,
+    )
+    require_hive_rel_001_scope(
+        "WO-024-P",
+        "f" * 40,
+        ["backend/app/main.py"],
+        authorized_base_sha=None,
+    )
+    with pytest.raises(ValueError, match="protected main base branch"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            HIVE_REL_001_BASE_SHA,
+            allowed_paths,
+            base_branch="release",
+            authorized_base_sha=HIVE_REL_001_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="exact base"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            "a" * 40,
+            allowed_paths,
+            authorized_base_sha=HIVE_REL_001_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            HIVE_REL_001_BASE_SHA,
+            allowed_paths,
+            authorized_base_sha=None,
+        )
+    with pytest.raises(ValueError, match="registered release scope"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            HIVE_REL_001_BASE_SHA,
+            [*allowed_paths, "backend/app/main.py"],
+            authorized_base_sha=HIVE_REL_001_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="immutable or local-only"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            HIVE_REL_001_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+            authorized_base_sha=HIVE_REL_001_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="immutable or local-only"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            HIVE_REL_001_BASE_SHA,
+            ["docs/releases/v0.0.1-bootstrap.md"],
+            authorized_base_sha=HIVE_REL_001_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="non-empty change set"):
+        require_hive_rel_001_scope(
+            HIVE_REL_001_WORK_ORDER,
+            HIVE_REL_001_BASE_SHA,
+            [],
+            authorized_base_sha=HIVE_REL_001_BASE_SHA,
+        )
+
+
 def test_canonical_change_evidence_distinguishes_promotion_from_product_changes() -> None:
     promotion = canonical_change_evidence(
         [
@@ -10681,6 +10780,44 @@ def test_closure_sprint_scope_is_promotion_aware() -> None:
         assert review_evidence.closure_sprint_scope([single]) == [single]
     assert review_evidence.closure_sprint_scope(["backend/app/context_manager.py"]) == []
     assert review_evidence.closure_product_scope(list(pair)) == pair
+
+
+def test_closure_sprint_scope_admits_registered_release_engineering_surface() -> None:
+    release_paths = [
+        "VERSION",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "dashboard/package.json",
+        "dashboard/package-lock.json",
+        "docs/VERSIONING.md",
+        "docs/releases/v1.0.0.md",
+        ".github/workflows/release.yml",
+        ".github/ISSUE_TEMPLATE/maintenance.yml",
+        ".engineering/release/HIVE-V1.0.0-RELEASE-CANDIDATE.json",
+    ]
+    assert review_evidence.release_engineering_scope(release_paths) == []
+    assert review_evidence.closure_sprint_scope(release_paths) == []
+    assert (
+        review_evidence.closure_sprint_scope([*release_paths, "backend/app/context_manager.py"])
+        == []
+    )
+    for rejected in (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "docs/project-brain/CANONICAL-SHA256SUMS.txt",
+        ".engineering/gef/GEF-POLICY.md",
+        "migrations/versions/0008_release.py",
+        "backend/app.py",
+        "secrets/credentials.txt",
+        "tmp/release-dry-run/hive-v1.0.0.zip",
+        "release-assets/hive-v1.0.0.zip",
+    ):
+        assert review_evidence.release_engineering_scope([rejected]) == [rejected]
+        assert review_evidence.closure_sprint_scope([rejected]) == [rejected]
 
 
 def test_wo024p_g1_c1_scope_is_bounded_and_fails_closed() -> None:

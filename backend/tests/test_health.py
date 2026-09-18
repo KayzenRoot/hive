@@ -10,7 +10,7 @@ from app.health import HealthResponse, ServiceCheck
 def _healthy_response() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        version="0.0.1-bootstrap",
+        version="1.0.0",
         environment="test",
         timestamp=datetime.now(UTC),
         data_root="/tmp/hive",

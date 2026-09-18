@@ -27,6 +27,7 @@ HEX_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_EVIDENCE_CHARS = 12_000
 WORK_ORDER_IDENTIFIER = re.compile(r"WO-[0-9]+(?:-[A-Z0-9]+)*")
 GEF_WORK_ORDER_IDENTIFIER = re.compile(r"GEF-[A-Z0-9]+(?:-[A-Z0-9]+)*")
+HIVE_REL_WORK_ORDER_IDENTIFIER = re.compile(r"HIVE-REL-[0-9]{3}")
 WORK_ORDER_MARKER = re.compile(r"<!--\s*HIVE-WORK-ORDER:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE)
 AUTHORIZED_BASE_MARKER = re.compile(
     r"<!--\s*HIVE-AUTHORIZED-BASE:\s*([^<>\r\n]+?)\s*-->", re.IGNORECASE
@@ -2282,6 +2283,73 @@ WO023P_G1_C1_ALLOWED_PATHS = frozenset(
         "scripts/review_pr_body.py",
     }
 )
+HIVE_REL_001_WORK_ORDER = "HIVE-REL-001"
+HIVE_REL_001_BASE_SHA = "90cc1b91b48d628dfb3e4773e1672535b4cb8991"
+HIVE_REL_001_ALLOWED_EXACT_PATHS = frozenset(
+    {
+        "VERSION",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "backend/app/__init__.py",
+        "backend/app/config.py",
+        "dashboard/package.json",
+        "dashboard/package-lock.json",
+        "dashboard/src/App.tsx",
+        "dashboard/src/App.test.tsx",
+        "dashboard/src/ControlCenter.test.tsx",
+        "requirements.txt",
+        "requirements-dev.txt",
+    }
+)
+HIVE_REL_001_ALLOWED_PREFIXES = (
+    "backend/tests/",
+    "docs/",
+    "scripts/",
+    ".github/",
+    ".engineering/release/",
+)
+HIVE_REL_001_FORBIDDEN_PREFIXES = (
+    "docs/project-brain/",
+    "migrations/",
+    ".engineering/gef/",
+    "release-assets/",
+    "review-bundles/",
+    "tmp/",
+    "node_modules/",
+    ".git/",
+)
+HIVE_REL_001_FORBIDDEN_EXACT_PATHS = frozenset({"docs/releases/v0.0.1-bootstrap.md"})
+RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS = frozenset(
+    {
+        "VERSION",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "dashboard/package.json",
+        "dashboard/package-lock.json",
+        "requirements.txt",
+        "requirements-dev.txt",
+    }
+)
+RELEASE_ENGINEERING_ALLOWED_PREFIXES = (
+    ".github/",
+    ".engineering/release/",
+    "docs/",
+)
+RELEASE_ENGINEERING_FORBIDDEN_PREFIXES = (
+    "docs/project-brain/",
+    ".engineering/gef/",
+    "migrations/",
+)
 AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
     {
         "WO-012-P",
@@ -2304,6 +2372,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO024P_G1_C3_WORK_ORDER,
         WO024P_G1_C4_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
+        HIVE_REL_001_WORK_ORDER,
     }
 )
 WO024_G1_ALLOWED_PATHS = frozenset(
@@ -2595,6 +2664,7 @@ def parse_work_order_marker(body: str) -> str:
     if len(work_order) > 64 or (
         WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
         and GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+        and HIVE_REL_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
     ):
         raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     return work_order
@@ -2634,6 +2704,13 @@ def require_supported_work_order(work_order: str) -> None:
         raise ValueError(
             "unsupported GEF adoption work order; explicit governance registration is required: "
             + work_order
+        )
+    if HIVE_REL_WORK_ORDER_IDENTIFIER.fullmatch(work_order):
+        if work_order == HIVE_REL_001_WORK_ORDER:
+            return
+        raise ValueError(
+            "unsupported release-engineering work order; explicit governance "
+            "registration is required: " + work_order
         )
     if work_order in {
         WO015_G1_WORK_ORDER,
@@ -2754,6 +2831,55 @@ def require_gef_adoption_scope(
     ):
         raise ValueError(
             f"{GEF_ADOPTION_WORK_ORDER} cannot change Project Brain, migrations, or CI workflows"
+        )
+
+
+def require_hive_rel_001_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+) -> None:
+    if work_order != HIVE_REL_001_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{HIVE_REL_001_WORK_ORDER} requires the protected main base branch")
+    if base_sha != HIVE_REL_001_BASE_SHA:
+        raise ValueError(
+            f"{HIVE_REL_001_WORK_ORDER} requires exact base {HIVE_REL_001_BASE_SHA}, "
+            f"observed {base_sha}"
+        )
+    if authorized_base_sha != HIVE_REL_001_BASE_SHA:
+        raise ValueError(
+            f"{HIVE_REL_001_WORK_ORDER} requires the exact authorized-base marker "
+            f"{HIVE_REL_001_BASE_SHA}"
+        )
+    if not paths:
+        raise ValueError(f"{HIVE_REL_001_WORK_ORDER} requires a non-empty change set")
+    unique_paths = set(paths)
+    unauthorized = sorted(
+        path
+        for path in unique_paths
+        if path not in HIVE_REL_001_ALLOWED_EXACT_PATHS
+        and not path.startswith(HIVE_REL_001_ALLOWED_PREFIXES)
+    )
+    if unauthorized:
+        raise ValueError(
+            f"{HIVE_REL_001_WORK_ORDER} changes paths outside the registered release scope: "
+            + ", ".join(unauthorized)
+        )
+    forbidden = sorted(
+        path
+        for path in unique_paths
+        if path in HIVE_REL_001_FORBIDDEN_EXACT_PATHS
+        or path.startswith(HIVE_REL_001_FORBIDDEN_PREFIXES)
+    )
+    if forbidden:
+        raise ValueError(
+            f"{HIVE_REL_001_WORK_ORDER} cannot change immutable or local-only paths: "
+            + ", ".join(forbidden)
         )
 
 
@@ -6379,13 +6505,35 @@ def closure_sprint_scope(paths: list[str]) -> list[str]:
     delta: that exact pair is allowed, while the pair plus any third path falls
     back to the ordinary product scope and fails closed, as does either
     canonical path on its own.
+
+    A path is observable when it is inside either the bounded product scope or
+    the registered release-engineering surface; a path has to leave both scopes
+    to fail closed. Project Brain, GEF artifacts and migrations remain rejected
+    even when they sit under a release-engineering prefix.
     """
 
-    if sorted(set(paths)) == sorted(WO024P_PROMOTION_ALLOWED_PATHS) and len(set(paths)) == len(
+    unique = sorted(set(paths))
+    if unique == sorted(WO024P_PROMOTION_ALLOWED_PATHS) and len(unique) == len(
         WO024P_PROMOTION_ALLOWED_PATHS
     ):
         return []
-    return closure_product_scope(paths)
+    return sorted(set(closure_product_scope(paths)) & set(release_engineering_scope(paths)))
+
+
+def release_engineering_scope(paths: list[str]) -> list[str]:
+    """Return the paths that leave the registered release-engineering surface."""
+
+    unauthorized: list[str] = []
+    for path in sorted(set(paths)):
+        if path.startswith(RELEASE_ENGINEERING_FORBIDDEN_PREFIXES):
+            unauthorized.append(path)
+            continue
+        if path in RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS:
+            continue
+        if any(path.startswith(prefix) for prefix in RELEASE_ENGINEERING_ALLOWED_PREFIXES):
+            continue
+        unauthorized.append(path)
+    return unauthorized
 
 
 def require_wo024_scope(
@@ -14845,6 +14993,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             work_order != "LOCAL-VALIDATION"
             and WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
             and GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+            and HIVE_REL_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
         ):
             raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     require_current_work_order_authorization(work_order)
@@ -15059,6 +15208,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
     )
     require_wo024_g1_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_hive_rel_001_scope(
         work_order,
         base_sha,
         paths,

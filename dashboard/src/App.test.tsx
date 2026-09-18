@@ -4,7 +4,7 @@ import App from "./App";
 
 const healthPayload = {
   status: "ok",
-  version: "0.0.1-bootstrap",
+  version: "1.0.0",
   environment: "test",
   timestamp: "2026-08-31T12:00:00Z",
   data_root: "/var/lib/hive",

@@ -1,0 +1,38 @@
+name: Maintenance or dependency request
+description: Propose dependency maintenance, tooling or operational upkeep.
+title: "[Maintenance]: "
+labels:
+  - type:maintenance
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Dependency update
+        - CI, tooling or release infrastructure
+        - Documentation maintenance
+        - Operational or configuration upkeep
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this maintenance needed now?
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and risk
+      description: What changes, what could break, and how it will be validated.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation evidence
+      description: Commands, links or results that will prove the change.
+    validations:
+      required: true

@@ -160,7 +160,7 @@ function healthResponse() {
   return {
     generated_at: GENERATED_AT,
     status: "ok",
-    version: "0.0.1-bootstrap",
+    version: "1.0.0",
     environment: "test",
     migration_head: "0007_telemetry_events",
     canonical_store: "postgres",

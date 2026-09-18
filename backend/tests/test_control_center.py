@@ -154,7 +154,7 @@ def health_report(
         }
     return HealthResponse(
         status=status,
-        version="0.0.1-bootstrap",
+        version="1.0.0",
         environment="test",
         timestamp=NOW,
         data_root="/var/lib/hive",
