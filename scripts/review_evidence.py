@@ -2336,6 +2336,8 @@ HIVE_REL_002_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "docs/RELEASING.md",
         "docs/RELEASE-CHECKLIST.md",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
     }
 )
 HIVE_REL_002_FORBIDDEN_PREFIXES = (
@@ -2943,9 +2945,7 @@ def require_hive_rel_002_scope(
             + ", ".join(unauthorized)
         )
     forbidden = sorted(
-        path
-        for path in unique_paths
-        if path.startswith(HIVE_REL_002_FORBIDDEN_PREFIXES)
+        path for path in unique_paths if path.startswith(HIVE_REL_002_FORBIDDEN_PREFIXES)
     )
     if forbidden:
         raise ValueError(
