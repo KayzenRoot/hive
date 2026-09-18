@@ -42,17 +42,23 @@ release.
 - [ ] Sol exact-head audit; SQUASH merge only.
 - [ ] Mandatory post-merge CI PASS on the exact new `main` SHA.
 
-## 7. Tag and release
+## 7. Governed publisher
 
-- [ ] Annotated tag `vX.Y.Z` pushed from the exact accepted release commit.
-- [ ] Release workflow validation, integration smoke, package, checksum and
-      manifest all PASS on the tag commit.
-- [ ] GitHub Release published with ZIP, SHA256, manifest and review bundle.
-      Stable releases are not marked prerelease.
-- [ ] Verify the release URL, tag target, asset names and checksums.
+- [ ] An armed `.engineering/release/HIVE-VX.Y.Z-PUBLISH-REQUEST.json` exists
+      and records the exact authorized parent of the release-publisher squash.
+- [ ] Release Publisher starts only from successful push CI on `main` and
+      proves that CI head is still current protected `main`.
+- [ ] Release metadata verification, deterministic validation and integration
+      smoke PASS again on the exact release commit.
+- [ ] Annotated tag `vX.Y.Z` targets the exact accepted release commit.
+- [ ] GitHub Release is published as stable, not draft/prerelease, with ZIP,
+      SHA256, manifest and review bundle.
+- [ ] Publisher verifies the release URL, tag target and required asset names.
 
 ## 8. Receipt and closure
 
-- [ ] Record the final immutable release receipt/provenance with the actual tag
-      object, release URL, publication time and artifact checksums.
+- [ ] `hive-vX.Y.Z.release-receipt.json` is attached to the GitHub Release and
+      records the actual tag object, release commit, release URL, publication
+      time, post-merge CI, publisher workflow run and artifact SHA-256 values.
+- [ ] A repeated publisher run is idempotent and does not move/recreate the tag.
 - [ ] Do not rewrite accepted Project Brain or historical release history.

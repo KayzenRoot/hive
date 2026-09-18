@@ -31,29 +31,38 @@ SBOM or attestation evidence.
 
 ## Post-merge and publication
 
-After the squash merge and a green post-merge CI run on the exact new `main`
-SHA, publish from a clean checkout with authenticated GitHub CLI:
+Publication is governed by `.github/workflows/release-publisher.yml`. It runs
+only after the repository CI workflow completes successfully for a push to
+`main`. The publisher then fails closed unless all of these statements remain
+true:
 
-~~~bash
-git checkout main
-git pull --ff-only
-git tag -a vX.Y.Z -m "HIVE vX.Y.Z"
-git push origin vX.Y.Z
-~~~
+- the successful CI head is still the current protected `main`;
+- `VERSION` is strict stable SemVer and has a matching release-candidate
+  receipt plus an explicitly armed publish request;
+- the release-publisher squash commit has the exact authorized parent recorded
+  by the publish request;
+- dependency-security evidence reports PASS with zero applicable unresolved
+  CRITICAL/HIGH findings;
+- the tag/release is absent, or an interrupted prior attempt can be resumed
+  without changing the tag target.
 
-The tag commit must equal the accepted release commit (the current `main`
-HEAD). The release workflow fails closed before publication when:
+Before publication the publisher reruns release-metadata verification,
+deterministic validation and the integration smoke test on that exact commit. It
+then creates an **annotated** tag, builds `hive-vX.Y.Z.zip`,
+`hive-vX.Y.Z.zip.sha256` and `hive-vX.Y.Z.manifest.json`, generates the review
+bundle and publishes a stable GitHub Release.
 
-- the tag is not annotated or does not point at the pushed commit;
-- `VERSION` does not exactly match the tag without `v`;
-- `docs/releases/vX.Y.Z.md` or the CHANGELOG `## [X.Y.Z]` section is missing;
-- deterministic validation or the integration smoke test fails;
-- the package misses a required file or contains forbidden paths.
+After publication, `scripts/finalize_release_receipt.py` generates
+`hive-vX.Y.Z.release-receipt.json` with the exact release commit, annotated tag
+object, publication metadata, post-merge CI lineage and SHA-256/size records for
+the released artifacts. That receipt is attached to the GitHub Release. The
+publisher is idempotent: once the tag, release and final receipt exist, later CI
+runs no-op.
 
-The workflow then builds `hive-vX.Y.Z.zip` plus `hive-vX.Y.Z.zip.sha256` and a
-machine-readable `hive-vX.Y.Z.manifest.json` from `git archive`, and attaches
-the package, checksum, manifest and review bundle to the GitHub Release. A
-stable release such as `v1.0.0` is never marked prerelease.
+The existing tag-driven `.github/workflows/release.yml` remains an audited
+fallback for an explicitly authorized external/manual annotated-tag push. The
+normal HIVE path is the governed publisher above; do not create an ad-hoc tag
+before post-merge CI is green.
 
 ## Local dry-run
 

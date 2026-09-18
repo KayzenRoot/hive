@@ -46,6 +46,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_control_center_metrics.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
 - backend/tests/test_execution_orchestrator.py: Python source or test module.
+- backend/tests/test_finalize_release_receipt.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_mcp_server.py: Python source or test module.
 - backend/tests/test_memory.py: Python source or test module.
@@ -112,6 +113,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/control_center_integration.py: deterministic maintenance or validation script.
 - scripts/control_center_metrics_integration.py: deterministic maintenance or validation script.
 - scripts/embedding_fixture.py: deterministic maintenance or validation script.
+- scripts/finalize_release_receipt.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
 - scripts/mcp_integration.py: deterministic maintenance or validation script.
