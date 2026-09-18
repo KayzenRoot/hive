@@ -32,7 +32,12 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-024-G1": "44c61e999c89a6b6ba6c28377cea415cad3d1cef",
     "WO-025-G1": "a53b5b9fcf55c32a5696180fb1b1ef80ccd1edcf",
     "WO-025-G2": "c3a00ab34ecee31fc4c09ffac3ebe5ac7a709f3d",
+    "WO-025-G3": "50145fb079201b06d86e80f8971721c3ed781c90",
 }
+# Work orders whose base is the live protected main rather than a frozen SHA. Their dedicated
+# renderers still require a well-formed non-zero base, which the registered scope contract then
+# binds to the current protected main.
+DYNAMIC_BASE_WORK_ORDERS = frozenset({"WO-025", "WO-025-P", "WO-1.1-01"})
 
 
 def _require_exact_head(work_order: str, head_sha: str) -> None:
@@ -76,6 +81,9 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-025-G1",
         "WO-025-G2",
         "WO-025",
+        "WO-025-G3",
+        "WO-025-P",
+        "WO-1.1-01",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
             f"{work_order} dedicated renderer requires a lowercase 40-hex exact HEAD SHA"
@@ -4301,6 +4309,174 @@ WO-025-G2 READY FOR SOL AUDIT
 """
 
 
+def _render_wo025_g3_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Incremento de governança de namespace
+
+Esta PR corrige o namespace de Work Orders de forma fail-closed: substitui o
+fallthrough histórico de `require_supported_work_order` por um registro
+explícito deny-by-default, adiciona a gramática do release train pontuado e
+registra a próxima promoção de checkpoint e o primeiro work order 1.1. Não
+implementa produto e não altera o checkpoint.
+
+## 2. Causa raiz corrigida
+
+A gramática anterior não aceitava `WO-1.1-01` e o validador podia aceitar
+silenciosamente identificadores numéricos não registrados com primeiro número
+abaixo do limiar histórico, por exemplo `WO-11-01`. O sucesso implícito por
+queda foi removido: o retorno de sucesso só ocorre para entrada explicitamente
+registrada, e limiares numéricos passam a ser diagnóstico, nunca autorização.
+
+## 3. Escopo
+
+Somente `scripts/review_evidence.py`, `scripts/review_pr_body.py`,
+`backend/tests/test_review_evidence.py` e mapas gerados deterministicamente
+quando o gerador exigir. Nenhuma alteração de produto, Project Brain canônico,
+checkpoint, Decisions Ledger, migration, dependência, workflow, ruleset,
+release, VERSION ou tag.
+
+## 4. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+WO-025-P fica registrado como a próxima promoção canônica de checkpoint sem ser
+executado, e WO-1.1-01 fica registrado e PENDING/BLOCKED até essa promoção.
+WO-1.1-02 e passos 1.1 posteriores permanecem não autorizados.
+
+Sem implementação de produto, sem promoção de checkpoint, sem merge e com
+auto-merge desarmado. A PR permanece aberta para auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-025-G3 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo025p_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção canônica de checkpoint
+
+Esta PR promove a verdade de execução no checkpoint canônico e, quando o modelo
+existente exigir, a ponte de governança estritamente necessária para ativar
+WO-1.1-01. Não implementa produto.
+
+## 2. Superfície permitida
+
+Somente `docs/project-brain/13-CHECKPOINT.md` e
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`, acrescidos da ponte de governança
+estritamente necessária quando exigida pelo modelo. Código de produto,
+dashboard, migrações, dependências, workflows, releases e VERSION permanecem
+rejeitados pelo contrato.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Sem implementação de produto, sem merge e com auto-merge desarmado. A PR
+permanece aberta para auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-025-P READY FOR SOL AUDIT
+"""
+
+
+def _render_wo11_01_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Decision Contract Kernel e resolvedor determinístico
+
+Esta PR implementa o menor núcleo de produção da Decision Fabric: contratos
+tipados e limitados de decisão e um resolvedor determinístico que responde
+tipos demonstráveis de decisão sem LLM ou provider.
+
+## 2. Superfície permitida
+
+Somente os módulos de contrato e resolvedor de decisão, seus testes e os mapas
+gerados deterministicamente. Project Brain canônico, checkpoint, migrações,
+dependências, workflows, releases e VERSION permanecem rejeitados pelo contrato.
+Nenhuma Context Projector, provider externo, adaptador Jev, cache de decisão,
+Shadow Comparator, recurso de Control Center, nova ferramenta MCP ou novo store
+canônico pertence a este incremento.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Sem promoção de checkpoint, sem merge e com auto-merge desarmado. A PR
+permanece aberta para auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-1.1-01 READY FOR SOL AUDIT
+"""
+
+
 def _require_renderable_work_order(work_order: str) -> None:
     """Fail closed before renderer selection for unsupported future work orders."""
 
@@ -5007,6 +5183,45 @@ def render_body(
         )
     if work_order == "WO-016-P":
         return _render_wo016p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-025-G3":
+        return _render_wo025_g3_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-025-P":
+        return _render_wo025p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-1.1-01":
+        return _render_wo11_01_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
