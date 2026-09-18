@@ -11095,8 +11095,8 @@ def test_wo024p_g1_c1_is_the_current_work_order_and_stays_bounded() -> None:
         review_evidence.WO023P_G1_C1_WORK_ORDER,
         review_evidence.WO023P_WORK_ORDER,
         review_evidence.WO023P_G1_WORK_ORDER,
-        "WO-025",
-        "WO-025-P",
+        "WO-026",
+        "WO-026-P",
         "WO-999",
     ):
         with pytest.raises(ValueError):
@@ -12075,10 +12075,8 @@ def test_wo025_is_registered_as_planning_only_promotion() -> None:
 
 
 def test_unknown_future_work_orders_stay_fail_closed() -> None:
-    # WO-025 is registered (supported) but explicitly not authorized as a current work order yet.
+    # WO-025 became current-authorized in WO-025-G2; the unknown frontier stays rejected.
     review_evidence.require_supported_work_order(review_evidence.WO025_WORK_ORDER)
-    with pytest.raises(ValueError, match="not authorized as a current work order"):
-        review_evidence.require_current_work_order_authorization(review_evidence.WO025_WORK_ORDER)
     for unknown in ("WO-026", "WO-026-P", "WO-999-P"):
         with pytest.raises(ValueError):
             review_evidence.require_current_work_order_authorization(unknown)
@@ -12120,3 +12118,199 @@ def test_pull_request_work_order_resolves_from_the_event_payload(
     assert review_evidence.pull_request_work_order_from_event(str(duplicated)) is None
 
     assert review_evidence.pull_request_work_order_from_event(str(tmp_path / "absent.json")) is None
+
+
+def test_wo025_g2_scope_is_bounded_and_base_bound() -> None:
+    allowed = sorted(review_evidence.WO025_G2_ALLOWED_PATHS)
+    review_evidence.require_wo025_g2_scope(
+        review_evidence.WO025_G2_WORK_ORDER,
+        review_evidence.WO025_G2_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO025_G2_BASE_SHA,
+    )
+    for paths in (
+        [],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+        ["docs/project-brain/17-POST-1.0-EVOLUTION-ROADMAP.md"],
+        ["migrations/versions/0010_planning.py"],
+        [".github/workflows/ci.yml"],
+        ["requirements.txt"],
+        ["VERSION"],
+        ["backend/app/decision_resolver.py"],
+        allowed + ["backend/app/main.py"],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo025_g2_scope(
+                review_evidence.WO025_G2_WORK_ORDER,
+                review_evidence.WO025_G2_BASE_SHA,
+                paths,
+                authorized_base_sha=review_evidence.WO025_G2_BASE_SHA,
+            )
+    for base_sha, marker in (
+        ("f" * 40, review_evidence.WO025_G2_BASE_SHA),
+        (review_evidence.WO025_G2_BASE_SHA, None),
+        (review_evidence.WO025_G2_BASE_SHA, "nope"),
+        (review_evidence.WO025_G2_BASE_SHA, review_evidence.WO025_G2_BASE_SHA.upper()),
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo025_g2_scope(
+                review_evidence.WO025_G2_WORK_ORDER,
+                base_sha,
+                allowed,
+                authorized_base_sha=marker,
+            )
+
+
+def test_wo025_is_now_current_authorized_and_wo026_stays_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WO-025-G2 authorizes the planning promotion; the unknown frontier stays rejected."""
+
+    review_evidence.require_current_work_order_authorization(review_evidence.WO025_WORK_ORDER)
+    review_evidence.require_supported_work_order(review_evidence.WO025_G2_WORK_ORDER)
+    review_evidence.require_current_work_order_authorization(review_evidence.WO025_G2_WORK_ORDER)
+    assert frozenset() == review_evidence.PENDING_PLANNING_PROMOTION_WORK_ORDERS
+    assert (
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
+        == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    for unknown in ("WO-026", "WO-026-P", "WO-999-P"):
+        with pytest.raises(ValueError):
+            review_evidence.require_current_work_order_authorization(unknown)
+        with pytest.raises(ValueError):
+            review_evidence.require_supported_work_order(unknown)
+
+    # The pending registry still fails closed for a registered-but-not-yet-authorized promotion.
+    monkeypatch.setattr(
+        review_evidence,
+        "PENDING_PLANNING_PROMOTION_WORK_ORDERS",
+        frozenset({review_evidence.WO025_WORK_ORDER}),
+    )
+    with pytest.raises(ValueError, match="not authorized as a current work order"):
+        review_evidence.require_current_work_order_authorization(review_evidence.WO025_WORK_ORDER)
+
+
+def test_wo025_g2_governance_evidence_is_emitted(monkeypatch: pytest.MonkeyPatch) -> None:
+    closure_text = json.dumps(v01_closure_evidence_fixture())
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda name: (
+            closure_text if name == review_evidence.V01_CLOSURE_SPRINT_EVIDENCE_FILE else ""
+        ),
+    )
+    evidence = review_evidence.verify_wo025_g2_governance_contract(
+        review_evidence.WO025_G2_WORK_ORDER,
+        review_evidence.WO025_G2_BASE_SHA,
+        sorted(review_evidence.WO025_G2_ALLOWED_PATHS),
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"v01_closure_sprint": v01_closure_evidence_fixture()},
+        review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        review_evidence.WO025_G2_BASE_SHA,
+    )
+    assert evidence is not None
+    assert "work_order=WO-025-G2" in evidence
+    assert "wo025_current_authorized=True" in evidence
+    assert "unknown_WO-026_WO-026-P_WO-999-P=REJECTED" in evidence
+    assert "wo025_renderer=dedicated_planning_only" in evidence
+    assert "stale_semantic_retrieval_fallback_reachable_for_WO-025=False" in evidence
+    assert "historical_promotion_pair_unchanged=True" in evidence
+    assert "planning_documents_promoted=False" in evidence
+    assert "auto_merge=UNARMED" in evidence
+    assert (
+        review_evidence.verify_wo025_g2_governance_contract(
+            review_evidence.WO024_WORK_ORDER,
+            review_evidence.WO025_G2_BASE_SHA,
+            sorted(review_evidence.WO025_G2_ALLOWED_PATHS),
+            {
+                "project_brain_changed": False,
+                "checkpoint_changed": False,
+                "authorized_paths": [],
+            },
+            {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+            {"v01_closure_sprint": v01_closure_evidence_fixture()},
+            review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+            None,
+        )
+        is None
+    )
+
+
+STALE_WO025_RENDERER_PHRASES = (
+    "0005_semantic_retrieval",
+    "pgvector",
+    "reranking",
+    "retrieval semântico",
+    "fusão híbrida",
+    "embeddings",
+    "WO-006",
+)
+
+
+def wo025_render_arguments() -> dict[str, object]:
+    return {
+        "pr_number": 125,
+        "branch": "governance/wo025-planning-promotion",
+        "artifact_name": "hive-review-evidence-WO-025-fixture",
+        "ruleset_before": "21934284",
+        "ruleset_after": "21934284",
+        "merge_before": "squash",
+        "merge_after": "squash",
+    }
+
+
+def test_wo025_renderer_is_dedicated_planning_only() -> None:
+    import scripts.review_pr_body as renderer
+
+    body = renderer.render_body(
+        work_order=review_evidence.WO025_WORK_ORDER,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        **cast(dict[str, Any], wo025_render_arguments()),
+    )
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-025 -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {'a' * 40} -->" in body
+    assert "AWAITING_SOL" in body
+    assert "WO-025 READY FOR SOL AUDIT" in body
+    assert "promove somente documentação de planejamento pós-1.0" in body
+    for phrase in (
+        "sem implementação de produto",
+        "sem promoção de checkpoint",
+        "sem merge",
+        "auto-merge desarmado",
+    ):
+        assert phrase.casefold() in body.casefold(), phrase
+    for stale in STALE_WO025_RENDERER_PHRASES:
+        assert stale not in body, f"WO-025 renderer must not emit stale text: {stale}"
+
+
+def test_wo025_g2_renderer_is_dedicated_governance_only() -> None:
+    import scripts.review_pr_body as renderer
+
+    body = renderer.render_body(
+        work_order=review_evidence.WO025_G2_WORK_ORDER,
+        base_sha=review_evidence.WO025_G2_BASE_SHA,
+        head_sha="b" * 40,
+        **cast(dict[str, Any], wo025_render_arguments()),
+    )
+    assert body.startswith("<!-- HIVE-WORK-ORDER: WO-025-G2 -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO025_G2_BASE_SHA} -->" in body
+    assert "AWAITING_SOL" in body
+    assert "WO-025-G2 READY FOR SOL AUDIT" in body
+    assert "WO-025" in body
+    for stale in STALE_WO025_RENDERER_PHRASES:
+        assert stale not in body, f"WO-025-G2 renderer must not emit stale text: {stale}"
+    # The renderer base pin is exact and fails closed for a stale base.
+    with pytest.raises(ValueError):
+        renderer.render_body(
+            work_order=review_evidence.WO025_G2_WORK_ORDER,
+            base_sha="f" * 40,
+            head_sha="b" * 40,
+            **cast(dict[str, Any], wo025_render_arguments()),
+        )
