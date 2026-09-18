@@ -143,10 +143,7 @@ def verify_security_triage(
             failures.append(f"security triage is missing candidate state for {relative}")
             continue
         recorded_hash = entry.get("sha256")
-        if (
-            not isinstance(recorded_hash, str)
-            or LOWER_HEX_SHA256.fullmatch(recorded_hash) is None
-        ):
+        if not isinstance(recorded_hash, str) or LOWER_HEX_SHA256.fullmatch(recorded_hash) is None:
             failures.append(f"security triage {relative} sha256 must be lowercase 64-hex")
             continue
         observed_hash = sha256_file(root / relative, failures)
