@@ -2324,6 +2324,31 @@ HIVE_REL_001_FORBIDDEN_PREFIXES = (
     ".git/",
 )
 HIVE_REL_001_FORBIDDEN_EXACT_PATHS = frozenset({"docs/releases/v0.0.1-bootstrap.md"})
+HIVE_REL_002_WORK_ORDER = "HIVE-REL-002"
+HIVE_REL_002_BASE_SHA = "e7d661a7547fa12c5410c4e3334286f3bdc6686c"
+HIVE_REL_002_ALLOWED_PATHS = frozenset(
+    {
+        ".github/workflows/release-publisher.yml",
+        ".engineering/release/HIVE-V1.0.0-PUBLISH-REQUEST.json",
+        "scripts/finalize_release_receipt.py",
+        "backend/tests/test_finalize_release_receipt.py",
+        "scripts/review_evidence.py",
+        "backend/tests/test_review_evidence.py",
+        "docs/RELEASING.md",
+        "docs/RELEASE-CHECKLIST.md",
+    }
+)
+HIVE_REL_002_FORBIDDEN_PREFIXES = (
+    "docs/project-brain/",
+    "migrations/",
+    ".engineering/gef/",
+    "release-assets/",
+    "review-bundles/",
+    "tmp/",
+    "node_modules/",
+    ".git/",
+)
+
 RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS = frozenset(
     {
         "VERSION",
@@ -2373,6 +2398,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO024P_G1_C4_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
         HIVE_REL_001_WORK_ORDER,
+        HIVE_REL_002_WORK_ORDER,
     }
 )
 WO024_G1_ALLOWED_PATHS = frozenset(
@@ -2706,7 +2732,7 @@ def require_supported_work_order(work_order: str) -> None:
             + work_order
         )
     if HIVE_REL_WORK_ORDER_IDENTIFIER.fullmatch(work_order):
-        if work_order == HIVE_REL_001_WORK_ORDER:
+        if work_order in {HIVE_REL_001_WORK_ORDER, HIVE_REL_002_WORK_ORDER}:
             return
         raise ValueError(
             "unsupported release-engineering work order; explicit governance "
@@ -2879,6 +2905,51 @@ def require_hive_rel_001_scope(
     if forbidden:
         raise ValueError(
             f"{HIVE_REL_001_WORK_ORDER} cannot change immutable or local-only paths: "
+            + ", ".join(forbidden)
+        )
+
+
+def require_hive_rel_002_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+) -> None:
+    """Bound the post-merge release-publisher increment to release operations only."""
+
+    if work_order != HIVE_REL_002_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{HIVE_REL_002_WORK_ORDER} requires the protected main base branch")
+    if base_sha != HIVE_REL_002_BASE_SHA:
+        raise ValueError(
+            f"{HIVE_REL_002_WORK_ORDER} requires exact base {HIVE_REL_002_BASE_SHA}, "
+            f"observed {base_sha}"
+        )
+    if authorized_base_sha != HIVE_REL_002_BASE_SHA:
+        raise ValueError(
+            f"{HIVE_REL_002_WORK_ORDER} requires the exact authorized-base marker "
+            f"{HIVE_REL_002_BASE_SHA}"
+        )
+    if not paths:
+        raise ValueError(f"{HIVE_REL_002_WORK_ORDER} requires a non-empty change set")
+    unique_paths = set(paths)
+    unauthorized = sorted(unique_paths - HIVE_REL_002_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{HIVE_REL_002_WORK_ORDER} changes paths outside the bounded publisher scope: "
+            + ", ".join(unauthorized)
+        )
+    forbidden = sorted(
+        path
+        for path in unique_paths
+        if path.startswith(HIVE_REL_002_FORBIDDEN_PREFIXES)
+    )
+    if forbidden:
+        raise ValueError(
+            f"{HIVE_REL_002_WORK_ORDER} cannot change canonical or local-only paths: "
             + ", ".join(forbidden)
         )
 
@@ -15215,6 +15286,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
     )
     require_hive_rel_001_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_hive_rel_002_scope(
         work_order,
         base_sha,
         paths,
