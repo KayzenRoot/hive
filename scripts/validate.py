@@ -68,7 +68,7 @@ def command_steps() -> list[Step]:
         ),
         Step(
             "ruff format",
-            [python, "-m", "ruff", "format", "--diff", "backend", "scripts", "migrations"],
+            [python, "-m", "ruff", "format", "--check", "backend", "scripts", "migrations"],
             bucket="lint",
         ),
         Step(
