@@ -1,7 +1,7 @@
 # HIVE V2 — Shared Runtime & Evidence Conventions
 
 ## Status
-PLANNING CANDIDATE. Closes transversal gaps that otherwise create incompatible vocabularies across releases.
+ADOPTED FOR HIVE 1.x PLANNING. The subset below is mandatory for 1.1 and subsequent 1.x release specifications unless superseded by an accepted ADR. Closes transversal gaps that otherwise create incompatible vocabularies across releases.
 
 ## Objective
 One vocabulary for contracts, risk, cache, configuration, benchmark evidence, time, idempotency and degraded capability.
@@ -69,3 +69,9 @@ Each release records dependency on prior stable capabilities and rollback classi
 
 ## Stop condition
 No release-specific spec may invent a conflicting risk/cache/evidence/time/config vocabulary after this convention is frozen.
+
+
+## 1.1 mandatory subset
+For Decision Fabric 1.1 the following conventions are FROZEN planning dependencies: SC-01 contract naming, SC-02 risk, SC-03 cache taxonomy, SC-04 configuration, SC-05 time, SC-07 feature flags, SC-08 degraded capability, SC-09 benchmark corpus, SC-10 statistical evidence, SC-11 evidence identity, SC-13 event/backpressure, SC-15 API/MCP compatibility, SC-16 platform parity and SC-17 release rollback.
+
+SC-06, SC-12 and SC-14 remain adopted shared conventions and become directly binding whenever a 1.1 work order introduces durable operations, retention behavior or database-growth impact.
