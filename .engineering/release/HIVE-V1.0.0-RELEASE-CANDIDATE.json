@@ -43,7 +43,12 @@
   },
   "dependency_security": {
     "source": "GitHub Dependabot open alerts collected 2026-09-18",
-    "open_alerts_before": { "critical": 0, "high": 16, "moderate": 11, "low": 8 },
+    "open_alerts_before": {
+      "critical": 0,
+      "high": 16,
+      "moderate": 11,
+      "low": 8
+    },
     "remediated_in_candidate": {
       "critical": 0,
       "high": 16,
@@ -66,7 +71,12 @@
     "runtime_high_critical_remaining": false,
     "release_gate": "PASS",
     "triage_receipt": ".engineering/release/HIVE-V1.0.0-SECURITY-TRIAGE.json",
-    "note": "Historical V0.1 product defect counts (HIGH/CRITICAL 0/0) cover product defects and remain distinct from dependency advisories."
+    "note": "Historical V0.1 product defect counts (HIGH/CRITICAL 0/0) cover product defects and remain distinct from dependency advisories.",
+    "triage_schema_version": 2,
+    "provenance": {
+      "inventory_source_head": "3d36990316f21b9b31d513eae6a7868f7d284852",
+      "candidate_state_binding": "SHA-256 hashes of requirements.txt, requirements-dev.txt and dashboard/package-lock.json plus parsed remediated package versions"
+    }
   },
   "rollback": {
     "previous_release": "v0.0.1-bootstrap",
@@ -85,7 +95,11 @@
     "changelog_heading": "## [1.0.0]",
     "verifier": "scripts/verify_release_metadata.py",
     "release_workflow": ".github/workflows/release.yml",
-    "required_gates": ["Validate", "Integration health", "Review Evidence"],
+    "required_gates": [
+      "Validate",
+      "Integration health",
+      "Review Evidence"
+    ],
     "ruleset": 21934284,
     "auto_merge": "UNARMED"
   }
