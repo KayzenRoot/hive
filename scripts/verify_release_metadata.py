@@ -114,7 +114,12 @@ def verify_security_triage(
     if not isinstance(inventory_head, str) or LOWER_HEX_SHA40.fullmatch(inventory_head) is None:
         failures.append("security triage inventory_source_head must be a lowercase 40-hex SHA")
 
-    require_equal("security triage release_version", triage.get("release_version"), version, failures)
+    require_equal(
+        "security triage release_version",
+        triage.get("release_version"),
+        version,
+        failures,
+    )
     if triage.get("release_gate") != "PASS":
         failures.append("security triage release_gate must be PASS")
     if triage.get("critical_high_applicable_open") != 0:
@@ -138,7 +143,10 @@ def verify_security_triage(
             failures.append(f"security triage is missing candidate state for {relative}")
             continue
         recorded_hash = entry.get("sha256")
-        if not isinstance(recorded_hash, str) or LOWER_HEX_SHA256.fullmatch(recorded_hash) is None:
+        if (
+            not isinstance(recorded_hash, str)
+            or LOWER_HEX_SHA256.fullmatch(recorded_hash) is None
+        ):
             failures.append(f"security triage {relative} sha256 must be lowercase 64-hex")
             continue
         observed_hash = sha256_file(root / relative, failures)
