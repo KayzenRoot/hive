@@ -87,10 +87,11 @@ SUPERSEDED_BY_SHARED_PRIMITIVE = semantics retained through a more general appro
 
 | Capability | State | Destination |
 |---|---|---|
-| Feature Verification Contract Registry / FTI | MAPPED | spec 34 |
+| FVCR — Feature Verification Contract Registry | MAPPED | spec 34; stable id corrected to avoid collision |
 | FIM — Feature Impact Map | MAPPED | spec 34 |
 | AITS — Adaptive Impact Test Selector | MAPPED | spec 34 |
 | PVR — Proof Validity Reuse | EXPERIMENT | spec 34 shadow-first |
+| FTI — Flaky Test Intelligence | MAPPED | Test Intelligence; legacy stable meaning |
 | Shadow full-suite verification | MAPPED | spec 34 |
 | Flake intelligence | MAPPED | spec 34 |
 | Scheduling intelligence | MAPPED | spec 34 |
