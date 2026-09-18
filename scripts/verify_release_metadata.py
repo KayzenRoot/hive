@@ -192,9 +192,7 @@ def verify_security_triage(
         if dependency_security.get("release_gate") != "PASS":
             failures.append("release candidate dependency security release_gate must be PASS")
         if dependency_security.get("runtime_high_critical_remaining") is not False:
-            failures.append(
-                "release candidate runtime_high_critical_remaining must be false"
-            )
+            failures.append("release candidate runtime_high_critical_remaining must be false")
         remaining = dependency_security.get("remaining_open")
         if not isinstance(remaining, dict):
             failures.append("release candidate remaining_open must be an object")
@@ -207,9 +205,7 @@ def verify_security_triage(
         if not isinstance(provenance, dict):
             failures.append("release candidate dependency security provenance must be an object")
         elif provenance.get("inventory_source_head") != inventory_head:
-            failures.append(
-                "release candidate inventory_source_head must match the triage receipt"
-            )
+            failures.append("release candidate inventory_source_head must match the triage receipt")
 
     if triage_rel.as_posix() not in release_notes:
         failures.append(
