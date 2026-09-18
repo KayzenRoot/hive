@@ -55,12 +55,7 @@ def command_steps() -> list[Step]:
             bucket="build",
         ),
         Step("secret scan", [python, "scripts/check_secrets.py"], bucket="lint"),
-        Step("generated maps", [python, "scripts/generate_maps.py"], bucket="lint"),
-        Step(
-            "generated map diff",
-            ["git", "diff", "--", "docs/atlas/code-atlas.md", "docs/atlas/test-map.md"],
-            bucket="lint",
-        ),
+        Step("generated maps", [python, "scripts/generate_maps.py", "--check"], bucket="lint"),
         Step(
             "adaptive token budget benchmark",
             [python, "scripts/adaptive_token_budget_benchmark.py"],
@@ -73,7 +68,7 @@ def command_steps() -> list[Step]:
         ),
         Step(
             "ruff format",
-            [python, "-m", "ruff", "format", "--diff", "backend", "scripts", "migrations"],
+            [python, "-m", "ruff", "format", "--check", "backend", "scripts", "migrations"],
             bucket="lint",
         ),
         Step(
