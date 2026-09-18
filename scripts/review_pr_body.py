@@ -31,6 +31,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-023-P-G1-C1": "3ca2109175b7c6842c6578c237ff798d5ce8916f",
     "WO-024-G1": "44c61e999c89a6b6ba6c28377cea415cad3d1cef",
     "WO-025-G1": "a53b5b9fcf55c32a5696180fb1b1ef80ccd1edcf",
+    "WO-025-G2": "c3a00ab34ecee31fc4c09ffac3ebe5ac7a709f3d",
 }
 
 
@@ -73,6 +74,7 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-024",
         "WO-024-P",
         "WO-025-G1",
+        "WO-025-G2",
         "WO-025",
     } and not (EXACT_SHA.fullmatch(head_sha)):
         raise ValueError(
@@ -4197,6 +4199,108 @@ WO-015 READY FOR SOL AUDIT
 """
 
 
+def _render_wo025_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Promoção de planejamento pós-1.0
+
+Esta PR promove somente documentação de planejamento pós-1.0 para o Project
+Brain canônico. Não implementa produto, não altera checkpoint, não cria
+migration, não altera dependências, workflows, ruleset, releases, VERSION ou tag.
+
+## 2. Superfície permitida
+
+Somente documentos de planejamento pós-1.0: `docs/project-brain/<NN>-*.md` na
+fronteira de planejamento registrada e `docs/project-brain/work-orders/*.md`.
+Manifesto canônico, checkpoint, documentos canônicos core, código de produto,
+dashboard, migrações, dependências, workflows, releases e planejamento fora da
+fronteira permanecem rejeitados pelo contrato.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Sem implementação de produto, sem promoção de checkpoint, sem merge e com
+auto-merge desarmado. A PR permanece aberta para auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-025 READY FOR SOL AUDIT
+"""
+
+
+def _render_wo025_g2_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Incremento de governança
+
+Esta PR autoriza a promoção de planejamento WO-025 como work order atual e
+adiciona renderers dedicados de corpo de PR para WO-025 e WO-025-G2, impedindo
+que qualquer um dos dois receba texto obsoleto de outro incremento.
+
+## 2. Escopo
+
+Somente `scripts/review_evidence.py`, `scripts/review_pr_body.py` e
+`backend/tests/test_review_evidence.py`; mapas gerados deterministicamente
+quando o gerador exigir. Nenhuma alteração de produto, Project Brain canônico,
+checkpoint, Decisions Ledger, migration, dependência, workflow, ruleset, release,
+VERSION ou tag.
+
+## 3. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+Sem implementação de produto, sem promoção de checkpoint, sem merge e com
+auto-merge desarmado. A PR permanece aberta para auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-025-G2 READY FOR SOL AUDIT
+"""
+
+
 def _require_renderable_work_order(work_order: str) -> None:
     """Fail closed before renderer selection for unsupported future work orders."""
 
@@ -4903,6 +5007,32 @@ def render_body(
         )
     if work_order == "WO-016-P":
         return _render_wo016p_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-025":
+        return _render_wo025_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-025-G2":
+        return _render_wo025_g2_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,
