@@ -6,7 +6,7 @@
   "tag": "v1.0.0",
   "work_order": "HIVE-REL-002",
   "issue": 115,
-  "authorized_parent": "e7d661a7547fa12c5410c4e3334286f3bdc6686c",
+  "authorized_parent": "0f86be943f13e7058419c4ff282cf801b9ad46a6",
   "required_post_merge_ci": {
     "workflow": "CI",
     "event": "push",
@@ -19,5 +19,10 @@
     "source_distribution_only": true,
     "final_receipt_asset": "hive-v1.0.0.release-receipt.json"
   },
-  "note": "This request is non-circular: the eventual squash release-publisher commit must have authorized_parent as its direct parent. The publisher also requires that commit to remain current protected main after successful push CI."
+  "note": "This request is non-circular: the eventual squash release-publisher commit must have authorized_parent as its direct parent. The publisher also requires that commit to remain current protected main after successful push CI.",
+  "correction": {
+    "work_order": "HIVE-REL-003",
+    "issue": 120,
+    "reason": "Release Publisher run 35326992019 failed before publication because it omitted the canonical CI .hive-projects workspace preparation step."
+  }
 }
