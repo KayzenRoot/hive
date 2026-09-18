@@ -473,3 +473,46 @@ def test_no_closure_function_shadows_a_module_helper_it_calls() -> None:
             pending.extend(ast.iter_child_nodes(current))
         shadowed.extend(sorted(bound & called & helpers))
     assert shadowed == []
+
+
+def test_closure_scope_applies_wo024_scope_only_to_the_work_orders_that_produced_it() -> None:
+    """The closure suite runs as regression evidence for later work orders."""
+
+    planning = [
+        "docs/project-brain/17-POST-1.0-EVOLUTION-ROADMAP.md",
+        "docs/project-brain/49-DECISION-FABRIC-1.1-PLANNING-FREEZE.md",
+        "docs/project-brain/work-orders/WO-1.1-01-DECISION-CONTRACT-DETERMINISTIC-RESOLVER.md",
+    ]
+    assert closure.closure_scope_check(planning, "WO-025") == []
+    assert closure.closure_scope_check(planning, "WO-025-G1") == []
+    assert closure.closure_scope_check(planning, "WO-1.1-01") == []
+
+    product = ["backend/app/retrieval.py"]
+    assert closure.closure_scope_check(product, "WO-025") == []
+    assert closure.closure_scope_check(product, "WO-024") == []
+    assert closure.closure_scope_check(product, "WO-024-P") == []
+    assert closure.closure_scope_check(product, None) == []
+
+
+def test_closure_scope_keeps_the_historical_fail_closed_paths() -> None:
+    """WO-024-family runs, unresolved runs and canonical paths keep failing closed."""
+
+    import scripts.review_evidence as governance
+
+    canonical = ["docs/project-brain/13-CHECKPOINT.md"]
+    planning = ["docs/project-brain/17-POST-1.0-EVOLUTION-ROADMAP.md"]
+    for work_order in (None, "WO-024", "WO-024-P"):
+        assert closure.closure_scope_check(canonical, work_order) == canonical, work_order
+        assert closure.closure_scope_check(planning, work_order) == planning, work_order
+    assert frozenset({"WO-024", "WO-024-P"}) == governance.CLOSURE_STRICT_SCOPE_WORK_ORDERS
+    assert governance.closure_sprint_scope(["backend/app/retrieval.py"]) == [], (
+        "the WO-024 product scope itself is unchanged"
+    )
+
+
+def test_closure_scope_still_allows_the_promotion_pair() -> None:
+    import scripts.review_evidence as governance
+
+    pair = sorted(governance.WO024P_PROMOTION_ALLOWED_PATHS)
+    assert closure.closure_scope_check(pair, "WO-024-P") == []
+    assert closure.closure_scope_check(pair, "WO-024") == []
