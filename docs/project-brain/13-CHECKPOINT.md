@@ -16,6 +16,7 @@ Create a local-first autonomous context, memory, retrieval, token optimization a
 See `03-SCOPE.md`.
 
 ## COMPLETED
+- Open-source licensing transition authorized under HIVE-ADR-020: the current HIVE source distribution is Apache License 2.0, with README, contribution guidance and current changelog aligned while historical release facts remain preserved.
 - Product objective defined.
 - V0.1 scope frozen at architecture/source level.
 - Core architecture defined.
