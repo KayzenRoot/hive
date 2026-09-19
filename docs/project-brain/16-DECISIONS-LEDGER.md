@@ -75,13 +75,3 @@ HIVE does not replace Git or store redundant full repository snapshots by defaul
 ## HIVE-ADR-019 — Single-account GitHub stage-gated governance
 **Status:** Accepted  
 The sole operational GitHub identity is `KayzenRoot`. The prior requirement that Sol review from a second independent GitHub account (`kayzenweb3`) is superseded. Executor and Sol remain distinct logical roles: the executor stops with required checks green and native auto-merge disabled; Sol audits the exact HEAD and then provides merge authorization. When the PR is clean and mergeable with every required check green, Sol directly issues an exact-head SQUASH merge through GitHub. Native user-owned SQUASH auto-merge may be armed only when the only legitimate remaining blockers are required checks still pending; it is never required for a clean PR. The direct merge request must carry the expected audited HEAD, and PR state, Ready status, safe base, mergeability, ruleset baseline, required checks, zero unresolved threads and SQUASH method are rechecked immediately before action; moved HEAD, failed or missing checks, conflicts, draft state, ruleset mismatch or incomplete evidence fail closed. Validate, Integration health and Review Evidence, plus post-merge push CI on the exact new `main` SHA, remain mandatory. Protect main keeps deletion protection, non-fast-forward, pull-request requirement, thread resolution, squash-only merge and zero bypass. Native required approving review count is 0; last-push approval and extra unattributed-change approval are disabled because they cannot be satisfied by a second independent GitHub identity. Native GitHub Approve is not the quality gate. This is an explicit usability tradeoff accepted by the user.
-
-## HIVE-ADR-020 — Apache License 2.0 open-source distribution
-**Status:** Accepted  
-Beginning with the audited WO-026 licensing transition, the current HIVE source
-distribution is licensed under the OSI-approved Apache License 2.0. The project
-is open source under those terms; intentionally submitted contributions are
-handled under Apache-2.0 Section 5 unless explicitly stated otherwise.
-Third-party dependencies and components retain their own licenses. Historical
-release records are not rewritten, and this decision does not weaken HIVE's
-security, review, provenance or protected-main governance.
