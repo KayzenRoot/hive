@@ -145,7 +145,10 @@ distribute HIVE subject to the license terms. Third-party components and
 dependencies retain their own licenses.
 
 Contributions are welcome through HIVE's governed branch/PR workflow; see
-[CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
+[CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. The
+[Claude for Open Source application evidence](docs/CLAUDE-FOR-OSS-APPLICATION.md)
+records HIVE's conservative eligibility and impact evidence without claiming
+unmeasured adoption.
 
 ## Security, support, contributions and license
 
