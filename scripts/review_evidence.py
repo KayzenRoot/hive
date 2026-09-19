@@ -2257,6 +2257,18 @@ WO026_ALLOWED_PATHS = frozenset(
         "scripts/review_evidence.py",
     }
 )
+# WO-027: Claude for Open Source application readiness. Documentation-only
+# reviewer navigation plus bounded self-registration in the evidence harness.
+WO027_WORK_ORDER = "WO-027"
+WO027_BASE_SHA = "6c184906c0a26dd1c2e5a70db25caf6abb5283f3"
+WO027_ALLOWED_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/CLAUDE-FOR-OSS-APPLICATION.md",
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    }
+)
 DEPENDENCY_MANIFEST_PATHS = frozenset(
     {
         "dashboard/package-lock.json",
@@ -2491,6 +2503,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO025_G2_WORK_ORDER,
         WO025_WORK_ORDER,
         WO026_WORK_ORDER,
+        WO027_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
         HIVE_REL_001_WORK_ORDER,
         HIVE_REL_002_WORK_ORDER,
@@ -2873,6 +2886,7 @@ def require_supported_work_order(work_order: str) -> None:
         WO025_G2_WORK_ORDER,
         WO025_WORK_ORDER,
         WO026_WORK_ORDER,
+        WO027_WORK_ORDER,
         WO016_G1_WORK_ORDER,
         WO016_WORK_ORDER,
         WO017_G1_WORK_ORDER,
@@ -8842,7 +8856,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -8934,7 +8948,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9107,7 +9121,7 @@ def verify_wo023_g1_governance_contract(
     if work_order != WO023_G1_WORK_ORDER:
         return None
     require_wo023_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10032,7 +10046,7 @@ def verify_wo023p_g1_c1_governance_contract(
             f"{WO023P_G1_C1_WORK_ORDER} requires the authorized-base marker parser to cover "
             "WO-023-P and the corrective work order"
         )
-    for rejected in ("WO-027", "WO-027-P", "WO-999-P"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10111,7 +10125,7 @@ def verify_wo024p_g1_c1_governance_contract(
         raise ValueError(
             f"{WO024P_G1_C1_WORK_ORDER} requires the active WO-024 promotion pair to be unchanged"
         )
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10207,7 +10221,7 @@ def verify_wo024p_g1_c2_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10376,7 +10390,7 @@ def verify_wo024p_g1_c3_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10549,7 +10563,7 @@ def verify_wo024p_g1_c4_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10740,7 +10754,7 @@ def verify_wo025_g1_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10788,7 +10802,7 @@ def verify_wo025_g1_governance_contract(
         "closure_sprint_historical_scope_work_orders=WO-024,WO-024-P; "
         "closure_product_allowlist_widened=False; project_brain_globally_allowlisted=False; "
         "integration_health_disabled=False; review_evidence_optional=False; "
-        "wo025_planning_only_registered=True; unknown_WO-027=REJECTED; "
+        "wo025_planning_only_registered=True; unknown_WO-028=REJECTED; "
         f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
         "historical_promotion_pair_unchanged=True; authorized_base_marker_supported=True; "
         f"v01_closure_sprint_evidence=PASS; "
@@ -10910,6 +10924,48 @@ def require_wo026_scope(
         if authorized_base_sha != base_sha:
             raise ValueError(
                 f"{WO026_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+
+
+def require_wo027_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
+) -> None:
+    """Bound Claude OSS application readiness to the authorized base and exact four-file surface."""
+
+    if work_order != WO027_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO027_WORK_ORDER} requires the protected main base branch")
+    if base_sha != WO027_BASE_SHA:
+        raise ValueError(
+            f"{WO027_WORK_ORDER} requires exact base {WO027_BASE_SHA}, observed {base_sha}"
+        )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and current_main != WO027_BASE_SHA:
+            raise ValueError(
+                f"{WO027_WORK_ORDER} is stale: protected main is {current_main}, "
+                f"authorized base is {WO027_BASE_SHA}"
+            )
+    if len(paths) != len(WO027_ALLOWED_PATHS) or set(paths) != WO027_ALLOWED_PATHS:
+        raise ValueError(
+            f"{WO027_WORK_ORDER} requires exactly the bounded application-readiness surface"
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO027_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError(f"{WO027_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO027_WORK_ORDER} authorized-base marker must match the pull request base SHA"
             )
 
 
@@ -11041,7 +11097,7 @@ def verify_wo025_g2_governance_contract(
     # WO-025 becomes an authorized current planning-promotion work order in this increment, while
     # unknown later identifiers stay fail-closed.
     require_current_work_order_authorization(WO025_WORK_ORDER)
-    for rejected in ("WO-027", "WO-027-P", "WO-999-P"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11086,7 +11142,7 @@ def verify_wo025_g2_governance_contract(
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         "dependency_changed=False; workflow_changed=False; release_changed=False; "
         "wo025_current_authorized=True; wo025_planning_scope_preserved=True; "
-        "unknown_WO-027_WO-027-P_WO-999-P=REJECTED; "
+        "unknown_WO-028_WO-028-P_WO-999-P=REJECTED; "
         "wo025_renderer=dedicated_planning_only; wo025_g2_renderer=dedicated_governance_only; "
         "stale_semantic_retrieval_fallback_reachable_for_WO-025=False; "
         f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
@@ -15101,7 +15157,7 @@ def verify_wo024_g1_governance_contract(
         ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
         raise ValueError(f"{WO024_G1_WORK_ORDER} requires the active WO-024 promotion pair")
-    for rejected in ("WO-027", "WO-027-P", "WO-999"):
+    for rejected in ("WO-028", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -15938,6 +15994,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
     )
     require_wo026_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
+    require_wo027_scope(
         work_order,
         base_sha,
         paths,
@@ -16874,6 +16938,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
     base = cast(dict[str, Any], manifest["base"])
     changed_files = cast(dict[str, Any], manifest["changed_files"])
     require_wo026_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, base.get("branch", "main")),
+        enforce_current_main=False,
+        enforce_authorized_base=False,
+    )
+    require_wo027_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
