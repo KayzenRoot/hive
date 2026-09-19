@@ -12,6 +12,9 @@ Keep a Changelog conventions and published releases use Semantic Versioning; see
   Reserved terms to the OSI-approved Apache License 2.0, with README and
   contribution guidance aligned for open-source participation. Historical
   release facts remain unchanged.
+- Corrected the public README status to identify v1.0.0 as the already-published
+  stable release while preserving the deterministic pre-publication release
+  metadata marker and historical release notes.
 
 ## [1.0.0] - 2026-09-17
 
