@@ -8842,7 +8842,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -8934,7 +8934,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9107,7 +9107,7 @@ def verify_wo023_g1_governance_contract(
     if work_order != WO023_G1_WORK_ORDER:
         return None
     require_wo023_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10032,7 +10032,7 @@ def verify_wo023p_g1_c1_governance_contract(
             f"{WO023P_G1_C1_WORK_ORDER} requires the authorized-base marker parser to cover "
             "WO-023-P and the corrective work order"
         )
-    for rejected in ("WO-026", "WO-026-P", "WO-999-P"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10111,7 +10111,7 @@ def verify_wo024p_g1_c1_governance_contract(
         raise ValueError(
             f"{WO024P_G1_C1_WORK_ORDER} requires the active WO-024 promotion pair to be unchanged"
         )
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10207,7 +10207,7 @@ def verify_wo024p_g1_c2_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10376,7 +10376,7 @@ def verify_wo024p_g1_c3_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10549,7 +10549,7 @@ def verify_wo024p_g1_c4_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10740,7 +10740,7 @@ def verify_wo025_g1_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10788,7 +10788,7 @@ def verify_wo025_g1_governance_contract(
         "closure_sprint_historical_scope_work_orders=WO-024,WO-024-P; "
         "closure_product_allowlist_widened=False; project_brain_globally_allowlisted=False; "
         "integration_health_disabled=False; review_evidence_optional=False; "
-        "wo025_planning_only_registered=True; unknown_WO-026=REJECTED; "
+        "wo025_planning_only_registered=True; unknown_WO-027=REJECTED; "
         f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
         "historical_promotion_pair_unchanged=True; authorized_base_marker_supported=True; "
         f"v01_closure_sprint_evidence=PASS; "
@@ -11043,7 +11043,7 @@ def verify_wo025_g2_governance_contract(
     # WO-025 becomes an authorized current planning-promotion work order in this increment, while
     # unknown later identifiers stay fail-closed.
     require_current_work_order_authorization(WO025_WORK_ORDER)
-    for rejected in ("WO-026", "WO-026-P", "WO-999-P"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11088,7 +11088,7 @@ def verify_wo025_g2_governance_contract(
         "project_brain_changed=False; checkpoint_changed=False; migration_changed=False; "
         "dependency_changed=False; workflow_changed=False; release_changed=False; "
         "wo025_current_authorized=True; wo025_planning_scope_preserved=True; "
-        "unknown_WO-026_WO-026-P_WO-999-P=REJECTED; "
+        "unknown_WO-027_WO-027-P_WO-999-P=REJECTED; "
         "wo025_renderer=dedicated_planning_only; wo025_g2_renderer=dedicated_governance_only; "
         "stale_semantic_retrieval_fallback_reachable_for_WO-025=False; "
         f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
@@ -15103,7 +15103,7 @@ def verify_wo024_g1_governance_contract(
         ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
         raise ValueError(f"{WO024_G1_WORK_ORDER} requires the active WO-024 promotion pair")
-    for rejected in ("WO-026", "WO-026-P", "WO-999"):
+    for rejected in ("WO-027", "WO-027-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
