@@ -604,9 +604,10 @@ def test_wo026_registration_is_exact_and_fail_closed() -> None:
         f"<!-- HIVE-WORK-ORDER: {review_evidence.WO026_WORK_ORDER} -->\n"
         f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->\n"
     )
-    assert review_evidence.authorized_base_marker_sha(
-        review_evidence.WO026_WORK_ORDER, body
-    ) == base_sha
+    assert (
+        review_evidence.authorized_base_marker_sha(review_evidence.WO026_WORK_ORDER, body)
+        == base_sha
+    )
 
     with pytest.raises(ValueError, match="exact base"):
         review_evidence.require_wo026_scope(
