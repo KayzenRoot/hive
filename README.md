@@ -7,17 +7,18 @@ execution platform for large LLM-assisted software projects.
 [![Release](https://img.shields.io/github/v/release/KayzenRoot/hive?label=release&sort=semver)](https://github.com/KayzenRoot/hive/releases)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![Docker Compose](https://img.shields.io/badge/deployment-docker%20compose-blue)
-![All Rights Reserved](https://img.shields.io/badge/license-All%20Rights%20Reserved-red)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 ## Status
 
-**HIVE v1.0.0 stable release candidate.** This repository is release-ready only
-after the professionalization PR is accepted, the exact-head audit passes and
-the `v1.0.0` GitHub Release is published from the accepted commit. Until that tag
-exists, v1.0.0 is not a published release.
+**HIVE v1.0.0 is the current published stable release.** The stable
+[GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.0) was
+published on September 18, 2026 with the versioned source archive, SHA-256
+checksum, machine-readable manifest and release-review evidence.
 
-Target stable release: v1.0.0. See [CHANGELOG.md](CHANGELOG.md) and
-[docs/releases/v1.0.0.md](docs/releases/v1.0.0.md).
+Target stable release: v1.0.0 (fulfilled by the published stable release). See
+[CHANGELOG.md](CHANGELOG.md) and the preserved pre-publication
+[release notes](docs/releases/v1.0.0.md).
 
 HIVE v1.0.0 is the stable public distribution of the product baseline accepted
 internally as HIVE V0.1 — Foundation. Historical V0.1 and bootstrap evidence
@@ -136,15 +137,25 @@ The release process is documented in [docs/RELEASING.md](docs/RELEASING.md),
 [docs/UPGRADING.md](docs/UPGRADING.md). Source releases are the only supported
 distribution channel in this increment.
 
-## Security, support, contributions and rights
+## Open source
+
+HIVE is open source software licensed under the [Apache License 2.0](LICENSE),
+an OSI-approved permissive license. You may use, reproduce, modify and
+distribute HIVE subject to the license terms. Third-party components and
+dependencies retain their own licenses.
+
+Contributions are welcome through HIVE's governed branch/PR workflow; see
+[CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
+
+## Security, support, contributions and license
 
 - [SECURITY.md](SECURITY.md) — supported line, private reporting, severity
   expectations.
 - [SUPPORT.md](SUPPORT.md) — support boundary and required reproduction evidence.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branch/PR and exact-head review workflow.
 - [AGENTS.md](AGENTS.md) — agent guidance and release/maintenance rules.
-- [LICENSE](LICENSE) — All Rights Reserved. This is not an open-source license;
-  no copy, modification or distribution rights are granted.
+- [LICENSE](LICENSE) — Apache License 2.0, the license governing HIVE's
+  open-source distribution and contributions.
 
 ## Canonical sources
 

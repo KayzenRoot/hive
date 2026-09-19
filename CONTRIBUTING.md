@@ -4,12 +4,15 @@ HIVE is maintained as a professional, auditable project. Read
 [AGENTS.md](AGENTS.md) and the canonical sources in `docs/project-brain/` before
 changing code.
 
-## Rights
+## License and contribution terms
 
-HIVE is All Rights Reserved; see [LICENSE](LICENSE). This is not an
-open-source project, and no contribution license or distribution right is
-granted by opening issues, pull requests or discussions. Contributions are
-accepted only on the repository owner's terms.
+HIVE is open source under the [Apache License 2.0](LICENSE). Unless explicitly
+stated otherwise, a contribution intentionally submitted for inclusion in HIVE
+is provided under the Apache-2.0 terms described in Section 5 of the license.
+
+Only submit code, documentation or other material that you have the right to
+license for inclusion in the project. Third-party components retain their own
+licenses and must remain compatible with HIVE's distribution obligations.
 
 ## Workflow
 
