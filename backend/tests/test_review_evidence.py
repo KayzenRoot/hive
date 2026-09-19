@@ -1746,7 +1746,7 @@ def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
         assert marker in product
     assert "WO-023 READY FOR SOL AUDIT" in product
     assert "checkpoint" in product.casefold()
-    for unsupported in ("WO-025-P", "WO-026", "WO-999"):
+    for unsupported in ("WO-025-P", "WO-027", "WO-999"):
         with pytest.raises(ValueError):
             render_body(work_order=unsupported, **common)
 
@@ -2649,7 +2649,7 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-025-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-026")
+        require_supported_work_order("WO-027")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -9531,7 +9531,7 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-025-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-026")
+        require_supported_work_order("WO-027")
 
     monkeypatch.setattr(
         review_evidence,
@@ -10375,7 +10375,7 @@ def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
         review_evidence.require_current_work_order_authorization(
             review_evidence.WO023P_G1_C1_WORK_ORDER
         )
-    for rejected in ("WO-026", "WO-025-P", "WO-999-P"):
+    for rejected in ("WO-027", "WO-025-P", "WO-999-P"):
         with pytest.raises(ValueError, match="unsupported|historical"):
             review_evidence.require_current_work_order_authorization(rejected)
     for historical in (
@@ -11147,8 +11147,8 @@ def test_wo024p_g1_c1_is_the_current_work_order_and_stays_bounded() -> None:
         review_evidence.WO023P_G1_C1_WORK_ORDER,
         review_evidence.WO023P_WORK_ORDER,
         review_evidence.WO023P_G1_WORK_ORDER,
-        "WO-026",
-        "WO-026-P",
+        "WO-027",
+        "WO-027-P",
         "WO-999",
     ):
         with pytest.raises(ValueError):
@@ -12129,7 +12129,7 @@ def test_wo025_is_registered_as_planning_only_promotion() -> None:
 def test_unknown_future_work_orders_stay_fail_closed() -> None:
     # WO-025 became current-authorized in WO-025-G2; the unknown frontier stays rejected.
     review_evidence.require_supported_work_order(review_evidence.WO025_WORK_ORDER)
-    for unknown in ("WO-026", "WO-026-P", "WO-999-P"):
+    for unknown in ("WO-027", "WO-027-P", "WO-999-P"):
         with pytest.raises(ValueError):
             review_evidence.require_current_work_order_authorization(unknown)
 
@@ -12214,7 +12214,7 @@ def test_wo025_g2_scope_is_bounded_and_base_bound() -> None:
             )
 
 
-def test_wo025_is_now_current_authorized_and_wo026_stays_fail_closed(
+def test_wo025_is_now_current_authorized_and_wo027_stays_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """WO-025-G2 authorizes the planning promotion; the unknown frontier stays rejected."""
@@ -12227,7 +12227,7 @@ def test_wo025_is_now_current_authorized_and_wo026_stays_fail_closed(
         frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
         == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     )
-    for unknown in ("WO-026", "WO-026-P", "WO-999-P"):
+    for unknown in ("WO-027", "WO-027-P", "WO-999-P"):
         with pytest.raises(ValueError):
             review_evidence.require_current_work_order_authorization(unknown)
         with pytest.raises(ValueError):
@@ -12269,7 +12269,7 @@ def test_wo025_g2_governance_evidence_is_emitted(monkeypatch: pytest.MonkeyPatch
     assert evidence is not None
     assert "work_order=WO-025-G2" in evidence
     assert "wo025_current_authorized=True" in evidence
-    assert "unknown_WO-026_WO-026-P_WO-999-P=REJECTED" in evidence
+    assert "unknown_WO-027_WO-027-P_WO-999-P=REJECTED" in evidence
     assert "wo025_renderer=dedicated_planning_only" in evidence
     assert "stale_semantic_retrieval_fallback_reachable_for_WO-025=False" in evidence
     assert "historical_promotion_pair_unchanged=True" in evidence
