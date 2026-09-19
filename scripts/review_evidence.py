@@ -10906,9 +10906,7 @@ def require_wo026_scope(
         if authorized_base_sha is None:
             raise ValueError(f"{WO026_WORK_ORDER} requires exactly one authorized-base marker")
         if HEX_SHA.fullmatch(authorized_base_sha) is None:
-            raise ValueError(
-                f"{WO026_WORK_ORDER} authorized-base marker must be lowercase 40-hex"
-            )
+            raise ValueError(f"{WO026_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
         if authorized_base_sha != base_sha:
             raise ValueError(
                 f"{WO026_WORK_ORDER} authorized-base marker must match the pull request base SHA"
