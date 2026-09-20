@@ -12656,6 +12656,7 @@ def test_wo025_g3_self_hosting_scope_and_evidence(monkeypatch: pytest.MonkeyPatc
     assert "wo_1_1_01_pending_blocked=True" in evidence
     assert "wo_1_1_02_rejected=True" in evidence
     assert "near_miss_WO-11-01_WO-12-99_WO-22-01=REJECTED" in evidence
+    assert "unknown_WO-027-P_WO-028=REJECTED" in evidence
     assert "malformed_identifier=REJECTED" in evidence
     assert "empty_identifier=REJECTED" in evidence
     assert "wo_025_p_promotion_executed=False" in evidence

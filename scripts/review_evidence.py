@@ -11630,7 +11630,7 @@ def verify_wo025_g3_governance_contract(
         "dependency_changed=False; workflow_changed=False; release_changed=False; "
         "release_train_grammar=PASS; wo_1_1_01_parses=True; wo_1_1_01_registered=True; "
         "wo_1_1_01_pending_blocked=True; wo_1_1_02_rejected=True; "
-        "near_miss_WO-11-01_WO-12-99_WO-22-01=REJECTED; unknown_WO-026_WO-026-P=REJECTED; "
+        "near_miss_WO-11-01_WO-12-99_WO-22-01=REJECTED; unknown_WO-027-P_WO-028=REJECTED; "
         "malformed_identifier=REJECTED; empty_identifier=REJECTED; "
         "wo_025_p_registered=True; wo_025_p_current_authorized=True; "
         "wo_025_p_promotion_executed=False; "
