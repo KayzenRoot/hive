@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 SCRIPT_PATH = Path(__file__).parents[2] / "scripts" / "v01_closure_sprint.py"
 BACKUP_PATH = Path(__file__).parents[2] / "scripts" / "v01_backup_restore.py"
 
@@ -411,6 +413,163 @@ def test_checkpoint_current_fails_closed_on_malformed_or_stale_states() -> None:
         assert closure.documentation_currentness_entry("checkpoint")["status"] == "FAIL"
     finally:
         closure.document_text = original
+
+
+def checkpoint_with_controlled_sections(text: str, bodies: dict[str, str]) -> str:
+    """Rewrite named section bodies in the raw grammar, leaving every other byte alone."""
+
+    import scripts.review_evidence as governance
+
+    preamble, ordered, _current = governance._raw_checkpoint_structure(text, "base")
+    return preamble + "".join(
+        section.heading + bodies.get(section.name, section.body) for section in ordered
+    )
+
+
+def post_1_0_checkpoint(base: str) -> str:
+    """The exact post-WO-025-P release-train-authorized state derived from a closure checkpoint."""
+
+    import scripts.review_evidence as governance
+
+    newline = "\n"
+    return checkpoint_with_controlled_sections(
+        base,
+        {
+            "STATUS": f"{governance.EXPECTED_WO025P_STATUS}{newline}{newline}",
+            "IN PROGRESS": f"- {governance.EXPECTED_WO025P_IN_PROGRESS}{newline}{newline}",
+            "BLOCKERS": f"{governance.EXPECTED_WO025P_BLOCKERS}{newline}{newline}",
+            "NEXT STEP": f"{governance.EXPECTED_WO025P_NEXT_STEP}{newline}{newline}",
+            "PENDING": newline,
+        },
+    )
+
+
+def legitimate_checkpoint_families() -> dict[str, str]:
+    """The three checkpoint states Integration health has to recognize, and nothing else."""
+
+    active_checkpoint, closure_checkpoint = synthesized_checkpoint_pair()
+    return {
+        "pre WO-024-P active closure": active_checkpoint,
+        "final V0.1 closure": closure_checkpoint,
+        "post WO-025-P release train authorized": post_1_0_checkpoint(closure_checkpoint),
+    }
+
+
+def post_1_0_checkpoint_mutations() -> dict[str, str]:
+    """Narrower post-1.0 variants, including the status swap WO-025-G4 must keep rejecting."""
+
+    import scripts.review_evidence as governance
+
+    newline = "\n"
+    closure_checkpoint = legitimate_checkpoint_families()["final V0.1 closure"]
+    promoted = post_1_0_checkpoint(closure_checkpoint)
+    stale_next_step = promoted.replace(
+        governance.EXPECTED_WO025P_NEXT_STEP, governance.EXPECTED_WO024P_NEXT_STEP
+    )
+    stale_in_progress = promoted.replace(
+        governance.EXPECTED_WO025P_IN_PROGRESS, governance.EXPECTED_WO024P_IN_PROGRESS
+    )
+    stale_blockers = promoted.replace(
+        governance.EXPECTED_WO025P_BLOCKERS, governance.EXPECTED_WO024P_BLOCKERS
+    )
+    mutations = {
+        "status swap only": checkpoint_with_controlled_sections(
+            closure_checkpoint, {"STATUS": f"{governance.EXPECTED_WO025P_STATUS}{newline}{newline}"}
+        ),
+        "unknown status": promoted.replace(governance.EXPECTED_WO025P_STATUS, "SOMETHING ELSE"),
+        "near-miss status": promoted.replace(
+            governance.EXPECTED_WO025P_STATUS, f"{governance.EXPECTED_WO025P_STATUS} / partial"
+        ),
+        "stale NEXT STEP": stale_next_step,
+        "stale IN PROGRESS": stale_in_progress,
+        "stale BLOCKERS": stale_blockers,
+        "undue pending": promoted.replace("## PENDING\n\n", "## PENDING\n- leftover.\n\n"),
+        "missing canonical section": promoted.replace("## BLOCKERS\n", ""),
+    }
+    assert stale_next_step != promoted
+    assert stale_in_progress != promoted
+    assert stale_blockers != promoted
+    return mutations
+
+
+def working_tree_checkpoint_status() -> str:
+    import scripts.review_evidence as governance
+
+    sections = governance.checkpoint_sections(closure.document_text(CHECKPOINT_RELATIVE))
+    return governance.normalized_checkpoint_value(sections, "STATUS")
+
+
+def test_checkpoint_current_accepts_exactly_the_three_legitimate_families() -> None:
+    """WO-025-G4: a valid WO-025-P promotion must never be rejected for being post-1.0."""
+
+    original = closure.document_text
+    try:
+        for label, text in legitimate_checkpoint_families().items():
+            closure.document_text = (
+                lambda relative, value=text: value
+                if relative == CHECKPOINT_RELATIVE
+                else original(relative)
+            )
+            assert closure.checkpoint_current()[0] == "PASS", label
+            assert closure.documentation_currentness_entry("checkpoint")["status"] == "PASS", label
+    finally:
+        closure.document_text = original
+    # The working tree itself stays in a historical family: this increment does not promote.
+    import scripts.review_evidence as governance
+
+    status = working_tree_checkpoint_status()
+    assert status in {
+        governance.EXPECTED_WO024P_PREVIOUS_STATUS,
+        governance.EXPECTED_WO024P_STATUS,
+    }
+    assert status != governance.EXPECTED_WO025P_STATUS
+
+
+def test_checkpoint_current_fails_closed_on_narrower_post_1_0_states() -> None:
+    """No mutation of the promoted state may read as a legitimate checkpoint."""
+
+    original = closure.document_text
+    try:
+        for label, text in post_1_0_checkpoint_mutations().items():
+            closure.document_text = (
+                lambda relative, value=text: value
+                if relative == CHECKPOINT_RELATIVE
+                else original(relative)
+            )
+            assert closure.checkpoint_current()[0] == "FAIL", label
+            assert closure.documentation_currentness_entry("checkpoint")["status"] == "FAIL", label
+    finally:
+        closure.document_text = original
+
+
+def test_wo025p_promotion_contract_accepts_only_the_declared_successor() -> None:
+    """The strict promotion grammar holds for the closure state and rejects every mutation."""
+
+    import scripts.review_evidence as governance
+
+    families = legitimate_checkpoint_families()
+    closure_checkpoint = families["final V0.1 closure"]
+    promoted = families["post WO-025-P release train authorized"]
+    governance.require_wo025p_checkpoint_semantics(closure_checkpoint, promoted)
+    mutations = post_1_0_checkpoint_mutations()
+    rejected: list[str] = []
+    for label, text in mutations.items():
+        with pytest.raises(ValueError, match="WO-025-P"):
+            governance.require_wo025p_checkpoint_semantics(closure_checkpoint, text)
+        rejected.append(label)
+    assert len(rejected) == len(mutations)
+    # The active-closure checkpoint is not a valid promotion base.
+    with pytest.raises(ValueError, match="promotion base is not the V0.1 closure"):
+        governance.require_wo025p_checkpoint_semantics(
+            families["pre WO-024-P active closure"], promoted
+        )
+    # Drift in an uncontrolled section is rejected even when every controlled section is correct.
+    drifted = checkpoint_with_controlled_sections(
+        promoted, {"COMPLETED": "- historical entry rewritten after closure.\n\n"}
+    )
+    assert drifted != promoted
+    with pytest.raises(ValueError, match="changed unrelated checkpoint section: COMPLETED"):
+        governance.require_wo025p_checkpoint_semantics(closure_checkpoint, drifted)
 
 
 def test_backup_tables_cover_every_canonical_durable_table() -> None:

@@ -33,6 +33,7 @@ AUTHORIZED_BASE_BY_WORK_ORDER = {
     "WO-025-G1": "a53b5b9fcf55c32a5696180fb1b1ef80ccd1edcf",
     "WO-025-G2": "c3a00ab34ecee31fc4c09ffac3ebe5ac7a709f3d",
     "WO-025-G3": "50145fb079201b06d86e80f8971721c3ed781c90",
+    "WO-025-G4": "b4b7b0a10976e2bc4eb220318664e802e4bd41bc",
 }
 # Work orders whose base is the live protected main rather than a frozen SHA. Their dedicated
 # renderers still require a well-formed non-zero base, which the registered scope contract then
@@ -82,6 +83,7 @@ def _require_exact_head(work_order: str, head_sha: str) -> None:
         "WO-025-G2",
         "WO-025",
         "WO-025-G3",
+        "WO-025-G4",
         "WO-025-P",
         "WO-1.1-01",
     } and not (EXACT_SHA.fullmatch(head_sha)):
@@ -4379,6 +4381,100 @@ WO-025-G3 READY FOR SOL AUDIT
 """
 
 
+def _render_wo025_g4_body(
+    *,
+    work_order: str,
+    pr_number: int,
+    branch: str,
+    base_sha: str,
+    head_sha: str,
+    artifact_name: str,
+    ruleset_before: str,
+    ruleset_after: str,
+    merge_before: str,
+    merge_after: str,
+) -> str:
+    return f"""<!-- HIVE-WORK-ORDER: {work_order} -->
+<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->
+
+# Revisão do executor - {work_order}
+
+## 1. Compatibilidade entre o fechamento V0.1 e o estado pós-1.0
+
+Esta PR faz a menor correção de governança e de regressão para que o Closure
+Sprint V0.1 continue sendo evidência histórica válida depois que WO-025-P
+promover o checkpoint canônico ao estado pós-1.0. A verificação
+`scripts/v01_closure_sprint.py::checkpoint_current()` reconhecia apenas os dois
+estados anteriores à promoção, e a Integration health executa esse verificador em
+todo PR; sem esta correção uma promoção WO-025-P válida seria rejeitada pelo
+próprio health de integração. Nenhuma proteção é enfraquecida e nenhuma promoção
+é executada aqui.
+
+## 2. Causa raiz corrigida
+
+O verificador comparava o STATUS com o estado pré-WO-024-P e com o fechamento
+final V0.1, e devolvia FAIL para qualquer outro STATUS. O estado pós-WO-025-P,
+exatamente o que WO-025-P escreve, não existia na whitelist legítima. A
+correção adiciona a terceira família de estados reconhecida por igualdade exata
+de STATUS e campos, sem substring, prefixo ou heurística permissiva.
+
+## 3. Escopo
+
+Somente `scripts/v01_closure_sprint.py`, `scripts/review_evidence.py`,
+`scripts/review_pr_body.py` e os testes
+`backend/tests/test_v01_closure_sprint.py`,
+`backend/tests/test_v01_closure_regression_lock.py` e
+`backend/tests/test_review_evidence.py`, além de mapas gerados
+deterministicamente quando o gerador exigir. O checkpoint real
+`docs/project-brain/13-CHECKPOINT.md` e o manifesto
+`docs/project-brain/CANONICAL-SHA256SUMS.txt` permanecem byte a byte
+inalterados, sem produto, migration, dependência, workflow, ruleset, release,
+VERSION, tag ou configuração local da HIVE.
+
+## 4. Contrato dos três estados legítimos
+
+1. Fechamento ativo pré-WO-024-P: STATUS histórico com os itens de PENDING
+   remanescentes do fechamento.
+2. Fechamento final V0.1: STATUS `HIVE V0.1 COMPLETE / CLOSURE SPRINT APPROVED`
+   com PENDING vazio e os campos operacionais promovidos por WO-024-P.
+3. Pós-1.0 com release train autorizado: STATUS
+   `HIVE POST-1.0 PLANNING PROMOTED / DECISION FABRIC 1.1 RELEASE TRAIN
+   AUTHORIZED`, PENDING vazio e os campos exatos de
+   `IN PROGRESS`/`BLOCKERS`/`NEXT STEP` declarados como constantes.
+
+Um quarto estado permanece FAIL. O contrato de promoção de WO-025-P foi
+fortalecido para o grafo bruto: preâmbulo, cabeçalhos, sequência de seções e
+toda seção fora do conjunto controlado ficam preservados byte a byte, então um
+checkpoint arbitrário que apenas trocou o STATUS é rejeitado. O mutante
+status-swap, o NEXT STEP defasado, o PENDING indevido e a derivação de uma seção
+não controlada são reprovados no próprio verificador, contra o checkpoint
+canônico real, apenas em memória.
+
+## 5. Identidade e governança
+
+- PR: #{pr_number}, Ready for review.
+- Branch: {branch}.
+- Base protegida exata: {base_sha}.
+- HEAD exato: {head_sha}.
+- Evidence Bundle: {artifact_name}.
+- Ruleset antes: {ruleset_before}; depois: {ruleset_after}.
+- Merge antes: {merge_before}; depois: {merge_after}.
+
+WO-025-G4 entra no registro deny-by-default vinculado à base exata, como
+incremento corretivo de governança e não como promoção de checkpoint. WO-025-P
+continua sendo a única fronteira corrente de promoção, não executada; WO-1.1-01
+continua bloqueado no checkpoint real; WO-1.1-02 e identificadores desconhecidos
+seguem fail-closed. As constantes e a gramática de WO-024-P ficam preservadas.
+
+Sem implementação de produto, sem promoção de checkpoint, sem merge e com
+auto-merge desarmado. A PR permanece aberta para auditoria de Sol no HEAD exato.
+
+Sol Review State: AWAITING_SOL.
+
+WO-025-G4 READY FOR SOL AUDIT
+"""
+
+
 def _render_wo025p_body(
     *,
     work_order: str,
@@ -5201,6 +5297,19 @@ def render_body(
         )
     if work_order == "WO-025-G3":
         return _render_wo025_g3_body(
+            work_order=work_order,
+            pr_number=pr_number,
+            branch=branch,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            artifact_name=artifact_name,
+            ruleset_before=ruleset_before,
+            ruleset_after=ruleset_after,
+            merge_before=merge_before,
+            merge_after=merge_after,
+        )
+    if work_order == "WO-025-G4":
+        return _render_wo025_g4_body(
             work_order=work_order,
             pr_number=pr_number,
             branch=branch,

@@ -12745,6 +12745,238 @@ def test_wo025_p_and_wo11_01_renderers_are_dedicated_and_have_no_legacy_fallback
     # A renderer exists for the registered order, but rendering is not authorization.
     with pytest.raises(ValueError, match="not authorized as a current work order"):
         require_current_work_order_authorization(review_evidence.WO11_01_WORK_ORDER)
+
+
+def test_wo025_g4_self_hosting_scope_and_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WO-025-G4 is base-bound, governance/test-only, and emits its own bounded evidence."""
+
+    require_supported_work_order(review_evidence.WO025_G4_WORK_ORDER)
+    require_current_work_order_authorization(review_evidence.WO025_G4_WORK_ORDER)
+    assert review_evidence.WO025_G4_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    assert review_evidence.WO025_G4_WORK_ORDER in review_evidence.CORRECTIVE_GOVERNANCE_WORK_ORDERS
+    assert review_evidence.WO025_G4_WORK_ORDER not in (
+        review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G4_WORK_ORDER not in (
+        review_evidence.CURRENT_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G4_BASE_SHA == "b4b7b0a10976e2bc4eb220318664e802e4bd41bc"
+
+    allowed = sorted(review_evidence.WO025_G4_ALLOWED_PATHS)
+    review_evidence.require_wo025_g4_scope(
+        review_evidence.WO025_G4_WORK_ORDER,
+        review_evidence.WO025_G4_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO025_G4_BASE_SHA,
+    )
+    # The base is exact: a different base fails closed, including the WO-025-G3 base.
+    for stale_base in ("f" * 40, review_evidence.WO025_G3_BASE_SHA):
+        with pytest.raises(ValueError, match="exact base"):
+            review_evidence.require_wo025_g4_scope(
+                review_evidence.WO025_G4_WORK_ORDER,
+                stale_base,
+                allowed,
+                authorized_base_sha=stale_base,
+            )
+    # Governance and tests only: product, canonical, workflow and release paths stay rejected.
+    for unauthorized in (
+        ["backend/app/main.py"],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/CANONICAL-SHA256SUMS.txt"],
+        ["docs/project-brain/16-DECISIONS-LEDGER.md"],
+        [".github/workflows/ci.yml"],
+        ["requirements.txt"],
+        ["VERSION"],
+        ["backend/app/services/decision_resolver.py"],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo025_g4_scope(
+                review_evidence.WO025_G4_WORK_ORDER,
+                review_evidence.WO025_G4_BASE_SHA,
+                unauthorized,
+                authorized_base_sha=review_evidence.WO025_G4_BASE_SHA,
+            )
+    # The authorized-base marker has to be a lowercase 40-hex SHA matching the base.
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        review_evidence.require_wo025_g4_scope(
+            review_evidence.WO025_G4_WORK_ORDER,
+            review_evidence.WO025_G4_BASE_SHA,
+            allowed,
+        )
+
+    closure_text = json.dumps(v01_closure_evidence_fixture())
+    monkeypatch.setattr(
+        review_evidence,
+        "integration_file",
+        lambda name: (
+            closure_text if name == review_evidence.V01_CLOSURE_SPRINT_EVIDENCE_FILE else ""
+        ),
+    )
+    evidence = review_evidence.verify_wo025_g4_governance_contract(
+        review_evidence.WO025_G4_WORK_ORDER,
+        review_evidence.WO025_G4_BASE_SHA,
+        allowed,
+        {
+            "project_brain_changed": False,
+            "checkpoint_changed": False,
+            "authorized_paths": [],
+        },
+        {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+        {"v01_closure_sprint": v01_closure_evidence_fixture()},
+        review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+        review_evidence.WO025_G4_BASE_SHA,
+    )
+    assert evidence is not None
+    assert f"work_order={review_evidence.WO025_G4_WORK_ORDER}" in evidence
+    assert "exact_base=PASS" in evidence
+    assert "closure_checkpoint_families=3" in evidence
+    assert "strict_promotion_grammar=True" in evidence
+    assert "in_process_promotion_proof=PASS" in evidence
+    assert "mutations_rejected=5" in evidence
+    assert "status_swap_only=REJECTED" in evidence
+    assert "missing_section=REJECTED" in evidence
+    assert "active_closure_pending_items=" in evidence
+    assert "controlled_sections=BLOCKERS,IN PROGRESS,NEXT STEP,PENDING,STATUS" in evidence
+    assert "post_wo025p_state=PASS" in evidence
+    assert "v01_closure_state=PASS" in evidence
+    assert "unrelated_section_drift=REJECTED" in evidence
+    assert "wo_025_p_promotion_executed=False" in evidence
+    assert f"current_promotion_frontier={review_evidence.WO025P_WORK_ORDER}" in evidence
+    assert "checkpoint_changed=False" in evidence
+    assert "canonical_manifest_changed=False" in evidence
+    assert "historical_promotion_pair_unchanged=True" in evidence
+    assert "wo024_strict_behavior_unchanged=True" in evidence
+    assert "integration_health_closure_regression=EXECUTABLE" in evidence
+    assert "renderers=dedicated_wo025_g4" in evidence
+    assert "product_implementation=False" in evidence
+    assert "checkpoint_promoted=False" in evidence
+    assert "deny_by_default=True" in evidence
+    assert "auto_merge=UNARMED" in evidence
+    # The contract is inert for every other work order, including its sibling corrections.
+    for other in (
+        review_evidence.WO025_G3_WORK_ORDER,
+        review_evidence.WO024_WORK_ORDER,
+        review_evidence.WO025P_WORK_ORDER,
+    ):
+        assert (
+            review_evidence.verify_wo025_g4_governance_contract(
+                other,
+                review_evidence.WO025_G4_BASE_SHA,
+                allowed,
+                {
+                    "project_brain_changed": False,
+                    "checkpoint_changed": False,
+                    "authorized_paths": [],
+                },
+                {"ruleset_unchanged": True, "pull_request": {"auto_merge_armed": False}},
+                {"v01_closure_sprint": v01_closure_evidence_fixture()},
+                review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
+                None,
+            )
+            is None
+        )
+
+
+def test_wo025_g4_registration_does_not_widen_the_namespace() -> None:
+    """Registering the correction must leave every unregistered identifier denied."""
+
+    assert review_evidence.WO025_G4_WORK_ORDER in review_evidence.REGISTERED_WORK_ORDERS
+    for rejected in (
+        "WO-025-G5",
+        "WO-025-G10",
+        "WO-025-G4-P",
+        "WO-026-P",
+        "WO-028",
+        "WO-1.1-02",
+        "WO-12-99",
+        "WO-11-01",
+    ):
+        assert rejected not in review_evidence.REGISTERED_WORK_ORDERS
+        with pytest.raises(ValueError, match="unsupported"):
+            require_supported_work_order(rejected)
+        with pytest.raises(ValueError, match="unsupported"):
+            require_current_work_order_authorization(rejected)
+    # The historical WO-024 promotion pair and the current frontier are exactly as G3 froze them.
+    assert (
+        frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
+        == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert (
+        frozenset({review_evidence.WO025P_WORK_ORDER})
+        == review_evidence.CURRENT_CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+
+
+def test_wo025_g4_keeps_the_historical_v01_closure_contract() -> None:
+    """AC19: the WO-024-P constants and grammar this increment has to coexist with are unchanged."""
+
+    assert review_evidence.EXPECTED_WO024P_STATUS == (
+        "HIVE V0.1 COMPLETE / CLOSURE SPRINT APPROVED"
+    )
+    assert review_evidence.EXPECTED_WO024P_IN_PROGRESS == (
+        "None. V0.1 closure is complete and promoted."
+    )
+    assert review_evidence.EXPECTED_WO025P_PREVIOUS_STATUS == (
+        review_evidence.EXPECTED_WO024P_STATUS
+    )
+    assert "COMPLETED" in review_evidence._WO016P_RAW_CONTROLLED_SECTIONS
+    assert "COMPLETED" not in review_evidence.WO025P_RAW_PROMOTION_CONTROLLED_SECTIONS
+    # The real checkpoint and its manifest are untouched by this increment.
+    checkpoint = review_evidence.ROOT / review_evidence.CHECKPOINT_PATH
+    before = checkpoint.read_bytes()
+    assert (
+        review_evidence.normalized_checkpoint_value(
+            review_evidence.checkpoint_sections(before.decode("utf-8")), "STATUS"
+        )
+        == review_evidence.EXPECTED_WO024P_STATUS
+    )
+    review_evidence.require_canonical_manifest_digests(
+        review_evidence.ROOT,
+        (review_evidence.ROOT / review_evidence.CANONICAL_MANIFEST_PATH).read_text(
+            encoding="utf-8"
+        ),
+    )
+    assert checkpoint.read_bytes() == before
+
+
+def test_wo025_g4_renderer_is_dedicated_and_binds_the_exact_base() -> None:
+    import scripts.review_pr_body as renderer
+
+    arguments = cast(dict[str, Any], wo025_g3_render_arguments())
+    body = renderer.render_body(
+        work_order=review_evidence.WO025_G4_WORK_ORDER,
+        base_sha=review_evidence.WO025_G4_BASE_SHA,
+        head_sha="b" * 40,
+        **arguments,
+    )
+    assert body.startswith(f"<!-- HIVE-WORK-ORDER: {review_evidence.WO025_G4_WORK_ORDER} -->")
+    assert f"<!-- HIVE-AUTHORIZED-BASE: {review_evidence.WO025_G4_BASE_SHA} -->" in body
+    assert "AWAITING_SOL" in body
+    assert "WO-025-G4 READY FOR SOL AUDIT" in body
+    # The reviewer is told the exact root cause and the three legitimate families.
+    assert "checkpoint_current()" in body
+    assert "POST-1.0 PLANNING PROMOTED" in body
+    assert "## 4. Contrato dos três estados legítimos" in body
+    assert "Sem implementação de produto, sem promoção de checkpoint, sem merge" in body
+    for stale in WO025_G3_STALE_RENDERER_PHRASES:
+        assert stale not in body, f"WO-025-G4 renderer must not emit stale text: {stale}"
+    # A stale base or a malformed HEAD never renders.
+    for base_sha in ("f" * 40, review_evidence.WO025_G3_BASE_SHA):
+        with pytest.raises(ValueError):
+            renderer.render_body(
+                work_order=review_evidence.WO025_G4_WORK_ORDER,
+                base_sha=base_sha,
+                head_sha="b" * 40,
+                **arguments,
+            )
+    with pytest.raises(ValueError, match="40-hex"):
+        renderer.render_body(
+            work_order=review_evidence.WO025_G4_WORK_ORDER,
+            base_sha=review_evidence.WO025_G4_BASE_SHA,
+            head_sha="not-a-sha",
+            **arguments,
+        )
+
     # The unregistered next step cannot be rendered at all.
     with pytest.raises(ValueError, match="unsupported release-train"):
         renderer.render_body(
@@ -12798,7 +13030,14 @@ def test_wo025p_scope_is_bounded_to_the_canonical_promotion_surface(
         lambda: review_evidence.V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD,
     )
     stage_promotion_base_blob(monkeypatch)
-    stage_canonical_promotion(tmp_path, monkeypatch, status=review_evidence.EXPECTED_WO025P_STATUS)
+    # WO-025-G4 made the promotion grammar strict, so a bare status swap is no longer a valid
+    # promotion: the staged candidate has to carry the whole controlled-section state.
+    stage_canonical_promotion(
+        tmp_path,
+        monkeypatch,
+        status=review_evidence.EXPECTED_WO025P_STATUS,
+        full_promotion=True,
+    )
     allowed = sorted(review_evidence.WO025P_ALLOWED_PATHS)
     review_evidence.require_wo025p_scope(
         review_evidence.WO025P_WORK_ORDER,
@@ -12806,6 +13045,17 @@ def test_wo025p_scope_is_bounded_to_the_canonical_promotion_surface(
         allowed,
         authorized_base_sha=base,
     )
+    # A candidate that only swapped STATUS is rejected even on the canonical surface.
+    swap_root = tmp_path / "status-swap"
+    stage_canonical_promotion(swap_root, monkeypatch, status=review_evidence.EXPECTED_WO025P_STATUS)
+    with pytest.raises(ValueError, match="outside the strict raw grammar"):
+        review_evidence.require_wo025p_scope(
+            review_evidence.WO025P_WORK_ORDER,
+            base,
+            allowed,
+            authorized_base_sha=base,
+        )
+    monkeypatch.setattr(review_evidence, "ROOT", tmp_path)
     for unauthorized in (
         ["backend/app/main.py"],
         ["scripts/validate.py"],
@@ -12835,11 +13085,13 @@ def stage_canonical_promotion(
     status: str,
     refresh_digest: bool = True,
     tamper_other_source: bool = False,
+    full_promotion: bool = False,
 ) -> Path:
     """Stage a canonical Project Brain tree whose checkpoint carries ``status``.
 
     Only the checkpoint digest line is refreshed, so the tree is canonical-coherent exactly when the
-    promotion landed completely.
+    promotion landed completely. ``full_promotion`` writes the whole controlled-section state that
+    WO-025-P leaves behind instead of a bare status swap.
     """
 
     source_brain = canonical_source_brain()
@@ -12853,6 +13105,10 @@ def stage_canonical_promotion(
         "STATUS",
         status,
     )
+    if full_promotion:
+        checkpoint_text = post_1_0_promotion(
+            (source_brain / "13-CHECKPOINT.md").read_text(encoding="utf-8"), status=status
+        )
     checkpoint_path = brain / review_evidence.CANONICAL_MANIFEST_CHECKPOINT_NAME
     checkpoint_path.write_text(checkpoint_text, encoding="utf-8", newline="\n")
     if refresh_digest:
@@ -12901,6 +13157,97 @@ def checkpoint_status(root: Path) -> str:
     )
 
 
+def post_1_0_promotion(base: str, *, status: str | None = None) -> str:
+    """Rewrite the real checkpoint into the exact state WO-025-P must leave behind.
+
+    Only the controlled promotion sections move, in the raw grammar the contract itself defines, so
+    the positive case proves the declared constants and not a conveniently edited fixture.
+    """
+
+    newline = "\n"
+    bodies = {
+        "STATUS": f"{status or review_evidence.EXPECTED_WO025P_STATUS}{newline}{newline}",
+        "IN PROGRESS": f"- {review_evidence.EXPECTED_WO025P_IN_PROGRESS}{newline}{newline}",
+        "BLOCKERS": f"{review_evidence.EXPECTED_WO025P_BLOCKERS}{newline}{newline}",
+        "NEXT STEP": f"{review_evidence.EXPECTED_WO025P_NEXT_STEP}{newline}{newline}",
+        "PENDING": newline,
+    }
+    preamble, ordered, _sections = review_evidence._raw_checkpoint_structure(base, "base")
+    return preamble + "".join(
+        section.heading + bodies.get(section.name, section.body) for section in ordered
+    )
+
+
+def checkpoint_section_bodies(text: str) -> dict[str, str]:
+    _preamble, _ordered, bodies = review_evidence._raw_checkpoint_structure(text, "candidate")
+    return dict(bodies)
+
+
+def rebuild_with_bodies(text: str, bodies: dict[str, str]) -> str:
+    preamble, ordered, _current = review_evidence._raw_checkpoint_structure(text, "candidate")
+    return preamble + "".join(section.heading + bodies[section.name] for section in ordered)
+
+
+def wo025p_negative_matrix() -> dict[str, tuple[str, str]]:
+    """Every narrower post-1.0 candidate with the rejection it must produce.
+
+    Each case isolates one section so a passing test proves the specific guard fired, not that some
+    unrelated check happened to reject the same text.
+    """
+
+    base = (review_evidence.ROOT / review_evidence.CHECKPOINT_PATH).read_bytes().decode("utf-8")
+    promoted = post_1_0_promotion(base)
+    bodies = checkpoint_section_bodies(promoted)
+    grammar = "section is outside the strict raw grammar"
+    drift = "changed unrelated checkpoint section"
+
+    def variant(name: str, body: str) -> str:
+        return rebuild_with_bodies(promoted, {**bodies, name: body})
+
+    return {
+        "status swap only": (
+            replace_checkpoint_section(base, "STATUS", review_evidence.EXPECTED_WO025P_STATUS),
+            "IN PROGRESS section is outside the strict raw grammar",
+        ),
+        "near-miss status": (
+            variant("STATUS", f"{review_evidence.EXPECTED_WO025P_STATUS} / partial\n\n"),
+            "STATUS " + grammar,
+        ),
+        "stale IN PROGRESS": (
+            variant("IN PROGRESS", f"- {review_evidence.EXPECTED_WO024P_IN_PROGRESS}\n\n"),
+            "IN PROGRESS " + grammar,
+        ),
+        "stale BLOCKERS": (
+            variant("BLOCKERS", f"{review_evidence.EXPECTED_WO024P_BLOCKERS}\n\n"),
+            "BLOCKERS " + grammar,
+        ),
+        "stale NEXT STEP": (
+            variant("NEXT STEP", f"{review_evidence.EXPECTED_WO024P_NEXT_STEP}\n\n"),
+            "NEXT STEP " + grammar,
+        ),
+        "undue PENDING": (
+            variant("PENDING", "- retained closure item\n\n"),
+            "PENDING " + grammar,
+        ),
+        "unrelated section drift": (
+            variant("GOVERNANCE", f"{bodies['GOVERNANCE']}drift\n"),
+            drift + ": GOVERNANCE",
+        ),
+        "completed drift": (
+            variant("COMPLETED", f"{bodies['COMPLETED']}\n- later closure claim.\n\n"),
+            drift + ": COMPLETED",
+        ),
+        "version drift": (
+            variant("VERSION", "HIVE V1.1 Kernel\n\n"),
+            drift + ": VERSION",
+        ),
+        "promoted status with pending work": (
+            promoted.replace("## PENDING\n\n", "## PENDING\n- leftover.\n\n"),
+            "PENDING " + grammar,
+        ),
+    }
+
+
 def test_state_transition_releases_wo11_01_without_another_governance_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -12918,10 +13265,29 @@ def test_state_transition_releases_wo11_01_without_another_governance_commit(
     with pytest.raises(ValueError, match="not authorized as a current work order"):
         require_current_work_order_authorization(review_evidence.WO11_01_WORK_ORDER)
 
-    # STATE C: only the checkpoint and its digest manifest changed.
-    stage_canonical_promotion(tmp_path, monkeypatch, status=review_evidence.EXPECTED_WO025P_STATUS)
+    # STATE C: only the checkpoint and its digest manifest changed. WO-025-G4 makes the promoted
+    # state the full controlled-section contract, so the fixture has to write that whole state.
+    stage_canonical_promotion(
+        tmp_path,
+        monkeypatch,
+        status=review_evidence.EXPECTED_WO025P_STATUS,
+        full_promotion=True,
+    )
     assert checkpoint_status(tmp_path) == review_evidence.EXPECTED_WO025P_STATUS
     require_current_work_order_authorization(review_evidence.WO11_01_WORK_ORDER)
+    # The operational fields are part of the promoted state, not an incidental side effect.
+    promoted_sections = review_evidence.checkpoint_sections(
+        (tmp_path / review_evidence.CHECKPOINT_PATH).read_bytes().decode("utf-8")
+    )
+
+    def controlled(name: str) -> str:
+        value = review_evidence.normalized_checkpoint_value(promoted_sections, name)
+        return value[2:].strip() if value.startswith("- ") else value
+
+    assert controlled("IN PROGRESS") == review_evidence.EXPECTED_WO025P_IN_PROGRESS
+    assert controlled("BLOCKERS") == review_evidence.EXPECTED_WO025P_BLOCKERS
+    assert controlled("NEXT STEP") == review_evidence.EXPECTED_WO025P_NEXT_STEP
+    assert review_evidence.checkpoint_bullets(promoted_sections, "PENDING") == []
     # No unknown identifier gains authorization from the promoted state.
     for rejected in ("WO-1.1-02", "WO-1.2-01", "WO-11-01", "WO-22-01", "WO-025-P-G1", ""):
         with pytest.raises(ValueError):
@@ -12929,34 +13295,41 @@ def test_state_transition_releases_wo11_01_without_another_governance_commit(
 
 
 def test_wo025p_candidate_checkpoint_contract_is_exact() -> None:
-    """T5: the promotion candidate must obey the declared contract and nothing looser."""
+    """T5: the promotion candidate must obey the declared contract and nothing looser.
+
+    WO-025-G4 narrowed this grammar: swapping STATUS is no longer a promotion, and every section
+    outside the controlled set is preserved byte-for-byte.
+    """
 
     base = (review_evidence.ROOT / review_evidence.CHECKPOINT_PATH).read_bytes().decode("utf-8")
-    expected = review_evidence.EXPECTED_WO025P_STATUS
-
-    def promote(source: str, status: str) -> str:
-        return replace_checkpoint_section(source, "STATUS", status)
-
-    promoted = promote(base, expected)
+    promoted = post_1_0_promotion(base)
     review_evidence.require_wo025p_checkpoint_semantics(base, promoted)
-    for candidate in (
-        promote(base, expected + " X"),
-        promote(base, expected[:-1]),
-        promote(base, expected.lower()),
-        base,
-    ):
-        with pytest.raises(ValueError, match="unexpected checkpoint status"):
+    assert promoted != base
+    assert checkpoint_section_bodies(promoted)["PENDING"] == "\n"
+
+    # A status swap alone is exactly the fabricated promotion this grammar exists to reject.
+    with pytest.raises(ValueError, match="IN PROGRESS section is outside"):
+        review_evidence.require_wo025p_checkpoint_semantics(
+            base,
+            replace_checkpoint_section(base, "STATUS", review_evidence.EXPECTED_WO025P_STATUS),
+        )
+    for candidate, reason in wo025p_negative_matrix().values():
+        with pytest.raises(ValueError, match=reason):
             review_evidence.require_wo025p_checkpoint_semantics(base, candidate)
-    # A stale base (already promoted) cannot promote again, and identity sections are immutable.
+
+    # A stale base that already carries the promoted state cannot promote twice.
     with pytest.raises(ValueError, match="promotion base is not the V0.1 closure"):
         review_evidence.require_wo025p_checkpoint_semantics(promoted, promoted)
-    rewritten = replace_checkpoint_section(promoted, "VERSION", "HIVE V1.1 Kernel")
-    assert rewritten != promoted
-    with pytest.raises(ValueError, match="cannot rewrite checkpoint section VERSION"):
-        review_evidence.require_wo025p_checkpoint_semantics(base, rewritten)
+
+    # Dropping a section is a sequence change, not a licence to rewrite whatever is left.
     removed = re.sub(r"## PHASE\n.*?\n\n", "", base, count=1, flags=re.S)
-    with pytest.raises(ValueError, match="section set changed"):
+    with pytest.raises(ValueError, match="checkpoint section sequence changed"):
         review_evidence.require_wo025p_checkpoint_semantics(removed, promoted)
+    # A heading that still parses to the same name but differs byte-for-byte stays rejected.
+    reheaded = promoted.replace("## NEXT STEP\n", "## next step\n", 1)
+    assert reheaded != promoted
+    with pytest.raises(ValueError, match="heading changed byte-for-byte"):
+        review_evidence.require_wo025p_checkpoint_semantics(base, reheaded)
 
 
 def test_canonical_promotion_evidence_rejects_near_miss_stale_partial_and_fabricated_states(

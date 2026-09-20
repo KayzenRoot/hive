@@ -164,3 +164,61 @@ def test_quality_artifact_is_the_only_source_for_the_quality_rows() -> None:
     ):
         assert f'"{name}"' in source, name
     assert json.loads(json.dumps({"status": "PASS"})) == {"status": "PASS"}
+
+
+def post_1_0_checkpoint_text() -> str:
+    """The canonical checkpoint rewritten into the exact state WO-025-P must leave behind."""
+
+    import scripts.review_evidence as governance
+
+    relative = "docs/project-brain/13-CHECKPOINT.md"
+    source = governance.ROOT / relative
+    newline = "\n"
+    bodies = {
+        "STATUS": f"{governance.EXPECTED_WO025P_STATUS}{newline}{newline}",
+        "IN PROGRESS": f"- {governance.EXPECTED_WO025P_IN_PROGRESS}{newline}{newline}",
+        "BLOCKERS": f"{governance.EXPECTED_WO025P_BLOCKERS}{newline}{newline}",
+        "NEXT STEP": f"{governance.EXPECTED_WO025P_NEXT_STEP}{newline}{newline}",
+        "PENDING": newline,
+    }
+    preamble, ordered, _current = governance._raw_checkpoint_structure(
+        source.read_bytes().decode("utf-8"), "base"
+    )
+    return preamble + "".join(
+        section.heading + bodies.get(section.name, section.body) for section in ordered
+    )
+
+
+def test_integration_health_cannot_reject_a_valid_post_1_0_checkpoint() -> None:
+    """WO-025-G4: the closure gate has to survive the promotion it authorizes.
+
+    ``scripts/integration_health.py`` executes ``scripts/v01_closure_sprint.py`` and fails the whole
+    gate on a non-zero exit, and the DoD row ``Documentation / Checkpoint current.`` is verified by
+    ``checkpoint_current``. Without the third legitimate family a valid WO-025-P promotion would be
+    unvalidatable by the very gate that runs on every push.
+    """
+
+    health = (SCRIPT_PATH.parent / "integration_health.py").read_text(encoding="utf-8")
+    assert '("V0.1 closure sprint", "scripts/v01_closure_sprint.py")' in health
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+    assert "governance.EXPECTED_WO025P_STATUS" in source
+
+    relative = "docs/project-brain/13-CHECKPOINT.md"
+    promoted = post_1_0_checkpoint_text()
+    original = closure.document_text
+    try:
+        closure.document_text = lambda name: (promoted if name == relative else original(name))
+        assert closure.checkpoint_current()[0] == "PASS"
+        entry = closure.ledger_entry("Documentation", "Checkpoint current.")
+        assert entry["status"] == "PASS", entry
+    finally:
+        closure.document_text = original
+    # A post-1.0 status is not a licence: the same row must fail closed for a mutated state.
+    stale = promoted.replace(closure.governance.EXPECTED_WO025P_NEXT_STEP, "Stale next step.")
+    assert stale != promoted
+    closure.document_text = lambda name: (stale if name == relative else original(name))
+    try:
+        assert closure.checkpoint_current()[0] == "FAIL"
+        assert closure.ledger_entry("Documentation", "Checkpoint current.")["status"] == "FAIL"
+    finally:
+        closure.document_text = original
