@@ -12882,7 +12882,7 @@ def test_wo025_g4_registration_does_not_widen_the_namespace() -> None:
 
     assert review_evidence.WO025_G4_WORK_ORDER in review_evidence.REGISTERED_WORK_ORDERS
     for rejected in (
-        "WO-025-G5",
+        "WO-025-G6",
         "WO-025-G10",
         "WO-025-G4-P",
         "WO-026-P",
@@ -13397,3 +13397,59 @@ def test_release_train_gate_fails_closed_without_a_registered_promotion(
     monkeypatch.setattr(review_evidence, "RELEASE_TRAIN_PROMOTING_WORK_ORDERS", {})
     with pytest.raises(ValueError, match="no canonical promotion that releases it"):
         require_current_work_order_authorization(review_evidence.WO11_01_WORK_ORDER)
+
+
+def test_wo025_g5_review_self_healing_policy_is_bounded_and_registered() -> None:
+    """The Sol self-healing review rule is explicit, low-risk, and deny-by-default."""
+
+    require_supported_work_order(review_evidence.WO025_G5_WORK_ORDER)
+    require_current_work_order_authorization(review_evidence.WO025_G5_WORK_ORDER)
+    assert review_evidence.WO025_G5_WORK_ORDER in (
+        review_evidence.CORRECTIVE_GOVERNANCE_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G5_WORK_ORDER in (
+        review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G5_WORK_ORDER not in (
+        review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G5_BASE_SHA == "82bb5e9d6fb22046e95eb532b499884adaeae6c3"
+
+    allowed = sorted(review_evidence.WO025_G5_ALLOWED_PATHS)
+    review_evidence.require_wo025_g5_scope(
+        review_evidence.WO025_G5_WORK_ORDER,
+        review_evidence.WO025_G5_BASE_SHA,
+        allowed,
+        authorized_base_sha=review_evidence.WO025_G5_BASE_SHA,
+    )
+
+    for unauthorized in (
+        ["backend/app/main.py"],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["docs/project-brain/16-DECISIONS-LEDGER.md"],
+        [".github/workflows/ci.yml"],
+        ["requirements.txt"],
+        ["VERSION"],
+        ["migrations/9999_forbidden.py"],
+    ):
+        with pytest.raises(ValueError):
+            review_evidence.require_wo025_g5_scope(
+                review_evidence.WO025_G5_WORK_ORDER,
+                review_evidence.WO025_G5_BASE_SHA,
+                unauthorized,
+                authorized_base_sha=review_evidence.WO025_G5_BASE_SHA,
+            )
+
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo025_g5_scope(
+            review_evidence.WO025_G5_WORK_ORDER,
+            "f" * 40,
+            allowed,
+            authorized_base_sha="f" * 40,
+        )
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        review_evidence.require_wo025_g5_scope(
+            review_evidence.WO025_G5_WORK_ORDER,
+            review_evidence.WO025_G5_BASE_SHA,
+            allowed,
+        )

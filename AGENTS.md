@@ -17,6 +17,26 @@ sources.
 - Run the relevant tests, lint, typecheck, build, and configuration checks.
 - Do not merge or publish releases without explicit approval.
 
+## Review self-healing rule
+
+- During Sol review, classify each defect as `SELF_HEALABLE` or `EXECUTOR_REQUIRED`.
+- `SELF_HEALABLE` means a small, localized, low-risk defect that can be corrected directly with
+  the currently available repository tools and validated objectively without secrets, local-only
+  state, destructive actions, migrations, scope expansion, architecture changes, approved-decision
+  changes, or evidence unavailable to the reviewer.
+- For a `SELF_HEALABLE` defect, Sol applies the smallest correction, runs or obtains the relevant
+  validation/evidence, keeps the correction inside the same logical increment/PR when safe, and
+  continues the review. Once clean, the same review should provide the next authorized executor
+  prompt instead of spending a Codex round on the trivial correction.
+- `EXECUTOR_REQUIRED` covers defects that require local execution, heavy implementation, secrets,
+  migrations, destructive or irreversible actions, broader architectural/scope decisions, or
+  evidence Sol cannot produce from the available tools. In that case the verdict is
+  `CORRECTION REQUIRED` and only the corrective delta is issued; no later implementation increment
+  advances until the correction is validated.
+- Self-healing never bypasses protected `main`, required tests/checks, Review Evidence, canonical
+  promotion rules, STOP CONDITIONs, or HIGH/CRITICAL defect gates, and must not include unrelated
+  cleanup.
+
 ## Maintenance and release rules
 
 - Release-affecting changes must keep version and release metadata coherent.

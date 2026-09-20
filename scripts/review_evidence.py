@@ -1669,6 +1669,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-025-G2",
         "WO-025-G3",
         "WO-025-G4",
+        "WO-025-G5",
         "WO-023-P-G1-C1-CLOSED",
     }
 )
@@ -2305,6 +2306,19 @@ WO025_G4_ALLOWED_PATHS = frozenset(
         "scripts/v01_closure_sprint.py",
     }
 )
+# WO-025-G5: reviewer self-healing policy. Governance/documentation only: it records when Sol may
+# directly repair a small review defect and when execution must return to Codex, without weakening
+# protected-main, evidence, canonical-promotion, scope, architecture, or severity gates.
+WO025_G5_WORK_ORDER = "WO-025-G5"
+WO025_G5_BASE_SHA = "82bb5e9d6fb22046e95eb532b499884adaeae6c3"
+WO025_G5_ALLOWED_PATHS = frozenset(
+    {
+        "AGENTS.md",
+        "backend/tests/test_review_evidence.py",
+        "docs/DEVELOPMENT-REVIEW-WORKFLOW.md",
+        "scripts/review_evidence.py",
+    }
+)
 # The dotted release-train grammar. The legacy ``WORK_ORDER_IDENTIFIER`` cannot express
 # ``WO-1.1-01`` because ``.`` is not in its character class; this pattern is deliberately narrow
 # (dotted major and minor without leading zeros, then a two-digit increment) so it cannot absorb
@@ -2573,6 +2587,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO027_WORK_ORDER,
         WO025_G3_WORK_ORDER,
         WO025_G4_WORK_ORDER,
+        WO025_G5_WORK_ORDER,
         WO025P_WORK_ORDER,
         WO11_01_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
@@ -2997,6 +3012,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         "WO-025-G2",
         "WO-025-G3",
         "WO-025-G4",
+        "WO-025-G5",
         "WO-026",
         "WO-027",
         "WO-1.1-01",
@@ -11508,6 +11524,61 @@ def require_wo025_g4_scope(
         )
 
 
+def require_wo025_g5_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_authorized_base: bool = True,
+) -> None:
+    """Bound reviewer self-healing policy adoption to governance/docs/tests only."""
+
+    if work_order != WO025_G5_WORK_ORDER:
+        return
+    if base_sha != WO025_G5_BASE_SHA:
+        raise ValueError(
+            f"{WO025_G5_WORK_ORDER} requires exact base {WO025_G5_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO025_G5_WORK_ORDER} requires the protected main base branch")
+    if not paths:
+        raise ValueError(f"{WO025_G5_WORK_ORDER} requires a non-empty governance delta")
+    unauthorized = sorted(set(paths) - WO025_G5_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO025_G5_WORK_ORDER} changed files outside the bounded governance scope: "
+            + ", ".join(unauthorized)
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO025_G5_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError("WO-025-G5 authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO025_G5_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO025_G5_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO025_G5_WORK_ORDER} cannot change migrations")
+    if any(path.startswith(".github/") for path in paths):
+        raise ValueError(f"{WO025_G5_WORK_ORDER} cannot change CI workflows")
+    for manifest in sorted(set(paths) & DEPENDENCY_MANIFEST_PATHS):
+        raise ValueError(f"{WO025_G5_WORK_ORDER} cannot change the dependency manifest {manifest}")
+    for path in sorted(set(paths)):
+        if RELEASE_PATH_IDENTIFIER.search(path):
+            raise ValueError(f"{WO025_G5_WORK_ORDER} cannot change release assets: {path}")
+    if migration_head() != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO025_G5_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+
+
 def require_wo025p_scope(
     work_order: str,
     base_sha: str,
@@ -16846,6 +16917,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
     )
     require_wo025_g4_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_wo025_g5_scope(
         work_order,
         base_sha,
         paths,
