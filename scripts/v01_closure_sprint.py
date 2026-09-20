@@ -184,17 +184,20 @@ def field_at_least(name: str, field: str, minimum: float) -> tuple[str, str]:
 
 
 def checkpoint_current() -> tuple[str, str]:
-    """The canonical checkpoint must be coherent in either legitimate state.
+    """The canonical checkpoint must be coherent in any of the three legitimate states.
 
-    Before the final WO-024-P promotion the checkpoint is the active closure
-    checkpoint that still lists the remaining closure items. After it, the
-    checkpoint is the strict promoted checkpoint. An unknown status, a promoted
-    status that still lists pending work, an active checkpoint that lost its
-    remaining items, or a checkpoint missing canonical sections fails closed.
+    Three checkpoint families are legitimate. Before the final WO-024-P promotion the checkpoint is
+    the active closure checkpoint that still lists the remaining closure items. After it, the
+    checkpoint is the strict promoted V0.1 closure state. After WO-025-P promotes the post-1.0
+    planning state, the checkpoint is the release-train-authorized state, whose operational fields
+    name WO-1.1-01 as the only work in flight with nothing pending. An unknown status, a promoted
+    status that still lists pending work, an active checkpoint that lost its remaining items, stale
+    or mismatched operational fields, or a checkpoint missing canonical sections fails closed.
 
     The raw final-promotion grammar stays authoritative in
-    ``governance.require_wo024p_checkpoint_semantics``; this verifier only has to
-    be truthful about the state the repository is actually in.
+    ``governance.require_wo024p_checkpoint_semantics`` and the post-1.0 one in
+    ``governance.require_wo025p_checkpoint_semantics``; this verifier only has to be truthful about
+    the state the repository is actually in.
     """
 
     relative = "docs/project-brain/13-CHECKPOINT.md"
@@ -212,14 +215,27 @@ def checkpoint_current() -> tuple[str, str]:
         value = governance.normalized_checkpoint_value(sections, name)
         return value[2:].strip() if value.startswith("- ") else value
 
-    if status == governance.EXPECTED_WO024P_STATUS:
-        promoted = (
+    def promoted(*, in_progress: str, blockers: str, next_step: str) -> tuple[str, str]:
+        coherent = (
             not pending
-            and controlled("IN PROGRESS") == governance.EXPECTED_WO024P_IN_PROGRESS
-            and controlled("BLOCKERS") == governance.EXPECTED_WO024P_BLOCKERS
-            and controlled("NEXT STEP") == governance.EXPECTED_WO024P_NEXT_STEP
+            and controlled("IN PROGRESS") == in_progress
+            and controlled("BLOCKERS") == blockers
+            and controlled("NEXT STEP") == next_step
         )
-        return ("PASS" if promoted else "FAIL"), relative
+        return ("PASS" if coherent else "FAIL"), relative
+
+    if status == governance.EXPECTED_WO024P_STATUS:
+        return promoted(
+            in_progress=governance.EXPECTED_WO024P_IN_PROGRESS,
+            blockers=governance.EXPECTED_WO024P_BLOCKERS,
+            next_step=governance.EXPECTED_WO024P_NEXT_STEP,
+        )
+    if status == governance.EXPECTED_WO025P_STATUS:
+        return promoted(
+            in_progress=governance.EXPECTED_WO025P_IN_PROGRESS,
+            blockers=governance.EXPECTED_WO025P_BLOCKERS,
+            next_step=governance.EXPECTED_WO025P_NEXT_STEP,
+        )
     if status == governance.EXPECTED_WO024P_PREVIOUS_STATUS:
         active = sorted(pending) == sorted(governance.WO024P_COMPLETED_PENDING_ITEMS)
         return ("PASS" if active else "FAIL"), relative

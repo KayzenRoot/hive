@@ -1668,6 +1668,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-025-G1",
         "WO-025-G2",
         "WO-025-G3",
+        "WO-025-G4",
         "WO-023-P-G1-C1-CLOSED",
     }
 )
@@ -2285,6 +2286,25 @@ WO025_G3_ALLOWED_PATHS = frozenset(
         "scripts/review_pr_body.py",
     }
 )
+# WO-025-G4: closure/post-1.0 checkpoint compatibility. Corrective governance and regression only:
+# it widens ``v01_closure_sprint.checkpoint_current`` to the third legitimate checkpoint family --
+# the post-WO-025-P release-train state -- and freezes the exact raw contract that promotion must
+# satisfy, so a valid promotion stays validatable by Integration health without any of the two
+# historical V0.1 states or their negatives being relaxed. It never edits the checkpoint itself.
+WO025_G4_WORK_ORDER = "WO-025-G4"
+WO025_G4_BASE_SHA = "b4b7b0a10976e2bc4eb220318664e802e4bd41bc"
+WO025_G4_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "backend/tests/test_v01_closure_regression_lock.py",
+        "backend/tests/test_v01_closure_sprint.py",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "scripts/review_evidence.py",
+        "scripts/review_pr_body.py",
+        "scripts/v01_closure_sprint.py",
+    }
+)
 # The dotted release-train grammar. The legacy ``WORK_ORDER_IDENTIFIER`` cannot express
 # ``WO-1.1-01`` because ``.`` is not in its character class; this pattern is deliberately narrow
 # (dotted major and minor without leading zeros, then a two-digit increment) so it cannot absorb
@@ -2552,6 +2572,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO026_WORK_ORDER,
         WO027_WORK_ORDER,
         WO025_G3_WORK_ORDER,
+        WO025_G4_WORK_ORDER,
         WO025P_WORK_ORDER,
         WO11_01_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
@@ -2975,6 +2996,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         "WO-025-G1",
         "WO-025-G2",
         "WO-025-G3",
+        "WO-025-G4",
         "WO-026",
         "WO-027",
         "WO-1.1-01",
@@ -2993,8 +3015,19 @@ EXPECTED_WO025P_PREVIOUS_STATUS = EXPECTED_WO024P_STATUS
 EXPECTED_WO025P_STATUS = (
     "HIVE POST-1.0 PLANNING PROMOTED / DECISION FABRIC 1.1 RELEASE TRAIN AUTHORIZED"
 )
-# A status promotion leaves the checkpoint identity sections untouched.
-WO025P_IMMUTABLE_CHECKPOINT_SECTIONS = ("VERSION", "PHASE", "OBJECTIVE", "SCOPE")
+# The operational state the promoted checkpoint must carry so the release train is coherent:
+# WO-1.1-01 is the only work in flight, it waits on a verified HIVE-first preflight, and nothing is
+# pending. WO-025-G4 freezes these so Integration health can recognize the state it will run in.
+EXPECTED_WO025P_IN_PROGRESS = "Preparing WO-1.1-01 under verified HIVE-first execution."
+EXPECTED_WO025P_BLOCKERS = "None known after the verified HIVE-first preflight."
+EXPECTED_WO025P_NEXT_STEP = "Execute WO-1.1-01 Decision Contract Kernel + Deterministic Resolver."
+# The only sections a WO-025-P promotion may rewrite. Everything else in the checkpoint --
+# VERSION, PHASE, OBJECTIVE, SCOPE, COMPLETED, GOVERNANCE, DECISIONS, DEFINITION OF DONE, BACKLOG
+# and any future section -- is preserved byte-for-byte, so an arbitrary checkpoint that merely
+# swapped STATUS cannot pass as a promotion.
+WO025P_RAW_PROMOTION_CONTROLLED_SECTIONS = frozenset(
+    {"STATUS", "IN PROGRESS", "PENDING", "BLOCKERS", "NEXT STEP"}
+)
 # Which canonical promotion releases a registered release-train work order. Deny-by-default: an
 # order with no entry here never authorizes, and an order with one releases from the promoted
 # checkpoint itself rather than from a flag that would need a further governance commit.
@@ -3063,23 +3096,54 @@ def require_wo025p_checkpoint_semantics(base_text: str, candidate_text: str) -> 
     """Enforce the exact checkpoint promotion WO-025-P must leave behind.
 
     The base still has to be the V0.1 closure checkpoint and the candidate has to carry the promoted
-    status verbatim, so a near-miss status, an already-promoted base, or a promotion that rewrites
-    project identity cannot release the release-train gate.
+    status and operational state verbatim. Only the controlled promotion sections may differ: the
+    preamble, every heading, the section sequence and every uncontrolled section -- VERSION, PHASE,
+    OBJECTIVE, SCOPE, COMPLETED, GOVERNANCE, DECISIONS, DEFINITION OF DONE and BACKLOG included --
+    stay byte-for-byte identical, so an arbitrary checkpoint that merely swapped STATUS never
+    releases the release-train gate.
     """
 
     base = checkpoint_sections(base_text)
-    candidate = checkpoint_sections(candidate_text)
-    if set(base) != set(candidate):
-        raise ValueError(f"{WO025P_WORK_ORDER} checkpoint section set changed unexpectedly")
     if normalized_checkpoint_value(base, "STATUS") != EXPECTED_WO025P_PREVIOUS_STATUS:
         raise ValueError(
             f"{WO025P_WORK_ORDER} promotion base is not the V0.1 closure checkpoint status"
         )
-    if normalized_checkpoint_value(candidate, "STATUS") != EXPECTED_WO025P_STATUS:
-        raise ValueError(f"{WO025P_WORK_ORDER} candidate has an unexpected checkpoint status")
-    for section in WO025P_IMMUTABLE_CHECKPOINT_SECTIONS:
-        if base.get(section) != candidate.get(section):
-            raise ValueError(f"{WO025P_WORK_ORDER} cannot rewrite checkpoint section {section}")
+    base_preamble, base_ordered, base_sections = _raw_checkpoint_structure(base_text, "base")
+    candidate_preamble, candidate_ordered, candidate_sections = _raw_checkpoint_structure(
+        candidate_text, "candidate"
+    )
+    if base_preamble != candidate_preamble:
+        raise ValueError(f"{WO025P_WORK_ORDER} candidate preamble changed byte-for-byte")
+    if tuple(section.name for section in base_ordered) != tuple(
+        section.name for section in candidate_ordered
+    ):
+        raise ValueError(f"{WO025P_WORK_ORDER} checkpoint section sequence changed unexpectedly")
+    for position, (base_section, candidate_section) in enumerate(
+        zip(base_ordered, candidate_ordered, strict=True), 1
+    ):
+        if base_section.heading != candidate_section.heading:
+            raise ValueError(
+                f"{WO025P_WORK_ORDER} heading changed byte-for-byte at position {position}"
+            )
+    for name in tuple(section.name for section in base_ordered):
+        if (
+            name not in WO025P_RAW_PROMOTION_CONTROLLED_SECTIONS
+            and candidate_sections[name] != base_sections[name]
+        ):
+            raise ValueError(f"{WO025P_WORK_ORDER} changed unrelated checkpoint section: {name}")
+    newline = "\n"
+    expected_controlled: dict[str, str] = {
+        "STATUS": f"{EXPECTED_WO025P_STATUS}{newline}{newline}",
+        "IN PROGRESS": f"- {EXPECTED_WO025P_IN_PROGRESS}{newline}{newline}",
+        "BLOCKERS": f"{EXPECTED_WO025P_BLOCKERS}{newline}{newline}",
+        "NEXT STEP": f"{EXPECTED_WO025P_NEXT_STEP}{newline}{newline}",
+        "PENDING": f"{newline}",
+    }
+    for name, expected_body in expected_controlled.items():
+        if candidate_sections.get(name) != expected_body:
+            raise ValueError(
+                f"{WO025P_WORK_ORDER} {name} section is outside the strict raw grammar"
+            )
 
 
 def require_canonical_manifest_digests(source_root: Path, manifest_text: str) -> None:
@@ -11389,6 +11453,61 @@ def require_wo025_g3_scope(
         )
 
 
+def require_wo025_g4_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_authorized_base: bool = True,
+) -> None:
+    """Bounded scope for the closure/post-1.0 compatibility fix: governance and tests only."""
+
+    if work_order != WO025_G4_WORK_ORDER:
+        return
+    if base_sha != WO025_G4_BASE_SHA:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} requires exact base {WO025_G4_BASE_SHA}, observed {base_sha}"
+        )
+    if base_branch != "main":
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires the protected main base branch")
+    if not paths:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires a non-empty governance delta")
+    unauthorized = sorted(set(paths) - WO025_G4_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} changed files outside the bounded governance scope: "
+            + ", ".join(unauthorized)
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO025_G4_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError("WO-025-G4 authorized-base marker must be lowercase 40-hex")
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO025_G4_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+    canonical = canonical_change_evidence(paths, work_order)
+    if canonical["project_brain_changed"] or canonical["checkpoint_changed"]:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} cannot change canonical Project Brain")
+    if any(path == "migrations" or path.startswith("migrations/") for path in paths):
+        raise ValueError(f"{WO025_G4_WORK_ORDER} cannot change migrations")
+    if any(path.startswith(".github/") for path in paths):
+        raise ValueError(f"{WO025_G4_WORK_ORDER} cannot change CI workflows")
+    for manifest in sorted(set(paths) & DEPENDENCY_MANIFEST_PATHS):
+        raise ValueError(f"{WO025_G4_WORK_ORDER} cannot change the dependency manifest {manifest}")
+    for path in sorted(set(paths)):
+        if RELEASE_PATH_IDENTIFIER.search(path):
+            raise ValueError(f"{WO025_G4_WORK_ORDER} cannot change release assets: {path}")
+    if migration_head() != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+
+
 def require_wo025p_scope(
     work_order: str,
     base_sha: str,
@@ -11642,6 +11761,220 @@ def verify_wo025_g3_governance_contract(
         "wo024_strict_behavior_unchanged=True; "
         "renderers=dedicated_wo025_g3_wo025_p_wo11_01; "
         "stale_semantic_retrieval_fallback_reachable=False; "
+        "product_implementation=False; checkpoint_promoted=False; "
+        f"v01_closure_sprint_evidence=PASS; "
+        f"v01_closure_sprint_version={V01_CLOSURE_SPRINT_EVIDENCE_VERSION}; "
+        f"migration_head={V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}; "
+        "ruleset_unchanged=PASS; auto_merge=UNARMED; v0.1_completion_claim=False; "
+        "canonical_promotion_performed=False"
+    )
+
+
+def verify_wo025_g4_governance_contract(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    canonical_changes: Mapping[str, object],
+    governance: Mapping[str, object],
+    integration: Mapping[str, object],
+    migration_head_value: str,
+    authorized_base_sha: str | None = None,
+) -> str | None:
+    """Self-host the closure/post-1.0 checkpoint compatibility as bounded evidence."""
+
+    if work_order != WO025_G4_WORK_ORDER:
+        return None
+    require_wo025_g4_scope(
+        work_order,
+        base_sha,
+        paths,
+        authorized_base_sha=authorized_base_sha,
+        enforce_authorized_base=authorized_base_sha is not None,
+    )
+    require_supported_work_order(WO025_G4_WORK_ORDER)
+    require_current_work_order_authorization(WO025_G4_WORK_ORDER)
+    if WO025_G4_WORK_ORDER not in AUTHORIZED_BASE_MARKER_WORK_ORDERS:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} requires the authorized-base marker parser to cover it"
+        )
+    if WO025_G4_WORK_ORDER not in CORRECTIVE_GOVERNANCE_WORK_ORDERS:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} must stay a corrective governance order outside the pair"
+        )
+    if WO025_G4_WORK_ORDER in CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} must not become a checkpoint promotion")
+    # Three legitimate checkpoint families, pairwise distinct so no state can impersonate another.
+    closure_statuses = (
+        EXPECTED_WO024P_PREVIOUS_STATUS,
+        EXPECTED_WO024P_STATUS,
+        EXPECTED_WO025P_STATUS,
+    )
+    if len(set(closure_statuses)) != 3:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires three distinct checkpoint families")
+    if EXPECTED_WO025P_PREVIOUS_STATUS != EXPECTED_WO024P_STATUS:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} requires WO-025-P to promote from the V0.1 closure state"
+        )
+    post_promotion_state = {
+        "IN PROGRESS": EXPECTED_WO025P_IN_PROGRESS,
+        "BLOCKERS": EXPECTED_WO025P_BLOCKERS,
+        "NEXT STEP": EXPECTED_WO025P_NEXT_STEP,
+    }
+    if set(post_promotion_state) != {"IN PROGRESS", "BLOCKERS", "NEXT STEP"}:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires the full post-promotion state contract")
+    if WO11_01_WORK_ORDER not in post_promotion_state["IN PROGRESS"]:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} must name {WO11_01_WORK_ORDER} as the work in flight"
+        )
+    if "WO-1.1-01" not in post_promotion_state["NEXT STEP"]:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} must name the WO-1.1-01 next step")
+    # Only the controlled operational sections may move; everything else is byte-preserved, which is
+    # what makes an arbitrary checkpoint that merely swapped STATUS fail instead of pass.
+    if frozenset({"STATUS", "IN PROGRESS", "PENDING", "BLOCKERS", "NEXT STEP"}) != (
+        WO025P_RAW_PROMOTION_CONTROLLED_SECTIONS
+    ):
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires the exact WO-025-P controlled set")
+    for immutable in ("VERSION", "PHASE", "OBJECTIVE", "SCOPE", "COMPLETED", "GOVERNANCE"):
+        if immutable in WO025P_RAW_PROMOTION_CONTROLLED_SECTIONS:
+            raise ValueError(f"{WO025_G4_WORK_ORDER} forbids {immutable} in the controlled set")
+    # The real checkpoint stays in the V0.1 closure state and its digests stay verifiable, so this
+    # increment proves compatibility without performing the promotion.
+    checkpoint_text = (ROOT / CHECKPOINT_PATH).read_bytes().decode("utf-8")
+    checkpoint_sections_map = checkpoint_sections(checkpoint_text)
+    if normalized_checkpoint_value(checkpoint_sections_map, "STATUS") != (
+        EXPECTED_WO025P_PREVIOUS_STATUS
+    ):
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} must not execute the {WO025P_WORK_ORDER} promotion"
+        )
+    require_canonical_manifest_digests(
+        ROOT, (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8")
+    )
+    # The post-1.0 contract is proved against the real canonical checkpoint in memory only: the
+    # exact promoted state is accepted and every narrower mutation is rejected.
+    preamble, ordered, base_bodies = _raw_checkpoint_structure(checkpoint_text, "base")
+
+    def rebuild(bodies: Mapping[str, str]) -> str:
+        return preamble + "".join(
+            section.heading + bodies.get(section.name, section.body) for section in ordered
+        )
+
+    promoted_bodies = {
+        "STATUS": f"{EXPECTED_WO025P_STATUS}\n\n",
+        "IN PROGRESS": f"- {EXPECTED_WO025P_IN_PROGRESS}\n\n",
+        "BLOCKERS": f"{EXPECTED_WO025P_BLOCKERS}\n\n",
+        "NEXT STEP": f"{EXPECTED_WO025P_NEXT_STEP}\n\n",
+        "PENDING": "\n",
+    }
+    try:
+        require_wo025p_checkpoint_semantics(checkpoint_text, rebuild(promoted_bodies))
+    except ValueError as error:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} rejects its own post-1.0 checkpoint contract: {error}"
+        ) from error
+    mutations: dict[str, str] = {
+        "status swap": rebuild({"STATUS": promoted_bodies["STATUS"]}),
+        "stale NEXT STEP": rebuild(
+            {**promoted_bodies, "NEXT STEP": f"{EXPECTED_WO024P_NEXT_STEP}\n\n"}
+        ),
+        "undue PENDING": rebuild({**promoted_bodies, "PENDING": "- retained closure item\n\n"}),
+        "unrelated section drift": rebuild(
+            {**promoted_bodies, "GOVERNANCE": f"{base_bodies['GOVERNANCE']}drift\n"}
+        ),
+        "missing section": rebuild(promoted_bodies).replace("## NEXT STEP\n", "", 1),
+    }
+    for mutation, candidate in mutations.items():
+        if candidate == checkpoint_text:
+            raise ValueError(f"{WO025_G4_WORK_ORDER} built the vacuous {mutation} mutation")
+        try:
+            require_wo025p_checkpoint_semantics(checkpoint_text, candidate)
+        except ValueError:
+            continue
+        raise ValueError(f"{WO025_G4_WORK_ORDER} accepted the {mutation} checkpoint mutation")
+    for named in ("status swap", "missing section"):
+        if named not in mutations:
+            raise ValueError(f"{WO025_G4_WORK_ORDER} must reject the {named} mutation")
+    require_current_work_order_authorization(WO025P_WORK_ORDER)
+    try:
+        require_current_work_order_authorization(WO11_01_WORK_ORDER)
+    except ValueError as error:
+        if WO025P_WORK_ORDER not in str(error):
+            raise ValueError(
+                f"{WO11_01_WORK_ORDER} must stay blocked by the unlanded canonical promotion"
+            ) from error
+    else:
+        raise ValueError(f"{WO11_01_WORK_ORDER} unexpectedly authorizes a fresh current PR")
+    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028", "WO-029", ""):
+        try:
+            require_supported_work_order(rejected)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{rejected!r} unexpectedly remains supported")
+    # Historical WO-024 closure semantics stay frozen, constants and grammar included.
+    if EXPECTED_WO024P_STATUS != "HIVE V0.1 COMPLETE / CLOSURE SPRINT APPROVED":
+        raise ValueError(f"{WO025_G4_WORK_ORDER} cannot rewrite the historical V0.1 closure status")
+    if EXPECTED_WO024P_IN_PROGRESS != "None. V0.1 closure is complete and promoted.":
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} cannot rewrite the historical WO-024-P in progress"
+        )
+    if not WO024P_COMPLETED_PENDING_ITEMS:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} requires the active-closure family to keep pending items so it "
+            "cannot collapse into the promoted families"
+        )
+    # WO-024-P was allowed to rewrite COMPLETED; WO-025-P may not. The historical grammar stays
+    # byte-for-byte intact and the new one is strictly narrower, so nothing is loosened.
+    if "COMPLETED" not in _WO016P_RAW_CONTROLLED_SECTIONS:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} cannot rewrite the historical WO-024-P controlled section set"
+        )
+    for preserved in (WO026_WORK_ORDER, WO027_WORK_ORDER, WO025_G3_WORK_ORDER):
+        require_supported_work_order(preserved)
+        require_current_work_order_authorization(preserved)
+    if paths and any(path in CANONICAL_PATHS for path in paths):
+        raise ValueError(f"{WO025_G4_WORK_ORDER} forbids canonical promotion files")
+    if canonical_changes != {
+        "project_brain_changed": False,
+        "checkpoint_changed": False,
+        "authorized_paths": [],
+    }:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} forbids canonical changes")
+    if migration_head_value != V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD:
+        raise ValueError(
+            f"{WO025_G4_WORK_ORDER} requires migration head "
+            f"{V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
+        )
+    if governance.get("ruleset_unchanged") is not True:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires an unchanged ruleset")
+    pull_request = cast(dict[str, Any], governance.get("pull_request", {}))
+    if pull_request.get("auto_merge_armed") is not False:
+        raise ValueError(f"{WO025_G4_WORK_ORDER} requires auto-merge to remain unarmed")
+    require_wo024_v01_closure_sprint_evidence(
+        WO024_WORK_ORDER,
+        integration,
+        migration_head_value,
+    )
+    return (
+        f"work_order={WO025_G4_WORK_ORDER}; exact_base=PASS; governance_scope=PASS; "
+        "closure_checkpoint_families=3; v01_closure_state=PASS; post_wo025p_state=PASS; "
+        f"active_closure_pending_items={len(WO024P_COMPLETED_PENDING_ITEMS)}; "
+        "status_swap_only=REJECTED; missing_section=REJECTED; "
+        "post_promotion_pending=REJECTED; post_promotion_stale_fields=REJECTED; "
+        "strict_promotion_grammar=True; "
+        f"in_process_promotion_proof=PASS; mutations_rejected={len(mutations)}; "
+        f"controlled_sections={','.join(sorted(WO025P_RAW_PROMOTION_CONTROLLED_SECTIONS))}; "
+        "unrelated_section_drift=REJECTED; "
+        "checkpoint_changed=False; canonical_manifest_changed=False; "
+        "migration_changed=False; dependency_changed=False; workflow_changed=False; "
+        "release_changed=False; project_brain_changed=False; "
+        f"current_promotion_frontier={WO025P_WORK_ORDER}; "
+        "wo_025_p_promotion_executed=False; wo_1_1_01_pending_blocked=True; "
+        "wo_1_1_02_rejected=True; deny_by_default=True; "
+        "historical_promotion_pair_unchanged=True; wo024_strict_behavior_unchanged=True; "
+        "historical_work_orders_preserved=True; "
+        "renderers=dedicated_wo025_g4; "
+        "integration_health_closure_regression=EXECUTABLE; "
         "product_implementation=False; checkpoint_promoted=False; "
         f"v01_closure_sprint_evidence=PASS; "
         f"v01_closure_sprint_version={V01_CLOSURE_SPRINT_EVIDENCE_VERSION}; "
@@ -16512,6 +16845,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         base_branch=args.base_branch,
         authorized_base_sha=authorized_base_sha,
     )
+    require_wo025_g4_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
     require_wo025p_scope(
         work_order,
         base_sha,
@@ -16953,6 +17293,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha,
     )
     wo025_g3_governance_evidence = verify_wo025_g3_governance_contract(
+        work_order,
+        base_sha,
+        paths,
+        canonical_changes,
+        governance,
+        integration,
+        migration_head(),
+        authorized_base_sha,
+    )
+    wo025_g4_governance_evidence = verify_wo025_g4_governance_contract(
         work_order,
         base_sha,
         paths,
@@ -17407,6 +17757,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         + (
             [f"WO-025-G3 governance evidence: {wo025_g3_governance_evidence}"]
             if wo025_g3_governance_evidence
+            else []
+        )
+        + (
+            [f"WO-025-G4 governance evidence: {wo025_g4_governance_evidence}"]
+            if wo025_g4_governance_evidence
             else []
         )
         + (
@@ -18475,6 +18830,22 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         expected_wo025_g3_entry = f"WO-025-G3 governance evidence: {wo025_g3_evidence}"
         if expected_wo025_g3_entry not in negative_scope:
             raise ValueError("WO-025-G3 evidence must record the work-order namespace governance")
+    wo025_g4_evidence = verify_wo025_g4_governance_contract(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        cast(dict[str, object], canonical_payload),
+        cast(dict[str, object], manifest["governance"]),
+        cast(dict[str, object], cast(dict[str, Any], manifest["evidence"])["integration"]),
+        cast(str, cast(dict[str, Any], manifest["migrations"])["head"]),
+        None,
+    )
+    if work_order == WO025_G4_WORK_ORDER:
+        expected_wo025_g4_entry = f"WO-025-G4 governance evidence: {wo025_g4_evidence}"
+        if expected_wo025_g4_entry not in negative_scope:
+            raise ValueError(
+                "WO-025-G4 evidence must record the closure/post-1.0 checkpoint compatibility"
+            )
     wo023p_evidence = verify_wo023p_governance_contract(
         work_order,
         cast(str, base["sha"]),
