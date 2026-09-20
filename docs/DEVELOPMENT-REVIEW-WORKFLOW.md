@@ -27,3 +27,28 @@ mesmo manifesto versionado e produz ZIP determinístico com SHA-256.
 Nenhum job executa merge, publica release, altera o Project Brain canônico ou
 aplica regras de proteção antes de o check real existir e passar no SHA
 correto. Falhas de permissão do GitHub devem permanecer explícitas na evidência.
+
+
+## Correção direta durante o review
+
+Defeitos encontrados por Sol durante o review são classificados como
+`SELF_HEALABLE` ou `EXECUTOR_REQUIRED`.
+
+`SELF_HEALABLE` é exclusivamente um defeito pequeno, localizado e de baixo
+risco que Sol consegue corrigir com as ferramentas atualmente disponíveis e
+validar com evidência objetiva, sem depender de segredo, estado apenas local,
+migração, ação destrutiva/irreversível, expansão de escopo, mudança de
+arquitetura, alteração de decisão aprovada ou evidência inacessível ao reviewer.
+
+Quando o defeito for `SELF_HEALABLE`, Sol deve aplicar a menor correção segura,
+validar o delta e continuar o mesmo review. Se o incremento ficar limpo, o mesmo
+review já libera o próximo prompt autorizado, evitando uma rodada de Codex usada
+somente para um erro trivial.
+
+Quando o defeito for `EXECUTOR_REQUIRED`, o veredito é `CORRECTION REQUIRED`
+e Sol fornece somente o delta corretivo ao executor. Nenhum Work Order posterior
+é liberado até a correção ser objetivamente validada.
+
+A correção direta nunca autoriza bypass de `main` protegido, required checks,
+Review Evidence, promoção canônica, STOP CONDITION, gates HIGH/CRITICAL ou
+limpeza/refatoração não relacionada.
