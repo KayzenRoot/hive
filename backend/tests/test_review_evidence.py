@@ -12882,7 +12882,7 @@ def test_wo025_g4_registration_does_not_widen_the_namespace() -> None:
 
     assert review_evidence.WO025_G4_WORK_ORDER in review_evidence.REGISTERED_WORK_ORDERS
     for rejected in (
-        "WO-025-G5",
+        "WO-025-G6",
         "WO-025-G10",
         "WO-025-G4-P",
         "WO-026-P",
@@ -13399,15 +13399,20 @@ def test_release_train_gate_fails_closed_without_a_registered_promotion(
         require_current_work_order_authorization(review_evidence.WO11_01_WORK_ORDER)
 
 
-
 def test_wo025_g5_review_self_healing_policy_is_bounded_and_registered() -> None:
     """The Sol self-healing review rule is explicit, low-risk, and deny-by-default."""
 
     require_supported_work_order(review_evidence.WO025_G5_WORK_ORDER)
     require_current_work_order_authorization(review_evidence.WO025_G5_WORK_ORDER)
-    assert review_evidence.WO025_G5_WORK_ORDER in review_evidence.CORRECTIVE_GOVERNANCE_WORK_ORDERS
-    assert review_evidence.WO025_G5_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
-    assert review_evidence.WO025_G5_WORK_ORDER not in review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    assert review_evidence.WO025_G5_WORK_ORDER in (
+        review_evidence.CORRECTIVE_GOVERNANCE_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G5_WORK_ORDER in (
+        review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    )
+    assert review_evidence.WO025_G5_WORK_ORDER not in (
+        review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
     assert review_evidence.WO025_G5_BASE_SHA == "82bb5e9d6fb22046e95eb532b499884adaeae6c3"
 
     allowed = sorted(review_evidence.WO025_G5_ALLOWED_PATHS)
