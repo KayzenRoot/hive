@@ -2983,11 +2983,22 @@ REGISTERED_WORK_ORDERS = frozenset(
 # The only accepted identifier that is not a work order: the local validation sentinel that
 # ``scripts/validate.py`` passes when it runs the evidence generator without a pull request.
 WORK_ORDER_SENTINELS = frozenset({"LOCAL-VALIDATION"})
-# Registered release-train work orders stay fail-closed as *current* work orders until the
-# canonical checkpoint promotion lands. WO-1.1-01 is parseable and registered so its grammar and
-# scope contract are frozen now, but it cannot authorize a fresh pull request yet; WO-1.1-02 and
-# later 1.1 steps are not registered at all and therefore fail closed as unsupported.
-PENDING_RELEASE_TRAIN_WORK_ORDERS = frozenset({WO11_01_WORK_ORDER})
+# The current promotion frontier is deliberately separate from promotion history. WO-024-G1 and
+# WO-024-P remain the audited historical pair that the closure contracts freeze, while WO-025-P is
+# the promotion allowed to open a fresh pull request once WO-025-G3 lands.
+CURRENT_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO025P_WORK_ORDER})
+# The canonical checkpoint state WO-025-G3 declares and WO-025-P applies. Nothing here edits the
+# checkpoint: the working tree keeps the V0.1 closure status until the promotion merges.
+EXPECTED_WO025P_PREVIOUS_STATUS = EXPECTED_WO024P_STATUS
+EXPECTED_WO025P_STATUS = (
+    "HIVE POST-1.0 PLANNING PROMOTED / DECISION FABRIC 1.1 RELEASE TRAIN AUTHORIZED"
+)
+# A status promotion leaves the checkpoint identity sections untouched.
+WO025P_IMMUTABLE_CHECKPOINT_SECTIONS = ("VERSION", "PHASE", "OBJECTIVE", "SCOPE")
+# Which canonical promotion releases a registered release-train work order. Deny-by-default: an
+# order with no entry here never authorizes, and an order with one releases from the promoted
+# checkpoint itself rather than from a flag that would need a further governance commit.
+RELEASE_TRAIN_PROMOTING_WORK_ORDERS: dict[str, str] = {WO11_01_WORK_ORDER: WO025P_WORK_ORDER}
 
 
 def require_supported_work_order(work_order: str) -> None:
@@ -3034,19 +3045,76 @@ def require_current_work_order_authorization(work_order: str) -> None:
             "registered planning promotion is not authorized as a current work order yet; its own "
             "governance increment must authorize it: " + work_order
         )
-    if work_order in PENDING_RELEASE_TRAIN_WORK_ORDERS:
-        raise ValueError(
-            "registered release-train work order is not authorized as a current work order yet; "
-            "the canonical checkpoint promotion must land first: " + work_order
-        )
+    if RELEASE_TRAIN_WORK_ORDER_IDENTIFIER.fullmatch(work_order):
+        require_release_train_promotion_evidence(work_order)
+        return
     if (
         PROMOTION_WORK_ORDER_IDENTIFIER.fullmatch(work_order)
         and work_order not in ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
+        and work_order not in CURRENT_CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
         raise ValueError(
             "historical checkpoint-promotion work order cannot authorize a fresh current PR: "
             + work_order
         )
+
+
+def require_wo025p_checkpoint_semantics(base_text: str, candidate_text: str) -> None:
+    """Enforce the exact checkpoint promotion WO-025-P must leave behind.
+
+    The base still has to be the V0.1 closure checkpoint and the candidate has to carry the promoted
+    status verbatim, so a near-miss status, an already-promoted base, or a promotion that rewrites
+    project identity cannot release the release-train gate.
+    """
+
+    base = checkpoint_sections(base_text)
+    candidate = checkpoint_sections(candidate_text)
+    if set(base) != set(candidate):
+        raise ValueError(f"{WO025P_WORK_ORDER} checkpoint section set changed unexpectedly")
+    if normalized_checkpoint_value(base, "STATUS") != EXPECTED_WO025P_PREVIOUS_STATUS:
+        raise ValueError(
+            f"{WO025P_WORK_ORDER} promotion base is not the V0.1 closure checkpoint status"
+        )
+    if normalized_checkpoint_value(candidate, "STATUS") != EXPECTED_WO025P_STATUS:
+        raise ValueError(f"{WO025P_WORK_ORDER} candidate has an unexpected checkpoint status")
+    for section in WO025P_IMMUTABLE_CHECKPOINT_SECTIONS:
+        if base.get(section) != candidate.get(section):
+            raise ValueError(f"{WO025P_WORK_ORDER} cannot rewrite checkpoint section {section}")
+
+
+def require_canonical_manifest_digests(source_root: Path, manifest_text: str) -> None:
+    """Re-derive every canonical digest from disk instead of trusting a claimed promotion."""
+
+    brain_root = source_root / Path(CANONICAL_MANIFEST_PATH).parent
+    for name, digest in parse_canonical_manifest(manifest_text, str(source_root)):
+        path = brain_root / name
+        if not path.is_file():
+            raise ValueError(f"canonical source is missing: {name}")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"canonical digest does not match the manifest: {name}")
+
+
+def require_release_train_promotion_evidence(work_order: str) -> None:
+    """Release a registered release-train order only from the promoted canonical checkpoint."""
+
+    promoting_order = RELEASE_TRAIN_PROMOTING_WORK_ORDERS.get(work_order)
+    if promoting_order is None:
+        raise ValueError(
+            "registered release-train work order has no canonical promotion that releases it; "
+            "explicit governance registration is required: " + work_order
+        )
+    blocked = (
+        f"{work_order} is not authorized as a current work order yet; the canonical checkpoint "
+        f"promotion by {promoting_order} must land first"
+    )
+    checkpoint_file = ROOT / CHECKPOINT_PATH
+    manifest_file = ROOT / CANONICAL_MANIFEST_PATH
+    if not checkpoint_file.is_file() or not manifest_file.is_file():
+        raise ValueError(blocked)
+    sections = checkpoint_sections(checkpoint_file.read_bytes().decode("utf-8"))
+    if normalized_checkpoint_value(sections, "STATUS") != EXPECTED_WO025P_STATUS:
+        raise ValueError(blocked)
+    require_canonical_manifest_digests(ROOT, manifest_file.read_bytes().decode("utf-8"))
 
 
 def require_gef_adoption_scope(
@@ -8875,7 +8943,7 @@ def verify_wo020_g1_governance_contract(
     if work_order != WO020_G1_WORK_ORDER:
         return None
     require_wo020_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9425,7 +9493,7 @@ def verify_wo018p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9532,7 +9600,7 @@ def verify_wo019p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9639,7 +9707,7 @@ def verify_wo020p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9758,7 +9826,7 @@ def verify_wo021p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9892,7 +9960,7 @@ def verify_wo022p_g1_governance_contract(
             pass
         else:
             raise ValueError(f"{stale} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-025-P", "WO-999-P"):
+    for rejected in ("WO-026-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11332,9 +11400,10 @@ def require_wo025p_scope(
 ) -> None:
     """Bounded scope for the next canonical checkpoint promotion.
 
-    WO-025-P is registered by WO-025-G3 but not executed there. Its contract is limited to the
-    smallest necessary surface: the canonical checkpoint, its digest manifest, and the governance
-    bridge strictly required to activate the registered release-train order afterwards.
+    WO-025-P is registered by WO-025-G3 but not executed there. Its contract is the canonical
+    checkpoint, its digest manifest, and nothing else: the registered release-train order reads the
+    promoted checkpoint as deterministic evidence, so the transition needs no further governance
+    commit after this promotion lands.
     """
 
     if work_order != WO025P_WORK_ORDER:
@@ -11372,6 +11441,15 @@ def require_wo025p_scope(
         raise ValueError(
             f"{WO025P_WORK_ORDER} requires migration head {V01_CLOSURE_SPRINT_MIGRATION_BASE_HEAD}"
         )
+    base_checkpoint = git_blob_bytes(base_sha, CHECKPOINT_PATH).decode("utf-8")
+    candidate_checkpoint_bytes = (ROOT / CHECKPOINT_PATH).read_bytes()
+    require_wo025p_checkpoint_semantics(base_checkpoint, candidate_checkpoint_bytes.decode("utf-8"))
+    require_checkpoint_manifest_contract(
+        git_blob_bytes(base_sha, CANONICAL_MANIFEST_PATH).decode("utf-8"),
+        (ROOT / CANONICAL_MANIFEST_PATH).read_bytes().decode("utf-8"),
+        candidate_checkpoint_bytes,
+        WO025P_WORK_ORDER,
+    )
 
 
 def require_wo11_01_scope(
@@ -11464,13 +11542,22 @@ def verify_wo025_g3_governance_contract(
         raise ValueError(
             f"{WO025_G3_WORK_ORDER} requires the release-train grammar to parse 1.1-01"
         )
-    # Deny-by-default: the registered-but-pending order cannot authorize a fresh pull request yet,
-    # and the unregistered frontier fails closed.
+    # STATE A (after this increment, before WO-025-P): the next promotion is current-authorized,
+    # while the registered release-train order is still blocked by canonical checkpoint evidence --
+    # not by a flag -- and the unregistered frontier fails closed.
+    require_current_work_order_authorization(WO025P_WORK_ORDER)
+    if RELEASE_TRAIN_PROMOTING_WORK_ORDERS.get(WO11_01_WORK_ORDER) != WO025P_WORK_ORDER:
+        raise ValueError(
+            f"{WO025_G3_WORK_ORDER} requires WO-1.1-01 to be released by the WO-025-P promotion"
+        )
     for pending in (WO11_01_WORK_ORDER,):
         try:
             require_current_work_order_authorization(pending)
-        except ValueError:
-            pass
+        except ValueError as error:
+            if WO025P_WORK_ORDER not in str(error):
+                raise ValueError(
+                    f"{pending} must be blocked by the unlanded canonical checkpoint promotion"
+                ) from error
         else:
             raise ValueError(f"{pending} unexpectedly authorizes a fresh current PR")
     for rejected in (
@@ -11499,6 +11586,18 @@ def verify_wo025_g3_governance_contract(
         raise ValueError(
             f"{WO025_G3_WORK_ORDER} forbids WO-025-P joining the active promotion pair"
         )
+    # Promotion history and the current promotion stay disjoint sets, so authorizing the next
+    # promotion never rewrites the audited WO-024 frontier.
+    if frozenset({WO025P_WORK_ORDER}) != CURRENT_CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(
+            f"{WO025_G3_WORK_ORDER} requires WO-025-P to be the only current promotion frontier"
+        )
+    if ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS & CURRENT_CHECKPOINT_PROMOTION_WORK_ORDERS:
+        raise ValueError(
+            f"{WO025_G3_WORK_ORDER} requires current promotion frontier to stay out of history"
+        )
+    for historical in (WO024_G1_WORK_ORDER, WO024_WORK_ORDER, WO024P_WORK_ORDER):
+        require_current_work_order_authorization(historical)
     if not {WO024_G1_WORK_ORDER, WO024P_WORK_ORDER}.issubset(CHECKPOINT_PROMOTION_WORK_ORDERS):
         raise ValueError(f"{WO025_G3_WORK_ORDER} requires the historical promotion pair registered")
     if paths and any(path in CANONICAL_PATHS for path in paths):
@@ -11533,7 +11632,11 @@ def verify_wo025_g3_governance_contract(
         "wo_1_1_01_pending_blocked=True; wo_1_1_02_rejected=True; "
         "near_miss_WO-11-01_WO-12-99_WO-22-01=REJECTED; unknown_WO-026_WO-026-P=REJECTED; "
         "malformed_identifier=REJECTED; empty_identifier=REJECTED; "
-        "wo_025_p_registered=True; wo_025_p_promotion_executed=False; "
+        "wo_025_p_registered=True; wo_025_p_current_authorized=True; "
+        "wo_025_p_promotion_executed=False; "
+        f"current_promotion_frontier={WO025P_WORK_ORDER}; promotion_history_separated=True; "
+        "wo_1_1_01_gate=canonical_checkpoint_evidence; "
+        "wo_1_1_01_release_needs_no_governance_commit=True; "
         f"active_promotions={WO024_G1_WORK_ORDER},{WO024P_WORK_ORDER}; "
         "historical_promotion_pair_unchanged=True; historical_work_orders_preserved=True; "
         "wo024_strict_behavior_unchanged=True; "

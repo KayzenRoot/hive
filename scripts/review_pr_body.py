@@ -4362,8 +4362,13 @@ release, VERSION ou tag.
 - Merge antes: {merge_before}; depois: {merge_after}.
 
 WO-025-P fica registrado como a próxima promoção canônica de checkpoint sem ser
-executado, e WO-1.1-01 fica registrado e PENDING/BLOCKED até essa promoção.
-WO-1.1-02 e passos 1.1 posteriores permanecem não autorizados.
+executado, e passa a ser current-authorized: a fronteira corrente de promoção é
+separada do histórico, que permanece auditável e inalterado em
+`WO-024-G1`/`WO-024-P`. WO-1.1-01 fica registrado e bloqueado enquanto o
+checkpoint canônico estiver no estado de fechamento V0.1; ele se libera da
+evidência canônica do checkpoint promovido, conforme o contrato exato declarado
+neste incremento, sem nenhum incremento de governança adicional. WO-1.1-02 e
+passos 1.1 posteriores permanecem não autorizados.
 
 Sem implementação de produto, sem promoção de checkpoint, sem merge e com
 auto-merge desarmado. A PR permanece aberta para auditoria de Sol no HEAD exato.
@@ -4394,17 +4399,17 @@ def _render_wo025p_body(
 
 ## 1. Promoção canônica de checkpoint
 
-Esta PR promove a verdade de execução no checkpoint canônico e, quando o modelo
-existente exigir, a ponte de governança estritamente necessária para ativar
-WO-1.1-01. Não implementa produto.
+Esta PR promove a verdade de execução no checkpoint canônico e no seu manifesto
+de digests. O contrato do estado promovido já está declarado em WO-025-G3, e
+WO-1.1-01 se libera lendo essa evidência canônica: nenhuma alteração de
+governança adicional faz parte desta superfície. Não implementa produto.
 
 ## 2. Superfície permitida
 
 Somente `docs/project-brain/13-CHECKPOINT.md` e
-`docs/project-brain/CANONICAL-SHA256SUMS.txt`, acrescidos da ponte de governança
-estritamente necessária quando exigida pelo modelo. Código de produto,
-dashboard, migrações, dependências, workflows, releases e VERSION permanecem
-rejeitados pelo contrato.
+`docs/project-brain/CANONICAL-SHA256SUMS.txt`. Código de produto, dashboard,
+migrações, dependências, workflows, releases e VERSION permanecem rejeitados pelo
+contrato.
 
 ## 3. Identidade e governança
 
