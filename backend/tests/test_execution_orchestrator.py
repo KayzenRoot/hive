@@ -351,7 +351,8 @@ def test_evidence_sanitizes_secret_and_absolute_path(tmp_path: Path) -> None:
 def test_execute_resolves_identity_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Lifecycle preflight and execution must share one exact identity basis."""
 
-    orchestrator, request, adapter = _orchestrator_fixture(tmp_path)
+    orchestrator = make_orchestrator(tmp_path)
+    adapter = FixtureAdapter(coding_result())
     original = orchestrator._resolve_identity
     calls = 0
 
@@ -361,7 +362,7 @@ def test_execute_resolves_identity_once(monkeypatch: pytest.MonkeyPatch, tmp_pat
         return original(request_value)
 
     monkeypatch.setattr(orchestrator, "_resolve_identity", counted)
-    result = orchestrator.execute(request, adapter)
+    result = orchestrator.execute(request(), adapter)
 
     assert result.status == "STAGED"
     assert calls == 1
