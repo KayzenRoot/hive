@@ -13506,8 +13506,7 @@ def test_wo025_g5_review_self_healing_policy_is_bounded_and_registered() -> None
         )
 
 
-def test_hive_rel_004_scope_and_completed_release_noop_order_are_bounded(
-) -> None:
+def test_hive_rel_004_scope_and_completed_release_noop_order_are_bounded() -> None:
     """HIVE-REL-004 fixes only stale completed-release publication retries."""
 
     require_supported_work_order(HIVE_REL_004_WORK_ORDER)
