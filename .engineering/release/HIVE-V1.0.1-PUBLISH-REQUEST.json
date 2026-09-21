@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "status": "armed",
+  "product": "HIVE",
+  "version": "1.0.1",
+  "tag": "v1.0.1",
+  "work_order": "HIVE-REL-006",
+  "issue": 137,
+  "authorized_parent": "3c2090dc458c6d4ed988e89f85043a9d106d1901",
+  "required_post_merge_ci": {
+    "workflow": "CI",
+    "event": "push",
+    "branch": "main",
+    "conclusion": "success"
+  },
+  "publication": {
+    "tag_type": "annotated",
+    "release_state": "stable",
+    "source_distribution_only": true,
+    "final_receipt_asset": "hive-v1.0.1.release-receipt.json"
+  },
+  "preconditions": {
+    "release_preparation_pr": 136,
+    "release_preparation_audited_head": "b4738cfa6258f13637ea2e37937e70304b790425",
+    "release_preparation_merge": "3c2090dc458c6d4ed988e89f85043a9d106d1901",
+    "release_preparation_post_merge_ci": 35648026551,
+    "preauthorization_publisher_noop_run": 35649446072
+  },
+  "note": "This request is intentionally non-circular: the eventual squash merge commit for HIVE-REL-006 must have authorized_parent as its direct parent. Publication is permitted only after that exact main commit passes protected push CI and remains current main."
+}
