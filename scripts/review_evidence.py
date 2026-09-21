@@ -11245,7 +11245,6 @@ def require_wo027_scope(
             )
 
 
-
 def require_wo028_scope(
     work_order: str,
     base_sha: str,
@@ -12043,7 +12042,7 @@ def verify_wo025_g4_governance_contract(
             ) from error
     else:
         raise ValueError(f"{WO11_01_WORK_ORDER} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-1.1-02", "WO-11-01", "WO-029", "WO-029", ""):
+    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028-P", "WO-029", ""):
         try:
             require_supported_work_order(rejected)
         except ValueError:
