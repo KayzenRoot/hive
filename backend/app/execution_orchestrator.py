@@ -444,7 +444,7 @@ class ExecutionOrchestrator:
             "executor.started",
         )
         try:
-            result = self._execute(request, adapter)
+            result = self._execute(request, adapter, identity=identity, project=_project)
         except Exception as exc:
             self._emit_event(
                 request,
@@ -489,10 +489,18 @@ class ExecutionOrchestrator:
             emission_key=f"execution:{run_id}:{emission_suffix}",
         )
 
-    def _execute(self, request: ExecutorRequest, adapter: ExecutorAdapter) -> ExecutionResult:
-        """Run one adapter result through identity, context, Runner and evidence gates."""
+    def _execute(
+        self,
+        request: ExecutorRequest,
+        adapter: ExecutorAdapter,
+        *,
+        identity: ExecutionIdentity | None = None,
+        project: ProjectResponse | None = None,
+    ) -> ExecutionResult:
+        """Run one adapter result through one verified execution basis."""
 
-        identity, project = self._resolve_identity(request)
+        if identity is None or project is None:
+            identity, project = self._resolve_identity(request)
         initial = self._observe(identity.workspace)
         self._assert_observation(identity, initial, require_clean=True)
         context = self._build_context(request, identity, project)
