@@ -224,8 +224,9 @@ describe("App", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Register project" }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("relative to HIVE_PROJECTS_ROOT");
+    expect(
+      await screen.findByText(/Use a path relative to HIVE_PROJECTS_ROOT/),
+    ).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(
         ([input, init]) =>
