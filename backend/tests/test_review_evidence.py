@@ -12318,7 +12318,7 @@ def test_wo025_g2_scope_is_bounded_and_base_bound() -> None:
             )
 
 
-def test_wo025_is_now_current_authorized_and_wo028_stays_fail_closed(
+def test_wo025_is_now_current_authorized_and_wo029_stays_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """WO-025-G2 authorizes the planning promotion; the unknown frontier stays rejected."""
