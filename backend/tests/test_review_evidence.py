@@ -6393,8 +6393,10 @@ def test_hive_rel_001_marker_is_bounded_and_registered() -> None:
     require_current_work_order_authorization(HIVE_REL_002_WORK_ORDER)
     require_supported_work_order(HIVE_REL_003_WORK_ORDER)
     require_current_work_order_authorization(HIVE_REL_003_WORK_ORDER)
+    require_supported_work_order(HIVE_REL_004_WORK_ORDER)
+    require_current_work_order_authorization(HIVE_REL_004_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported release-engineering"):
-        require_supported_work_order("HIVE-REL-004")
+        require_supported_work_order("HIVE-REL-005")
     with pytest.raises(ValueError, match="unsupported release-engineering"):
         require_supported_work_order("HIVE-REL-999")
     with pytest.raises(ValueError, match="invalid or unbounded"):
@@ -13530,9 +13532,9 @@ def test_hive_rel_004_scope_and_completed_release_noop_order_are_bounded() -> No
                 authorized_base_sha=HIVE_REL_004_BASE_SHA,
             )
 
-    workflow = (review_evidence.ROOT / ".github/workflows/release-publisher.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (
+        review_evidence.ROOT / ".github/workflows/release-publisher.yml"
+    ).read_text(encoding="utf-8")
     terminal_check = workflow.index(
         'is already fully published with final receipt; publisher will no-op'
     )
