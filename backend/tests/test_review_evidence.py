@@ -13630,7 +13630,8 @@ def test_hive_rel_006_publication_scope_is_exact_and_fail_closed() -> None:
     assert request["issue"] == 137
     assert request["authorized_parent"] == HIVE_REL_006_BASE_SHA
     assert (
-        request["publication"]["final_receipt_asset"] == "hive-v1.0.1.release-receipt.json"
+        request["publication"]["final_receipt_asset"]
+        == "hive-v1.0.1.release-receipt.json"
     )
 
     with pytest.raises(ValueError, match="protected main"):
