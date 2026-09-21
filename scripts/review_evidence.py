@@ -3005,6 +3005,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         "HIVE-REL-001",
         "HIVE-REL-002",
         "HIVE-REL-003",
+        HIVE_REL_004_WORK_ORDER,
         "WO-006",
         "WO-008",
         "WO-008-G1",
