@@ -13532,9 +13532,8 @@ def test_hive_rel_004_scope_and_completed_release_noop_order_are_bounded() -> No
                 authorized_base_sha=HIVE_REL_004_BASE_SHA,
             )
 
-    workflow = (review_evidence.ROOT / ".github/workflows/release-publisher.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow_path = review_evidence.ROOT / ".github/workflows/release-publisher.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
     terminal_check = workflow.index(
         'is already fully published with final receipt; publisher will no-op'
     )
