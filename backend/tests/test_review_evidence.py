@@ -13535,7 +13535,7 @@ def test_hive_rel_004_scope_and_completed_release_noop_order_are_bounded() -> No
     workflow_path = review_evidence.ROOT / ".github/workflows/release-publisher.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
     terminal_check = workflow.index(
-        'is already fully published with final receipt; publisher will no-op'
+        "is already fully published with final receipt; publisher will no-op"
     )
     parent_check = workflow.index("publisher commit parent mismatch")
     assert terminal_check < parent_check
