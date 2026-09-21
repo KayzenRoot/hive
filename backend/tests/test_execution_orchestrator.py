@@ -14,6 +14,7 @@ from app.config import Settings
 from app.execution_orchestrator import (
     CanonicalMutationError,
     ExecutionContextError,
+    ExecutionIdentity,
     ExecutionIdentityError,
     ExecutionOrchestrator,
     ExecutionToolError,
