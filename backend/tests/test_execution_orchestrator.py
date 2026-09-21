@@ -356,7 +356,7 @@ def test_execute_resolves_identity_once(monkeypatch: pytest.MonkeyPatch, tmp_pat
     original = orchestrator._resolve_identity
     calls = 0
 
-    def counted(request_value: ExecutorRequest):
+    def counted(request_value: ExecutorRequest) -> tuple[ExecutionIdentity, ProjectResponse]:
         nonlocal calls
         calls += 1
         return original(request_value)
