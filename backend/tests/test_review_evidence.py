@@ -13606,6 +13606,7 @@ def test_hive_rel_005_preparation_scope_is_exact_and_fail_closed() -> None:
             authorized_base_sha=HIVE_REL_005_BASE_SHA,
         )
 
+
 def test_hive_rel_006_publication_scope_is_exact_and_fail_closed() -> None:
     allowed = sorted(HIVE_REL_006_ALLOWED_PATHS)
     require_hive_rel_006_scope(
@@ -13628,7 +13629,9 @@ def test_hive_rel_006_publication_scope_is_exact_and_fail_closed() -> None:
     assert request["work_order"] == HIVE_REL_006_WORK_ORDER
     assert request["issue"] == 137
     assert request["authorized_parent"] == HIVE_REL_006_BASE_SHA
-    assert request["publication"]["final_receipt_asset"] == "hive-v1.0.1.release-receipt.json"
+    assert (
+        request["publication"]["final_receipt_asset"] == "hive-v1.0.1.release-receipt.json"
+    )
 
     with pytest.raises(ValueError, match="protected main"):
         require_hive_rel_006_scope(
