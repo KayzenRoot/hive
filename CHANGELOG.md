@@ -16,6 +16,14 @@ Keep a Changelog conventions and published releases use Semantic Versioning; see
   stable release while preserving the deterministic pre-publication release
   metadata marker and historical release notes.
 
+### Fixed
+
+- Corrected Windows project-root setup and registration guidance. HIVE now documents
+  `D:/HIVE` as durable internal data and `D:/Projects` as the separate read-only
+  repository boundary, explains that registry paths are relative POSIX paths, and
+  makes the Control Center reject pasted absolute host paths before API submission.
+  Project directories must be Git repositories with at least one commit/HEAD.
+
 ## [1.0.0] - 2026-09-17
 
 First stable professional distribution of the product baseline accepted as

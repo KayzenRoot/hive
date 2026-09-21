@@ -10,7 +10,7 @@ Set `HIVE_PROJECTS_ROOT` to the one host directory HIVE may inspect:
 
 ```dotenv
 # Windows
-HIVE_PROJECTS_ROOT=D:\Projects
+HIVE_PROJECTS_ROOT=D:/Projects
 
 # Linux
 HIVE_PROJECTS_ROOT=/home/user/projects
@@ -23,8 +23,20 @@ ${HIVE_PROJECTS_ROOT:-.hive-projects}:/workspace/projects:ro
 ```
 
 Requests use a POSIX-relative path below `/workspace/projects`, such as
-`acme/widget`. Absolute paths, backslashes, empty components, `.`/`..`, and
-symlinks resolving outside the configured root are rejected. For an existing
+`acme/widget`. For example, with `HIVE_PROJECTS_ROOT=D:/Projects`, the host
+repository `D:\Projects\core` is registered as `core`, and
+`D:\Projects\acme\widget` is registered as `acme/widget`. Never paste the
+absolute host path into the registry field. Absolute paths, backslashes, empty
+components, `.`/`..`, and symlinks resolving outside the configured root are
+rejected.
+
+Keep `HIVE_PROJECTS_ROOT` separate from `HIVE_DATA_ROOT`. In the recommended
+Windows layout, durable HIVE state is `D:/HIVE` and repositories are
+`D:/Projects`. Do not nest repositories at `D:/HIVE/Projects` while the data
+root is `D:/HIVE`: the data root is mounted writable, whereas project source is
+intentionally mounted read-only. A registered target must also be a real Git
+repository with at least one commit so `HEAD` can be inspected; a plain
+directory or an empty repository without a commit is `DEGRADED`. For an existing
 target, the registry resolves symlinks, verifies containment, and stores the
 canonical POSIX-relative path rather than the client alias. The PostgreSQL
 unique constraint on `relative_path` is the deterministic concurrency guard;

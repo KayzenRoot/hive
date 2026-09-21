@@ -289,13 +289,24 @@ function App() {
 
   const registerProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setRegistering(true);
+    const normalizedProjectPath = projectPath.trim();
     setProjectError(null);
+    if (
+      normalizedProjectPath.includes("\\") ||
+      normalizedProjectPath.startsWith("/") ||
+      /^[A-Za-z]:/.test(normalizedProjectPath)
+    ) {
+      setProjectError(
+        'Use a path relative to HIVE_PROJECTS_ROOT with forward slashes, for example "my-project" or "acme/widget". Do not paste an absolute host path such as D:\\Projects\\my-project.',
+      );
+      return;
+    }
+    setRegistering(true);
     try {
       const response = await fetch(API_BASE_URL + "/api/v1/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: projectName, relative_path: projectPath }),
+        body: JSON.stringify({ name: projectName, relative_path: normalizedProjectPath }),
       });
       const payload = (await response.json()) as unknown;
       if (!response.ok) {
@@ -689,8 +700,13 @@ function App() {
               value={projectPath}
               onChange={(event) => setProjectPath(event.target.value)}
               placeholder="my-project"
+              aria-describedby="project-path-help"
             />
           </label>
+          <p id="project-path-help" className="field-help">
+            Relative to HIVE_PROJECTS_ROOT. Use my-project or acme/widget, not a Windows host path.
+            The directory must be a Git repository with at least one commit.
+          </p>
           <button className="refresh-button" disabled={registering} type="submit">
             {registering ? "Registering..." : "Register project"}
           </button>
