@@ -346,3 +346,22 @@ def test_evidence_sanitizes_secret_and_absolute_path(tmp_path: Path) -> None:
     assert "WO018_TEST_SECRET_DO_NOT_LEAK" not in serialized
     assert "C:\\Users\\csn19" not in serialized
     assert result.as_dict()["sanitized_path_evidence"] is True
+
+
+def test_execute_resolves_identity_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Lifecycle preflight and execution must share one exact identity basis."""
+
+    orchestrator, request, adapter = _orchestrator_fixture(tmp_path)
+    original = orchestrator._resolve_identity
+    calls = 0
+
+    def counted(request_value: ExecutorRequest):
+        nonlocal calls
+        calls += 1
+        return original(request_value)
+
+    monkeypatch.setattr(orchestrator, "_resolve_identity", counted)
+    result = orchestrator.execute(request, adapter)
+
+    assert result.status == "STAGED"
+    assert calls == 1
