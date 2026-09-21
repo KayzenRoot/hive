@@ -16,6 +16,11 @@ Keep a Changelog conventions and published releases use Semantic Versioning; see
   stable release while preserving the deterministic pre-publication release
   metadata marker and historical release notes.
 
+## [1.0.1] - 2026-09-21
+
+Bugfix/maintenance release. No new product capability or schema migration is
+included.
+
 ### Fixed
 
 - Corrected Windows project-root setup and registration guidance. HIVE now documents

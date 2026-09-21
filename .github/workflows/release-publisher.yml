@@ -77,56 +77,21 @@ jobs:
 
           python - "$request" "$candidate" "$version" "$tag" "$SOURCE_SHA" <<'PY'
           import json
-          import re
-          import subprocess
           import sys
           from pathlib import Path
 
+          from scripts.release_publisher_contract import validate_publisher_inputs
+
           request_path, candidate_path, version, tag, source_sha = sys.argv[1:]
-          if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
-              raise SystemExit(f"stable publisher requires strict SemVer, observed {version!r}")
           request = json.loads(Path(request_path).read_text(encoding="utf-8"))
           candidate = json.loads(Path(candidate_path).read_text(encoding="utf-8"))
-          expected = {
-              "status": "armed",
-              "product": "HIVE",
-              "version": version,
-              "tag": tag,
-              "work_order": "HIVE-REL-002",
-          }
-          for key, value in expected.items():
-              if request.get(key) != value:
-                  raise SystemExit(
-                      f"release request {key} mismatch: {request.get(key)!r} != {value!r}"
-                  )
-          if candidate.get("status") != "release-candidate":
-              raise SystemExit("candidate receipt is not in release-candidate state")
-          if candidate.get("release_published") is not False:
-              raise SystemExit("candidate receipt unexpectedly claims publication")
-          if candidate.get("version") != version or candidate.get("tag") != tag:
-              raise SystemExit("candidate receipt version/tag mismatch")
-          security = candidate.get("dependency_security", {})
-          if security.get("release_gate") != "PASS":
-              raise SystemExit("dependency-security release gate is not PASS")
-          if security.get("runtime_high_critical_remaining") is not False:
-              raise SystemExit("runtime HIGH/CRITICAL dependency blocker remains")
-          remaining = security.get("remaining_open", {})
-          if remaining.get("critical") != 0 or remaining.get("high") != 0:
-              raise SystemExit("applicable unresolved CRITICAL/HIGH dependency alert remains")
-          authorized_parent = request.get("authorized_parent")
-          if not isinstance(authorized_parent, str) or re.fullmatch(
-              r"[0-9a-f]{40}", authorized_parent
-          ) is None:
-              raise SystemExit("release request authorized_parent is invalid")
-          observed_parent = subprocess.check_output(
-              ["git", "rev-parse", f"{source_sha}^"],
-              text=True,
-          ).strip()
-          if observed_parent != authorized_parent:
-              raise SystemExit(
-                  "publisher commit parent mismatch: "
-                  f"{observed_parent} != {authorized_parent}"
-              )
+          validate_publisher_inputs(
+              request=request,
+              candidate=candidate,
+              version=version,
+              tag=tag,
+              source_sha=source_sha,
+          )
           PY
 
           tag_exists=false

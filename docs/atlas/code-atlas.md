@@ -55,6 +55,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_projects_api.py: Python source or test module.
 - backend/tests/test_provider_prompt_cache.py: Python source or test module.
 - backend/tests/test_registry.py: Python source or test module.
+- backend/tests/test_release_publisher_contract.py: Python source or test module.
 - backend/tests/test_repository_indexer.py: Python source or test module.
 - backend/tests/test_reranking.py: Python source or test module.
 - backend/tests/test_retrieval.py: Python source or test module.
@@ -122,6 +123,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/migrate.py: deterministic maintenance or validation script.
 - scripts/prepare_release.py: deterministic maintenance or validation script.
 - scripts/project_registry_integration.py: deterministic maintenance or validation script.
+- scripts/release_publisher_contract.py: deterministic maintenance or validation script.
 - scripts/repository_indexing_integration.py: deterministic maintenance or validation script.
 - scripts/rerank_fixture.py: deterministic maintenance or validation script.
 - scripts/retrieval_integration.py: deterministic maintenance or validation script.

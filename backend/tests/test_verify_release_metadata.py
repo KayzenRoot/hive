@@ -130,7 +130,7 @@ def build_release_tree(
     write_text(
         root,
         "CHANGELOG.md",
-        "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-09-17\n\n- Stable release.\n\n"
+        f"# Changelog\n\n## [Unreleased]\n\n## [{version}] - 2026-09-17\n\n- Stable release.\n\n"
         "## 0.0.1-bootstrap - Released 2026-08-31\n\n- Historical bootstrap entry.\n",
     )
     write_text(root, "README.md", f"# HIVE\n\nTarget stable release: v{version}\n")
@@ -138,6 +138,11 @@ def build_release_tree(
 
 def test_coherent_release_tree_passes(tmp_path: Path) -> None:
     build_release_tree(tmp_path)
+    assert verify_release_metadata(tmp_path) == []
+
+
+def test_v101_release_candidate_metadata_is_supported(tmp_path: Path) -> None:
+    build_release_tree(tmp_path, version="1.0.1")
     assert verify_release_metadata(tmp_path) == []
 
 
