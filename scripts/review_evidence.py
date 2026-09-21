@@ -11294,6 +11294,7 @@ def require_wo028_scope(
                 f"{WO028_WORK_ORDER} authorized-base marker must match the pull request base SHA"
             )
 
+
 def verify_wo025_governance_contract(
     work_order: str,
     base_sha: str,
