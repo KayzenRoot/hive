@@ -13670,4 +13670,3 @@ def test_hive_rel_006_publication_scope_is_exact_and_fail_closed() -> None:
             [],
             authorized_base_sha=HIVE_REL_006_BASE_SHA,
         )
-
