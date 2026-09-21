@@ -79,6 +79,15 @@ ALPHA_ONLY_QUERIES = (
 )
 
 
+def host_projects_root() -> Path:
+    """Resolve the host directory mounted into /workspace/projects."""
+
+    configured = Path(os.environ.get("HIVE_PROJECTS_ROOT", ".hive-projects")).expanduser()
+    if not configured.is_absolute():
+        configured = ROOT / configured
+    return configured.resolve()
+
+
 def load_ground_truth() -> dict[str, object]:
     payload = json.loads(GROUND_TRUTH_PATH.read_text(encoding="utf-8"))
     require(isinstance(payload, dict), "ground truth manifest is not an object")
@@ -894,7 +903,7 @@ def create_isolation_project(probe: ApiProbe, fixtures: list[Fixture]) -> UUID:
     """Create and index the bounded second project used by the isolation probe."""
 
     label = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-beta"
-    fixture = Fixture(label=label, relative_path=label, repository=ROOT / ".hive-projects" / label)
+    fixture = Fixture(label=label, relative_path=label, repository=host_projects_root() / label)
     create_fixture_repository(fixture.repository, fixture.label)
     write_benchmark_governance(fixture.repository)
     for relative, content in ISOLATION_CORPUS.items():
@@ -967,7 +976,7 @@ def main() -> int:
         fixture = Fixture(
             label=label,
             relative_path=label,
-            repository=ROOT / ".hive-projects" / label,
+            repository=host_projects_root() / label,
         )
         create_fixture_repository(fixture.repository, fixture.label)
         write_benchmark_governance(fixture.repository)
