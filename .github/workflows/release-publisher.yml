@@ -55,6 +55,26 @@ jobs:
             exit 0
           fi
 
+          # A completed release is terminal. Historical publish requests remain as
+          # immutable provenance, so check the published receipt before validating
+          # the request's one-time authorized parent.
+          receipt_name="hive-${tag}.release-receipt.json"
+          if gh release view "$tag" --json assets >/tmp/release-existing.json 2>/dev/null; then
+            if python - "$receipt_name" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          name = sys.argv[1]
+          data = json.loads(Path("/tmp/release-existing.json").read_text(encoding="utf-8"))
+          raise SystemExit(0 if name in {item["name"] for item in data.get("assets", [])} else 1)
+          PY
+            then
+              echo "${tag} is already fully published with final receipt; publisher will no-op"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           python - "$request" "$candidate" "$version" "$tag" "$SOURCE_SHA" <<'PY'
           import json
           import re
@@ -118,22 +138,8 @@ jobs:
           fi
 
           release_exists=false
-          receipt_name="hive-${tag}.release-receipt.json"
           if gh release view "$tag" --json assets >/tmp/release-existing.json 2>/dev/null; then
             release_exists=true
-            if python - "$receipt_name" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-          name = sys.argv[1]
-          data = json.loads(Path("/tmp/release-existing.json").read_text(encoding="utf-8"))
-          raise SystemExit(0 if name in {item["name"] for item in data.get("assets", [])} else 1)
-          PY
-            then
-              echo "${tag} is already fully published with final receipt"
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
           fi
 
           echo "publish=true" >> "$GITHUB_OUTPUT"

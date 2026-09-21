@@ -29,6 +29,9 @@ from scripts.review_evidence import (
     HIVE_REL_003_ALLOWED_PATHS,
     HIVE_REL_003_BASE_SHA,
     HIVE_REL_003_WORK_ORDER,
+    HIVE_REL_004_ALLOWED_PATHS,
+    HIVE_REL_004_BASE_SHA,
+    HIVE_REL_004_WORK_ORDER,
     MCP_CORE_SURFACE_EVIDENCE_FILE,
     MCP_CORE_SURFACE_EVIDENCE_VERSION,
     MCP_CORE_SURFACE_FALSE_FIELDS,
@@ -116,6 +119,7 @@ from scripts.review_evidence import (
     require_hive_rel_001_scope,
     require_hive_rel_002_scope,
     require_hive_rel_003_scope,
+    require_hive_rel_004_scope,
     require_supported_work_order,
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
@@ -6389,8 +6393,10 @@ def test_hive_rel_001_marker_is_bounded_and_registered() -> None:
     require_current_work_order_authorization(HIVE_REL_002_WORK_ORDER)
     require_supported_work_order(HIVE_REL_003_WORK_ORDER)
     require_current_work_order_authorization(HIVE_REL_003_WORK_ORDER)
+    require_supported_work_order(HIVE_REL_004_WORK_ORDER)
+    require_current_work_order_authorization(HIVE_REL_004_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported release-engineering"):
-        require_supported_work_order("HIVE-REL-004")
+        require_supported_work_order("HIVE-REL-005")
     with pytest.raises(ValueError, match="unsupported release-engineering"):
         require_supported_work_order("HIVE-REL-999")
     with pytest.raises(ValueError, match="invalid or unbounded"):
@@ -13498,3 +13504,38 @@ def test_wo025_g5_review_self_healing_policy_is_bounded_and_registered() -> None
             review_evidence.WO025_G5_BASE_SHA,
             allowed,
         )
+
+
+def test_hive_rel_004_scope_and_completed_release_noop_order_are_bounded() -> None:
+    """HIVE-REL-004 fixes only stale completed-release publication retries."""
+
+    require_supported_work_order(HIVE_REL_004_WORK_ORDER)
+    require_current_work_order_authorization(HIVE_REL_004_WORK_ORDER)
+    allowed = sorted(HIVE_REL_004_ALLOWED_PATHS)
+    require_hive_rel_004_scope(
+        HIVE_REL_004_WORK_ORDER,
+        HIVE_REL_004_BASE_SHA,
+        allowed,
+        authorized_base_sha=HIVE_REL_004_BASE_SHA,
+    )
+    for unauthorized in (
+        ["VERSION"],
+        [".engineering/release/HIVE-V1.0.0-PUBLISH-REQUEST.json"],
+        ["docs/project-brain/13-CHECKPOINT.md"],
+        ["backend/app/main.py"],
+    ):
+        with pytest.raises(ValueError):
+            require_hive_rel_004_scope(
+                HIVE_REL_004_WORK_ORDER,
+                HIVE_REL_004_BASE_SHA,
+                unauthorized,
+                authorized_base_sha=HIVE_REL_004_BASE_SHA,
+            )
+
+    workflow_path = review_evidence.ROOT / ".github/workflows/release-publisher.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    terminal_check = workflow.index(
+        "is already fully published with final receipt; publisher will no-op"
+    )
+    parent_check = workflow.index("publisher commit parent mismatch")
+    assert terminal_check < parent_check
