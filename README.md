@@ -11,14 +11,15 @@ execution platform for large LLM-assisted software projects.
 
 ## Status
 
-**HIVE v1.0.0 is the current published stable release.** The stable
-[GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.0) was
-published on September 18, 2026 with the versioned source archive, SHA-256
-checksum, machine-readable manifest and release-review evidence.
+**HIVE v1.0.0 remains the current published stable release.** The v1.0.1
+bugfix release candidate is being prepared and is not yet published. The
+published v1.0.0 [GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.0)
+contains the versioned source archive, SHA-256 checksum, machine-readable
+manifest and release-review evidence.
 
-Target stable release: v1.0.0 (fulfilled by the published stable release). See
-[CHANGELOG.md](CHANGELOG.md) and the preserved pre-publication
-[release notes](docs/releases/v1.0.0.md).
+Target stable release: v1.0.1 (release candidate; not published). See
+[CHANGELOG.md](CHANGELOG.md), the candidate [release notes](docs/releases/v1.0.1.md)
+and the preserved v1.0.0 release notes at [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md).
 
 HIVE v1.0.0 is the stable public distribution of the product baseline accepted
 internally as HIVE V0.1 — Foundation. Historical V0.1 and bootstrap evidence

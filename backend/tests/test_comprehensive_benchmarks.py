@@ -449,3 +449,18 @@ def test_migration_head_and_evidence_paths_are_repository_relative() -> None:
         assert (benchmarks.ROOT / path).is_file()
     payload = json.loads((benchmarks.ROOT / benchmarks.GROUND_TRUTH_RELATIVE).read_text("utf-8"))
     assert payload["work_order"] == "WO-023"
+
+
+def test_host_projects_root_honors_configured_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    configured = tmp_path / "custom-projects"
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", str(configured))
+    assert benchmarks.host_projects_root() == configured.resolve()
+
+
+def test_host_projects_root_defaults_to_repository_fixture_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HIVE_PROJECTS_ROOT", raising=False)
+    assert benchmarks.host_projects_root() == (benchmarks.ROOT / ".hive-projects").resolve()
