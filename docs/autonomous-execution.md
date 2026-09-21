@@ -32,3 +32,13 @@ uses the closed `autonomous-execution-v1` contract consumed by Review Evidence.
 This increment is deliberately not full autonomy, telemetry, Control Center,
 cloud execution, or canonical promotion. External governance remains required
 for any later Git or checkpoint action.
+
+## Production executor status
+
+HIVE's orchestration boundary is provider-independent. The deterministic local adapter used by integration evidence proves staging, identity, governance, tool gating and review evidence, but it MUST NOT be interpreted as proof that a production LLM/provider transport is configured.
+
+A production deployment MUST supply a concrete `ExecutorAdapter` implementation outside the deterministic fixture path. Until such an adapter is explicitly configured and its provider usage receipts are reconciled, HIVE must report production executor/provider availability as unavailable/unknown rather than infer success, cache hits, zero calls or zero token cost.
+
+The provider-prompt endpoint currently uses the provider-neutral no-op cache adapter. It proves canonical prompt composition and cache eligibility semantics only; it does not claim a provider-side cache hit or provider-side token savings.
+
+This distinction is a correctness requirement for v1.0.x maintenance: fixture evidence proves the orchestration seam, while provider E2E evidence is a separate operational capability.
