@@ -2588,6 +2588,17 @@ HIVE_REL_005_ALLOWED_PATHS = frozenset(
 )
 HIVE_REL_005_FORBIDDEN_PREFIXES = HIVE_REL_003_FORBIDDEN_PREFIXES
 
+HIVE_REL_006_WORK_ORDER = "HIVE-REL-006"
+HIVE_REL_006_BASE_SHA = "3c2090dc458c6d4ed988e89f85043a9d106d1901"
+HIVE_REL_006_ALLOWED_PATHS = frozenset(
+    {
+        ".engineering/release/HIVE-V1.0.1-PUBLISH-REQUEST.json",
+        "scripts/review_evidence.py",
+        "backend/tests/test_review_evidence.py",
+    }
+)
+HIVE_REL_006_FORBIDDEN_PREFIXES = HIVE_REL_003_FORBIDDEN_PREFIXES
+
 RELEASE_ENGINEERING_ALLOWED_EXACT_PATHS = frozenset(
     {
         "VERSION",
@@ -2652,6 +2663,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         HIVE_REL_003_WORK_ORDER,
         HIVE_REL_004_WORK_ORDER,
         HIVE_REL_005_WORK_ORDER,
+        HIVE_REL_006_WORK_ORDER,
     }
 )
 WO024_G1_ALLOWED_PATHS = frozenset(
@@ -3036,6 +3048,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         "HIVE-REL-003",
         HIVE_REL_004_WORK_ORDER,
         HIVE_REL_005_WORK_ORDER,
+        HIVE_REL_006_WORK_ORDER,
         "WO-006",
         "WO-008",
         "WO-008-G1",
@@ -3518,6 +3531,49 @@ def require_hive_rel_005_scope(
     if unauthorized:
         raise ValueError(
             f"{HIVE_REL_005_WORK_ORDER} changes paths outside the bounded preparation scope: "
+            + ", ".join(unauthorized)
+        )
+
+
+def require_hive_rel_006_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+) -> None:
+    """Bound v1.0.1 publication authorization to its exact base and file surface."""
+
+    if work_order != HIVE_REL_006_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{HIVE_REL_006_WORK_ORDER} requires the protected main base branch")
+    if base_sha != HIVE_REL_006_BASE_SHA:
+        raise ValueError(
+            f"{HIVE_REL_006_WORK_ORDER} requires exact base {HIVE_REL_006_BASE_SHA}, "
+            f"observed {base_sha}"
+        )
+    if authorized_base_sha != HIVE_REL_006_BASE_SHA:
+        raise ValueError(
+            f"{HIVE_REL_006_WORK_ORDER} requires the exact authorized-base marker "
+            f"{HIVE_REL_006_BASE_SHA}"
+        )
+    if not paths:
+        raise ValueError(f"{HIVE_REL_006_WORK_ORDER} requires a non-empty change set")
+    unique_paths = set(paths)
+    forbidden = sorted(
+        path for path in unique_paths if path.startswith(HIVE_REL_006_FORBIDDEN_PREFIXES)
+    )
+    if forbidden:
+        raise ValueError(
+            f"{HIVE_REL_006_WORK_ORDER} cannot change canonical or local-only paths: "
+            + ", ".join(forbidden)
+        )
+    unauthorized = sorted(unique_paths - HIVE_REL_006_ALLOWED_PATHS)
+    if unauthorized:
+        raise ValueError(
+            f"{HIVE_REL_006_WORK_ORDER} changes paths outside the bounded publication scope: "
             + ", ".join(unauthorized)
         )
 
@@ -17098,6 +17154,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
     )
     require_hive_rel_005_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_hive_rel_006_scope(
         work_order,
         base_sha,
         paths,
