@@ -2579,6 +2579,8 @@ HIVE_REL_005_ALLOWED_PATHS = frozenset(
         "docs/atlas/test-map.md",
         "scripts/review_evidence.py",
         "scripts/release_publisher_contract.py",
+        "scripts/comprehensive_benchmarks.py",
+        "backend/tests/test_comprehensive_benchmarks.py",
         "backend/tests/test_review_evidence.py",
         "backend/tests/test_release_publisher_contract.py",
         "backend/tests/test_verify_release_metadata.py",
