@@ -295,7 +295,7 @@ function App() {
       const response = await fetch(API_BASE_URL + "/api/v1/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: projectName, relative_path: projectPath }),
+        body: JSON.stringify({ name: projectName, relative_path: normalizedProjectPath }),
       });
       const payload = (await response.json()) as unknown;
       if (!response.ok) {

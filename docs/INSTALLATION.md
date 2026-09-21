@@ -14,8 +14,12 @@ data.
 
 ~~~powershell
 Copy-Item .env.example .env
-# Optional: use a secondary disk. Prefer forward slashes in Compose paths.
+# Recommended Windows layout: keep HIVE durable data and user repositories
+# in separate roots. Prefer forward slashes in Compose paths.
+New-Item -ItemType Directory -Force 'D:\HIVE' | Out-Null
+New-Item -ItemType Directory -Force 'D:\Projects' | Out-Null
 $env:HIVE_DATA_ROOT = 'D:/HIVE'
+$env:HIVE_PROJECTS_ROOT = 'D:/Projects'
 docker compose config --quiet
 docker compose up -d --build
 docker compose ps
@@ -23,12 +27,32 @@ Invoke-WebRequest http://localhost:8000/api/v1/health
 Start-Process http://localhost:3000
 ~~~
 
-If HIVE_DATA_ROOT is set only in the current PowerShell session, repeat it in a
-new session. To persist it for the user, use:
+If these roots are set only in the current PowerShell session, repeat them in a
+new session. To persist them for the user, use:
 
 ~~~powershell
 [Environment]::SetEnvironmentVariable('HIVE_DATA_ROOT', 'D:/HIVE', 'User')
+[Environment]::SetEnvironmentVariable('HIVE_PROJECTS_ROOT', 'D:/Projects', 'User')
 ~~~
+
+You can instead persist the same values in the local `.env` file:
+
+~~~dotenv
+HIVE_DATA_ROOT=D:/HIVE
+HIVE_PROJECTS_ROOT=D:/Projects
+~~~
+
+Do **not** use `D:/HIVE/Projects` as the project root while
+`HIVE_DATA_ROOT=D:/HIVE`. The HIVE data root is a writable bind mount, while
+project source is intentionally exposed through the separate read-only
+`HIVE_PROJECTS_ROOT` mount. Keeping the roots separate preserves that boundary.
+
+A project under `D:\Projects\core` is registered as `core`, not as the
+absolute Windows path. A nested project under `D:\Projects\KayzenRoot\core`
+is registered as `KayzenRoot/core`. Use forward slashes in the registry value.
+The target directory must be a readable Git repository with at least one commit
+so that `HEAD` exists; a plain folder or an empty `git init` repository is
+reported as `DEGRADED`.
 
 ## Linux with Docker Engine and Compose
 

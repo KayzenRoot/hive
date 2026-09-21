@@ -213,6 +213,27 @@ describe("App", () => {
     );
   });
 
+  it("rejects an absolute host project path before API registration", async () => {
+    const fetchMock = installFetch();
+
+    render(<App />);
+    await screen.findByText("No projects registered yet.");
+    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "HIVE" } });
+    fireEvent.change(screen.getByLabelText("Relative path"), {
+      target: { value: "D:\\Projects\\hive" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Register project" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("relative to HIVE_PROJECTS_ROOT");
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          input.toString().endsWith("/api/v1/projects") && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
   it("updates a project after manual re-inspection", async () => {
     const updated = { ...project, git_head_sha: "abcdef1234567890abcdef1234567890abcdef12" };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
