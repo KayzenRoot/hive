@@ -11255,7 +11255,7 @@ def require_wo028_scope(
     enforce_current_main: bool = False,
     enforce_authorized_base: bool = True,
 ) -> None:
-    """Bound the Windows project-root registration hotfix to its exact maintenance surface."""
+    """Bound project-root hotfix to the authorized base and exact eight-file surface."""
 
     if work_order != WO028_WORK_ORDER:
         return
@@ -12043,13 +12043,7 @@ def verify_wo025_g4_governance_contract(
             ) from error
     else:
         raise ValueError(f"{WO11_01_WORK_ORDER} unexpectedly authorizes a fresh current PR")
-    for rejected in (
-        "WO-1.1-02",
-        "WO-11-01",
-        "WO-028-P",
-        "WO-029",
-        "",
-    ):
+    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028-P", "WO-029", ""):
         try:
             require_supported_work_order(rejected)
         except ValueError:
