@@ -11615,13 +11615,16 @@ def require_wo029_c1_scope(
             )
     if len(paths) != len(WO029_C1_ALLOWED_PATHS) or set(paths) != WO029_C1_ALLOWED_PATHS:
         raise ValueError(
-            f"{WO029_C1_WORK_ORDER} requires exactly the bounded executor test-gate correction surface"
+            f"{WO029_C1_WORK_ORDER} requires exactly the bounded executor "
+            "test-gate correction surface"
         )
     if enforce_authorized_base:
         if authorized_base_sha is None:
             raise ValueError(f"{WO029_C1_WORK_ORDER} requires exactly one authorized-base marker")
         if HEX_SHA.fullmatch(authorized_base_sha) is None:
-            raise ValueError(f"{WO029_C1_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
+            raise ValueError(
+                f"{WO029_C1_WORK_ORDER} authorized-base marker must be lowercase 40-hex"
+            )
         if authorized_base_sha != base_sha:
             raise ValueError(
                 f"{WO029_C1_WORK_ORDER} authorized-base marker must match the pull request base SHA"
