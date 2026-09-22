@@ -37,7 +37,9 @@ for any later Git or checkpoint action.
 
 HIVE's orchestration boundary is provider-independent. The deterministic local adapter used by integration evidence proves staging, identity, governance, tool gating and review evidence, but it MUST NOT be interpreted as proof that a production LLM/provider transport is configured.
 
-A production deployment MUST supply a concrete `ExecutorAdapter` implementation outside the deterministic fixture path. Until such an adapter is explicitly configured and its provider usage receipts are reconciled, HIVE must report production executor/provider availability as unavailable/unknown rather than infer success, cache hits, zero calls or zero token cost.
+HIVE now includes a concrete, replaceable OpenAI-compatible HTTP `ExecutorAdapter` for production execution. It is disabled by default and configured only through `HIVE_EXECUTOR_ENABLED`, `HIVE_EXECUTOR_BASE_URL`, `HIVE_EXECUTOR_MODEL`, optional `HIVE_EXECUTOR_API_KEY`, timeout and response-size bounds. `ExecutionOrchestrator.execute_configured()` is the production wiring point. The adapter performs one bounded provider/LLM request, requires structured JSON changes plus test and validation commands, and routes the result through the same Runner admission, tool gating, diff capture and noncanonical staging path. Provider errors, malformed responses, model mismatches and oversized responses fail closed without exposing credentials.
+
+CI proves the concrete network transport against a local HTTP provider fixture, including request shape and call accounting. It does not claim that a third-party provider credential was exercised in CI. A deployment with the executor disabled or incompletely configured remains explicitly unavailable rather than silently falling back to a deterministic fixture.
 
 The provider-prompt endpoint currently uses the provider-neutral no-op cache adapter. It proves canonical prompt composition and cache eligibility semantics only; it does not claim a provider-side cache hit or provider-side token savings.
 
