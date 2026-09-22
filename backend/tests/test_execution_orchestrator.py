@@ -149,6 +149,7 @@ def make_orchestrator(
 def coding_result(
     *,
     path: str = "src/generated.py",
+    tests: tuple[tuple[str, ...], ...] | None = None,
     validation: tuple[tuple[str, ...], ...] | None = None,
     summary: str = "Created a bounded fixture module.",
 ) -> ExecutorResult:
@@ -162,7 +163,7 @@ def coding_result(
         ),
         summary=summary,
         decisions=("Use the existing Runner seam.",),
-        test_commands=((sys.executable, "-c", "print('test ok')"),),
+        test_commands=tests or ((sys.executable, "-c", "print('test ok')"),),
         validation_commands=validation or (command,),
         errors_fixed=(),
         risks=("No canonical promotion is performed.",),
@@ -327,6 +328,22 @@ def test_validation_failure_is_captured_after_staging(tmp_path: Path) -> None:
     assert result.status == "VALIDATION_FAILED"
     assert result.validation_passed is False
     assert result.validation[0].returncode == 7
+    assert (tmp_path / "target" / "src" / "generated.py").read_text() == "VALUE = 1\n"
+
+
+def test_test_failure_prevents_staged_success(tmp_path: Path) -> None:
+    failing = (sys.executable, "-c", "raise SystemExit(9)")
+    orchestrator = make_orchestrator(tmp_path)
+
+    result = orchestrator.execute(
+        request(),
+        FixtureAdapter(coding_result(tests=(failing,))),
+    )
+
+    assert result.status == "VALIDATION_FAILED"
+    assert result.validation_passed is False
+    assert result.tests[0].returncode == 9
+    assert result.validation[0].succeeded is True
     assert (tmp_path / "target" / "src" / "generated.py").read_text() == "VALUE = 1\n"
 
 
