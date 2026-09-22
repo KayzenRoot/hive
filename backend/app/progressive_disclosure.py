@@ -56,6 +56,10 @@ DISCLOSURE_EVIDENCE_CHARS = 160
 
 _PATH_RE = re.compile(r"(?<![A-Za-z0-9_])(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]+")
 _SYMBOL_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
+_DOMAIN_LIKE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9-]+\\.)+(?:com|org|net|io|dev|ai|app|co|edu|gov)\\b",
+    re.IGNORECASE,
+)
 _FILE_SUFFIX_RE = re.compile(
     r"\.(?:py|pyi|md|rst|txt|toml|ya?ml|json|ts|tsx|js|jsx|css|html|ini|cfg)$",
     re.IGNORECASE,
