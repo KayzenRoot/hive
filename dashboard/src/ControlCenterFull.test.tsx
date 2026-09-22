@@ -74,6 +74,11 @@ describe("ControlCenterFull", () => {
     expect(screen.getByText("tokens-over-time")).toBeInTheDocument();
     expect(screen.getByText("unexpected-cost-spike")).toBeInTheDocument();
     expect(screen.getByText("platform-resource-health")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Control Center overview" })).toBeInTheDocument();
+    expect(screen.getByText("VISÃO OPERACIONAL")).toBeInTheDocument();
+    expect(screen.getByText("Inteligência disponível")).toBeInTheDocument();
+    expect(screen.getByText("Saúde da plataforma")).toBeInTheDocument();
+    expect(screen.getByText("Alertas ativos")).toBeInTheDocument();
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(0);
   });
 
@@ -167,6 +172,8 @@ describe("ControlCenterFull", () => {
 
     await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
     expect(document.querySelector('[data-chart-id="tokens-over-time"]')).toBeInTheDocument();
+    expect(screen.getByText("Tokens ao longo do tempo")).toBeInTheDocument();
+    expect(screen.getByText("50")).toBeInTheDocument();
     expect(screen.getByText("fixture commit")).toBeInTheDocument();
     expect(screen.getByText("test:cpu")).toBeInTheDocument();
     expect(screen.getByTestId("chart-state-cost-over-time")).toHaveTextContent("UNAVAILABLE");
