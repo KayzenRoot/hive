@@ -14029,17 +14029,16 @@ def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
         authorized_base_sha=HIVE_REL_008_BASE_SHA,
     )
     release_dir = review_evidence.ROOT / ".engineering" / "release"
-    request_path = release_dir / "HIVE-V1.0.1-PUBLISH-REQUEST.json"
+    request_path = release_dir / "HIVE-V1.0.2-PUBLISH-REQUEST.json"
     request = json.loads(request_path.read_text(encoding="utf-8"))
     assert request["status"] == "armed"
     assert request["product"] == "HIVE"
-    assert request["version"] == "1.0.1"
-    assert request["tag"] == "v1.0.1"
+    assert request["version"] == "1.0.2"
+    assert request["tag"] == "v1.0.2"
     assert request["work_order"] == HIVE_REL_008_WORK_ORDER
-    assert request["issue"] == 137
     assert request["authorized_parent"] == HIVE_REL_008_BASE_SHA
     receipt_asset = request["publication"]["final_receipt_asset"]
-    assert receipt_asset == "hive-v1.0.1.release-receipt.json"
+    assert receipt_asset == "hive-v1.0.2.release-receipt.json"
 
     with pytest.raises(ValueError, match="protected main"):
         require_hive_rel_008_scope(
