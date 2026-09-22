@@ -831,9 +831,7 @@ def test_wo030_vitest_security_correction_is_exact_and_fail_closed() -> None:
 
 def test_wo030_c1_progressive_disclosure_correction_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO030_C1_WORK_ORDER)
-    review_evidence.require_current_work_order_authorization(
-        review_evidence.WO030_C1_WORK_ORDER
-    )
+    review_evidence.require_current_work_order_authorization(review_evidence.WO030_C1_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
         require_supported_work_order("WO-031")
 
