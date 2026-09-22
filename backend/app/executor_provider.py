@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
@@ -34,6 +35,16 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 _HTTP_OPENER = build_opener(_NoRedirectHandler)
 
 
+def _local_plaintext_host(hostname: str) -> bool:
+    normalized = hostname.casefold()
+    if normalized in {"localhost", "host.docker.internal"}:
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
 def _base_url(value: str) -> str:
     normalized = value.strip().rstrip("/")
     parsed = urlsplit(normalized)
@@ -47,6 +58,8 @@ def _base_url(value: str) -> str:
         or parsed.fragment
     ):
         raise ExecutorAdapterError("executor_base_url_contains_credentials")
+    if parsed.scheme == "http" and not _local_plaintext_host(parsed.hostname):
+        raise ExecutorAdapterError("executor_remote_http_requires_https")
     return normalized
 
 
