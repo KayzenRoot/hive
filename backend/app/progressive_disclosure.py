@@ -56,9 +56,43 @@ DISCLOSURE_EVIDENCE_CHARS = 160
 
 _PATH_RE = re.compile(r"(?<![A-Za-z0-9_])(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]+")
 _SYMBOL_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
+# Common modern TLDs that frequently appear in task prose. Keep this explicit
+# rather than treating every dotted lowercase token as a domain: qualified code
+# symbols such as package.module.call must continue to require L2 disclosure.
+_DOMAIN_TLDS = (
+    "ai",
+    "app",
+    "biz",
+    "cloud",
+    "co",
+    "com",
+    "dev",
+    "digital",
+    "edu",
+    "games",
+    "gov",
+    "info",
+    "io",
+    "live",
+    "me",
+    "media",
+    "net",
+    "online",
+    "org",
+    "shop",
+    "site",
+    "social",
+    "software",
+    "store",
+    "studio",
+    "tech",
+    "technology",
+    "website",
+    "world",
+    "xyz",
+)
 _DOMAIN_LIKE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9-]+\.)+"
-    r"(?:com|org|net|io|dev|ai|app|co|edu|gov)\b",
+    r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9-]+\\.)+(?:" + "|".join(_DOMAIN_TLDS) + r")\\b",
     re.IGNORECASE,
 )
 _EMAIL_LIKE_RE = re.compile(
