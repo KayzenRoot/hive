@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -413,3 +413,11 @@ def test_incomplete_and_malformed_accounting_is_invalid(usage: dict[str, object]
     receipt = normalize_provider_usage(capability_identity="a" * 64, usage=usage)
     assert receipt.reconciliation is UsageReconciliation.INVALID
     assert receipt.observed_hit is None
+
+
+def test_openai_compatible_adapter_rejects_non_mapping_usage() -> None:
+    adapter = OpenAICompatibleProviderPromptCacheAdapter(model="test-model")
+    receipt = adapter.normalize_usage(cast(Any, ["malformed"]))
+    assert receipt.reconciliation is UsageReconciliation.INVALID
+    assert receipt.observed_hit is None
+    assert receipt.cached_input_tokens is None
