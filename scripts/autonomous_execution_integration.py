@@ -481,9 +481,7 @@ class LocalProviderServer:
                     ),
                     "decisions": ["Reuse Context Manager and Local Verified Runner."],
                     "test_commands": [["python", "-c", "print('wo018 test passed')"]],
-                    "validation_commands": [
-                        ["python", "-c", "print('wo018 validation passed')"]
-                    ],
+                    "validation_commands": [["python", "-c", "print('wo018 validation passed')"]],
                     "errors_fixed": [],
                     "risks": ["No canonical promotion is performed."],
                     "pending_items": ["External Sol review remains required."],
