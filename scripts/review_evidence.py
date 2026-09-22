@@ -2380,6 +2380,17 @@ WO030_ALLOWED_PATHS = frozenset(
 # WO-030-C1: bounded post-release correction for Progressive Disclosure
 # dotted-domain/email false positives. This is corrective governance, not WO-031.
 WO030_C1_WORK_ORDER = "WO-030-C1"
+WO031_WORK_ORDER = "WO-031"
+WO031_BASE_SHA = "8db3d244a679898f0e08d1898bc87e6a6a89326e"
+WO031_ALLOWED_PATHS = frozenset(
+    {
+        "backend/tests/test_review_evidence.py",
+        "dashboard/src/ControlCenterFull.test.tsx",
+        "dashboard/src/ControlCenterFull.tsx",
+        "dashboard/src/styles.css",
+        "scripts/review_evidence.py",
+    }
+)
 WO030_C1_BASE_SHA = "a753d0cff1b23dafcdacbdecfb3ccdf5b91e6d3b"
 WO030_C1_ALLOWED_PATHS = frozenset(
     {
@@ -2793,6 +2804,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO029_C3_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
+        WO031_WORK_ORDER,
         WO025_G3_WORK_ORDER,
         WO025_G4_WORK_ORDER,
         WO025_G5_WORK_ORDER,
@@ -3240,6 +3252,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO029_C3_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
+        WO031_WORK_ORDER,
         "WO-1.1-01",
     }
 )
@@ -12175,6 +12188,37 @@ def verify_wo025_g2_governance_contract(
     )
 
 
+def require_wo031_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+) -> None:
+    """Bound the Control Center responsive dashboard refresh to its audited surface."""
+
+    if work_order != WO031_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO031_WORK_ORDER} requires the protected main base branch")
+    if base_sha != WO031_BASE_SHA:
+        raise ValueError(
+            f"{WO031_WORK_ORDER} requires exact base {WO031_BASE_SHA}, observed {base_sha}"
+        )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and current_main != WO031_BASE_SHA:
+            raise ValueError(
+                f"{WO031_WORK_ORDER} is stale: protected main is {current_main}, authorized base is {WO031_BASE_SHA}"
+            )
+    if set(paths) != WO031_ALLOWED_PATHS or len(paths) != len(WO031_ALLOWED_PATHS):
+        raise ValueError(f"{WO031_WORK_ORDER} requires exactly the bounded Control Center refresh surface")
+    if authorized_base_sha != base_sha:
+        raise ValueError(f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA")
+
+
 def require_wo025_g3_scope(
     work_order: str,
     base_sha: str,
@@ -12472,6 +12516,14 @@ def verify_wo025_g3_governance_contract(
 
     if work_order != WO025_G3_WORK_ORDER:
         return None
+    require_wo031_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
     require_wo025_g3_scope(
         work_order,
         base_sha,
@@ -18825,6 +18877,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         base_branch=cast(str, base.get("branch", "main")),
         enforce_current_main=False,
         enforce_authorized_base=False,
+    )
+    require_wo031_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, base.get("branch", "main")),
+        authorized_base_sha=cast(str | None, manifest.get("authorized_base_sha")),
+        enforce_current_main=False,
     )
     require_wo012p_g1_scope(
         work_order,
