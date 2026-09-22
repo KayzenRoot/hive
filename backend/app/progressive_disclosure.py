@@ -61,6 +61,11 @@ _DOMAIN_LIKE_RE = re.compile(
     r"(?:com|org|net|io|dev|ai|app|co|edu|gov)\b",
     re.IGNORECASE,
 )
+_EMAIL_LIKE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.+-])[A-Za-z0-9_+.-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
+)
 _FILE_SUFFIX_RE = re.compile(
     r"\.(?:py|pyi|md|rst|txt|toml|ya?ml|json|ts|tsx|js|jsx|css|html|ini|cfg)$",
     re.IGNORECASE,
@@ -259,12 +264,17 @@ def _mentioned_paths(text: str) -> tuple[str, ...]:
 
 
 def _mentioned_symbols(text: str) -> tuple[str, ...]:
-    domain_spans = tuple(match.span() for match in _DOMAIN_LIKE_RE.finditer(text))
+    excluded_spans = tuple(
+        match.span()
+        for pattern in (_DOMAIN_LIKE_RE, _EMAIL_LIKE_RE)
+        for match in pattern.finditer(text)
+    )
 
-    def overlaps_domain(match: re.Match[str]) -> bool:
+    def overlaps_excluded_span(match: re.Match[str]) -> bool:
         start, end = match.span()
         return any(
-            start < domain_end and end > domain_start for domain_start, domain_end in domain_spans
+            start < excluded_end and end > excluded_start
+            for excluded_start, excluded_end in excluded_spans
         )
 
     return tuple(
@@ -272,7 +282,7 @@ def _mentioned_symbols(text: str) -> tuple[str, ...]:
             {
                 match.group(0)
                 for match in _SYMBOL_RE.finditer(text)
-                if not _FILE_SUFFIX_RE.search(match.group(0)) and not overlaps_domain(match)
+                if not _FILE_SUFFIX_RE.search(match.group(0)) and not overlaps_excluded_span(match)
             }
         )
     )
