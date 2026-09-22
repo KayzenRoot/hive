@@ -514,7 +514,7 @@ class LocalProviderServer:
             def log_message(self, _format: str, *_args: object) -> None:
                 return
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = ThreadingHTTPServer(("0.0.0.0", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     def __enter__(self) -> LocalProviderServer:
@@ -527,9 +527,16 @@ class LocalProviderServer:
         self.thread.join(timeout=2)
 
     @property
+    def port(self) -> int:
+        return int(self.server.server_address[1])
+
+    @property
     def base_url(self) -> str:
-        host, port = self.server.server_address
-        return f"http://{host}:{port}/v1"
+        return f"http://127.0.0.1:{self.port}/v1"
+
+    @property
+    def container_base_url(self) -> str:
+        return f"http://host.docker.internal:{self.port}/v1"
 
 
 def execute_docker_fixture(
@@ -609,6 +616,85 @@ def execute_docker_fixture(
         ):
             raise AssertionError("configured executor usage telemetry is not truthful")
         return result, project, task
+
+
+def verify_executor_service_cli(
+    base_url: str,
+    relative_path: str,
+) -> None:
+    """Exercise the shipping writable executor service through its CLI entry point."""
+
+    project, task = register_fixture(base_url, relative_path)
+    with LocalProviderServer() as provider:
+        command = [
+            "docker",
+            "compose",
+            "run",
+            "--rm",
+        ]
+        if hasattr(os, "getuid") and hasattr(os, "getgid"):
+            command.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+        command.extend(
+            [
+                "-e",
+                "HIVE_EXECUTOR_ENABLED=true",
+                "-e",
+                f"HIVE_EXECUTOR_BASE_URL={provider.container_base_url}",
+                "-e",
+                "HIVE_EXECUTOR_MODEL=hive-integration-model",
+                "-e",
+                "HIVE_EXECUTOR_PROMPT_CACHE_ENABLED=true",
+                "executor",
+                "--project-id",
+                str(project.project_id),
+                "--task-id",
+                str(task.task_id),
+                "--expected-branch",
+                str(project.git_branch),
+                "--expected-head-sha",
+                str(project.git_head_sha),
+            ]
+        )
+        raw = run_command(command)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AssertionError("executor service CLI returned invalid JSON") from exc
+        if not isinstance(payload, dict) or payload.get("status") != "STAGED":
+            raise AssertionError("executor service CLI did not complete a staged run")
+        if payload.get("executor_provider_calls") != 1 or payload.get("executor_llm_calls") != 1:
+            raise AssertionError("executor service CLI did not preserve provider call accounting")
+        cache_usage = payload.get("provider_cache_usage")
+        if (
+            not isinstance(cache_usage, dict)
+            or cache_usage.get("reconciliation") != "EXACT"
+            or cache_usage.get("cached_input_tokens") != 64
+        ):
+            raise AssertionError("executor service CLI did not preserve provider cache receipt")
+        if len(provider.requests) != 1:
+            raise AssertionError("executor service CLI did not cross the concrete HTTP transport")
+
+    page = telemetry_page(base_url, project.project_id, limit=20)
+    events = cast(list[dict[str, object]], page["events"])
+    terminal = next(
+        (event for event in reversed(events) if event.get("event_type") == "run.completed"),
+        None,
+    )
+    if not isinstance(terminal, dict):
+        raise AssertionError("executor service CLI terminal telemetry was not persisted")
+    telemetry_payload = terminal.get("payload")
+    if (
+        not isinstance(telemetry_payload, dict)
+        or telemetry_payload.get("executor_provider_calls") != 1
+        or telemetry_payload.get("input_tokens") != 100
+        or telemetry_payload.get("cached_tokens") != 64
+        or telemetry_payload.get("fresh_tokens") != 36
+        or telemetry_payload.get("output_tokens") != 8
+        or telemetry_payload.get("usage_reconciled") is not True
+    ):
+        raise AssertionError("executor service CLI usage telemetry is incomplete")
+
+
 
 def local_project_response(relative_path: str = "target") -> ProjectResponse:
     now = datetime(2026, 9, 9, tzinfo=UTC)
