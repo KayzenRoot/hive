@@ -222,7 +222,6 @@ class Settings(BaseSettings):
             if not self.rerank_model or not self.rerank_model.strip():
                 raise ValueError("HIVE_RERANK_MODEL is required when reranking is enabled")
 
-
     def validate_executor_limits(self) -> None:
         if (
             not math.isfinite(self.executor_timeout_seconds)
@@ -243,4 +242,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()\n
+    return Settings()
