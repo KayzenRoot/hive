@@ -12211,12 +12211,17 @@ def require_wo031_scope(
         current_main = git_value("rev-parse", "origin/main", fallback="")
         if HEX_SHA.fullmatch(current_main) and current_main != WO031_BASE_SHA:
             raise ValueError(
-                f"{WO031_WORK_ORDER} is stale: protected main is {current_main}, authorized base is {WO031_BASE_SHA}"
+                f"{WO031_WORK_ORDER} is stale: protected main is {current_main}, "
+                f"authorized base is {WO031_BASE_SHA}"
             )
     if set(paths) != WO031_ALLOWED_PATHS or len(paths) != len(WO031_ALLOWED_PATHS):
-        raise ValueError(f"{WO031_WORK_ORDER} requires exactly the bounded Control Center refresh surface")
+        raise ValueError(
+            f"{WO031_WORK_ORDER} requires exactly the bounded Control Center refresh surface"
+        )
     if authorized_base_sha != base_sha:
-        raise ValueError(f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA")
+        raise ValueError(
+            f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+        )
 
 
 def require_wo025_g3_scope(
