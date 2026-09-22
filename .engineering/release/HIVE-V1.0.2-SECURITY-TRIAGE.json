@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "repository": "KayzenRoot/hive",
+  "release_version": "1.0.2",
+  "source": "Carried-forward authenticated GitHub Dependabot inventory collected 2026-09-21, reconciled on main after WO-030",
+  "collection_command": "gh api --paginate --slurp \"repos/KayzenRoot/hive/dependabot/alerts?state=open&per_page=100\"",
+  "open_alerts_before": {
+    "critical": 0,
+    "high": 0,
+    "moderate": 3,
+    "low": 0,
+    "total": 3
+  },
+  "critical_high_applicable_open": 0,
+  "critical_high_remediated_in_candidate": {
+    "count": 0,
+    "alert_numbers": [],
+    "packages": [],
+    "note": "No applicable CRITICAL/HIGH dependency alert is open in the recorded inventory."
+  },
+  "remediated_medium_low": {
+    "moderate": 2,
+    "moderate_alert_numbers": [
+      1,
+      2
+    ],
+    "low": 0,
+    "low_alert_numbers": [],
+    "note": "Vitest and @vitest/mocker development-only MEDIUM alerts were remediated by the validated Vitest 4.1.11 upgrade on main."
+  },
+  "remaining_medium_low": {
+    "moderate": 1,
+    "low": 0,
+    "alerts": [
+      {
+        "number": 6,
+        "state": "open",
+        "severity": "medium",
+        "package": "pytest",
+        "ecosystem": "pip",
+        "manifest": "requirements-dev.txt",
+        "scope": "development",
+        "affected_version_range": "< 9.0.3",
+        "first_patched_version": "9.0.3",
+        "disposition": "non-blocking development-only alert; not remediated because the available fix requires a pytest major upgrade"
+      }
+    ]
+  },
+  "runtime_high_critical_remaining": false,
+  "release_gate": "PASS",
+  "compatibility_verification": {
+    "dependency_change_required": true,
+    "required_before_sol_audit": [
+      "python -m pip install -r requirements-dev.txt",
+      "python -m pip check",
+      "npm ci",
+      "npm run lint",
+      "npm run typecheck",
+      "npm run test:run",
+      "npm run build",
+      "npm audit --audit-level=high",
+      "python scripts/validate.py",
+      "python scripts/integration_health.py"
+    ],
+    "note": "v1.0.2 includes the already-validated Vitest 4.1.11 remediation from WO-030 plus executor/context fixes. Exact-head CI remains the publication gate."
+  },
+  "notes": [
+    "The alert inventory provenance is the authenticated 2026-09-21 GitHub API collection; this receipt does not claim a new unauthenticated recollection.",
+    "Vitest alerts 1 and 2 are recorded as remediated on current main; the remaining recorded pytest alert is development-only MEDIUM.",
+    "No credentials, raw API responses, Authorization headers or local/user data are recorded here.",
+    "The release gate is PASS because zero applicable unresolved CRITICAL/HIGH findings are recorded.",
+    "candidate_dependency_state binds the v1.0.2 candidate dependency manifests by SHA-256."
+  ],
+  "inventory_source_head": "552ab5156f2106fa204c98d6c3fd11c9fba5b208",
+  "candidate_dependency_state": {
+    "requirements.txt": {
+      "sha256": "5edba8e75b2cc2d9411e091a6a2dc9768cbec39b7e8061b8e29928728bc3d3e7",
+      "packages": {
+        "fastapi": "0.133.0",
+        "starlette": "1.3.1",
+        "python-multipart": "0.0.31",
+        "Mako": "1.3.12"
+      }
+    },
+    "requirements-dev.txt": {
+      "sha256": "8fd51832462ad4a2802fc50fd8cdb1dd44ae8c4246b4f26db87050a268a8d6cd",
+      "packages": {
+        "pytest": "8.3.4"
+      }
+    },
+    "dashboard/package-lock.json": {
+      "sha256": "1c9c14599f8c59acf631952186197064762609f2089df15327487d42a41121c8",
+      "packages_root": {
+        "name": "hive-dashboard",
+        "version": "1.0.2"
+      }
+    }
+  }
+}
