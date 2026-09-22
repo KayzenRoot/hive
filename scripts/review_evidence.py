@@ -2305,6 +2305,7 @@ WO029_ALLOWED_PATHS = frozenset(
         "backend/tests/test_execution_orchestrator.py",
         "backend/tests/test_review_evidence.py",
         "docs/autonomous-execution.md",
+        "scripts/autonomous_execution_integration.py",
         "scripts/review_evidence.py",
     }
 )
