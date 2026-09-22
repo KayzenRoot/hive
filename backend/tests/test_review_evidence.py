@@ -601,7 +601,7 @@ def test_review_evidence_schema_is_validated() -> None:
 def test_wo026_registration_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO026_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO026_BASE_SHA
     allowed = sorted(review_evidence.WO026_ALLOWED_PATHS)
@@ -824,6 +824,62 @@ def test_wo030_vitest_security_correction_is_exact_and_fail_closed() -> None:
     with pytest.raises(ValueError, match="exactly one authorized-base marker"):
         review_evidence.require_wo030_scope(
             review_evidence.WO030_WORK_ORDER,
+            base_sha,
+            allowed,
+        )
+
+
+def test_wo031_progressive_disclosure_correction_is_exact_and_fail_closed() -> None:
+    require_supported_work_order(review_evidence.WO031_WORK_ORDER)
+
+    base_sha = review_evidence.WO031_BASE_SHA
+    allowed = sorted(review_evidence.WO031_ALLOWED_PATHS)
+    review_evidence.require_wo031_scope(
+        review_evidence.WO031_WORK_ORDER,
+        base_sha,
+        allowed,
+        authorized_base_sha=base_sha,
+    )
+    body = (
+        f"<!-- HIVE-WORK-ORDER: {review_evidence.WO031_WORK_ORDER} -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->\n"
+    )
+    assert (
+        review_evidence.authorized_base_marker_sha(review_evidence.WO031_WORK_ORDER, body)
+        == base_sha
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            "f" * 40,
+            allowed,
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="bounded Progressive Disclosure correction surface"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            base_sha,
+            [*allowed, "backend/app/main.py"],
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="bounded Progressive Disclosure correction surface"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            base_sha,
+            allowed[:-1],
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="protected main base branch"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            base_sha,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="exactly one authorized-base marker"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
             base_sha,
             allowed,
         )
