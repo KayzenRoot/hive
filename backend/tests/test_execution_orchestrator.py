@@ -23,8 +23,8 @@ from app.execution_orchestrator import (
     ExecutorResult,
     HeadRaceError,
 )
-from app.registry import InspectionResult, ProjectResponse, ProjectState
 from app.provider_prompt_cache import ProviderUsageReceipt, UsageReconciliation, UsageSource
+from app.registry import InspectionResult, ProjectResponse, ProjectState
 from app.runner import ChangeOperation, ChangeSet, ToolPolicy
 from app.task_intake import TaskResponse
 
