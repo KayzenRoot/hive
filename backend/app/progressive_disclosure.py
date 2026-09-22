@@ -92,7 +92,7 @@ _DOMAIN_TLDS = (
     "xyz",
 )
 _DOMAIN_LIKE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9-]+\\.)+(?:" + "|".join(_DOMAIN_TLDS) + r")\\b",
+    r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9-]+\.)+(?:" + "|".join(_DOMAIN_TLDS) + r")\b",
     re.IGNORECASE,
 )
 _EMAIL_LIKE_RE = re.compile(
