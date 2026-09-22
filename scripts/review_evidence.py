@@ -1671,6 +1671,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-025-G4",
         "WO-025-G5",
         "WO-029-C1",
+        "WO-029-C2",
         "WO-030-C1",
         "WO-023-P-G1-C1-CLOSED",
     }
@@ -2318,6 +2319,19 @@ WO029_C1_ALLOWED_PATHS = frozenset(
         "scripts/review_evidence.py",
     }
 )
+# WO-029-C2: progressive-disclosure domain classification correction.
+# Modern domain names in task prose must not masquerade as qualified code symbols
+# and force unnecessary L2 context disclosure.
+WO029_C2_WORK_ORDER = "WO-029-C2"
+WO029_C2_BASE_SHA = "3d3478dcc5a73f50f13627cb3a806f0207f7cada"
+WO029_C2_ALLOWED_PATHS = frozenset(
+    {
+        "backend/app/progressive_disclosure.py",
+        "backend/tests/test_progressive_disclosure.py",
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    }
+)
 # WO-030: Vitest security maintenance. Self-registration is bounded to the
 # dashboard dependency manifest/lockfile and this evidence harness plus its regression.
 WO030_WORK_ORDER = "WO-030"
@@ -2710,6 +2724,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO028_WORK_ORDER,
         WO029_WORK_ORDER,
         WO029_C1_WORK_ORDER,
+        WO029_C2_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
         WO025_G3_WORK_ORDER,
@@ -3151,6 +3166,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         "WO-028",
         WO029_WORK_ORDER,
         WO029_C1_WORK_ORDER,
+        WO029_C2_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
         "WO-1.1-01",
@@ -11631,6 +11647,50 @@ def require_wo029_c1_scope(
             )
 
 
+def require_wo029_c2_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
+) -> None:
+    """Bound modern-domain disclosure correction to the exact post-WO-029-C1 main base."""
+
+    if work_order != WO029_C2_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO029_C2_WORK_ORDER} requires the protected main base branch")
+    if base_sha != WO029_C2_BASE_SHA:
+        raise ValueError(
+            f"{WO029_C2_WORK_ORDER} requires exact base {WO029_C2_BASE_SHA}, observed {base_sha}"
+        )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and current_main != WO029_C2_BASE_SHA:
+            raise ValueError(
+                f"{WO029_C2_WORK_ORDER} is stale: protected main is {current_main}, "
+                f"authorized base is {WO029_C2_BASE_SHA}"
+            )
+    if len(paths) != len(WO029_C2_ALLOWED_PATHS) or set(paths) != WO029_C2_ALLOWED_PATHS:
+        raise ValueError(
+            f"{WO029_C2_WORK_ORDER} requires exactly the bounded domain-classification surface"
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO029_C2_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError(
+                f"{WO029_C2_WORK_ORDER} authorized-base marker must be lowercase 40-hex"
+            )
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO029_C2_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+
+
 def require_wo030_scope(
     work_order: str,
     base_sha: str,
@@ -17453,6 +17513,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo029_c2_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
     require_wo030_scope(
         work_order,
         base_sha,
@@ -18495,6 +18563,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_authorized_base=False,
     )
     require_wo029_c1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, base.get("branch", "main")),
+        enforce_current_main=False,
+        enforce_authorized_base=False,
+    )
+    require_wo029_c2_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),

@@ -84,6 +84,8 @@ def test_domain_like_text_does_not_escalate_to_symbol_disclosure() -> None:
     for text in (
         "Check api.openai.com availability.",
         "Compare github.com with docs.python.org.",
+        "Inspect status.example.cloud and docs.vendor.tech.",
+        "Compare product.xyz with service.online and assets.media.",
         "Contact owner@example.com about the project.",
         "Contact foo.bar@example.com about the project.",
     ):
@@ -91,7 +93,12 @@ def test_domain_like_text_does_not_escalate_to_symbol_disclosure() -> None:
 
 
 def test_lowercase_qualified_code_symbol_still_requires_l2() -> None:
-    assert required_level_from_text("Inspect package.module.build_context.") == DisclosureLevel.L2
+    for text in (
+        "Inspect package.module.build_context.",
+        "Inspect service.client.request.",
+        "Inspect context.manager.build.",
+    ):
+        assert required_level_from_text(text) == DisclosureLevel.L2
 
 
 @pytest.mark.parametrize(
