@@ -1318,7 +1318,6 @@ def build_telemetry_evidence(
 def build_evidence(
     result_one: object,
     result_two: object,
-    adapter_one: LocalFixtureAdapter,
     *,
     cross_project_rejected: bool,
     canonical_rejected: bool,
@@ -1341,8 +1340,9 @@ def build_evidence(
         "orchestrator_path_exercised": result_payload["staged_noncanonical"] is True,
         "executor_adapter_provider_independent": (
             result_payload["adapter"]["provider_independent"] is True
-            and adapter_one.calls == 1
-            and adapter_one.provider_calls == 0
+            and result_payload["adapter"]["name"] == "openai-compatible-http"
+            and result_payload["executor_llm_calls"] == 1
+            and result_payload["executor_provider_calls"] == 1
         ),
         "project_task_identity_scoped": (
             result_payload["identity"]["project_id"] != result_payload["identity"]["task_id"]
@@ -1464,10 +1464,10 @@ def main() -> int:
         repositories.extend((first_repository, second_repository))
         create_repository(first_repository)
         create_repository(second_repository)
-        first, adapter_one, project_one, task_one = execute_docker_fixture(
+        first, project_one, task_one = execute_docker_fixture(
             base_url, projects_root, first_relative
         )
-        second, _adapter_two, project_two, task_two = execute_docker_fixture(
+        second, project_two, task_two = execute_docker_fixture(
             base_url, projects_root, second_relative
         )
 
@@ -1552,7 +1552,6 @@ def main() -> int:
         evidence = build_evidence(
             first,
             second,
-            adapter_one,
             cross_project_rejected=cross_project_rejected,
             canonical_rejected=canonical_rejected,
             head_race_rejected=head_race_rejected,
