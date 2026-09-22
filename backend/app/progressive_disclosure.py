@@ -264,8 +264,7 @@ def _mentioned_symbols(text: str) -> tuple[str, ...]:
     def overlaps_domain(match: re.Match[str]) -> bool:
         start, end = match.span()
         return any(
-            start < domain_end and end > domain_start
-            for domain_start, domain_end in domain_spans
+            start < domain_end and end > domain_start for domain_start, domain_end in domain_spans
         )
 
     return tuple(
@@ -273,8 +272,7 @@ def _mentioned_symbols(text: str) -> tuple[str, ...]:
             {
                 match.group(0)
                 for match in _SYMBOL_RE.finditer(text)
-                if not _FILE_SUFFIX_RE.search(match.group(0))
-                and not overlaps_domain(match)
+                if not _FILE_SUFFIX_RE.search(match.group(0)) and not overlaps_domain(match)
             }
         )
     )
