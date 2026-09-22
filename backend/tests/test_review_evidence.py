@@ -14083,3 +14083,40 @@ def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
             [],
             authorized_base_sha=HIVE_REL_008_BASE_SHA,
         )
+
+
+def test_wo031_control_center_scope_is_exact_and_base_bound() -> None:
+    paths = sorted(review_evidence.WO031_ALLOWED_PATHS)
+    review_evidence.require_wo031_scope(
+        review_evidence.WO031_WORK_ORDER,
+        review_evidence.WO031_BASE_SHA,
+        paths,
+        base_branch="main",
+        authorized_base_sha=review_evidence.WO031_BASE_SHA,
+        enforce_current_main=False,
+    )
+
+    with pytest.raises(ValueError, match="exactly the bounded Control Center"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            review_evidence.WO031_BASE_SHA,
+            paths + ["README.md"],
+            base_branch="main",
+            authorized_base_sha=review_evidence.WO031_BASE_SHA,
+            enforce_current_main=False,
+        )
+
+    with pytest.raises(ValueError, match="requires exact base"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            "0" * 40,
+            paths,
+            base_branch="main",
+            authorized_base_sha="0" * 40,
+            enforce_current_main=False,
+        )
+
+
+def test_wo031_is_registered_and_requires_authorized_base_marker() -> None:
+    review_evidence.require_supported_work_order(review_evidence.WO031_WORK_ORDER)
+    assert review_evidence.WO031_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
