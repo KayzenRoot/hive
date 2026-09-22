@@ -2348,7 +2348,6 @@ WO029_C3_ALLOWED_PATHS = frozenset(
         "backend/app/provider_prompt_cache.py",
         "backend/tests/test_executor_provider.py",
         "backend/tests/test_provider_prompt_cache.py",
-        "backend/tests/test_review_evidence.py",
         "docker-compose.yml",
         "docs/atlas/code-atlas.md",
         "docs/atlas/test-map.md",
