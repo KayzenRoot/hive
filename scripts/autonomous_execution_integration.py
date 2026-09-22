@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -13,6 +14,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -444,75 +446,143 @@ def docker_event_emitter(
     return cast(dict[str, object], event)
 
 
-class LocalFixtureAdapter:
-    name = "local-deterministic-fixture"
-    provider_independent = True
+class LocalProviderServer:
+    """Credential-free HTTP fixture that exercises the production executor transport."""
 
     def __init__(self) -> None:
-        self.calls = 0
-        self.provider_calls = 0
+        self.requests: list[dict[str, object]] = []
+        owner = self
 
-    def execute(self, request: ExecutorRequest, context: object) -> ExecutorResult:
-        self.calls += 1
-        context_project = getattr(context, "project", None)
-        if request.project_id != getattr(context_project, "project_id", None):
-            raise AssertionError("adapter received the wrong project context")
-        command = (sys.executable, "-c", "print('wo018 validation passed')")
-        return ExecutorResult(
-            change_set=ChangeSet.from_operations(
-                [ChangeOperation.create("src/generated.py", "VALUE = 1\n")],
-                model="local-fixture-model",
-                effort="minimal",
-                request_id="wo018-deterministic-request",
-            ),
-            summary=(
-                f"Generated one bounded file; {TEST_SENTINEL}; "
-                "source=C:\\Users\\fixture\\private.txt"
-            ),
-            decisions=("Reuse Context Manager and Local Verified Runner.",),
-            test_commands=((sys.executable, "-c", "print('wo018 test passed')"),),
-            validation_commands=(command,),
-            errors_fixed=(),
-            risks=("No canonical promotion is performed.",),
-            pending_items=("External Sol review remains required.",),
-            proposed_checkpoint_update="Propose no checkpoint mutation from this execution.",
-            provider_independent=True,
-            executor_llm_calls=0,
-            executor_provider_calls=self.provider_calls,
-        )
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                try:
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                if not isinstance(payload, dict) or self.path != "/v1/chat/completions":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                owner.requests.append(cast(dict[str, object], payload))
+                provider_result = {
+                    "operations": [
+                        {
+                            "kind": "create",
+                            "path": "src/generated.py",
+                            "content_base64": base64.b64encode(b"VALUE = 1\n").decode("ascii"),
+                        }
+                    ],
+                    "summary": (
+                        f"Generated one bounded file; {TEST_SENTINEL}; "
+                        "source=C:\\Users\\fixture\\private.txt"
+                    ),
+                    "decisions": ["Reuse Context Manager and Local Verified Runner."],
+                    "test_commands": [[sys.executable, "-c", "print('wo018 test passed')"]],
+                    "validation_commands": [
+                        [sys.executable, "-c", "print('wo018 validation passed')"]
+                    ],
+                    "errors_fixed": [],
+                    "risks": ["No canonical promotion is performed."],
+                    "pending_items": ["External Sol review remains required."],
+                    "proposed_checkpoint_update": (
+                        "Propose no checkpoint mutation from this execution."
+                    ),
+                }
+                body = json.dumps(
+                    {
+                        "id": "wo029-c3-integration-request",
+                        "model": "hive-integration-model",
+                        "choices": [{"message": {"content": json.dumps(provider_result)}}],
+                        "usage": {
+                            "prompt_tokens": 100,
+                            "prompt_tokens_details": {"cached_tokens": 64},
+                            "completion_tokens": 8,
+                        },
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self) -> LocalProviderServer:
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+    @property
+    def base_url(self) -> str:
+        host, port = self.server.server_address
+        return f"http://{host}:{port}/v1"
 
 
 def execute_docker_fixture(
     base_url: str,
     projects_root: Path,
     relative_path: str,
-) -> tuple[object, LocalFixtureAdapter, ProjectResponse, TaskResponse]:
+) -> tuple[object, ProjectResponse, TaskResponse]:
     project, task = register_fixture(base_url, relative_path)
-    settings = Settings(projects_root=projects_root)
-    adapter = LocalFixtureAdapter()
-    orchestrator = ExecutionOrchestrator(
-        settings,
-        tool_policy=ToolPolicy((sys.executable,)),
-        project_loader=lambda _settings, project_id: project_from_api(base_url, project_id),
-        task_loader=lambda _settings, project_id, task_id: task_from_api(
-            base_url, project_id, task_id
-        ),
-        context_builder=context_from_api(base_url),
-        event_emitter=docker_event_emitter,
-    )
-    request = ExecutorRequest(
-        project.project_id,
-        task.task_id,
-        expected_branch=project.git_branch,
-        expected_head_sha=project.git_head_sha,
-    )
-    return (
-        orchestrator.execute(request, adapter),
-        adapter,
-        project,
-        task,
-    )
-
+    with LocalProviderServer() as provider:
+        settings = Settings(
+            projects_root=projects_root,
+            executor_enabled=True,
+            executor_base_url=provider.base_url,
+            executor_model="hive-integration-model",
+            executor_timeout_seconds=5,
+            executor_max_response_bytes=200_000,
+            executor_prompt_cache_enabled=True,
+        )
+        orchestrator = ExecutionOrchestrator(
+            settings,
+            tool_policy=ToolPolicy((sys.executable,)),
+            project_loader=lambda _settings, project_id: project_from_api(base_url, project_id),
+            task_loader=lambda _settings, project_id, task_id: task_from_api(
+                base_url, project_id, task_id
+            ),
+            context_builder=context_from_api(base_url),
+            event_emitter=docker_event_emitter,
+        )
+        request = ExecutorRequest(
+            project.project_id,
+            task.task_id,
+            expected_branch=project.git_branch,
+            expected_head_sha=project.git_head_sha,
+        )
+        result = orchestrator.execute_configured(request)
+        if len(provider.requests) != 1:
+            raise AssertionError("configured executor must perform exactly one provider request")
+        provider_request = provider.requests[0]
+        if provider_request.get("model") != "hive-integration-model":
+            raise AssertionError("configured executor sent the wrong provider model")
+        if provider_request.get("response_format") != {"type": "json_object"}:
+            raise AssertionError("configured executor did not request structured JSON")
+        if result.executor_provider_calls != 1 or result.executor_llm_calls != 1:
+            raise AssertionError("configured executor call accounting is not authoritative")
+        usage = result.provider_cache_usage
+        if (
+            usage is None
+            or usage.reconciliation.value != "EXACT"
+            or usage.cached_input_tokens != 64
+            or usage.observed_hit is not True
+        ):
+            raise AssertionError("configured executor did not reconcile provider cache usage")
+        return result, project, task
 
 def local_project_response(relative_path: str = "target") -> ProjectResponse:
     now = datetime(2026, 9, 9, tzinfo=UTC)
