@@ -2316,6 +2316,19 @@ WO030_ALLOWED_PATHS = frozenset(
         "scripts/review_evidence.py",
     }
 )
+# WO-031: Progressive Disclosure dotted-domain/email token-efficiency correction.
+# Self-registration is bounded to the product correction, its regression test,
+# and this evidence harness plus its regression.
+WO031_WORK_ORDER = "WO-031"
+WO031_BASE_SHA = "a753d0cff1b23dafcdacbdecfb3ccdf5b91e6d3b"
+WO031_ALLOWED_PATHS = frozenset(
+    {
+        "backend/app/progressive_disclosure.py",
+        "backend/tests/test_progressive_disclosure.py",
+        "backend/tests/test_review_evidence.py",
+        "scripts/review_evidence.py",
+    }
+)
 # WO-025-G3: work-order namespace governance. Corrective governance only: it replaces the
 # historical fallthrough in ``require_supported_work_order`` with an explicit deny-by-default
 # registry, adds the dotted release-train grammar, and registers the next promotion plus the first
@@ -2682,6 +2695,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO028_WORK_ORDER,
         WO029_WORK_ORDER,
         WO030_WORK_ORDER,
+        WO031_WORK_ORDER,
         WO025_G3_WORK_ORDER,
         WO025_G4_WORK_ORDER,
         WO025_G5_WORK_ORDER,
@@ -3121,6 +3135,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         "WO-028",
         WO029_WORK_ORDER,
         WO030_WORK_ORDER,
+        WO031_WORK_ORDER,
         "WO-1.1-01",
     }
 )
