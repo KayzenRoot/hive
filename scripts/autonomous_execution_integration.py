@@ -582,6 +582,32 @@ def execute_docker_fixture(
             or usage.observed_hit is not True
         ):
             raise AssertionError("configured executor did not reconcile provider cache usage")
+        page = telemetry_page(base_url, project.project_id, limit=20)
+        events = cast(list[dict[str, object]], page["events"])
+        terminal = next(
+            (
+                event
+                for event in reversed(events)
+                if event.get("event_type") == "run.completed"
+            ),
+            None,
+        )
+        if not isinstance(terminal, dict):
+            raise AssertionError("configured executor terminal telemetry was not persisted")
+        payload = terminal.get("payload")
+        if not isinstance(payload, dict):
+            raise AssertionError("configured executor terminal telemetry payload is invalid")
+        if (
+            payload.get("executor_provider_calls") != 1
+            or payload.get("executor_llm_calls") != 1
+            or payload.get("input_tokens") != 100
+            or payload.get("cached_tokens") != 64
+            or payload.get("fresh_tokens") != 36
+            or payload.get("output_tokens") != 8
+            or payload.get("usage_reconciled") is not True
+            or payload.get("provider_final_usage") is not True
+        ):
+            raise AssertionError("configured executor usage telemetry is not truthful")
         return result, project, task
 
 def local_project_response(relative_path: str = "target") -> ProjectResponse:
