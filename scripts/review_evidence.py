@@ -1670,7 +1670,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-025-G3",
         "WO-025-G4",
         "WO-025-G5",
-        WO030_C1_WORK_ORDER,
+        "WO-030-C1",
         "WO-023-P-G1-C1-CLOSED",
     }
 )
@@ -11648,13 +11648,16 @@ def require_wo030_c1_scope(
             )
     if len(paths) != len(WO030_C1_ALLOWED_PATHS) or set(paths) != WO030_C1_ALLOWED_PATHS:
         raise ValueError(
-            f"{WO030_C1_WORK_ORDER} requires exactly the bounded Progressive Disclosure correction surface"
+            f"{WO030_C1_WORK_ORDER} requires exactly the bounded "
+            "Progressive Disclosure correction surface"
         )
     if enforce_authorized_base:
         if authorized_base_sha is None:
             raise ValueError(f"{WO030_C1_WORK_ORDER} requires exactly one authorized-base marker")
         if HEX_SHA.fullmatch(authorized_base_sha) is None:
-            raise ValueError(f"{WO030_C1_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
+            raise ValueError(
+                f"{WO030_C1_WORK_ORDER} authorized-base marker must be lowercase 40-hex"
+            )
         if authorized_base_sha != base_sha:
             raise ValueError(
                 f"{WO030_C1_WORK_ORDER} authorized-base marker must match the pull request base SHA"
