@@ -81,9 +81,7 @@ def test_cli_returns_bounded_error_without_provider_detail(
     monkeypatch.setattr(executor_cli, "get_settings", lambda: SimpleNamespace())
     monkeypatch.setattr(executor_cli, "ExecutionOrchestrator", Orchestrator)
 
-    exit_code = executor_cli.run(
-        ["--project-id", str(PROJECT_ID), "--task-id", str(TASK_ID)]
-    )
+    exit_code = executor_cli.run(["--project-id", str(PROJECT_ID), "--task-id", str(TASK_ID)])
 
     captured = capsys.readouterr()
     assert exit_code == 1
