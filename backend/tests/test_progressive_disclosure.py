@@ -85,6 +85,7 @@ def test_domain_like_text_does_not_escalate_to_symbol_disclosure() -> None:
         "Check api.openai.com availability.",
         "Compare github.com with docs.python.org.",
         "Contact owner@example.com about the project.",
+        "Contact foo.bar@example.com about the project.",
     ):
         assert required_level_from_text(text) == DisclosureLevel.L0
 
