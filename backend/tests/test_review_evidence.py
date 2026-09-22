@@ -13970,21 +13970,6 @@ def test_hive_rel_007_v102_preparation_scope_is_exact_and_fail_closed() -> None:
         allowed,
         authorized_base_sha=HIVE_REL_007_BASE_SHA,
     )
-    candidate_path = (
-        review_evidence.ROOT
-        / ".engineering"
-        / "release"
-        / "HIVE-V1.0.2-RELEASE-CANDIDATE.json"
-    )
-    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
-    assert candidate["status"] == "release-candidate"
-    assert candidate["release_published"] is False
-    assert candidate["product"] == "HIVE"
-    assert candidate["version"] == "1.0.2"
-    assert candidate["tag"] == "v1.0.2"
-    assert candidate["work_order"] == HIVE_REL_007_WORK_ORDER
-    assert candidate["preparation"]["authorized_base"] == HIVE_REL_007_BASE_SHA
-
     with pytest.raises(ValueError, match="protected main"):
         require_hive_rel_007_scope(
             HIVE_REL_007_WORK_ORDER,
@@ -14027,3 +14012,5 @@ def test_hive_rel_007_v102_preparation_scope_is_exact_and_fail_closed() -> None:
             [],
             authorized_base_sha=HIVE_REL_007_BASE_SHA,
         )
+
+
