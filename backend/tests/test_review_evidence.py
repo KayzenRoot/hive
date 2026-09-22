@@ -872,6 +872,42 @@ def test_wo029_c2_domain_classification_is_exact_and_fail_closed() -> None:
         )
 
 
+def test_wo029_c3_production_executor_correction_is_exact_and_fail_closed() -> None:
+    require_supported_work_order(review_evidence.WO029_C3_WORK_ORDER)
+    require_current_work_order_authorization(review_evidence.WO029_C3_WORK_ORDER)
+    assert review_evidence.WO029_C3_WORK_ORDER in review_evidence.CORRECTIVE_GOVERNANCE_WORK_ORDERS
+    assert review_evidence.WO029_C3_WORK_ORDER not in (
+        review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
+    base_sha = review_evidence.WO029_C3_BASE_SHA
+    allowed = sorted(review_evidence.WO029_C3_ALLOWED_PATHS)
+    review_evidence.require_wo029_c3_scope(
+        review_evidence.WO029_C3_WORK_ORDER, base_sha, allowed, authorized_base_sha=base_sha
+    )
+    with pytest.raises(ValueError, match="exact base"):
+        review_evidence.require_wo029_c3_scope(
+            review_evidence.WO029_C3_WORK_ORDER,
+            "f" * 40,
+            allowed,
+            authorized_base_sha="f" * 40,
+        )
+    with pytest.raises(ValueError, match="bounded production-executor correction surface"):
+        review_evidence.require_wo029_c3_scope(
+            review_evidence.WO029_C3_WORK_ORDER,
+            base_sha,
+            [*allowed, "backend/app/main.py"],
+            authorized_base_sha=base_sha,
+        )
+    with pytest.raises(ValueError, match="protected main base branch"):
+        review_evidence.require_wo029_c3_scope(
+            review_evidence.WO029_C3_WORK_ORDER,
+            base_sha,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=base_sha,
+        )
+
+
 def test_wo030_vitest_security_correction_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO030_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
