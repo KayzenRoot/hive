@@ -480,9 +480,9 @@ class LocalProviderServer:
                         "source=C:\\Users\\fixture\\private.txt"
                     ),
                     "decisions": ["Reuse Context Manager and Local Verified Runner."],
-                    "test_commands": [[sys.executable, "-c", "print('wo018 test passed')"]],
+                    "test_commands": [["python", "-c", "print('wo018 test passed')"]],
                     "validation_commands": [
-                        [sys.executable, "-c", "print('wo018 validation passed')"]
+                        ["python", "-c", "print('wo018 validation passed')"]
                     ],
                     "errors_fixed": [],
                     "risks": ["No canonical promotion is performed."],
@@ -557,7 +557,7 @@ def execute_docker_fixture(
         )
         orchestrator = ExecutionOrchestrator(
             settings,
-            tool_policy=ToolPolicy((sys.executable,)),
+            tool_policy=ToolPolicy((sys.executable, "python")),
             project_loader=lambda _settings, project_id: project_from_api(base_url, project_id),
             task_loader=lambda _settings, project_id, task_id: task_from_api(
                 base_url, project_id, task_id
