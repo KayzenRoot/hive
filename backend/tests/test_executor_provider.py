@@ -162,6 +162,25 @@ def test_concrete_transport_returns_structured_result_and_real_call_counts() -> 
     assert provider.authorization == "Bearer WO029_C3_SECRET_NEVER_LEAK"
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "http://example.com/v1",
+        "http://10.20.30.40:8080/v1",
+    ),
+)
+def test_remote_plaintext_executor_endpoint_requires_https(base_url: str) -> None:
+    with pytest.raises(ExecutorAdapterError, match="executor_remote_http_requires_https"):
+        build_executor_adapter(settings(base_url, executor_api_key=None))
+
+
+def test_remote_https_executor_endpoint_is_accepted_without_network_io() -> None:
+    adapter = build_executor_adapter(
+        settings("https://example.com/v1", executor_api_key=None)
+    )
+    assert adapter.url == "https://example.com/v1/chat/completions"
+
+
 def test_disabled_or_incomplete_configuration_fails_closed() -> None:
     with pytest.raises(ExecutorAdapterError, match="executor_disabled"):
         build_executor_adapter(Settings())
