@@ -262,7 +262,10 @@ def _mentioned_symbols(text: str) -> tuple[str, ...]:
 
     def overlaps_domain(match: re.Match[str]) -> bool:
         start, end = match.span()
-        return any(start < domain_end and end > domain_start for domain_start, domain_end in domain_spans)
+        return any(
+            start < domain_end and end > domain_start
+            for domain_start, domain_end in domain_spans
+        )
 
     return tuple(
         sorted(
