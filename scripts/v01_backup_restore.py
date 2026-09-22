@@ -38,6 +38,7 @@ from control_center_integration import (  # noqa: E402
     current_migration_head,
     emit_event_batch,
     event_spec,
+    projects_root,
     register_fixture,
     require,
     run_command,
@@ -216,7 +217,7 @@ def seed_canonical_material() -> dict[str, object]:
         return {"created": False}
 
     label = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-alpha"
-    fixture = Fixture(label=label, relative_path=label, repository=ROOT / ".hive-projects" / label)
+    fixture = Fixture(label=label, relative_path=label, repository=projects_root() / label)
     create_fixture_repository(fixture.repository, label)
     (fixture.repository / "src").mkdir(parents=True, exist_ok=True)
     (fixture.repository / "src" / "closure_backup.py").write_text(

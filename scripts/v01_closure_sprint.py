@@ -49,6 +49,7 @@ from control_center_integration import (  # noqa: E402
     current_migration_head,
     emit_event_batch,
     event_spec,
+    projects_root,
     register_fixture,
     require,
     run_command,
@@ -621,10 +622,24 @@ def verifier_count() -> int:
     return len(DOD_VERIFIERS)
 
 
+def _repository_test_environment() -> dict[str, str]:
+    """Keep host-side repository tests independent from Compose fixture roots."""
+
+    quality_env = os.environ.copy()
+    quality_env.pop("HIVE_DATA_ROOT", None)
+    quality_env.pop("HIVE_PROJECTS_ROOT", None)
+    quality_env.pop("HIVE_API_PORT", None)
+    quality_env.pop("HIVE_DASHBOARD_PORT", None)
+    quality_env.pop("COMPOSE_PROJECT_NAME", None)
+    return quality_env
+
+
 def _run_command(command: list[str], *, timeout: int = 3600) -> dict[str, object]:
+    quality_env = _repository_test_environment()
     result = subprocess.run(
         command,
         cwd=ROOT,
+        env=quality_env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -809,10 +824,24 @@ def _secondary_root_proof() -> dict[str, object]:
     )
     project = "hive-secondary"
     base = ["-p", project, "-f", "docker-compose.yml", "-f", str(override)]
+    user = os.environ.get("POSTGRES_USER", "hive")
+    database = os.environ.get("POSTGRES_DB", "hive")
     compose(*base, "up", "-d", "postgres", check=False)
     for _ in range(90):
         ready = subprocess.run(
-            ["docker", "compose", *base, "exec", "-T", "postgres", "pg_isready", "-U", "hive"],
+            [
+                "docker",
+                "compose",
+                *base,
+                "exec",
+                "-T",
+                "postgres",
+                "pg_isready",
+                "-U",
+                user,
+                "-d",
+                database,
+            ],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -831,8 +860,6 @@ def _secondary_root_proof() -> dict[str, object]:
         "(probe_id serial primary key, note text not null);"
         "INSERT INTO secondary_root_probe (note) VALUES ('c4-secondary-root');"
     )
-    user = os.environ.get("POSTGRES_USER", "hive")
-    database = os.environ.get("POSTGRES_DB", "hive")
     compose(
         *base,
         "exec",
@@ -866,7 +893,19 @@ def _secondary_root_proof() -> dict[str, object]:
     compose(*base, "up", "-d", "postgres", check=False)
     for _ in range(90):
         ready = subprocess.run(
-            ["docker", "compose", *base, "exec", "-T", "postgres", "pg_isready", "-U", "hive"],
+            [
+                "docker",
+                "compose",
+                *base,
+                "exec",
+                "-T",
+                "postgres",
+                "pg_isready",
+                "-U",
+                user,
+                "-d",
+                database,
+            ],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -969,7 +1008,7 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
     fixture = Fixture(
         label=fixture_label,
         relative_path=fixture_label,
-        repository=ROOT / ".hive-projects" / fixture_label,
+        repository=projects_root() / fixture_label,
     )
     create_fixture_repository(fixture.repository, fixture.label)
     (fixture.repository / "src").mkdir(parents=True, exist_ok=True)
@@ -1155,6 +1194,7 @@ def orchestration_family(probe: ApiProbe) -> dict[str, object]:
             "-q",
         ],
         cwd=ROOT,
+        env=_repository_test_environment(),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -1338,7 +1378,7 @@ def e2e_family(probe: ApiProbe, executed: dict[str, str]) -> dict[str, object]:
     fixture = Fixture(
         label=fixture_label,
         relative_path=fixture_label,
-        repository=ROOT / ".hive-projects" / fixture_label,
+        repository=projects_root() / fixture_label,
     )
     stages: dict[str, dict[str, object]] = {}
     try:
@@ -1714,7 +1754,7 @@ def _closure_execution_stages(
 
     adapter = _StagedAdapter()
     orchestrator = ExecutionOrchestrator(
-        Settings(projects_root=ROOT / ".hive-projects"),
+        Settings(projects_root=projects_root()),
         tool_policy=ToolPolicy((sys.executable,)),
         project_loader=cast(Any, project_loader),
         task_loader=cast(Any, task_loader),
@@ -1902,7 +1942,7 @@ def _fixture_with_governance(
     probe: ApiProbe, fixtures: list[Fixture], kind: str, *, with_governance: bool = True
 ) -> Fixture:
     label = f"wo020-cc-{os.getpid()}-{uuid4().hex[:8]}-{'alpha' if with_governance else 'beta'}"
-    fixture = Fixture(label=label, relative_path=label, repository=ROOT / ".hive-projects" / label)
+    fixture = Fixture(label=label, relative_path=label, repository=projects_root() / label)
     create_fixture_repository(fixture.repository, label)
     (fixture.repository / "src").mkdir(parents=True, exist_ok=True)
     (fixture.repository / "src" / "closure.py").write_text(
@@ -2064,6 +2104,7 @@ def main() -> int:
             result = subprocess.run(
                 [sys.executable, script],
                 cwd=ROOT,
+                env=_repository_test_environment(),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

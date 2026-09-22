@@ -99,6 +99,26 @@ class Settings(BaseSettings):
     rerank_max_response_bytes: int = Field(
         default=2_000_000, validation_alias="HIVE_RERANK_MAX_RESPONSE_BYTES"
     )
+    executor_enabled: bool = Field(default=False, validation_alias="HIVE_EXECUTOR_ENABLED")
+    executor_base_url: str | None = Field(default=None, validation_alias="HIVE_EXECUTOR_BASE_URL")
+    executor_model: str | None = Field(default=None, validation_alias="HIVE_EXECUTOR_MODEL")
+    executor_api_key: SecretStr | None = Field(
+        default=None, validation_alias="HIVE_EXECUTOR_API_KEY"
+    )
+    executor_timeout_seconds: float = Field(
+        default=60.0, validation_alias="HIVE_EXECUTOR_TIMEOUT_SECONDS"
+    )
+    executor_max_response_bytes: int = Field(
+        default=2_000_000, validation_alias="HIVE_EXECUTOR_MAX_RESPONSE_BYTES"
+    )
+    executor_prompt_cache_enabled: bool = Field(
+        default=False, validation_alias="HIVE_EXECUTOR_PROMPT_CACHE_ENABLED"
+    )
+
+    @field_validator("executor_api_key", mode="before")
+    @classmethod
+    def empty_executor_api_key_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("embedding_dimensions", mode="before")
     @classmethod
@@ -206,6 +226,25 @@ class Settings(BaseSettings):
                 raise ValueError("HIVE_RERANK_BASE_URL is required when reranking is enabled")
             if not self.rerank_model or not self.rerank_model.strip():
                 raise ValueError("HIVE_RERANK_MODEL is required when reranking is enabled")
+
+    def validate_executor_limits(self) -> None:
+        if (
+            not math.isfinite(self.executor_timeout_seconds)
+            or self.executor_timeout_seconds <= 0
+            or self.executor_timeout_seconds > 600
+        ):
+            raise ValueError("HIVE_EXECUTOR_TIMEOUT_SECONDS must be between 0 and 600")
+        if not 1 <= self.executor_max_response_bytes <= 10_000_000:
+            raise ValueError("HIVE_EXECUTOR_MAX_RESPONSE_BYTES must be between 1 and 10000000")
+        if self.executor_base_url is not None and not self.executor_base_url.strip():
+            raise ValueError("HIVE_EXECUTOR_BASE_URL must not be blank")
+        if self.executor_enabled:
+            if not self.executor_base_url or not self.executor_base_url.strip():
+                raise ValueError("HIVE_EXECUTOR_BASE_URL is required when executor is enabled")
+            if not self.executor_model or not self.executor_model.strip():
+                raise ValueError("HIVE_EXECUTOR_MODEL is required when executor is enabled")
+        if self.executor_prompt_cache_enabled and not self.executor_enabled:
+            raise ValueError("HIVE_EXECUTOR_PROMPT_CACHE_ENABLED requires HIVE_EXECUTOR_ENABLED")
 
 
 @lru_cache

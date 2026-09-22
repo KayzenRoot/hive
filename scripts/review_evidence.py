@@ -636,6 +636,8 @@ WO019_G1_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "schemas/review-evidence-v1.schema.json",
         "scripts/review_evidence.py",
+        "scripts/v01_backup_restore.py",
+        "scripts/v01_closure_sprint.py",
         "scripts/review_pr_body.py",
     }
 )
@@ -1672,6 +1674,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-025-G5",
         "WO-029-C1",
         "WO-029-C2",
+        "WO-029-C3",
         "WO-030-C1",
         "WO-023-P-G1-C1-CLOSED",
     }
@@ -2302,6 +2305,7 @@ WO029_ALLOWED_PATHS = frozenset(
         "backend/tests/test_execution_orchestrator.py",
         "backend/tests/test_review_evidence.py",
         "docs/autonomous-execution.md",
+        "scripts/autonomous_execution_integration.py",
         "scripts/review_evidence.py",
     }
 )
@@ -2330,6 +2334,33 @@ WO029_C2_ALLOWED_PATHS = frozenset(
         "backend/tests/test_progressive_disclosure.py",
         "backend/tests/test_review_evidence.py",
         "scripts/review_evidence.py",
+    }
+)
+# WO-029-C3: concrete production executor transport correction.
+WO029_C3_WORK_ORDER = "WO-029-C3"
+WO029_C3_BASE_SHA = "3d88d7204deaaeee846de33c56f5c4ceb9bff27f"
+WO029_C3_ALLOWED_PATHS = frozenset(
+    {
+        ".env.example",
+        "backend/app/config.py",
+        "backend/app/context_manager.py",
+        "backend/app/execution_orchestrator.py",
+        "backend/app/executor_cli.py",
+        "backend/app/executor_provider.py",
+        "backend/app/provider_prompt_cache.py",
+        "backend/tests/test_execution_orchestrator.py",
+        "backend/tests/test_executor_cli.py",
+        "backend/tests/test_executor_provider.py",
+        "backend/tests/test_provider_prompt_cache.py",
+        "backend/tests/test_review_evidence.py",
+        "docker-compose.yml",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "docs/autonomous-execution.md",
+        "scripts/autonomous_execution_integration.py",
+        "scripts/review_evidence.py",
+        "scripts/v01_backup_restore.py",
+        "scripts/v01_closure_sprint.py",
     }
 )
 # WO-030: Vitest security maintenance. Self-registration is bounded to the
@@ -2725,6 +2756,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO029_WORK_ORDER,
         WO029_C1_WORK_ORDER,
         WO029_C2_WORK_ORDER,
+        WO029_C3_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
         WO025_G3_WORK_ORDER,
@@ -3167,6 +3199,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO029_WORK_ORDER,
         WO029_C1_WORK_ORDER,
         WO029_C2_WORK_ORDER,
+        WO029_C3_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
         "WO-1.1-01",
@@ -11691,6 +11724,51 @@ def require_wo029_c2_scope(
             )
 
 
+def require_wo029_c3_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
+) -> None:
+    """Bound the production executor correction to the exact post-WO-029-C2 main base."""
+
+    if work_order != WO029_C3_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO029_C3_WORK_ORDER} requires the protected main base branch")
+    if base_sha != WO029_C3_BASE_SHA:
+        raise ValueError(
+            f"{WO029_C3_WORK_ORDER} requires exact base {WO029_C3_BASE_SHA}, observed {base_sha}"
+        )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and current_main != WO029_C3_BASE_SHA:
+            raise ValueError(
+                f"{WO029_C3_WORK_ORDER} is stale: protected main is {current_main}, "
+                f"authorized base is {WO029_C3_BASE_SHA}"
+            )
+    if len(paths) != len(WO029_C3_ALLOWED_PATHS) or set(paths) != WO029_C3_ALLOWED_PATHS:
+        raise ValueError(
+            f"{WO029_C3_WORK_ORDER} requires exactly the bounded production-executor "
+            "correction surface"
+        )
+    if enforce_authorized_base:
+        if authorized_base_sha is None:
+            raise ValueError(f"{WO029_C3_WORK_ORDER} requires exactly one authorized-base marker")
+        if HEX_SHA.fullmatch(authorized_base_sha) is None:
+            raise ValueError(
+                f"{WO029_C3_WORK_ORDER} authorized-base marker must be lowercase 40-hex"
+            )
+        if authorized_base_sha != base_sha:
+            raise ValueError(
+                f"{WO029_C3_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+            )
+
+
 def require_wo030_scope(
     work_order: str,
     base_sha: str,
@@ -17521,6 +17599,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo029_c3_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
     require_wo030_scope(
         work_order,
         base_sha,
@@ -18571,6 +18657,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_authorized_base=False,
     )
     require_wo029_c2_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, base.get("branch", "main")),
+        enforce_current_main=False,
+        enforce_authorized_base=False,
+    )
+    require_wo029_c3_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),

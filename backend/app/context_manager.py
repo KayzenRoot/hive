@@ -80,6 +80,8 @@ from .progressive_disclosure import (
 )
 from .provider_prompt_cache import (
     NoOpProviderPromptCacheAdapter,
+    OpenAICompatibleProviderPromptCacheAdapter,
+    ProviderPromptCacheAdapter,
     ProviderPromptCacheError,
     ProviderPromptCacheResult,
     prepare_provider_prompt_cache,
@@ -2018,7 +2020,13 @@ def _build_provider_prompt_result(
     task_id: UUID,
     request: ProviderPromptRequest,
 ) -> ProviderPromptCacheResult:
-    adapter = NoOpProviderPromptCacheAdapter()
+    adapter: ProviderPromptCacheAdapter
+    if settings.executor_prompt_cache_enabled:
+        if not settings.executor_model:
+            raise ProviderPromptCacheError("provider_cache_model_required")
+        adapter = OpenAICompatibleProviderPromptCacheAdapter(model=settings.executor_model)
+    else:
+        adapter = NoOpProviderPromptCacheAdapter()
     if request.delivery_mode == "DELTA":
         delivery = build_delta_context(
             settings,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -10,6 +10,7 @@ from app.provider_prompt_cache import (
     CacheSupportMode,
     DeterministicFixtureProviderPromptCacheAdapter,
     NoOpProviderPromptCacheAdapter,
+    OpenAICompatibleProviderPromptCacheAdapter,
     ProviderPromptCacheError,
     UsageReconciliation,
     build_capability_identity,
@@ -127,6 +128,27 @@ def test_noop_never_claims_requested_or_hit() -> None:
     assert result.preparation.eligible is False
     assert result.observed_hit is None
     assert result.usage.reconciliation is UsageReconciliation.UNKNOWN
+
+
+def test_openai_compatible_adapter_requires_receipt_for_a_hit() -> None:
+    adapter = OpenAICompatibleProviderPromptCacheAdapter(model="test-model")
+    requested = adapter.prepare(request_cache=True)
+    unknown = adapter.normalize_usage(None)
+    positive = adapter.normalize_usage(
+        {
+            "prompt_tokens": 100,
+            "prompt_tokens_details": {"cached_tokens": 64},
+            "completion_tokens": 8,
+        }
+    )
+
+    assert requested.requested is True
+    assert requested.eligible is True
+    assert unknown.reconciliation is UsageReconciliation.UNKNOWN
+    assert unknown.observed_hit is None
+    assert positive.reconciliation is UsageReconciliation.EXACT
+    assert positive.cached_input_tokens == 64
+    assert positive.observed_hit is True
 
 
 @pytest.mark.parametrize(
@@ -391,3 +413,11 @@ def test_incomplete_and_malformed_accounting_is_invalid(usage: dict[str, object]
     receipt = normalize_provider_usage(capability_identity="a" * 64, usage=usage)
     assert receipt.reconciliation is UsageReconciliation.INVALID
     assert receipt.observed_hit is None
+
+
+def test_openai_compatible_adapter_rejects_non_mapping_usage() -> None:
+    adapter = OpenAICompatibleProviderPromptCacheAdapter(model="test-model")
+    receipt = adapter.normalize_usage(cast(Any, ["malformed"]))
+    assert receipt.reconciliation is UsageReconciliation.INVALID
+    assert receipt.observed_hit is None
+    assert receipt.cached_input_tokens is None

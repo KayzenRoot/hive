@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 
 from . import context_manager
 from .config import Settings, get_settings
+from .provider_prompt_cache import ProviderUsageReceipt
 from .registry import (
     InspectionResult,
     ProjectResponse,
@@ -162,6 +163,7 @@ class ExecutorResult:
     provider_independent: bool = True
     executor_llm_calls: int = 0
     executor_provider_calls: int = 0
+    provider_cache_usage: ProviderUsageReceipt | None = None
 
     @property
     def changes(self) -> ChangeSet:
@@ -313,6 +315,7 @@ class ExecutionResult:
     staged_run: StagedRun = field(repr=False)
     executor_llm_calls: int = 0
     executor_provider_calls: int = 0
+    provider_cache_usage: ProviderUsageReceipt | None = None
 
     @property
     def promoted(self) -> bool:
@@ -358,6 +361,11 @@ class ExecutionResult:
             "checkpoint_promoted": False,
             "executor_llm_calls": self.executor_llm_calls,
             "executor_provider_calls": self.executor_provider_calls,
+            "provider_cache_usage": (
+                self.provider_cache_usage.model_dump(mode="json")
+                if self.provider_cache_usage is not None
+                else None
+            ),
             "bounded_output_enforced": True,
         }
         serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -433,6 +441,13 @@ class ExecutionOrchestrator:
         )
         self.event_emitter = event_emitter or (emit_event if default_seams else None)
 
+    def execute_configured(self, request: ExecutorRequest) -> ExecutionResult:
+        """Execute through the configured concrete provider adapter."""
+
+        from .executor_provider import build_executor_adapter
+
+        return self.execute(request, build_executor_adapter(self.settings))
+
     def execute(self, request: ExecutorRequest, adapter: ExecutorAdapter) -> ExecutionResult:
         """Run one execution and emit bounded durable lifecycle events."""
 
@@ -457,15 +472,37 @@ class ExecutionOrchestrator:
             )
             raise
         terminal_type = "run.completed" if result.status == "STAGED" else "run.failed"
+        terminal_payload: dict[str, object] = {
+            "status": result.status,
+            "validation_passed": result.validation_passed,
+            "changed_file_count": len(result.changed_files),
+            "executor_llm_calls": result.executor_llm_calls,
+            "executor_provider_calls": result.executor_provider_calls,
+        }
+        usage = result.provider_cache_usage
+        if usage is not None:
+            terminal_payload["usage_reconciliation"] = usage.reconciliation.value
+            if usage.reconciliation.value == "EXACT":
+                terminal_payload["provider_final_usage"] = True
+                terminal_payload["usage_reconciled"] = True
+                for field_name, metric_name in (
+                    ("total_input_tokens", "input_tokens"),
+                    ("cached_input_tokens", "cached_tokens"),
+                    ("fresh_input_tokens", "fresh_tokens"),
+                    ("output_tokens", "output_tokens"),
+                ):
+                    value = getattr(usage, field_name)
+                    if value is not None:
+                        terminal_payload[metric_name] = value
+                        terminal_payload[f"{metric_name}_provenance"] = "EXACT"
+            else:
+                terminal_payload["provider_final_usage"] = False
+                terminal_payload["usage_reconciled"] = False
         self._emit_event(
             request,
             run_id,
             terminal_type,
-            {
-                "status": result.status,
-                "validation_passed": result.validation_passed,
-                "changed_file_count": len(result.changed_files),
-            },
+            terminal_payload,
             terminal_type,
         )
         return result
@@ -622,6 +659,7 @@ class ExecutionOrchestrator:
             staged_run=staged,
             executor_llm_calls=result.executor_llm_calls,
             executor_provider_calls=result.executor_provider_calls,
+            provider_cache_usage=result.provider_cache_usage,
         )
         execution.as_dict()
         return execution
@@ -831,6 +869,10 @@ class ExecutionOrchestrator:
             or result.executor_provider_calls < 0
         ):
             raise ExecutorAdapterError("executor_provider_calls is invalid")
+        if result.provider_cache_usage is not None and not isinstance(
+            result.provider_cache_usage, ProviderUsageReceipt
+        ):
+            raise ExecutorAdapterError("provider_cache_usage is invalid")
         for field_name in (
             "decisions",
             "errors_fixed",
