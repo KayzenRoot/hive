@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID
 
+import pytest
+
 from app import executor_cli
-from app.execution_orchestrator import ExecutorAdapterError
+from app.execution_orchestrator import ExecutorAdapterError, ExecutorRequest
 
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000101")
 TASK_ID = UUID("00000000-0000-0000-0000-000000000201")
@@ -17,7 +20,9 @@ class _Result:
         return '{"status":"STAGED"}\n'
 
 
-def test_cli_dispatches_configured_execution(monkeypatch, capsys) -> None:
+def test_cli_dispatches_configured_execution(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     observed: dict[str, object] = {}
 
     class Orchestrator:
@@ -51,7 +56,7 @@ def test_cli_dispatches_configured_execution(monkeypatch, capsys) -> None:
 
     assert exit_code == 0
     assert observed["settings"] is settings
-    request = observed["request"]
+    request = cast(ExecutorRequest, observed["request"])
     assert request.project_id == PROJECT_ID
     assert request.task_id == TASK_ID
     assert request.expected_branch == "main"
@@ -61,7 +66,9 @@ def test_cli_dispatches_configured_execution(monkeypatch, capsys) -> None:
     assert capsys.readouterr().out == '{"status":"STAGED"}\n'
 
 
-def test_cli_returns_bounded_error_without_provider_detail(monkeypatch, capsys) -> None:
+def test_cli_returns_bounded_error_without_provider_detail(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     secret = "WO029_C3_SECRET_NEVER_LEAK"
 
     class Orchestrator:
