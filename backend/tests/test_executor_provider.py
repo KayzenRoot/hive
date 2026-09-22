@@ -175,9 +175,7 @@ def test_remote_plaintext_executor_endpoint_requires_https(base_url: str) -> Non
 
 
 def test_remote_https_executor_endpoint_is_accepted_without_network_io() -> None:
-    adapter = build_executor_adapter(
-        settings("https://example.com/v1", executor_api_key=None)
-    )
+    adapter = build_executor_adapter(settings("https://example.com/v1", executor_api_key=None))
     assert adapter.url == "https://example.com/v1/chat/completions"
 
 
