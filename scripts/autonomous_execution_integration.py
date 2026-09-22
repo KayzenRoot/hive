@@ -215,6 +215,7 @@ def cleanup_registered_fixtures(relative_paths: tuple[str, ...]) -> set[str]:
     expected_paths = (
         f"wo019-c4-{os.getpid()}-one",
         f"wo019-c4-{os.getpid()}-two",
+        f"wo029-c3-{os.getpid()}-executor",
     )
     if relative_paths != expected_paths:
         raise AssertionError("fixture cleanup received an unexpected relative path")
@@ -1650,6 +1651,13 @@ def main() -> int:
             and not (race_root / "target" / "src" / "generated.py").exists()
         )
 
+        telemetry_probe_root = temporary_probe_root / "telemetry-deterministic"
+        telemetry_probe_root.mkdir()
+        telemetry_probe_seed = _local_result()
+        telemetry_probe_result = local_orchestrator(
+            telemetry_probe_root, telemetry_probe_seed
+        ).execute(_local_request(), _LocalAdapter(telemetry_probe_seed))
+
         evidence = build_evidence(
             first,
             second,
@@ -1667,7 +1675,7 @@ def main() -> int:
             project_two,
             task_two,
             migration_head,
-            first,
+            telemetry_probe_result,
         )
         EVIDENCE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         EVIDENCE_OUTPUT.write_text(
