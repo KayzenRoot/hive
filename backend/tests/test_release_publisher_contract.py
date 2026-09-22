@@ -51,6 +51,10 @@ def test_v101_future_publish_request_is_version_bound() -> None:
     validate("1.0.1", "HIVE-REL-006")
 
 
+def test_v102_future_publish_request_is_version_bound() -> None:
+    validate("1.0.2", "HIVE-REL-008")
+
+
 def test_unknown_publish_request_work_order_fails_closed() -> None:
     with pytest.raises(ValueError, match="work_order mismatch"):
         validate("1.0.1", "HIVE-REL-999")
