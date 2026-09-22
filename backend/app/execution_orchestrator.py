@@ -433,6 +433,13 @@ class ExecutionOrchestrator:
         )
         self.event_emitter = event_emitter or (emit_event if default_seams else None)
 
+    def execute_configured(self, request: ExecutorRequest) -> ExecutionResult:
+        """Execute through the configured concrete provider adapter."""
+
+        from .executor_provider import build_executor_adapter
+
+        return self.execute(request, build_executor_adapter(self.settings))
+
     def execute(self, request: ExecutorRequest, adapter: ExecutorAdapter) -> ExecutionResult:
         """Run one execution and emit bounded durable lifecycle events."""
 
