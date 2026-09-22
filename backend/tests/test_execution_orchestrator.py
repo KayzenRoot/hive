@@ -24,6 +24,7 @@ from app.execution_orchestrator import (
     HeadRaceError,
 )
 from app.registry import InspectionResult, ProjectResponse, ProjectState
+from app.provider_prompt_cache import ProviderUsageReceipt, UsageReconciliation, UsageSource
 from app.runner import ChangeOperation, ChangeSet, ToolPolicy
 from app.task_intake import TaskResponse
 
@@ -228,6 +229,62 @@ def test_execution_emits_started_and_terminal_telemetry(tmp_path: Path) -> None:
     assert [event[0] for event in events] == ["executor.started", "run.completed"]
     assert all(event[2]["task_id"] == TASK_ID for event in events)
     assert events[0][2]["run_id"] == events[1][2]["run_id"]
+
+
+def test_terminal_telemetry_publishes_exact_provider_usage(tmp_path: Path) -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def capture(
+        _settings: Settings,
+        _project_id: UUID,
+        event_type: str,
+        payload: dict[str, object],
+        **_kwargs: object,
+    ) -> None:
+        events.append((event_type, payload))
+
+    base = coding_result()
+    receipt = ProviderUsageReceipt(
+        capability_identity="a" * 64,
+        total_input_tokens=100,
+        cached_input_tokens=64,
+        fresh_input_tokens=36,
+        output_tokens=8,
+        observed_hit=True,
+        sources=[UsageSource.PROVIDER_REPORTED],
+        reconciliation=UsageReconciliation.EXACT,
+    )
+    result = ExecutorResult(
+        change_set=base.change_set,
+        summary=base.summary,
+        decisions=base.decisions,
+        test_commands=base.test_commands,
+        validation_commands=base.validation_commands,
+        errors_fixed=base.errors_fixed,
+        risks=base.risks,
+        pending_items=base.pending_items,
+        proposed_checkpoint_update=base.proposed_checkpoint_update,
+        executor_llm_calls=1,
+        executor_provider_calls=1,
+        provider_cache_usage=receipt,
+    )
+
+    executed = make_orchestrator(tmp_path, event_emitter=capture).execute(
+        request(), FixtureAdapter(result)
+    )
+
+    assert executed.status == "STAGED"
+    terminal = events[-1]
+    assert terminal[0] == "run.completed"
+    assert terminal[1]["executor_llm_calls"] == 1
+    assert terminal[1]["executor_provider_calls"] == 1
+    assert terminal[1]["input_tokens"] == 100
+    assert terminal[1]["cached_tokens"] == 64
+    assert terminal[1]["fresh_tokens"] == 36
+    assert terminal[1]["output_tokens"] == 8
+    assert terminal[1]["usage_reconciled"] is True
+    assert terminal[1]["provider_final_usage"] is True
+    assert terminal[1]["cached_tokens_provenance"] == "EXACT"
 
 
 def test_context_must_be_checkpoint_first_and_complete(tmp_path: Path) -> None:
