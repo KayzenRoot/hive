@@ -13971,7 +13971,10 @@ def test_hive_rel_007_v102_preparation_scope_is_exact_and_fail_closed() -> None:
         authorized_base_sha=HIVE_REL_007_BASE_SHA,
     )
     candidate_path = (
-        review_evidence.ROOT / ".engineering" / "release" / "HIVE-V1.0.2-RELEASE-CANDIDATE.json"
+        review_evidence.ROOT
+        / ".engineering"
+        / "release"
+        / "HIVE-V1.0.2-RELEASE-CANDIDATE.json"
     )
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     assert candidate["status"] == "release-candidate"
@@ -13983,14 +13986,44 @@ def test_hive_rel_007_v102_preparation_scope_is_exact_and_fail_closed() -> None:
     assert candidate["preparation"]["authorized_base"] == HIVE_REL_007_BASE_SHA
 
     with pytest.raises(ValueError, match="protected main"):
-        require_hive_rel_007_scope(HIVE_REL_007_WORK_ORDER,HIVE_REL_007_BASE_SHA,allowed,base_branch="release",authorized_base_sha=HIVE_REL_007_BASE_SHA)
+        require_hive_rel_007_scope(
+            HIVE_REL_007_WORK_ORDER,
+            HIVE_REL_007_BASE_SHA,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=HIVE_REL_007_BASE_SHA,
+        )
     with pytest.raises(ValueError, match="exact base"):
-        require_hive_rel_007_scope(HIVE_REL_007_WORK_ORDER,"a" * 40,allowed,authorized_base_sha=HIVE_REL_007_BASE_SHA)
+        require_hive_rel_007_scope(
+            HIVE_REL_007_WORK_ORDER,
+            "a" * 40,
+            allowed,
+            authorized_base_sha=HIVE_REL_007_BASE_SHA,
+        )
     with pytest.raises(ValueError, match="authorized-base marker"):
-        require_hive_rel_007_scope(HIVE_REL_007_WORK_ORDER,HIVE_REL_007_BASE_SHA,allowed)
+        require_hive_rel_007_scope(
+            HIVE_REL_007_WORK_ORDER,
+            HIVE_REL_007_BASE_SHA,
+            allowed,
+        )
     with pytest.raises(ValueError, match="bounded preparation scope"):
-        require_hive_rel_007_scope(HIVE_REL_007_WORK_ORDER,HIVE_REL_007_BASE_SHA,[*allowed, "backend/app/main.py"],authorized_base_sha=HIVE_REL_007_BASE_SHA)
+        require_hive_rel_007_scope(
+            HIVE_REL_007_WORK_ORDER,
+            HIVE_REL_007_BASE_SHA,
+            [*allowed, "backend/app/main.py"],
+            authorized_base_sha=HIVE_REL_007_BASE_SHA,
+        )
     with pytest.raises(ValueError, match="canonical or local-only"):
-        require_hive_rel_007_scope(HIVE_REL_007_WORK_ORDER,HIVE_REL_007_BASE_SHA,["docs/project-brain/13-CHECKPOINT.md"],authorized_base_sha=HIVE_REL_007_BASE_SHA)
+        require_hive_rel_007_scope(
+            HIVE_REL_007_WORK_ORDER,
+            HIVE_REL_007_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+            authorized_base_sha=HIVE_REL_007_BASE_SHA,
+        )
     with pytest.raises(ValueError, match="non-empty"):
-        require_hive_rel_007_scope(HIVE_REL_007_WORK_ORDER,HIVE_REL_007_BASE_SHA,[],authorized_base_sha=HIVE_REL_007_BASE_SHA)
+        require_hive_rel_007_scope(
+            HIVE_REL_007_WORK_ORDER,
+            HIVE_REL_007_BASE_SHA,
+            [],
+            authorized_base_sha=HIVE_REL_007_BASE_SHA,
+        )
