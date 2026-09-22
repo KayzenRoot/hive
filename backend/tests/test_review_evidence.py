@@ -654,7 +654,7 @@ def test_wo026_registration_is_exact_and_fail_closed() -> None:
 def test_wo027_registration_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO027_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO027_BASE_SHA
     allowed = sorted(review_evidence.WO027_ALLOWED_PATHS)
@@ -691,7 +691,7 @@ def test_wo027_registration_is_exact_and_fail_closed() -> None:
 def test_wo028_project_root_hotfix_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO028_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO028_BASE_SHA
     allowed = sorted(review_evidence.WO028_ALLOWED_PATHS)
@@ -736,7 +736,7 @@ def test_wo028_project_root_hotfix_is_exact_and_fail_closed() -> None:
 def test_wo029_executor_correction_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO029_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO029_BASE_SHA
     allowed = sorted(review_evidence.WO029_ALLOWED_PATHS)
@@ -781,7 +781,7 @@ def test_wo029_executor_correction_is_exact_and_fail_closed() -> None:
 def test_wo030_vitest_security_correction_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO030_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO030_BASE_SHA
     allowed = sorted(review_evidence.WO030_ALLOWED_PATHS)
@@ -2902,7 +2902,7 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-026-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -9802,7 +9802,7 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-026-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     monkeypatch.setattr(
         review_evidence,
