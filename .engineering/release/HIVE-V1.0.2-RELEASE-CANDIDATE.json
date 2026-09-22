@@ -1,0 +1,102 @@
+{
+  "receipt_version": 1,
+  "status": "release-candidate",
+  "release_published": false,
+  "product": "HIVE",
+  "version": "1.0.2",
+  "tag": "v1.0.2",
+  "work_order": "HIVE-REL-007",
+  "preparation": {
+    "branch": "release/v1.0.2-preparation-20260922",
+    "authorized_base": "da199d359d652fd0d6a2dd5f47442161715991fe",
+    "pull_request": null,
+    "audited_head": null,
+    "note": "The preparation PR number and audited head are recorded only after Sol audit; they are not known at candidate preparation time."
+  },
+  "release_commit": null,
+  "tag_object": null,
+  "release_url": null,
+  "published_at": null,
+  "artifacts": null,
+  "tag_signing": "not claimed",
+  "provenance_attestation": "not claimed",
+  "migration_head": "0007_telemetry_events",
+  "product_baseline": {
+    "internal_program": "HIVE V0.1 - Foundation",
+    "status": "COMPLETE / CLOSURE SPRINT APPROVED",
+    "definition_of_done": "46/46 PASS, 0 FAIL, 0 UNKNOWN, HIGH/CRITICAL 0/0",
+    "final_main": "90cc1b91b48d628dfb3e4773e1672535b4cb8991"
+  },
+  "previous_stable_release": {
+    "version": "1.0.1",
+    "tag": "v1.0.1",
+    "release_commit": "9f76ee1ec6a670113a9e9b49615aa8bbfd8d772a"
+  },
+  "changes_since_previous_release": {
+    "base": "9f76ee1ec6a670113a9e9b49615aa8bbfd8d772a",
+    "candidate_base": "da199d359d652fd0d6a2dd5f47442161715991fe",
+    "commits": 6,
+    "scope": "executor correctness, provider transport, context disclosure correctness, development dependency security, and stabilization"
+  },
+  "dependency_security": {
+    "source": "Recorded GitHub Dependabot inventory with candidate-state reconciliation",
+    "open_alerts_before": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 3,
+      "low": 0
+    },
+    "remediated_in_candidate": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 2,
+      "low": 0,
+      "packages": [
+        "vitest",
+        "@vitest/mocker"
+      ]
+    },
+    "remaining_open": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 1,
+      "low": 0,
+      "detail": "pytest (pip, development-only); no runtime exposure"
+    },
+    "runtime_high_critical_remaining": false,
+    "release_gate": "PASS",
+    "triage_receipt": ".engineering/release/HIVE-V1.0.2-SECURITY-TRIAGE.json",
+    "triage_schema_version": 2,
+    "provenance": {
+      "inventory_source_head": "552ab5156f2106fa204c98d6c3fd11c9fba5b208",
+      "candidate_state_binding": "SHA-256 hashes of requirements.txt, requirements-dev.txt and dashboard/package-lock.json plus parsed candidate package identities"
+    }
+  },
+  "rollback": {
+    "previous_release": "v1.0.1",
+    "procedure": "docs/UPGRADING.md#rollback",
+    "restore": "Redeploy v1.0.1 and restore the pre-upgrade PostgreSQL and HIVE_DATA_ROOT backups if required."
+  },
+  "known_limitations": [
+    "One MEDIUM development-only Dependabot advisory remains recorded for pytest; no applicable runtime CRITICAL/HIGH finding remains.",
+    "The production executor transport is proven with a real local HTTP fixture and Docker/CLI end-to-end coverage; no live third-party credential/provider exercise is claimed.",
+    "Deterministic embedding, rerank and token benchmarks prove contract mechanics, not production model quality.",
+    "Source release is the supported distribution channel; no container image, npm package or binary distribution is produced.",
+    "Tag signing, SBOM generation and build provenance attestations are not produced and are not claimed.",
+    "No v1.0.2 publication request is included in this preparation increment; publication requires the later HIVE-REL-008 authorization."
+  ],
+  "assurance": {
+    "release_notes": "docs/releases/v1.0.2.md",
+    "changelog_heading": "## [1.0.2]",
+    "verifier": "scripts/verify_release_metadata.py",
+    "release_workflow": ".github/workflows/release.yml",
+    "publisher_workflow": ".github/workflows/release-publisher.yml",
+    "required_gates": [
+      "Validate",
+      "Integration health",
+      "Review Evidence"
+    ],
+    "ruleset": 21934284,
+    "auto_merge": "UNARMED"
+  }
+}
