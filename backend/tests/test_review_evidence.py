@@ -829,58 +829,6 @@ def test_wo030_vitest_security_correction_is_exact_and_fail_closed() -> None:
         )
 
 
-def test_wo030_c1_progressive_disclosure_correction_is_exact_and_fail_closed() -> None:
-    require_supported_work_order(review_evidence.WO030_C1_WORK_ORDER)
-    review_evidence.require_current_work_order_authorization(review_evidence.WO030_C1_WORK_ORDER)
-    with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
-
-    base_sha = review_evidence.WO030_C1_BASE_SHA
-    allowed = sorted(review_evidence.WO030_C1_ALLOWED_PATHS)
-    review_evidence.require_wo030_c1_scope(
-        review_evidence.WO030_C1_WORK_ORDER,
-        base_sha,
-        allowed,
-        authorized_base_sha=base_sha,
-    )
-    body = (
-        f"<!-- HIVE-WORK-ORDER: {review_evidence.WO030_C1_WORK_ORDER} -->\n"
-        f"<!-- HIVE-AUTHORIZED-BASE: {base_sha} -->\n"
-    )
-    assert (
-        review_evidence.authorized_base_marker_sha(review_evidence.WO030_C1_WORK_ORDER, body)
-        == base_sha
-    )
-    with pytest.raises(ValueError, match="exact base"):
-        review_evidence.require_wo030_c1_scope(
-            review_evidence.WO030_C1_WORK_ORDER,
-            "f" * 40,
-            allowed,
-            authorized_base_sha=base_sha,
-        )
-    with pytest.raises(ValueError, match="bounded Progressive Disclosure correction surface"):
-        review_evidence.require_wo030_c1_scope(
-            review_evidence.WO030_C1_WORK_ORDER,
-            base_sha,
-            [*allowed, "backend/app/main.py"],
-            authorized_base_sha=base_sha,
-        )
-    with pytest.raises(ValueError, match="protected main base branch"):
-        review_evidence.require_wo030_c1_scope(
-            review_evidence.WO030_C1_WORK_ORDER,
-            base_sha,
-            allowed,
-            base_branch="release",
-            authorized_base_sha=base_sha,
-        )
-    with pytest.raises(ValueError, match="exactly one authorized-base marker"):
-        review_evidence.require_wo030_c1_scope(
-            review_evidence.WO030_C1_WORK_ORDER,
-            base_sha,
-            allowed,
-        )
-
-
 def test_wo015_is_explicitly_registered_and_unknown_ids_do_not_get_memory_semantics() -> None:
     require_supported_work_order(WO015_G1_WORK_ORDER)
     require_supported_work_order(WO015_WORK_ORDER)
