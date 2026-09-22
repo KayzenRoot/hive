@@ -383,11 +383,13 @@ class NoOpProviderPromptCacheAdapter:
         return _unknown_receipt(self.capabilities.capability_identity, "unsupported_noop")
 
 
-def _openai_compatible_usage(usage: Mapping[str, object] | None) -> Mapping[str, object] | None:
+def _openai_compatible_usage(usage: object) -> Mapping[str, object] | None:
     """Translate common OpenAI-compatible usage fields into the strict receipt seam."""
 
     if usage is None:
         return None
+    if not isinstance(usage, Mapping):
+        return {"unexpected": object()}
     if set(usage) <= {"total_input_tokens", "cached_input_tokens", "output_tokens"}:
         return usage
     allowed = {
