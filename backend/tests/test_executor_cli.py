@@ -88,3 +88,26 @@ def test_cli_returns_bounded_error_without_provider_detail(
     assert '"code":"adapter_error"' in captured.err
     assert secret not in captured.err
     assert captured.out == ""
+
+
+def test_cli_bounds_unexpected_exception_detail(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "WO029_C3_SECRET_NEVER_LEAK_UNEXPECTED"
+
+    class Orchestrator:
+        def __init__(self, _settings: object) -> None:
+            pass
+
+        def execute_configured(self, _request: object) -> _Result:
+            raise Exception(secret)
+
+    monkeypatch.setattr(executor_cli, "get_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(executor_cli, "ExecutionOrchestrator", Orchestrator)
+
+    exit_code = executor_cli.run(["--project-id", str(PROJECT_ID), "--task-id", str(TASK_ID)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert '"code":"executor_unavailable"' in captured.err
+    assert secret not in captured.err
