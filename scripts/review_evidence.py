@@ -12516,14 +12516,6 @@ def verify_wo025_g3_governance_contract(
 
     if work_order != WO025_G3_WORK_ORDER:
         return None
-    require_wo031_scope(
-        work_order,
-        base_sha,
-        paths,
-        base_branch=args.base_branch,
-        authorized_base_sha=authorized_base_sha,
-        enforce_current_main=True,
-    )
     require_wo025_g3_scope(
         work_order,
         base_sha,
