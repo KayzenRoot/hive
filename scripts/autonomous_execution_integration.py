@@ -1570,18 +1570,22 @@ def main() -> int:
 
         first_relative = f"wo019-c4-{os.getpid()}-one"
         second_relative = f"wo019-c4-{os.getpid()}-two"
+        executor_relative = f"wo029-c3-{os.getpid()}-executor"
         first_repository = projects_root / first_relative
         second_repository = projects_root / second_relative
-        fixture_relative_paths = (first_relative, second_relative)
-        repositories.extend((first_repository, second_repository))
+        executor_repository = projects_root / executor_relative
+        fixture_relative_paths = (first_relative, second_relative, executor_relative)
+        repositories.extend((first_repository, second_repository, executor_repository))
         create_repository(first_repository)
         create_repository(second_repository)
+        create_repository(executor_repository)
         first, project_one, task_one = execute_docker_fixture(
             base_url, projects_root, first_relative
         )
         second, project_two, task_two = execute_docker_fixture(
             base_url, projects_root, second_relative
         )
+        verify_executor_service_cli(base_url, executor_relative)
 
         cross_root = temporary_probe_root / "cross-project"
         cross_root.mkdir()
