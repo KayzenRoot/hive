@@ -2316,19 +2316,6 @@ WO030_ALLOWED_PATHS = frozenset(
         "scripts/review_evidence.py",
     }
 )
-# WO-031: Progressive Disclosure dotted-domain/email token-efficiency correction.
-# Self-registration is bounded to the product correction, its regression test,
-# and this evidence harness plus its regression.
-WO031_WORK_ORDER = "WO-031"
-WO031_BASE_SHA = "a753d0cff1b23dafcdacbdecfb3ccdf5b91e6d3b"
-WO031_ALLOWED_PATHS = frozenset(
-    {
-        "backend/app/progressive_disclosure.py",
-        "backend/tests/test_progressive_disclosure.py",
-        "backend/tests/test_review_evidence.py",
-        "scripts/review_evidence.py",
-    }
-)
 # WO-025-G3: work-order namespace governance. Corrective governance only: it replaces the
 # historical fallthrough in ``require_supported_work_order`` with an explicit deny-by-default
 # registry, adds the dotted release-train grammar, and registers the next promotion plus the first
@@ -2695,7 +2682,6 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO028_WORK_ORDER,
         WO029_WORK_ORDER,
         WO030_WORK_ORDER,
-        WO031_WORK_ORDER,
         WO025_G3_WORK_ORDER,
         WO025_G4_WORK_ORDER,
         WO025_G5_WORK_ORDER,
@@ -3135,7 +3121,6 @@ REGISTERED_WORK_ORDERS = frozenset(
         "WO-028",
         WO029_WORK_ORDER,
         WO030_WORK_ORDER,
-        WO031_WORK_ORDER,
         "WO-1.1-01",
     }
 )
@@ -11619,48 +11604,6 @@ def require_wo030_scope(
             )
 
 
-def require_wo031_scope(
-    work_order: str,
-    base_sha: str,
-    paths: list[str],
-    *,
-    base_branch: str = "main",
-    authorized_base_sha: str | None = None,
-    enforce_current_main: bool = False,
-    enforce_authorized_base: bool = True,
-) -> None:
-    """Bound Progressive Disclosure dotted-text correction to its exact base and surface."""
-
-    if work_order != WO031_WORK_ORDER:
-        return
-    if base_branch != "main":
-        raise ValueError(f"{WO031_WORK_ORDER} requires the protected main base branch")
-    if base_sha != WO031_BASE_SHA:
-        raise ValueError(
-            f"{WO031_WORK_ORDER} requires exact base {WO031_BASE_SHA}, observed {base_sha}"
-        )
-    if enforce_current_main:
-        current_main = git_value("rev-parse", "origin/main", fallback="")
-        if HEX_SHA.fullmatch(current_main) and current_main != WO031_BASE_SHA:
-            raise ValueError(
-                f"{WO031_WORK_ORDER} is stale: protected main is {current_main}, "
-                f"authorized base is {WO031_BASE_SHA}"
-            )
-    if len(paths) != len(WO031_ALLOWED_PATHS) or set(paths) != WO031_ALLOWED_PATHS:
-        raise ValueError(
-            f"{WO031_WORK_ORDER} requires exactly the bounded Progressive Disclosure correction surface"
-        )
-    if enforce_authorized_base:
-        if authorized_base_sha is None:
-            raise ValueError(f"{WO031_WORK_ORDER} requires exactly one authorized-base marker")
-        if HEX_SHA.fullmatch(authorized_base_sha) is None:
-            raise ValueError(f"{WO031_WORK_ORDER} authorized-base marker must be lowercase 40-hex")
-        if authorized_base_sha != base_sha:
-            raise ValueError(
-                f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA"
-            )
-
-
 def verify_wo025_governance_contract(
     work_order: str,
     base_sha: str,
@@ -17388,14 +17331,6 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
-    require_wo031_scope(
-        work_order,
-        base_sha,
-        paths,
-        base_branch=args.base_branch,
-        authorized_base_sha=authorized_base_sha,
-        enforce_current_main=True,
-    )
     require_wo025_g3_scope(
         work_order,
         base_sha,
@@ -18422,14 +18357,6 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_authorized_base=False,
     )
     require_wo030_scope(
-        work_order,
-        cast(str, base["sha"]),
-        cast(list[str], changed_files["paths"]),
-        base_branch=cast(str, base.get("branch", "main")),
-        enforce_current_main=False,
-        enforce_authorized_base=False,
-    )
-    require_wo031_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
