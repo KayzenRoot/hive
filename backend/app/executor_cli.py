@@ -61,7 +61,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    except (OSError, RuntimeError, ValueError):
+    except Exception:
         print(
             json.dumps(
                 {"status": "ERROR", "code": "executor_unavailable"},
