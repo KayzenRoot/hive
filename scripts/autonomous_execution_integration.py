@@ -592,11 +592,7 @@ def execute_docker_fixture(
         page = telemetry_page(base_url, project.project_id, limit=20)
         events = cast(list[dict[str, object]], page["events"])
         terminal = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("event_type") == "run.completed"
-            ),
+            (event for event in reversed(events) if event.get("event_type") == "run.completed"),
             None,
         )
         if not isinstance(terminal, dict):
@@ -618,20 +614,12 @@ def execute_docker_fixture(
         return result, project, task
 
 
-def verify_executor_service_cli(
-    base_url: str,
-    relative_path: str,
-) -> None:
+def verify_executor_service_cli(base_url: str, relative_path: str) -> None:
     """Exercise the shipping writable executor service through its CLI entry point."""
 
     project, task = register_fixture(base_url, relative_path)
     with LocalProviderServer() as provider:
-        command = [
-            "docker",
-            "compose",
-            "run",
-            "--rm",
-        ]
+        command = ["docker", "compose", "run", "--rm"]
         if hasattr(os, "getuid") and hasattr(os, "getgid"):
             command.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
         command.extend(
@@ -693,7 +681,6 @@ def verify_executor_service_cli(
         or telemetry_payload.get("usage_reconciled") is not True
     ):
         raise AssertionError("executor service CLI usage telemetry is incomplete")
-
 
 
 def local_project_response(relative_path: str = "target") -> ProjectResponse:
