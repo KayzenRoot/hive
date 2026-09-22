@@ -407,6 +407,13 @@ export default function ControlCenterFull({
   const chartIds = new Set(currentSnapshot.charts.map((item) => item.id));
   const alertIds = new Set(currentSnapshot.alerts.map((item) => item.id));
   const healthIds = new Set(currentSnapshot.health.map((item) => item.id));
+  const activeAlerts = currentSnapshot.alerts.filter((item) => item.status === "ACTIVE" || item.status === "DEGRADED");
+  const healthySurfaces = currentSnapshot.health.filter((item) => item.status === "AVAILABLE" || item.status === "CLEAR");
+  const availableCapabilities = currentSnapshot.capabilities.filter((item) => item.status === "AVAILABLE" || item.status === "CLEAR" || item.status === "ACTIVE");
+  const chartById = new Map(currentSnapshot.charts.map((item) => [item.id, item]));
+  const tokenValue = latestNumericValue(chartById.get("tokens-over-time"));
+  const cacheValue = latestNumericValue(chartById.get("cache-hit-rate"));
+  const reductionValue = latestNumericValue(chartById.get("context-reduction"));
 
   return (
     <div className="cc-stack" data-testid="control-center-full">
@@ -417,7 +424,26 @@ export default function ControlCenterFull({
         PostgreSQL is canonical; Redis is hot-only and canonical={String(currentSnapshot.hot_store_canonical)}.
       </p>
 
-      <article className="cc-card">
+      <section className="cc-overview" aria-label="Control Center overview">
+        <div className="cc-overview-heading">
+          <div>
+            <span className="cc-overview-kicker">VISÃO OPERACIONAL</span>
+            <h2>{currentSnapshot.project.name}</h2>
+            <p>Telemetria real e limitada ao projeto, atualizada pelo fluxo vivo do Control Center.</p>
+          </div>
+          <div className="cc-live-indicator" aria-label="Live project telemetry"><span className="cc-live-dot" />LIVE</div>
+        </div>
+        <div className="cc-kpi-grid">
+          <OverviewKpi label="Inteligência disponível" value={String(availableCapabilities.length) + "/" + String(FULL_PROJECT_CAPABILITIES.length)} detail="capacidades com evidência" tone={availableCapabilities.length === FULL_PROJECT_CAPABILITIES.length ? "good" : "neutral"} />
+          <OverviewKpi label="Saúde da plataforma" value={String(healthySurfaces.length) + "/" + String(FULL_HEALTH.length)} detail="superfícies saudáveis" tone={healthySurfaces.length === FULL_HEALTH.length ? "good" : "warn"} />
+          <OverviewKpi label="Alertas ativos" value={String(activeAlerts.length)} detail={String(currentSnapshot.alerts.length) + " regras observadas"} tone={activeAlerts.length === 0 ? "good" : "warn"} />
+          <OverviewKpi label="Tokens" value={formatCompact(tokenValue)} detail="último ponto real" />
+          <OverviewKpi label="Cache hit rate" value={cacheValue === null ? "—" : (cacheValue * 100).toFixed(1) + "%"} detail="último ponto real" tone={cacheValue !== null && cacheValue >= 0.7 ? "good" : "neutral"} />
+          <OverviewKpi label="Redução de contexto" value={reductionValue === null ? "—" : (reductionValue * 100).toFixed(1) + "%"} detail="último ponto real" />
+        </div>
+      </section>
+
+      <article className="cc-card cc-project-summary">
         <div className="cc-card-heading">
           <div>
             <h3>{currentSnapshot.project.name}</h3>
