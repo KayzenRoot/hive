@@ -2308,6 +2308,7 @@ WO030_WORK_ORDER = "WO-030"
 WO030_BASE_SHA = "b63bfd21bab4178e134cdd5bc2fe94725627b139"
 WO030_ALLOWED_PATHS = frozenset(
     {
+        ".engineering/release/HIVE-V1.0.1-SECURITY-TRIAGE.json",
         "backend/tests/test_review_evidence.py",
         "dashboard/package-lock.json",
         "dashboard/package.json",
