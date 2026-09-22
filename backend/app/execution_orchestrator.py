@@ -472,15 +472,37 @@ class ExecutionOrchestrator:
             )
             raise
         terminal_type = "run.completed" if result.status == "STAGED" else "run.failed"
+        terminal_payload: dict[str, object] = {
+            "status": result.status,
+            "validation_passed": result.validation_passed,
+            "changed_file_count": len(result.changed_files),
+            "executor_llm_calls": result.executor_llm_calls,
+            "executor_provider_calls": result.executor_provider_calls,
+        }
+        usage = result.provider_cache_usage
+        if usage is not None:
+            terminal_payload["usage_reconciliation"] = usage.reconciliation.value
+            if usage.reconciliation.value == "EXACT":
+                terminal_payload["provider_final_usage"] = True
+                terminal_payload["usage_reconciled"] = True
+                for field_name, metric_name in (
+                    ("total_input_tokens", "input_tokens"),
+                    ("cached_input_tokens", "cached_tokens"),
+                    ("fresh_input_tokens", "fresh_tokens"),
+                    ("output_tokens", "output_tokens"),
+                ):
+                    value = getattr(usage, field_name)
+                    if value is not None:
+                        terminal_payload[metric_name] = value
+                        terminal_payload[f"{metric_name}_provenance"] = "EXACT"
+            else:
+                terminal_payload["provider_final_usage"] = False
+                terminal_payload["usage_reconciled"] = False
         self._emit_event(
             request,
             run_id,
             terminal_type,
-            {
-                "status": result.status,
-                "validation_passed": result.validation_passed,
-                "changed_file_count": len(result.changed_files),
-            },
+            terminal_payload,
             terminal_type,
         )
         return result
