@@ -833,7 +833,9 @@ def test_wo030_c1_progressive_disclosure_hotfix_is_exact_and_fail_closed() -> No
     require_supported_work_order(review_evidence.WO030_C1_WORK_ORDER)
     require_current_work_order_authorization(review_evidence.WO030_C1_WORK_ORDER)
     assert review_evidence.WO030_C1_WORK_ORDER in review_evidence.CORRECTIVE_GOVERNANCE_WORK_ORDERS
-    assert review_evidence.WO030_C1_WORK_ORDER not in review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    assert review_evidence.WO030_C1_WORK_ORDER not in (
+        review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
+    )
     with pytest.raises(ValueError, match="unsupported future work order"):
         require_supported_work_order("WO-031")
 
