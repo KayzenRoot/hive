@@ -14020,6 +14020,7 @@ def test_hive_rel_007_v102_preparation_scope_is_exact_and_fail_closed() -> None:
             authorized_base_sha=HIVE_REL_007_BASE_SHA,
         )
 
+
 def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
     allowed = sorted(HIVE_REL_008_ALLOWED_PATHS)
     require_hive_rel_008_scope(
