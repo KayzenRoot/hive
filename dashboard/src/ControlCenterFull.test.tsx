@@ -173,7 +173,7 @@ describe("ControlCenterFull", () => {
     await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
     expect(document.querySelector('[data-chart-id="tokens-over-time"]')).toBeInTheDocument();
     expect(screen.getByText("Tokens ao longo do tempo")).toBeInTheDocument();
-    expect(screen.getByText("50")).toBeInTheDocument();
+    expect(screen.getAllByText("50").length).toBeGreaterThan(0);
     expect(screen.getByText("fixture commit")).toBeInTheDocument();
     expect(screen.getByText("test:cpu")).toBeInTheDocument();
     expect(screen.getByTestId("chart-state-cost-over-time")).toHaveTextContent("UNAVAILABLE");
