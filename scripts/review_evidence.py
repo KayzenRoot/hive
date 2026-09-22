@@ -12196,6 +12196,7 @@ def require_wo031_scope(
     base_branch: str = "main",
     authorized_base_sha: str | None = None,
     enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
 ) -> None:
     """Bound the Control Center responsive dashboard refresh to its audited surface."""
 
@@ -12218,7 +12219,7 @@ def require_wo031_scope(
         raise ValueError(
             f"{WO031_WORK_ORDER} requires exactly the bounded Control Center refresh surface"
         )
-    if authorized_base_sha != base_sha:
+    if enforce_authorized_base and authorized_base_sha != base_sha:
         raise ValueError(
             f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA"
         )
@@ -17810,6 +17811,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo031_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
     require_wo025_g3_scope(
         work_order,
         base_sha,
@@ -18880,8 +18889,8 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),
         base_branch=cast(str, base.get("branch", "main")),
-        authorized_base_sha=cast(str | None, manifest.get("authorized_base_sha")),
         enforce_current_main=False,
+        enforce_authorized_base=False,
     )
     require_wo012p_g1_scope(
         work_order,
