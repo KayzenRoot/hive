@@ -1670,6 +1670,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-025-G3",
         "WO-025-G4",
         "WO-025-G5",
+        WO030_C1_WORK_ORDER,
         "WO-023-P-G1-C1-CLOSED",
     }
 )
