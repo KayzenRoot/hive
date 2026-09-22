@@ -11,19 +11,19 @@ execution platform for large LLM-assisted software projects.
 
 ## Status
 
-**HIVE v1.0.0 remains the current published stable release.** The v1.0.1
-bugfix release candidate is being prepared and is not yet published. The
-published v1.0.0 [GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.0)
-contains the versioned source archive, SHA-256 checksum, machine-readable
-manifest and release-review evidence.
+**Latest stable release: v1.0.1.** HIVE v1.0.2 is the current bugfix and
+stabilization release candidate. It packages the executor correctness fixes,
+Progressive Disclosure false-positive corrections, Vitest security remediation,
+and the concrete bounded OpenAI-compatible executor transport already accepted
+on protected `main`.
 
-Target stable release: v1.0.1 (release candidate; not published). See
-[CHANGELOG.md](CHANGELOG.md), the candidate [release notes](docs/releases/v1.0.1.md)
-and the preserved v1.0.0 release notes at [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md).
+Target stable release: v1.0.2 (release candidate; not published). See
+[CHANGELOG.md](CHANGELOG.md), the candidate [release notes](docs/releases/v1.0.2.md),
+and the published [v1.0.1 GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.1).
 
-HIVE v1.0.0 is the stable public distribution of the product baseline accepted
-internally as HIVE V0.1 — Foundation. Historical V0.1 and bootstrap evidence
-remains canonical and unchanged; see
+HIVE v1.0.1 remains the currently downloadable stable source distribution until
+the governed v1.0.2 publisher completes. The internal HIVE V0.1 Foundation
+baseline remains complete and unchanged; see
 [docs/project-brain/13-CHECKPOINT.md](docs/project-brain/13-CHECKPOINT.md).
 
 ## Capabilities
@@ -43,8 +43,10 @@ The accepted baseline provides, with deterministic test coverage:
 - Checkpoint-first Context Manager, progressive disclosure (L0–L5), adaptive
   token budgeting, context fingerprints, delta context and provider/prompt cache
   adapters over durable memory with provenance and lifecycle.
-- Governed autonomous execution foundation (tool gating, staged noncanonical
-  output, local verified runner) and a read-only MCP core surface.
+- Governed autonomous execution with tool gating, staged noncanonical output,
+  the Local Verified Runner, and a concrete bounded OpenAI-compatible HTTP
+  executor transport that is disabled by default until explicitly configured;
+  the MCP core surface remains read-only.
 - Telemetry/event bus and the full HIVE Control Center with bounded,
   provenance-labelled metrics — unknown values are never rendered as zero.
 - Local Docker Compose deployment, backup/recovery and secondary-disk

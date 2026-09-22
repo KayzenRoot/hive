@@ -16,6 +16,38 @@ Keep a Changelog conventions and published releases use Semantic Versioning; see
   stable release while preserving the deterministic pre-publication release
   metadata marker and historical release notes.
 
+## [1.0.2] - 2026-09-22
+
+Bugfix, security-maintenance and executor-stabilization release. No database
+schema migration is included.
+
+### Fixed
+
+- Resolved executor identity twice-per-run behavior so one execution resolves
+  project/task identity once and reports provider/LLM accounting truthfully.
+- Failed declared test or validation commands now fail the staged executor run
+  closed instead of allowing a false-success staged result.
+- Progressive Disclosure no longer treats common domains, email-like text or
+  modern hostnames as qualified code symbols that unnecessarily force L2
+  context, while legitimate dotted code symbols still escalate correctly.
+- Added a bounded configurable OpenAI-compatible HTTP executor transport wired
+  through `ExecutionOrchestrator.execute_configured()`, with malformed,
+  oversized, model-mismatched and unsafe remote-HTTP responses rejected
+  fail-closed.
+- Added real local HTTP/Docker/CLI executor integration coverage and truthful
+  provider usage/cache reconciliation without claiming a live third-party
+  credential was exercised.
+
+### Security
+
+- Upgraded dashboard Vitest to 4.1.11, remediating the recorded Vitest and
+  `@vitest/mocker` development-only MEDIUM advisories. One development-only
+  MEDIUM pytest advisory remains recorded; there are zero applicable open
+  CRITICAL/HIGH dependency findings in the release evidence.
+- Remote executor endpoints require HTTPS. Plain HTTP is accepted only for
+  explicit local hosts, and provider credentials are bounded/redacted from
+  errors and evidence.
+
 ## [1.0.1] - 2026-09-21
 
 Bugfix/maintenance release. No new product capability or schema migration is

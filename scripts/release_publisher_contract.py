@@ -15,6 +15,7 @@ LOWER_HEX_SHA40 = re.compile(r"^[0-9a-f]{40}$")
 PUBLISH_REQUEST_WORK_ORDERS = {
     "1.0.0": "HIVE-REL-002",
     "1.0.1": "HIVE-REL-006",
+    "1.0.2": "HIVE-REL-008",
 }
 
 
