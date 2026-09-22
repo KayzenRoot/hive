@@ -41,7 +41,7 @@ HIVE now includes a concrete, replaceable OpenAI-compatible HTTP `ExecutorAdapte
 
 CI proves the concrete network transport against a local HTTP provider fixture, including request shape and call accounting. It does not claim that a third-party provider credential was exercised in CI. A deployment with the executor disabled or incompletely configured remains explicitly unavailable rather than silently falling back to a deterministic fixture.
 
-The provider-prompt endpoint currently uses the provider-neutral no-op cache adapter. It proves canonical prompt composition and cache eligibility semantics only; it does not claim a provider-side cache hit or provider-side token savings.
+Provider prompt-cache accounting is disabled by default. When the configured OpenAI-compatible executor and `HIVE_EXECUTOR_PROMPT_CACHE_ENABLED` are both enabled, HIVE sends the versioned stable-prefix/dynamic-suffix envelope and accepts cached-input tokens only from a provider usage receipt. Missing or malformed usage remains `UNKNOWN`; repeated fingerprints, eligibility and estimated HIVE tokens never become a cache hit by themselves.
 
 Execution success is fail-closed across both command classes: every declared test command and every declared validation command must succeed. A failed or timed-out test prevents a `STAGED` success even when later validation commands pass; the run remains staged evidence with `VALIDATION_FAILED` status for external review.
 

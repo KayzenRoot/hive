@@ -17,6 +17,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/db.py: Python source or test module.
 - backend/app/delta_context.py: Python source or test module.
 - backend/app/execution_orchestrator.py: Python source or test module.
+- backend/app/executor_provider.py: Python source or test module.
 - backend/app/health.py: Python source or test module.
 - backend/app/main.py: Python source or test module.
 - backend/app/mcp_server.py: Python source or test module.
@@ -46,6 +47,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_control_center_metrics.py: Python source or test module.
 - backend/tests/test_delta_context.py: Python source or test module.
 - backend/tests/test_execution_orchestrator.py: Python source or test module.
+- backend/tests/test_executor_provider.py: Python source or test module.
 - backend/tests/test_finalize_release_receipt.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_mcp_server.py: Python source or test module.

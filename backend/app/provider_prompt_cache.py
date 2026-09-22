@@ -383,6 +383,67 @@ class NoOpProviderPromptCacheAdapter:
         return _unknown_receipt(self.capabilities.capability_identity, "unsupported_noop")
 
 
+def _openai_compatible_usage(usage: Mapping[str, object] | None) -> Mapping[str, object] | None:
+    """Translate common OpenAI-compatible usage fields into the strict receipt seam."""
+
+    if usage is None:
+        return None
+    if set(usage) <= {"total_input_tokens", "cached_input_tokens", "output_tokens"}:
+        return usage
+    allowed = {
+        "prompt_tokens",
+        "prompt_tokens_details",
+        "completion_tokens",
+        "total_tokens",
+    }
+    if set(usage) - allowed:
+        return {"unexpected": object()}
+    prompt_tokens = usage.get("prompt_tokens")
+    details = usage.get("prompt_tokens_details")
+    cached_tokens: object = None
+    if details is not None:
+        if not isinstance(details, Mapping):
+            return {"total_input_tokens": "invalid", "cached_input_tokens": 0}
+        cached_tokens = details.get("cached_tokens")
+    return {
+        "total_input_tokens": prompt_tokens,
+        "cached_input_tokens": cached_tokens,
+        "output_tokens": usage.get("completion_tokens"),
+    }
+
+
+class OpenAICompatibleProviderPromptCacheAdapter:
+    """Production cache-accounting seam for providers with automatic prefix caching."""
+
+    def __init__(self, *, model: str, model_revision: str | None = None) -> None:
+        if not model.strip():
+            raise ProviderPromptCacheError("provider_cache_model_required")
+        self.provider_calls = 0
+        self.llm_calls = 0
+        self.capabilities = make_capabilities(
+            adapter_kind="openai-compatible-prompt-cache",
+            model=model.strip(),
+            model_revision=model_revision,
+            support_mode=CacheSupportMode.AUTOMATIC,
+            reports_cached_input_tokens=True,
+            requires_explicit_metadata=False,
+        )
+
+    def prepare(self, *, request_cache: bool) -> ProviderCachePreparation:
+        requested = bool(request_cache)
+        return ProviderCachePreparation(
+            requested=requested,
+            eligible=requested,
+            reason="provider_automatic" if requested else "cache_not_requested",
+        )
+
+    def normalize_usage(self, usage: Mapping[str, object] | None) -> ProviderUsageReceipt:
+        return normalize_provider_usage(
+            capability_identity=self.capabilities.capability_identity,
+            usage=_openai_compatible_usage(usage),
+        )
+
+
 class DeterministicFixtureProviderPromptCacheAdapter:
     """Test-only adapter for automatic/explicit and usage truth fixtures."""
 

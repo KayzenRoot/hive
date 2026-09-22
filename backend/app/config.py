@@ -102,12 +102,17 @@ class Settings(BaseSettings):
     executor_enabled: bool = Field(default=False, validation_alias="HIVE_EXECUTOR_ENABLED")
     executor_base_url: str | None = Field(default=None, validation_alias="HIVE_EXECUTOR_BASE_URL")
     executor_model: str | None = Field(default=None, validation_alias="HIVE_EXECUTOR_MODEL")
-    executor_api_key: SecretStr | None = Field(default=None, validation_alias="HIVE_EXECUTOR_API_KEY")
+    executor_api_key: SecretStr | None = Field(
+        default=None, validation_alias="HIVE_EXECUTOR_API_KEY"
+    )
     executor_timeout_seconds: float = Field(
         default=60.0, validation_alias="HIVE_EXECUTOR_TIMEOUT_SECONDS"
     )
     executor_max_response_bytes: int = Field(
         default=2_000_000, validation_alias="HIVE_EXECUTOR_MAX_RESPONSE_BYTES"
+    )
+    executor_prompt_cache_enabled: bool = Field(
+        default=False, validation_alias="HIVE_EXECUTOR_PROMPT_CACHE_ENABLED"
     )
 
     @field_validator("executor_api_key", mode="before")
@@ -238,6 +243,8 @@ class Settings(BaseSettings):
                 raise ValueError("HIVE_EXECUTOR_BASE_URL is required when executor is enabled")
             if not self.executor_model or not self.executor_model.strip():
                 raise ValueError("HIVE_EXECUTOR_MODEL is required when executor is enabled")
+        if self.executor_prompt_cache_enabled and not self.executor_enabled:
+            raise ValueError("HIVE_EXECUTOR_PROMPT_CACHE_ENABLED requires HIVE_EXECUTOR_ENABLED")
 
 
 @lru_cache

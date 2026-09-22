@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 
 from . import context_manager
 from .config import Settings, get_settings
+from .provider_prompt_cache import ProviderUsageReceipt
 from .registry import (
     InspectionResult,
     ProjectResponse,
@@ -162,6 +163,7 @@ class ExecutorResult:
     provider_independent: bool = True
     executor_llm_calls: int = 0
     executor_provider_calls: int = 0
+    provider_cache_usage: ProviderUsageReceipt | None = None
 
     @property
     def changes(self) -> ChangeSet:
@@ -313,6 +315,7 @@ class ExecutionResult:
     staged_run: StagedRun = field(repr=False)
     executor_llm_calls: int = 0
     executor_provider_calls: int = 0
+    provider_cache_usage: ProviderUsageReceipt | None = None
 
     @property
     def promoted(self) -> bool:
@@ -358,6 +361,11 @@ class ExecutionResult:
             "checkpoint_promoted": False,
             "executor_llm_calls": self.executor_llm_calls,
             "executor_provider_calls": self.executor_provider_calls,
+            "provider_cache_usage": (
+                self.provider_cache_usage.model_dump(mode="json")
+                if self.provider_cache_usage is not None
+                else None
+            ),
             "bounded_output_enforced": True,
         }
         serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -629,6 +637,7 @@ class ExecutionOrchestrator:
             staged_run=staged,
             executor_llm_calls=result.executor_llm_calls,
             executor_provider_calls=result.executor_provider_calls,
+            provider_cache_usage=result.provider_cache_usage,
         )
         execution.as_dict()
         return execution
@@ -838,6 +847,10 @@ class ExecutionOrchestrator:
             or result.executor_provider_calls < 0
         ):
             raise ExecutorAdapterError("executor_provider_calls is invalid")
+        if result.provider_cache_usage is not None and not isinstance(
+            result.provider_cache_usage, ProviderUsageReceipt
+        ):
+            raise ExecutorAdapterError("provider_cache_usage is invalid")
         for field_name in (
             "decisions",
             "errors_fixed",

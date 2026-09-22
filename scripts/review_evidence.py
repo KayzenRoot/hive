@@ -636,6 +636,8 @@ WO019_G1_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "schemas/review-evidence-v1.schema.json",
         "scripts/review_evidence.py",
+        "scripts/v01_backup_restore.py",
+        "scripts/v01_closure_sprint.py",
         "scripts/review_pr_body.py",
     }
 )
@@ -2338,11 +2340,18 @@ WO029_C3_WORK_ORDER = "WO-029-C3"
 WO029_C3_BASE_SHA = "3d88d7204deaaeee846de33c56f5c4ceb9bff27f"
 WO029_C3_ALLOWED_PATHS = frozenset(
     {
+        ".env.example",
         "backend/app/config.py",
+        "backend/app/context_manager.py",
         "backend/app/execution_orchestrator.py",
         "backend/app/executor_provider.py",
+        "backend/app/provider_prompt_cache.py",
         "backend/tests/test_executor_provider.py",
+        "backend/tests/test_provider_prompt_cache.py",
         "backend/tests/test_review_evidence.py",
+        "docker-compose.yml",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
         "docs/autonomous-execution.md",
         "scripts/review_evidence.py",
     }
@@ -11737,7 +11746,8 @@ def require_wo029_c3_scope(
             )
     if len(paths) != len(WO029_C3_ALLOWED_PATHS) or set(paths) != WO029_C3_ALLOWED_PATHS:
         raise ValueError(
-            f"{WO029_C3_WORK_ORDER} requires exactly the bounded production-executor correction surface"
+            f"{WO029_C3_WORK_ORDER} requires exactly the bounded production-executor "
+            "correction surface"
         )
     if enforce_authorized_base:
         if authorized_base_sha is None:

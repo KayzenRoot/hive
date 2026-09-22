@@ -2,33 +2,47 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
 
 from app.config import Settings
-from app.execution_orchestrator import ExecutorAdapterError, ExecutorRequest
+from app.execution_orchestrator import (
+    ExecutionOrchestrator,
+    ExecutorAdapterError,
+    ExecutorRequest,
+)
 from app.executor_provider import OpenAICompatibleExecutorAdapter, build_executor_adapter
+from app.registry import InspectionResult, ProjectResponse
+from app.runner import ToolPolicy
+from app.task_intake import TaskResponse
 
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000101")
 TASK_ID = UUID("00000000-0000-0000-0000-000000000201")
 
 
 class ProviderServer:
-    def __init__(self, response: bytes) -> None:
+    def __init__(self, response: bytes, *, redirect_to: str | None = None) -> None:
         self.response = response
+        self.redirect_to = redirect_to
         self.requests: list[dict[str, Any]] = []
         self.authorization: str | None = None
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:
+                if owner.redirect_to is not None:
+                    self.send_response(302)
+                    self.send_header("Location", owner.redirect_to)
+                    self.end_headers()
+                    return
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
                 owner.requests.append(json.loads(body))
@@ -56,17 +70,25 @@ class ProviderServer:
     @property
     def base_url(self) -> str:
         host, port = self.server.server_address
+        if isinstance(host, bytes):
+            host = host.decode("ascii")
         return f"http://{host}:{port}/v1"
 
 
-def provider_response(*, content: dict[str, object], model: str = "test-model") -> bytes:
-    return json.dumps(
-        {
-            "id": "req-123",
-            "model": model,
-            "choices": [{"message": {"content": json.dumps(content)}}],
-        }
-    ).encode()
+def provider_response(
+    *,
+    content: dict[str, object],
+    model: str = "test-model",
+    usage: dict[str, object] | None = None,
+) -> bytes:
+    response: dict[str, object] = {
+        "id": "req-123",
+        "model": model,
+        "choices": [{"message": {"content": json.dumps(content)}}],
+    }
+    if usage is not None:
+        response["usage"] = usage
+    return json.dumps(response).encode()
 
 
 def structured_result() -> dict[str, object]:
@@ -80,8 +102,8 @@ def structured_result() -> dict[str, object]:
         ],
         "summary": "Create generated module.",
         "decisions": ["Use the existing Runner."],
-        "test_commands": [["python", "-c", "print('test ok')"]],
-        "validation_commands": [["python", "-c", "print('validation ok')"]],
+        "test_commands": [[sys.executable, "-c", "print('test ok')"]],
+        "validation_commands": [[sys.executable, "-c", "print('validation ok')"]],
         "errors_fixed": ["executor transport missing"],
         "risks": [],
         "pending_items": [],
@@ -99,7 +121,7 @@ def settings(base_url: str, **overrides: object) -> Settings:
         "executor_max_response_bytes": 100_000,
     }
     values.update(overrides)
-    return Settings(**values)
+    return Settings.model_validate(values)
 
 
 def request() -> ExecutorRequest:
@@ -116,7 +138,16 @@ def context() -> SimpleNamespace:
 
 
 def test_concrete_transport_returns_structured_result_and_real_call_counts() -> None:
-    with ProviderServer(provider_response(content=structured_result())) as provider:
+    with ProviderServer(
+        provider_response(
+            content=structured_result(),
+            usage={
+                "prompt_tokens": 100,
+                "prompt_tokens_details": {"cached_tokens": 64},
+                "completion_tokens": 8,
+            },
+        )
+    ) as provider:
         adapter = build_executor_adapter(settings(provider.base_url))
         result = adapter.execute(request(), context())
 
@@ -185,3 +216,103 @@ def test_secret_is_not_present_in_adapter_error() -> None:
     with pytest.raises(ExecutorAdapterError) as caught:
         adapter.execute(request(), context())
     assert secret not in str(caught.value)
+
+
+def test_provider_redirect_is_rejected_before_forwarding_credentials() -> None:
+    with (
+        ProviderServer(provider_response(content=structured_result())) as target,
+        ProviderServer(b"", redirect_to=target.base_url) as redirect,
+    ):
+        adapter = build_executor_adapter(settings(redirect.base_url))
+        with pytest.raises(ExecutorAdapterError, match="provider_http_302"):
+            adapter.execute(request(), context())
+        assert target.requests == []
+
+
+def test_configured_transport_runs_through_orchestrator_runner_and_staging(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    project = SimpleNamespace(
+        project_id=PROJECT_ID,
+        relative_path="project",
+        state="READY",
+        repository_accessible=True,
+        detached_head=False,
+        working_tree_clean=True,
+        git_branch="main",
+        git_head_sha="a" * 40,
+    )
+    task = SimpleNamespace(task_id=TASK_ID, project_id=PROJECT_ID)
+
+    class SerializableContext(SimpleNamespace):
+        def model_dump(self, *, mode: str) -> dict[str, object]:
+            assert mode == "json"
+            return {
+                "project": {"project_id": str(PROJECT_ID)},
+                "task": {"task_id": str(TASK_ID), "project_id": str(PROJECT_ID)},
+                "governance": [
+                    "CHECKPOINT",
+                    "SCOPE",
+                    "DEFINITION_OF_DONE",
+                    "ARCHITECTURE",
+                    "DECISIONS",
+                ],
+            }
+
+    context_value = SerializableContext(
+        project=SimpleNamespace(project_id=PROJECT_ID),
+        task=SimpleNamespace(task_id=TASK_ID, project_id=PROJECT_ID),
+        governance=[
+            SimpleNamespace(kind=kind)
+            for kind in ("CHECKPOINT", "SCOPE", "DEFINITION_OF_DONE", "ARCHITECTURE", "DECISIONS")
+        ],
+    )
+    inspection = SimpleNamespace(
+        git_branch="main",
+        git_head_sha="a" * 40,
+        detached_head=False,
+        repository_accessible=True,
+        working_tree_clean=True,
+        state="READY",
+    )
+
+    with ProviderServer(
+        provider_response(
+            content=structured_result(),
+            usage={
+                "prompt_tokens": 100,
+                "prompt_tokens_details": {"cached_tokens": 64},
+                "completion_tokens": 8,
+            },
+        )
+    ) as provider:
+        configured = settings(
+            provider.base_url,
+            projects_root=tmp_path,
+            executor_prompt_cache_enabled=True,
+        )
+        orchestrator = ExecutionOrchestrator(
+            configured,
+            tool_policy=ToolPolicy((sys.executable,)),
+            project_loader=lambda _settings, _project_id: cast(ProjectResponse, project),
+            task_loader=lambda _settings, _project_id, _task_id: cast(TaskResponse, task),
+            context_builder=lambda *_args, **_kwargs: context_value,
+            repository_inspector=lambda _path: cast(InspectionResult, inspection),
+            event_emitter=lambda *_args, **_kwargs: None,
+        )
+        result = orchestrator.execute_configured(request())
+
+        assert result.status == "STAGED"
+        assert result.validation_passed is True
+        assert result.executor_provider_calls == 1
+        assert result.executor_llm_calls == 1
+        assert result.provider_cache_usage is not None
+        assert result.provider_cache_usage.reconciliation.value == "EXACT"
+        assert result.provider_cache_usage.observed_hit is True
+        assert result.staged_run.apply is not None
+        assert (workspace / "src" / "generated.py").read_text() == "VALUE = 1\n"
+        assert len(provider.requests) == 1
+        assert len(provider.requests[0]["messages"]) == 2
+        assert provider.requests[0]["response_format"] == {"type": "json_object"}
