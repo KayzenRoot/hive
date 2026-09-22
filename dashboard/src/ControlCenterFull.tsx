@@ -287,6 +287,35 @@ function ChartGraphic({ chart }: { chart: Chart }) {
   );
 }
 
+const DISPLAY_LABELS: Record<string, string> = {
+  "tokens-over-time": "Tokens ao longo do tempo",
+  "cached-vs-fresh-tokens": "Tokens em cache vs. novos",
+  "token-savings": "Economia de tokens",
+  "cost-over-time": "Custo ao longo do tempo",
+  "cache-hit-rate": "Taxa de acerto do cache",
+  "context-reduction": "Redução de contexto",
+  "context-signal-ratio": "Sinal útil do contexto",
+  "physical-vs-logical-storage": "Storage físico vs. lógico",
+  "compression-dedup-savings": "Economia por compressão e deduplicação",
+  "project-activity": "Atividade do projeto",
+  "test-pass-failure-rate": "Testes: sucesso vs. falha",
+  "retrieval-latency": "Latência de retrieval",
+  "service-latency-errors": "Latência e erros dos serviços",
+};
+
+function displayLabel(id: string): string { return DISPLAY_LABELS[id] ?? id.replace(/-/g, " "); }
+function latestNumericValue(chart: Chart | undefined): number | null {
+  if (!chart) return null;
+  const point = [...chart.points].reverse().find((item) => typeof item.value === "number" && Number.isFinite(item.value));
+  return typeof point?.value === "number" ? point.value : null;
+}
+function formatCompact(value: number | null): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+function OverviewKpi({ label, value, detail, tone = "neutral" }: { label: string; value: string; detail: string; tone?: "neutral" | "good" | "warn" }) {
+  return <article className={"cc-kpi cc-kpi-" + tone}><span className="cc-kpi-label">{label}</span><strong className="cc-kpi-value">{value}</strong><span className="cc-kpi-detail">{detail}</span></article>;
+}
 function ChartCard({ chart }: { chart: Chart }) {
   const numericPoints = chart.points.filter(
     (point) => typeof point.value === "number" && Number.isFinite(point.value),
@@ -295,7 +324,7 @@ function ChartCard({ chart }: { chart: Chart }) {
   return (
     <article className="cc-card cc-chart-card" aria-label={`Chart ${chart.id}`}>
       <div className="cc-card-heading">
-        <h4>{chart.id}</h4>
+        <div><h4>{displayLabel(chart.id)}</h4><span className="cc-chart-id">{chart.id}</span></div>
         <span className={statusClass(chart.status)}>{chart.status}</span>
       </div>
       {numericPoints.length > 0 ? (
