@@ -41,4 +41,6 @@ A production deployment MUST supply a concrete `ExecutorAdapter` implementation 
 
 The provider-prompt endpoint currently uses the provider-neutral no-op cache adapter. It proves canonical prompt composition and cache eligibility semantics only; it does not claim a provider-side cache hit or provider-side token savings.
 
+Execution success is fail-closed across both command classes: every declared test command and every declared validation command must succeed. A failed or timed-out test prevents a `STAGED` success even when later validation commands pass; the run remains staged evidence with `VALIDATION_FAILED` status for external review.
+
 This distinction is a correctness requirement for v1.0.x maintenance: fixture evidence proves the orchestration seam, while provider E2E evidence is a separate operational capability.

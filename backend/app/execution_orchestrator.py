@@ -320,7 +320,9 @@ class ExecutionResult:
 
     @property
     def validation_passed(self) -> bool:
-        return all(item.succeeded for item in self.validation)
+        """Return true only when every test and validation command succeeded."""
+
+        return all(item.succeeded for item in (*self.tests, *self.validation))
 
     def _payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -582,8 +584,9 @@ class ExecutionOrchestrator:
                 MAX_REVIEW_FIELD_CHARS,
             ),
         )
+        execution_checks = (*test_evidence, *validation_evidence)
         status = (
-            "STAGED" if all(item.succeeded for item in validation_evidence) else "VALIDATION_FAILED"
+            "STAGED" if all(item.succeeded for item in execution_checks) else "VALIDATION_FAILED"
         )
         staged_process = tuple(
             ProcessEvidence(
