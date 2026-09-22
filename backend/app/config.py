@@ -225,21 +225,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
-    def validate_executor_limits(self) -> None:
-        if (
-            not math.isfinite(self.executor_timeout_seconds)
-            or self.executor_timeout_seconds <= 0
-            or self.executor_timeout_seconds > 600
-        ):
-            raise ValueError("HIVE_EXECUTOR_TIMEOUT_SECONDS must be between 0 and 600")
-        if not 1 <= self.executor_max_response_bytes <= 10_000_000:
-            raise ValueError("HIVE_EXECUTOR_MAX_RESPONSE_BYTES must be between 1 and 10000000")
-        if self.executor_base_url is not None and not self.executor_base_url.strip():
-            raise ValueError("HIVE_EXECUTOR_BASE_URL must not be blank")
-        if self.executor_enabled:
-            if not self.executor_base_url or not self.executor_base_url.strip():
-                raise ValueError("HIVE_EXECUTOR_BASE_URL is required when executor is enabled")
-            if not self.executor_model or not self.executor_model.strip():
-                raise ValueError("HIVE_EXECUTOR_MODEL is required when executor is enabled")
-
+    return Settings()\n
