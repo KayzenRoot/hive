@@ -20,40 +20,19 @@
   },
   "critical_high_non_applicable": [],
   "remediated_medium_low": {
-    "moderate": 0,
-    "moderate_alert_numbers": [],
+    "moderate": 2,
+    "moderate_alert_numbers": [
+      1,
+      2
+    ],
     "low": 0,
     "low_alert_numbers": [],
-    "note": "The three open MEDIUM alerts are development-only and were not upgraded in this increment."
+    "note": "Vitest and @vitest/mocker development-only MEDIUM alerts are remediated in WO-030 by the validated Vitest 4.1.11 upgrade."
   },
   "remaining_medium_low": {
-    "moderate": 3,
+    "moderate": 1,
     "low": 0,
     "alerts": [
-      {
-        "number": 1,
-        "state": "open",
-        "severity": "medium",
-        "package": "@vitest/mocker",
-        "ecosystem": "npm",
-        "manifest": "dashboard/package-lock.json",
-        "scope": "development",
-        "affected_version_range": ">= 2.1.0, < 4.1.11",
-        "first_patched_version": "4.1.11",
-        "disposition": "non-blocking development-only alert; not remediated because the available fix requires a breaking Vitest major upgrade"
-      },
-      {
-        "number": 2,
-        "state": "open",
-        "severity": "medium",
-        "package": "vitest",
-        "ecosystem": "npm",
-        "manifest": "dashboard/package-lock.json",
-        "scope": "development",
-        "affected_version_range": ">= 2.1.0, < 4.1.11",
-        "first_patched_version": "4.1.11",
-        "disposition": "non-blocking development-only alert; not remediated because the available fix requires a breaking Vitest major upgrade"
-      },
       {
         "number": 6,
         "state": "open",
@@ -71,20 +50,25 @@
   "runtime_high_critical_remaining": false,
   "release_gate": "PASS",
   "compatibility_verification": {
-    "dependency_change_required": false,
+    "dependency_change_required": true,
     "required_before_sol_audit": [
       "python -m pip install -r requirements-dev.txt",
       "python -m pip check",
+      "npm ci",
+      "npm run lint",
+      "npm run typecheck",
+      "npm run test:run",
+      "npm run build",
       "npm audit --audit-level=high"
     ],
-    "note": "This receipt records current Dependabot evidence and deterministic candidate-manifest binding; final runtime validation remains a required candidate gate."
+    "note": "WO-030 changes the dashboard development dependency graph to Vitest 4.1.11. Exact-head CI compatibility and audit evidence are required before merge."
   },
   "notes": [
-    "Alert numbers and dispositions correspond to the authenticated GitHub API result collected on 2026-09-21.",
+    "Alert numbers and dispositions originate from the authenticated GitHub API inventory collected on 2026-09-21; this candidate-state receipt is updated by WO-030 to record the validated remediation of Vitest alerts 1 and 2.",
     "No credentials, raw API responses, Authorization headers or local/user data are recorded here.",
-    "The inventory source head identifies the protected default-branch state observed during collection; it does not claim a publication commit.",
-    "The release gate is PASS because no applicable unresolved CRITICAL/HIGH alert is open; the three development-only MEDIUM alerts remain explicit and non-blocking under this release policy.",
-    "candidate_dependency_state binds this triage to deterministic SHA-256 hashes of the candidate dependency manifests."
+    "The inventory source head remains the provenance of the original alert inventory; it does not claim the WO-030 publication commit.",
+    "The release gate remains PASS because no applicable unresolved CRITICAL/HIGH alert is open; after WO-030 the remaining recorded development-only MEDIUM alert is pytest.",
+    "candidate_dependency_state binds this working-tree triage receipt to deterministic SHA-256 hashes of the current candidate dependency manifests. The published v1.0.1 tag retains its historical copy."
   ],
   "inventory_source_head": "552ab5156f2106fa204c98d6c3fd11c9fba5b208",
   "candidate_dependency_state": {
@@ -104,7 +88,7 @@
       }
     },
     "dashboard/package-lock.json": {
-      "sha256": "260afbeee12b46a51b31c4688a8bc7270c9478d779e207084f85f385321d2d99",
+      "sha256": "dcccfb185efdf85cb6396ababe1a769f200efe42a40157aaf9b5776d58df70f5",
       "packages_root": {
         "name": "hive-dashboard",
         "version": "1.0.1"
