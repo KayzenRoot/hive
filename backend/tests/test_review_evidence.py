@@ -41,6 +41,9 @@ from scripts.review_evidence import (
     HIVE_REL_007_ALLOWED_PATHS,
     HIVE_REL_007_BASE_SHA,
     HIVE_REL_007_WORK_ORDER,
+    HIVE_REL_008_ALLOWED_PATHS,
+    HIVE_REL_008_BASE_SHA,
+    HIVE_REL_008_WORK_ORDER,
     MCP_CORE_SURFACE_EVIDENCE_FILE,
     MCP_CORE_SURFACE_EVIDENCE_VERSION,
     MCP_CORE_SURFACE_FALSE_FIELDS,
@@ -132,6 +135,7 @@ from scripts.review_evidence import (
     require_hive_rel_005_scope,
     require_hive_rel_006_scope,
     require_hive_rel_007_scope,
+    require_hive_rel_008_scope,
     require_supported_work_order,
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
@@ -6698,8 +6702,11 @@ def test_hive_rel_001_marker_is_bounded_and_registered() -> None:
     require_supported_work_order(HIVE_REL_007_WORK_ORDER)
     require_current_work_order_authorization(HIVE_REL_007_WORK_ORDER)
     assert HIVE_REL_007_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    require_supported_work_order(HIVE_REL_008_WORK_ORDER)
+    require_current_work_order_authorization(HIVE_REL_008_WORK_ORDER)
+    assert HIVE_REL_008_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
     with pytest.raises(ValueError, match="unsupported release-engineering"):
-        require_supported_work_order("HIVE-REL-008")
+        require_supported_work_order("HIVE-REL-009")
     with pytest.raises(ValueError, match="unsupported release-engineering"):
         require_supported_work_order("HIVE-REL-999")
     with pytest.raises(ValueError, match="invalid or unbounded"):
@@ -14011,4 +14018,68 @@ def test_hive_rel_007_v102_preparation_scope_is_exact_and_fail_closed() -> None:
             HIVE_REL_007_BASE_SHA,
             [],
             authorized_base_sha=HIVE_REL_007_BASE_SHA,
+        )
+
+def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
+    allowed = sorted(HIVE_REL_008_ALLOWED_PATHS)
+    require_hive_rel_008_scope(
+        HIVE_REL_008_WORK_ORDER,
+        HIVE_REL_008_BASE_SHA,
+        allowed,
+        authorized_base_sha=HIVE_REL_008_BASE_SHA,
+    )
+    release_dir = review_evidence.ROOT / ".engineering" / "release"
+    request_path = release_dir / "HIVE-V1.0.1-PUBLISH-REQUEST.json"
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request["status"] == "armed"
+    assert request["product"] == "HIVE"
+    assert request["version"] == "1.0.1"
+    assert request["tag"] == "v1.0.1"
+    assert request["work_order"] == HIVE_REL_008_WORK_ORDER
+    assert request["issue"] == 137
+    assert request["authorized_parent"] == HIVE_REL_008_BASE_SHA
+    receipt_asset = request["publication"]["final_receipt_asset"]
+    assert receipt_asset == "hive-v1.0.1.release-receipt.json"
+
+    with pytest.raises(ValueError, match="protected main"):
+        require_hive_rel_008_scope(
+            HIVE_REL_008_WORK_ORDER,
+            HIVE_REL_008_BASE_SHA,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=HIVE_REL_008_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="exact base"):
+        require_hive_rel_008_scope(
+            HIVE_REL_008_WORK_ORDER,
+            "a" * 40,
+            allowed,
+            authorized_base_sha=HIVE_REL_008_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        require_hive_rel_008_scope(
+            HIVE_REL_008_WORK_ORDER,
+            HIVE_REL_008_BASE_SHA,
+            allowed,
+        )
+    with pytest.raises(ValueError, match="bounded publication scope"):
+        require_hive_rel_008_scope(
+            HIVE_REL_008_WORK_ORDER,
+            HIVE_REL_008_BASE_SHA,
+            [*allowed, "backend/app/main.py"],
+            authorized_base_sha=HIVE_REL_008_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="canonical or local-only"):
+        require_hive_rel_008_scope(
+            HIVE_REL_008_WORK_ORDER,
+            HIVE_REL_008_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+            authorized_base_sha=HIVE_REL_008_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        require_hive_rel_008_scope(
+            HIVE_REL_008_WORK_ORDER,
+            HIVE_REL_008_BASE_SHA,
+            [],
+            authorized_base_sha=HIVE_REL_008_BASE_SHA,
         )
