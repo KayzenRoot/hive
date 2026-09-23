@@ -683,7 +683,9 @@ def verify_executor_service_cli(base_url: str, relative_path: str) -> None:
 
     project, task = register_fixture(base_url, relative_path)
     with LocalProviderServer() as provider:
-        command = ["docker", "compose", "run", "--rm"]
+        # Preserve stdout as a single JSON document; an allocated TTY can merge
+        # executor stderr diagnostics into the machine-readable CLI response.
+        command = ["docker", "compose", "run", "--rm", "-T"]
         user_id = getattr(os, "getuid", None)
         group_id = getattr(os, "getgid", None)
         if callable(user_id) and callable(group_id):
