@@ -13,6 +13,7 @@ import urllib.request
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION_LOG_DIR = ROOT / "tmp" / "integration-logs"
@@ -64,12 +65,14 @@ def isolated_environment_error(
     return None
 
 
-def fetch(url: str) -> tuple[int, bytes, dict | None]:
+def fetch(url: str) -> tuple[int, bytes, dict[str, Any] | None]:
     with urllib.request.urlopen(url, timeout=5) as response:
         body = response.read()
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
+            payload = None
+        if not isinstance(payload, dict):
             payload = None
         return response.status, body, payload
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
+
 import pytest
 from scripts import integration_health
 
 
-def isolated_environment(root, **overrides):
+def isolated_environment(root: Path, **overrides: str) -> dict[str, str]:
     data_root = root / "wo031-data"
     projects_root = root / "wo031-projects"
     environment = {
@@ -20,7 +23,11 @@ def isolated_environment(root, **overrides):
 def test_help_exits_before_environment_checks_or_side_effects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def unexpected_environment_check():
+    def unexpected_environment_check(
+        _environment: Mapping[str, str] | None = None,
+        *,
+        repo_root: Path = integration_health.ROOT,
+    ) -> str | None:
         raise AssertionError("--help must exit before integration startup")
 
     monkeypatch.setattr(
@@ -47,22 +54,24 @@ def test_integration_refuses_implicit_runtime_before_health_probe(
     assert "REFUSED" in capsys.readouterr().err
 
 
-def test_isolation_requires_separate_repository_local_wo031_roots(tmp_path) -> None:
+def test_isolation_requires_separate_repository_local_wo031_roots(tmp_path: Path) -> None:
     environment = isolated_environment(tmp_path)
     assert integration_health.isolated_environment_error(environment, repo_root=tmp_path) is None
 
     unsafe = isolated_environment(tmp_path, HIVE_DATA_ROOT=str(tmp_path / "canonical"))
-    assert integration_health.isolated_environment_error(unsafe, repo_root=tmp_path)
+    unsafe_error = integration_health.isolated_environment_error(unsafe, repo_root=tmp_path)
+    assert unsafe_error is not None
 
     overlapping = isolated_environment(
         tmp_path,
         HIVE_PROJECTS_ROOT=str(tmp_path / "wo031-data" / "projects"),
     )
-    assert integration_health.isolated_environment_error(overlapping, repo_root=tmp_path)
+    overlap_error = integration_health.isolated_environment_error(overlapping, repo_root=tmp_path)
+    assert overlap_error is not None
 
 
-def test_isolation_requires_wo031_compose_project_name(tmp_path) -> None:
+def test_isolation_requires_wo031_compose_project_name(tmp_path: Path) -> None:
     environment = isolated_environment(tmp_path, COMPOSE_PROJECT_NAME="hive")
-    assert "COMPOSE_PROJECT_NAME" in integration_health.isolated_environment_error(
-        environment, repo_root=tmp_path
-    )
+    error = integration_health.isolated_environment_error(environment, repo_root=tmp_path)
+    assert error is not None
+    assert "COMPOSE_PROJECT_NAME" in error
