@@ -29,6 +29,7 @@ import subprocess
 import sys
 import time
 import traceback
+import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +61,9 @@ EVIDENCE_FILE = governance.V01_CLOSURE_SPRINT_EVIDENCE_FILE
 EVIDENCE_VERSION = governance.V01_CLOSURE_SPRINT_EVIDENCE_VERSION
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / EVIDENCE_FILE
 BACKUP_SUMMARY = ROOT / "tmp" / "integration-logs" / "v01-backup-restore.json"
+VALIDATION_SUMMARY = ROOT / "tmp" / "validation" / "validation-summary.json"
+VALIDATION_JUNIT = ROOT / "tmp" / "validation" / "backend-junit.xml"
+LOCAL_JUNIT = ROOT / "tmp" / "integration-logs" / "v01-backend-junit.xml"
 WORK_DIR = ROOT / "tmp" / "v01-closure"
 SCOPE_RELATIVE = "docs/project-brain/03-SCOPE.md"
 DOD_RELATIVE = "docs/project-brain/15-DEFINITION-OF-DONE.md"
@@ -107,6 +111,154 @@ def integration_log(name: str) -> dict[str, object] | None:
     except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def current_validation_identity() -> dict[str, object] | None:
+    """Fingerprint the candidate currently in the worktree for safe test reuse."""
+
+    try:
+        head = (
+            subprocess.run(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode("utf-8")
+            .strip()
+        )
+        diff = subprocess.run(
+            ["git", "-C", str(ROOT), "diff", "--binary", "HEAD"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        untracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard", "-z"],
+            capture_output=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
+        return None
+    return {
+        "head_sha": head,
+        "tracked_diff_sha256": sha256_bytes(diff),
+        "untracked_file_count": len([path for path in untracked.split(b"\0") if path]),
+    }
+
+
+def junit_selector_counts(path: Path) -> dict[str, int] | None:
+    """Count the narrower checks already covered by one complete backend run."""
+
+    try:
+        root = ET.parse(path).getroot()
+        cases = list(root.iter("testcase"))
+    except (OSError, ET.ParseError):
+        return None
+    has_failures = any(
+        case.find("failure") is not None or case.find("error") is not None for case in cases
+    )
+    if not cases or has_failures:
+        return None
+    identities = [
+        f"{case.get('classname', '')}::{case.get('name', '')}".casefold() for case in cases
+    ]
+    return {
+        "backend_tests": len(cases),
+        "governance_contract_tests": sum("test_review_evidence" in item for item in identities),
+        "trust_boundary_tests": sum(
+            "trust" in item or "noncanonical" in item for item in identities
+        ),
+        "project_isolation_tests": sum("isolation" in item for item in identities),
+        "cross_project_negatives": sum("cross_project" in item for item in identities),
+    }
+
+
+def validation_results_from_summary(
+    payload: object,
+    *,
+    current_identity: Mapping[str, object] | None,
+    junit_path: Path,
+) -> dict[str, dict[str, object]] | None:
+    """Reuse only a full, passing validation run tied to this exact source tree."""
+
+    if not isinstance(payload, Mapping) or current_identity is None:
+        return None
+    if payload.get("status") != "PASS" or payload.get("selected_bucket") != "all":
+        return None
+    if payload.get("failed_steps") != []:
+        return None
+    candidate = payload.get("candidate_identity")
+    if not isinstance(candidate, Mapping) or candidate.get("stable_during_validation") is not True:
+        return None
+    for key in ("head_sha", "tracked_diff_sha256", "untracked_file_count"):
+        if candidate.get(key) != current_identity.get(key):
+            return None
+    if candidate.get("untracked_file_count") != 0:
+        return None
+    try:
+        junit_digest = sha256_bytes(junit_path.read_bytes())
+    except OSError:
+        return None
+    if candidate.get("backend_junit_sha256") != junit_digest:
+        return None
+    counts = junit_selector_counts(junit_path)
+    if counts is None or any(counts[name] <= 0 for name in CLOSURE_QUALITY_SUBSETS):
+        return None
+
+    steps = payload.get("steps")
+    if not isinstance(steps, list):
+        return None
+    by_name = {str(item.get("name")): item for item in steps if isinstance(item, Mapping)}
+    required_steps = {
+        "backend tests": "backend_tests",
+        "canonical source verification": "canonical_verifier",
+        "ruff lint": "lint",
+        "ruff format": "format",
+        "mypy": "typecheck",
+        "secret scan": "secret_scan",
+        "generated maps": "generated_maps",
+    }
+    results: dict[str, dict[str, object]] = {}
+    for step_name, result_name in required_steps.items():
+        step = by_name.get(step_name)
+        if not isinstance(step, Mapping) or step.get("exit_code") != 0:
+            return None
+        results[result_name] = {
+            "command": f"reused exact-candidate validation: {step_name}",
+            "returncode": 0,
+            "passed": True,
+            "duration_seconds": step.get("duration_seconds", 0),
+            "reused_from": "tmp/validation/validation-summary.json",
+        }
+    for subset_name in CLOSURE_QUALITY_SUBSETS:
+        results[subset_name] = {
+            "command": "covered by the exact-candidate backend suite (JUnit evidence)",
+            "returncode": 0,
+            "passed": True,
+            "selected_test_count": counts[subset_name],
+            "reused_from": "tmp/validation/backend-junit.xml",
+        }
+    results["backend_tests"]["selected_test_count"] = counts["backend_tests"]
+    return results
+
+
+CLOSURE_QUALITY_SUBSETS = (
+    "governance_contract_tests",
+    "trust_boundary_tests",
+    "project_isolation_tests",
+    "cross_project_negatives",
+)
+
+
+def reusable_validation_results() -> dict[str, dict[str, object]] | None:
+    try:
+        payload = json.loads(VALIDATION_SUMMARY.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return validation_results_from_summary(
+        payload,
+        current_identity=current_validation_identity(),
+        junit_path=VALIDATION_JUNIT,
+    )
 
 
 INTEGRATION_LOG_DIR = ROOT / "tmp" / "integration-logs"
@@ -694,61 +846,70 @@ def _run_command(command: list[str], *, timeout: int = 3600) -> dict[str, object
 
 
 def quality_family() -> dict[str, object]:
-    """Run the repository quality and security commands once and record them."""
+    """Reuse exact-candidate validation and avoid rerunning backend subsets."""
 
-    selections = {
-        "backend_tests": [sys.executable, "-m", "pytest", "backend/tests", "-q"],
-        "governance_contract_tests": [
-            sys.executable,
-            "-m",
-            "pytest",
-            "backend/tests/test_review_evidence.py",
-            "-q",
-        ],
-        "trust_boundary_tests": [
-            sys.executable,
-            "-m",
-            "pytest",
-            "backend/tests",
-            "-q",
-            "-k",
-            "trust or noncanonical",
-        ],
-        "project_isolation_tests": [
-            sys.executable,
-            "-m",
-            "pytest",
-            "backend/tests",
-            "-q",
-            "-k",
-            "isolation",
-        ],
-        "cross_project_negatives": [
-            sys.executable,
-            "-m",
-            "pytest",
-            "backend/tests",
-            "-q",
-            "-k",
-            "cross_project",
-        ],
-        "lint": [sys.executable, "-m", "ruff", "check", "backend", "scripts", "migrations"],
-        "format": [
-            sys.executable,
-            "-m",
-            "ruff",
-            "format",
-            "--check",
-            "backend",
-            "scripts",
-            "migrations",
-        ],
-        "typecheck": [sys.executable, "-m", "mypy"],
-        "secret_scan": [sys.executable, "scripts/check_secrets.py"],
-        "canonical_verifier": [sys.executable, "scripts/verify_canonical_sources.py"],
-        "generated_maps": [sys.executable, "scripts/generate_maps.py", "--check"],
-    }
-    results = {name: _run_command(command) for name, command in selections.items()}
+    results = reusable_validation_results()
+    if results is not None:
+        print(
+            "[wo024] quality family reusing full validation for exact candidate; "
+            f"backend={results['backend_tests']['selected_test_count']} tests, "
+            + ", ".join(
+                f"{name}={results[name]['selected_test_count']}" for name in CLOSURE_QUALITY_SUBSETS
+            ),
+            flush=True,
+        )
+    else:
+        LOCAL_JUNIT.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            LOCAL_JUNIT.unlink()
+        selections = {
+            "backend_tests": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "backend/tests",
+                "-q",
+                "--junitxml",
+                str(LOCAL_JUNIT),
+            ],
+            "lint": [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "backend",
+                "scripts",
+                "migrations",
+            ],
+            "format": [
+                sys.executable,
+                "-m",
+                "ruff",
+                "format",
+                "--check",
+                "backend",
+                "scripts",
+                "migrations",
+            ],
+            "typecheck": [sys.executable, "-m", "mypy"],
+            "secret_scan": [sys.executable, "scripts/check_secrets.py"],
+            "canonical_verifier": [sys.executable, "scripts/verify_canonical_sources.py"],
+            "generated_maps": [sys.executable, "scripts/generate_maps.py", "--check"],
+        }
+        results = {name: _run_command(command) for name, command in selections.items()}
+        counts = junit_selector_counts(LOCAL_JUNIT) or {}
+        for subset_name in CLOSURE_QUALITY_SUBSETS:
+            subset_passed = (
+                bool(results["backend_tests"]["passed"]) and counts.get(subset_name, 0) > 0
+            )
+            results[subset_name] = {
+                "command": "covered by the single complete backend suite (JUnit evidence)",
+                "returncode": 0 if subset_passed else 1,
+                "passed": subset_passed,
+                "selected_test_count": counts.get(subset_name, 0),
+                "coverage_basis": "backend/tests full-suite run",
+            }
+        results["backend_tests"]["selected_test_count"] = counts.get("backend_tests", 0)
     governance_ok = (
         frozenset({governance.WO024_G1_WORK_ORDER, governance.WO024P_WORK_ORDER})
         == governance.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
@@ -831,6 +992,14 @@ def _cleanup_retrieval_rows(project_id: UUID) -> None:
 def _container_id(service: str) -> str:
     output = compose("ps", "-q", service, check=False).strip()
     return output.splitlines()[0].strip() if output else ""
+
+
+def _replace_postgres_container(*compose_arguments: str) -> None:
+    """Gracefully stop PostgreSQL before replacement to avoid crash-recovery scans."""
+
+    compose(*compose_arguments, "stop", "--timeout", "180", "postgres")
+    compose(*compose_arguments, "rm", "--force", "postgres")
+    compose(*compose_arguments, "up", "-d", "postgres")
 
 
 def _wait_for_postgres_query(
@@ -954,8 +1123,7 @@ def _secondary_root_proof() -> dict[str, object]:
         "SELECT count(*) FROM secondary_root_probe",
     ).strip()
     require(rows_before.isdigit() and int(rows_before) > 0, "secondary root state was not created")
-    compose(*base, "rm", "-sf", "postgres", check=False)
-    compose(*base, "up", "-d", "postgres", check=False)
+    _replace_postgres_container(*base)
     _wait_for_postgres_query(base, user, database, 90, "secondary-root recreated container")
     rows_after = compose(
         *base,
@@ -1083,8 +1251,7 @@ def deployment_family(probe: ApiProbe) -> dict[str, object]:
     artifact_before = _artifact_bytes(probe, project_id, task_id)
 
     postgres_before = _container_id("postgres")
-    compose("rm", "-sf", "postgres", check=False)
-    compose("up", "-d", "postgres", check=False)
+    _replace_postgres_container()
     _wait_for_postgres()
     postgres_after = _container_id("postgres")
     require(
@@ -1469,11 +1636,7 @@ def e2e_family(probe: ApiProbe, executed: dict[str, str]) -> dict[str, object]:
             time.sleep(1)
         require(index_state.get("status") == "COMPLETED", "e2e repository index did not complete")
         require(int(index_state.get("indexed_file_count", 0)) > 0, "e2e repository index is empty")
-        probe.request(
-            "POST",
-            f"/api/v1/projects/{project_id}/retrieval/corpus/sync",
-            expected=(200, 201),
-        )
+        _sync_corpus(probe, project_id)
         stages["index_repository"] = {
             "status": "PASS",
             "indexed_file_count": int(index_state.get("indexed_file_count", 0)),
@@ -2015,11 +2178,7 @@ def _fixture_with_governance(
         time.sleep(1)
     else:
         raise AssertionError("authority fixture index did not complete")
-    corpus = probe.request(
-        "POST",
-        f"/api/v1/projects/{fixture.project_id}/retrieval/corpus/sync",
-        expected=(200, 201),
-    )
+    corpus = _sync_corpus(probe, fixture.project_id)
     require(
         isinstance(corpus, dict) and corpus.get("status") == "COMPLETED",
         "authority fixture corpus sync did not complete",
@@ -2027,10 +2186,92 @@ def _fixture_with_governance(
     return fixture
 
 
+def _sync_corpus(probe: ApiProbe, project_id: UUID) -> object:
+    """Retry one corpus sync only after its explicit transient database-unavailable 503."""
+
+    path = f"/api/v1/projects/{project_id}/retrieval/corpus/sync"
+    try:
+        return probe.request("POST", path, expected=(200, 201))
+    except AssertionError as exc:
+        if not _is_retrieval_corpus_database_unavailable_503(exc):
+            raise
+
+    print(
+        "[wo031] transient retrieval corpus database 503; waiting for PostgreSQL SQL "
+        "and API readiness before one retry",
+        flush=True,
+    )
+    try:
+        _wait_for_postgres(attempts=90)
+        wait_for_api_health(probe, attempts=90)
+    except (AssertionError, RuntimeError) as exc:
+        raise AssertionError(
+            f"retrieval corpus sync could not verify database readiness before its one retry: {exc}"
+        ) from exc
+    print("[wo031] PostgreSQL and API ready; retrying corpus sync once", flush=True)
+    try:
+        return probe.request("POST", path, expected=(200, 201))
+    except AssertionError as exc:
+        message = f"retrieval corpus sync failed after one readiness retry: {exc}"
+        raise AssertionError(message) from exc
+
+
+def _is_retrieval_corpus_database_unavailable_503(error: AssertionError) -> bool:
+    _prefix, separator, body = str(error).partition("observed 503:")
+    if not separator:
+        return False
+    try:
+        payload = json.loads(body.strip())
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("detail") == "retrieval corpus database unavailable"
+    )
+
+
 def _expect_failure(probe: ApiProbe, path: str) -> None:
-    require(
-        _expect_status(probe, "POST", path, payload={"top_k": 5}, expected=(404, 409, 422)),
-        f"path {path} did not fail closed",
+    expected = (404, 409, 422)
+    try:
+        probe.request("POST", path, payload={"top_k": 5}, expected=expected)
+        return
+    except AssertionError as exc:
+        if not _is_context_database_unavailable_503(exc):
+            raise AssertionError(f"path {path} did not fail closed: {exc}") from exc
+
+    print(
+        "[wo031] transient context database 503; waiting for API/PostgreSQL readiness "
+        "before one final fail-closed check",
+        flush=True,
+    )
+    try:
+        wait_for_api_health(probe, attempts=90)
+    except AssertionError as exc:
+        raise AssertionError(
+            "path "
+            f"{path} could not verify fail-closed behavior because API health did not recover: "
+            f"{exc}"
+        ) from exc
+    print("[wo031] API health restored; retrying the context probe once", flush=True)
+    try:
+        probe.request("POST", path, payload={"top_k": 5}, expected=expected)
+    except AssertionError as exc:
+        raise AssertionError(
+            f"path {path} did not fail closed after one readiness retry: {exc}"
+        ) from exc
+
+
+def _is_context_database_unavailable_503(error: AssertionError) -> bool:
+    _prefix, separator, body = str(error).partition("observed 503:")
+    if not separator:
+        return False
+    try:
+        payload = json.loads(body.strip())
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("detail") == "context manager database unavailable"
     )
 
 

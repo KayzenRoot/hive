@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -26,6 +27,39 @@ class Step:
 
 def executable(name: str) -> str:
     return shutil.which(name) or name
+
+
+def repository_identity() -> dict[str, object] | None:
+    """Fingerprint the exact tracked source tested by this validation run."""
+
+    try:
+        head = (
+            subprocess.run(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode("utf-8")
+            .strip()
+        )
+        diff = subprocess.run(
+            ["git", "-C", str(ROOT), "diff", "--binary", "HEAD"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        untracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard", "-z"],
+            capture_output=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
+        return None
+    untracked_count = len([path for path in untracked.split(b"\0") if path])
+    return {
+        "head_sha": head,
+        "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
+        "untracked_file_count": untracked_count,
+    }
 
 
 def command_steps() -> list[Step]:
@@ -174,6 +208,7 @@ def main() -> int:
         "--only", choices=["all", "tests", "lint", "build", "docker"], default="all"
     )
     args = parser.parse_args()
+    candidate_before = repository_identity()
     VALIDATION.mkdir(parents=True, exist_ok=True)
     buckets: dict[str, list[str]] = {"tests": [], "lint": [], "build": [], "docker": []}
     failures: list[str] = []
@@ -208,6 +243,16 @@ def main() -> int:
     )
     summary = "PASS" if not failures else "FAIL: " + ", ".join(failures)
     (VALIDATION / "summary.txt").write_text(summary + "\n", encoding="utf-8")
+    candidate_after = repository_identity()
+    candidate_stable = (
+        candidate_before is not None
+        and candidate_after == candidate_before
+        and candidate_before["untracked_file_count"] == 0
+    )
+    junit_path = VALIDATION / "backend-junit.xml"
+    junit_digest = (
+        hashlib.sha256(junit_path.read_bytes()).hexdigest() if junit_path.is_file() else None
+    )
     (VALIDATION / "validation-summary.json").write_text(
         json.dumps(
             {
@@ -217,6 +262,11 @@ def main() -> int:
                 "selected_bucket": args.only,
                 "failed_steps": failures,
                 "steps": step_results,
+                "candidate_identity": {
+                    **(candidate_before or {}),
+                    "stable_during_validation": candidate_stable,
+                    "backend_junit_sha256": junit_digest,
+                },
             },
             indent=2,
             sort_keys=True,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -75,6 +76,69 @@ def test_isolation_requires_wo031_compose_project_name(tmp_path: Path) -> None:
     error = integration_health.isolated_environment_error(environment, repo_root=tmp_path)
     assert error is not None
     assert "COMPOSE_PROJECT_NAME" in error
+
+
+def test_postgres_healthcheck_grace_covers_clean_windows_initialization() -> None:
+    compose = (integration_health.ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    postgres = compose.split("  postgres:\n", maxsplit=1)[1].split("\n  redis:\n", maxsplit=1)[0]
+    healthcheck = postgres.split("    healthcheck:\n", maxsplit=1)[1].split(
+        "\n    networks:", maxsplit=1
+    )[0]
+
+    assert "start_period: 240s" in healthcheck
+
+
+def test_integration_requires_full_validation_for_the_exact_candidate() -> None:
+    identity = {
+        "head_sha": "a" * 40,
+        "tracked_diff_sha256": "b" * 64,
+        "untracked_file_count": 0,
+    }
+    summary = {
+        "status": "PASS",
+        "selected_bucket": "all",
+        "failed_steps": [],
+        "candidate_identity": {**identity, "stable_during_validation": True},
+    }
+
+    assert integration_health.validation_candidate_error(summary, identity) is None
+    assert (
+        integration_health.validation_candidate_error(
+            summary, {**identity, "tracked_diff_sha256": "c" * 64}
+        )
+        is not None
+    )
+    assert (
+        integration_health.validation_candidate_error(
+            summary, {**identity, "untracked_file_count": 1}
+        )
+        is not None
+    )
+
+
+def test_mcp_stage_reuse_requires_fresh_complete_zero_leak_evidence(tmp_path: Path) -> None:
+    evidence = tmp_path / "mcp-surface.json"
+    payload = {
+        "status": "PASS",
+        "mcp_evidence_version": "mcp-core-surface-v1",
+        "protocol_handshake_passed": True,
+        "real_transport_exercised": True,
+        "project_isolation_passed": True,
+        "restart_recovery": True,
+        "redis_loss_recovery": True,
+        "secret_leaks": 0,
+        "filesystem_path_leaks": 0,
+        "mcp_llm_calls": 0,
+        "mcp_provider_calls": 0,
+    }
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert integration_health.reusable_mcp_stage(evidence.stat().st_mtime - 1, evidence) is not None
+    assert integration_health.reusable_mcp_stage(evidence.stat().st_mtime + 1, evidence) is None
+
+    payload["secret_leaks"] = 1
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    assert integration_health.reusable_mcp_stage(evidence.stat().st_mtime - 1, evidence) is None
 
 
 def test_ci_runs_discovery_enabling_e2e_after_manual_fixture_suites() -> None:

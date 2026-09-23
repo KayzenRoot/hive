@@ -18,7 +18,10 @@ from pydantic import BaseModel, Field, field_validator
 from .config import Settings
 from .db import database_connection
 
-GIT_TIMEOUT_SECONDS = 5
+# Git status on a Windows-backed Docker bind mount can take several seconds for
+# a moderate repository. Keep inspection bounded without treating ordinary I/O
+# variance as an inaccessible project.
+GIT_TIMEOUT_SECONDS = 15
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40,64}$")
 REGISTRY_ADVISORY_LOCK = (12002, 1)
 

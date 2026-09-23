@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
+from scripts import autonomous_execution_integration
 from scripts.autonomous_execution_integration import (
     event_linkage_is_explicit,
     execution_run_ids_are_present,
@@ -56,3 +58,39 @@ def test_terminal_event_replay_starts_after_its_immediate_predecessor() -> None:
     ]
 
     assert terminal_replay_after_cursor(events) == "cursor-3"
+
+
+def test_api_call_reports_bounded_error_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    detail = "project physical identity is already registered"
+    monkeypatch.setattr(
+        autonomous_execution_integration,
+        "http_json",
+        lambda *_args, **_kwargs: (409, {"detail": detail}),
+    )
+
+    with pytest.raises(
+        AssertionError,
+        match="detail=project physical identity is already registered",
+    ):
+        autonomous_execution_integration.api_call(
+            "http://127.0.0.1:8000",
+            "POST",
+            "/api/v1/projects",
+            expected_status=201,
+        )
+
+
+def test_register_fixture_reports_conflicting_relative_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def conflict(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError(
+            "expected 201, got 409; detail=project physical identity is already registered"
+        )
+
+    monkeypatch.setattr(autonomous_execution_integration, "api_call", conflict)
+
+    with pytest.raises(AssertionError, match="fixture_relative_path=wo019-c4-123-one"):
+        autonomous_execution_integration.register_fixture(
+            "http://127.0.0.1:8000", "wo019-c4-123-one"
+        )

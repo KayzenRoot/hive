@@ -304,12 +304,23 @@ const DISPLAY_LABELS: Record<string, string> = {
   "retrieval-latency": "Latência de retrieval",
   "service-latency-errors": "Latência e erros dos serviços",
 };
+const PROVENANCE_LABELS: Record<Provenance, string> = {
+  EXACT: "exata",
+  ESTIMATED: "estimada",
+  UNAVAILABLE: "indisponível",
+  UNKNOWN: "desconhecida",
+};
 
 function displayLabel(id: string): string { return DISPLAY_LABELS[id] ?? id.replace(/-/g, " "); }
-function latestNumericValue(chart: Chart | undefined): number | null {
+function latestNumericPoint(chart: Chart | undefined): Chart["points"][number] | null {
   if (!chart) return null;
   const point = [...chart.points].reverse().find((item) => typeof item.value === "number" && Number.isFinite(item.value));
-  return typeof point?.value === "number" ? point.value : null;
+  return point ?? null;
+}
+function pointProvenanceDetail(point: Chart["points"][number] | null): string {
+  return point
+    ? `último ponto · proveniência ${PROVENANCE_LABELS[point.provenance]}`
+    : "sem dados numéricos";
 }
 function formatCompact(value: number | null): string {
   if (value === null) return "—";
@@ -415,9 +426,11 @@ export default function ControlCenterFull({
   const healthySurfaces = currentSnapshot.health.filter((item) => item.status === "AVAILABLE" || item.status === "CLEAR");
   const availableCapabilities = currentSnapshot.capabilities.filter((item) => item.status === "AVAILABLE" || item.status === "CLEAR" || item.status === "ACTIVE");
   const chartById = new Map(currentSnapshot.charts.map((item) => [item.id, item]));
-  const tokenValue = latestNumericValue(chartById.get("tokens-over-time"));
-  const cacheValue = latestNumericValue(chartById.get("cache-hit-rate"));
-  const reductionValue = latestNumericValue(chartById.get("context-reduction"));
+  const tokenPoint = latestNumericPoint(chartById.get("tokens-over-time"));
+  const tokenValue = tokenPoint?.value ?? null;
+  const cachePoint = latestNumericPoint(chartById.get("cache-hit-rate"));
+  const cacheValue = cachePoint?.value ?? null;
+  const reductionPoint = latestNumericPoint(chartById.get("context-reduction"));
 
   return (
     <div className="cc-stack" data-testid="control-center-full">
@@ -445,9 +458,9 @@ export default function ControlCenterFull({
           <OverviewKpi label="Inteligência disponível" value={String(availableCapabilities.length) + "/" + String(FULL_PROJECT_CAPABILITIES.length)} detail="capacidades com evidência" tone={availableCapabilities.length === FULL_PROJECT_CAPABILITIES.length ? "good" : "neutral"} />
           <OverviewKpi label="Saúde da plataforma" value={String(healthySurfaces.length) + "/" + String(FULL_HEALTH.length)} detail="superfícies saudáveis" tone={healthySurfaces.length === FULL_HEALTH.length ? "good" : "warn"} />
           <OverviewKpi label="Alertas ativos" value={String(activeAlerts.length)} detail={String(currentSnapshot.alerts.length) + " regras observadas"} tone={activeAlerts.length === 0 ? "good" : "warn"} />
-          <OverviewKpi label="Tokens" value={formatCompact(tokenValue)} detail="último ponto real" />
-          <OverviewKpi label="Cache hit rate" value={cacheValue === null ? "—" : (cacheValue * 100).toFixed(1) + "%"} detail="último ponto real" tone={cacheValue !== null && cacheValue >= 0.7 ? "good" : "neutral"} />
-          <OverviewKpi label="Redução de contexto" value={reductionValue === null ? "—" : (reductionValue * 100).toFixed(1) + "%"} detail="último ponto real" />
+          <OverviewKpi label="Tokens" value={formatCompact(tokenValue)} detail={pointProvenanceDetail(tokenPoint)} />
+          <OverviewKpi label="Cache hit rate" value={cacheValue === null ? "—" : (cacheValue * 100).toFixed(1) + "%"} detail={pointProvenanceDetail(cachePoint)} tone={cacheValue !== null && cacheValue >= 0.7 ? "good" : "neutral"} />
+          <OverviewKpi label="Redução de contexto" value={formatCompact(reductionPoint?.value ?? null)} detail={reductionPoint ? `tokens reduzidos · proveniência ${PROVENANCE_LABELS[reductionPoint.provenance]}` : "sem dados numéricos"} />
         </div>
       </section>
 

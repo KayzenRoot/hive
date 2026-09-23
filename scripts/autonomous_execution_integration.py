@@ -129,7 +129,14 @@ def api_call(
 ) -> object:
     status, response = http_json(base_url, method, path, payload)
     if status != expected_status:
-        raise AssertionError(f"API {method} {path}: expected {expected_status}, got {status}")
+        detail = response.get("detail") if isinstance(response, dict) else None
+        detail_suffix = ""
+        if isinstance(detail, str):
+            bounded_detail = detail.replace(str(ROOT), "<repo>")[:240]
+            detail_suffix = f"; detail={bounded_detail}"
+        raise AssertionError(
+            f"API {method} {path}: expected {expected_status}, got {status}{detail_suffix}"
+        )
     return response
 
 
@@ -413,13 +420,16 @@ def terminal_replay_after_cursor(events: list[tuple[str, str]]) -> str:
 
 
 def register_fixture(base_url: str, relative_path: str) -> tuple[ProjectResponse, TaskResponse]:
-    project_payload = api_call(
-        base_url,
-        "POST",
-        "/api/v1/projects",
-        payload={"name": "WO-018 autonomous fixture", "relative_path": relative_path},
-        expected_status=201,
-    )
+    try:
+        project_payload = api_call(
+            base_url,
+            "POST",
+            "/api/v1/projects",
+            payload={"name": "WO-018 autonomous fixture", "relative_path": relative_path},
+            expected_status=201,
+        )
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}; fixture_relative_path={relative_path}") from exc
     if not isinstance(project_payload, dict):
         raise AssertionError("registered project response is not an object")
     project = ProjectResponse.model_validate(project_payload)

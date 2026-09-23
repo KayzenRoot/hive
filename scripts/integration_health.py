@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -19,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION_LOG_DIR = ROOT / "tmp" / "integration-logs"
 CLOSURE_EVIDENCE = INTEGRATION_LOG_DIR / "v01-closure-sprint.json"
 HEALTH_EVIDENCE = INTEGRATION_LOG_DIR / "integration-health.json"
+MCP_EVIDENCE = INTEGRATION_LOG_DIR / "mcp-surface.json"
+VALIDATION_SUMMARY = ROOT / "tmp" / "validation" / "validation-summary.json"
 
 
 def isolated_environment_error(
@@ -63,6 +66,80 @@ def isolated_environment_error(
     ):
         return "data and projects roots must be distinct, non-overlapping directories"
     return None
+
+
+def current_candidate_identity(repo_root: Path = ROOT) -> dict[str, object]:
+    def git_bytes(*arguments: str) -> bytes:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *arguments],
+            capture_output=True,
+            check=True,
+        ).stdout
+
+    return {
+        "head_sha": git_bytes("rev-parse", "HEAD").decode("ascii").strip(),
+        "tracked_diff_sha256": hashlib.sha256(git_bytes("diff", "--binary", "HEAD")).hexdigest(),
+        "untracked_file_count": sum(
+            bool(path)
+            for path in git_bytes("ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+        ),
+    }
+
+
+def validation_candidate_error(
+    summary: Mapping[str, Any], current_identity: Mapping[str, object]
+) -> str | None:
+    candidate = summary.get("candidate_identity")
+    if (
+        summary.get("status") != "PASS"
+        or summary.get("selected_bucket") != "all"
+        or summary.get("failed_steps") != []
+        or not isinstance(candidate, dict)
+        or candidate.get("stable_during_validation") is not True
+    ):
+        return "a successful, stable full validation is required for the current candidate"
+    if any(candidate.get(key) != current_identity.get(key) for key in current_identity):
+        return "the current source identity differs from the full-validation candidate"
+    if current_identity.get("untracked_file_count") != 0:
+        return "untracked source files are not covered by the full-validation candidate"
+    return None
+
+
+def reusable_mcp_stage(
+    closure_started_at: float, evidence_path: Path = MCP_EVIDENCE
+) -> dict[str, object] | None:
+    try:
+        if not evidence_path.is_file() or evidence_path.stat().st_mtime < closure_started_at:
+            return None
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    required_true = (
+        "protocol_handshake_passed",
+        "real_transport_exercised",
+        "project_isolation_passed",
+        "restart_recovery",
+        "redis_loss_recovery",
+    )
+    if (
+        payload.get("status") != "PASS"
+        or payload.get("mcp_evidence_version") != "mcp-core-surface-v1"
+        or any(payload.get(key) is not True for key in required_true)
+        or payload.get("secret_leaks") != 0
+        or payload.get("filesystem_path_leaks") != 0
+        or payload.get("mcp_llm_calls") != 0
+        or payload.get("mcp_provider_calls") != 0
+    ):
+        return None
+    return {
+        "name": "MCP read-only core surface",
+        "script": "scripts/mcp_integration.py",
+        "exit_code": 0,
+        "duration_seconds": 0.0,
+        "reused_from_closure_evidence": evidence_path.name,
+    }
 
 
 def fetch(url: str) -> tuple[int, bytes, dict[str, Any] | None]:
@@ -240,6 +317,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[integration] REFUSED: {isolation_error}", file=sys.stderr, flush=True)
         return 2
 
+    try:
+        candidate_identity = current_candidate_identity()
+        validation_summary = json.loads(VALIDATION_SUMMARY.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        print(
+            "[integration] REFUSED: full-validation candidate evidence unavailable "
+            f"({type(exc).__name__})",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
+    identity_error = validation_candidate_error(validation_summary, candidate_identity)
+    if identity_error:
+        print(f"[integration] REFUSED: {identity_error}", file=sys.stderr, flush=True)
+        return 2
+
     api_port = os.environ.get("HIVE_API_PORT", "8000")
     dashboard_port = os.environ.get("HIVE_DASHBOARD_PORT", "3000")
     health_url = f"http://127.0.0.1:{api_port}/api/v1/health"
@@ -275,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
                         closure_started_at = time.time()
                     if label == "Automatic project discovery":
                         activation = enable_isolated_auto_discovery()
+                        activation["candidate_identity"] = candidate_identity
                         results.append(activation)
                         if activation["exit_code"] != 0:
                             evidence = {
@@ -296,7 +390,26 @@ def main(argv: list[str] | None = None) -> int:
                                 flush=True,
                             )
                             return 1
-                    result = run_integration_script(label, path)
+                    if (
+                        label == "MCP read-only core surface"
+                        and closure_started_at is not None
+                        and results
+                        and results[-1].get("name") == "V0.1 closure sprint"
+                        and results[-1].get("exit_code") == 0
+                    ):
+                        reused = reusable_mcp_stage(closure_started_at)
+                        if reused is not None:
+                            result = reused
+                            print(
+                                "[integration] REUSE MCP read-only core surface · "
+                                "fresh PASS from this closure run",
+                                flush=True,
+                            )
+                        else:
+                            result = run_integration_script(label, path)
+                    else:
+                        result = run_integration_script(label, path)
+                    result["candidate_identity"] = candidate_identity
                     results.append(result)
                     if result["exit_code"] != 0:
                         evidence = {
@@ -305,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                             "started_at": started_wall,
                             "duration_seconds": round(time.monotonic() - started, 3),
                             "failed_stage": label,
+                            "candidate_identity": candidate_identity,
                             "stages": results,
                         }
                         INTEGRATION_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -319,6 +433,29 @@ def main(argv: list[str] | None = None) -> int:
                         return 1
                 if closure_started_at is None:
                     raise ValueError("closure sprint stage did not run")
+                final_candidate_identity = current_candidate_identity()
+                if final_candidate_identity != candidate_identity:
+                    evidence = {
+                        "schema_version": 1,
+                        "status": "FAIL",
+                        "started_at": started_wall,
+                        "duration_seconds": round(time.monotonic() - started, 3),
+                        "failed_stage": "candidate identity changed during integration",
+                        "candidate_identity": candidate_identity,
+                        "final_candidate_identity": final_candidate_identity,
+                        "stages": results,
+                    }
+                    INTEGRATION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+                    HEALTH_EVIDENCE.write_text(
+                        json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    print(
+                        "Integration health failed: candidate source changed during the run.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    return 1
                 try:
                     closure = read_closure_evidence(closure_started_at)
                 except ValueError as exc:
@@ -329,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
                         "duration_seconds": round(time.monotonic() - started, 3),
                         "failed_stage": "V0.1 closure evidence",
                         "failure_type": type(exc).__name__,
+                        "candidate_identity": candidate_identity,
                         "stages": results,
                     }
                     INTEGRATION_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -348,6 +486,7 @@ def main(argv: list[str] | None = None) -> int:
                     "duration_seconds": round(time.monotonic() - started, 3),
                     "api_health": "PASS",
                     "dashboard_health": "PASS",
+                    "candidate_identity": candidate_identity,
                     "stages": results,
                     "legacy_v01_closure": closure,
                 }
