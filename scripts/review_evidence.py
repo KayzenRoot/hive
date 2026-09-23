@@ -2382,6 +2382,8 @@ WO030_ALLOWED_PATHS = frozenset(
 WO030_C1_WORK_ORDER = "WO-030-C1"
 WO031_WORK_ORDER = "WO-031"
 WO031_BASE_SHA = "8db3d244a679898f0e08d1898bc87e6a6a89326e"
+# The bounded corrective surface includes the product and regression coverage for both
+# backend and dashboard behavior, affected integration harnesses, and CI fixture ordering.
 WO031_ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/ci.yml",
@@ -2399,6 +2401,8 @@ WO031_ALLOWED_PATHS = frozenset(
         "backend/app/task_intake.py",
         "backend/tests/conftest.py",
         "backend/tests/test_auto_discovery_integration.py",
+        "backend/tests/test_autonomous_execution_integration.py",
+        "backend/tests/test_comprehensive_benchmarks.py",
         "backend/tests/test_config.py",
         "backend/tests/test_context_manager.py",
         "backend/tests/test_check_secrets.py",
@@ -2408,6 +2412,7 @@ WO031_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "backend/tests/test_project_discovery.py",
         "backend/tests/test_v01_closure_sprint.py",
+        "dashboard/src/ControlCenter.test.tsx",
         "dashboard/src/ControlCenterFull.test.tsx",
         "dashboard/src/ControlCenter.tsx",
         "dashboard/src/ControlCenterFull.tsx",
@@ -2423,8 +2428,11 @@ WO031_ALLOWED_PATHS = frozenset(
         "docs/INSTALLATION.md",
         "schemas/review-evidence-v1.schema.json",
         "scripts/auto_discovery_integration.py",
+        "scripts/autonomous_execution_integration.py",
+        "scripts/comprehensive_benchmarks.py",
         "scripts/control_center_integration.py",
         "scripts/context_manager_integration.py",
+        "scripts/generate_maps.py",
         "scripts/hive_install.py",
         "scripts/integration_health.py",
         "scripts/mcp_integration.py",
@@ -12240,7 +12248,7 @@ def require_wo031_scope(
     enforce_current_main: bool = False,
     enforce_authorized_base: bool = True,
 ) -> None:
-    """Bound the Control Center responsive dashboard refresh to its audited surface."""
+    """Bound the WO-031 installation, telemetry, discovery and dashboard correction."""
 
     if work_order != WO031_WORK_ORDER:
         return
@@ -12258,9 +12266,7 @@ def require_wo031_scope(
                 f"authorized base is {WO031_BASE_SHA}"
             )
     if set(paths) != WO031_ALLOWED_PATHS or len(paths) != len(WO031_ALLOWED_PATHS):
-        raise ValueError(
-            f"{WO031_WORK_ORDER} requires exactly the bounded Control Center refresh surface"
-        )
+        raise ValueError(f"{WO031_WORK_ORDER} requires exactly the bounded corrective surface")
     if enforce_authorized_base and authorized_base_sha != base_sha:
         raise ValueError(
             f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA"

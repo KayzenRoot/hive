@@ -864,6 +864,7 @@ def _emit_index_event(
             project_id,
             "project.indexing",
             {"component": "repository_index", "run_id": str(run_id), **payload},
+            run_id=run_id,
             provenance={"producer": "repository_indexer", "deterministic": True},
             emission_key=f"repository-index:{run_id}:{phase}",
         )

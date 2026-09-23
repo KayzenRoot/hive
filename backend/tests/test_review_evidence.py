@@ -14085,7 +14085,7 @@ def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
         )
 
 
-def test_wo031_control_center_scope_is_exact_and_base_bound() -> None:
+def test_wo031_corrective_scope_is_exact_and_base_bound() -> None:
     paths = sorted(review_evidence.WO031_ALLOWED_PATHS)
     review_evidence.require_wo031_scope(
         review_evidence.WO031_WORK_ORDER,
@@ -14096,7 +14096,7 @@ def test_wo031_control_center_scope_is_exact_and_base_bound() -> None:
         enforce_current_main=False,
     )
 
-    with pytest.raises(ValueError, match="exactly the bounded Control Center"):
+    with pytest.raises(ValueError, match="exactly the bounded corrective surface"):
         review_evidence.require_wo031_scope(
             review_evidence.WO031_WORK_ORDER,
             review_evidence.WO031_BASE_SHA,

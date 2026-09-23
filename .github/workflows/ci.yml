@@ -67,11 +67,6 @@ jobs:
         run: mkdir -p "$HIVE_DATA_ROOT" "$HIVE_PROJECTS_ROOT"
       - name: Start HIVE services
         run: docker compose up -d --build
-      - name: Run container smoke test
-        run: |
-          set -o pipefail
-          mkdir -p tmp/integration-logs
-          python scripts/integration_health.py 2>&1 | tee tmp/integration-logs/integration-health.log
       - name: Run Project Registry real-Git integration test
         run: |
           set -o pipefail
@@ -109,6 +104,13 @@ jobs:
           python scripts/autonomous_execution_integration.py 2>&1 | tee tmp/integration-logs/autonomous-execution.log
       - name: Run Adaptive Token Budget benchmark
         run: python scripts/adaptive_token_budget_benchmark.py --output tmp/integration-logs/adaptive-token-budget-benchmark.json
+      # integration_health.py enables automatic discovery for its final E2E. Run it
+      # after manual-registration fixture suites so discovery cannot race their POSTs.
+      - name: Run container smoke test
+        run: |
+          set -o pipefail
+          mkdir -p tmp/integration-logs
+          python scripts/integration_health.py 2>&1 | tee tmp/integration-logs/integration-health.log
       - name: Collect bounded service logs
         if: always()
         run: python scripts/capture_service_logs.py --output tmp/integration-logs/service-logs.log

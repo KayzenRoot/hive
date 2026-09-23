@@ -75,3 +75,23 @@ def test_isolation_requires_wo031_compose_project_name(tmp_path: Path) -> None:
     error = integration_health.isolated_environment_error(environment, repo_root=tmp_path)
     assert error is not None
     assert "COMPOSE_PROJECT_NAME" in error
+
+
+def test_ci_runs_discovery_enabling_e2e_after_manual_fixture_suites() -> None:
+    workflow = (integration_health.ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    discovery_enabling_e2e = workflow.index("- name: Run container smoke test")
+    manual_fixture_suites = (
+        "- name: Run Project Registry real-Git integration test",
+        "- name: Run Repository Indexing real-Git integration test",
+        "- name: Run Task Intake and CAS integration test",
+        "- name: Run Retrieval Corpus, Semantic, and Hybrid integration test",
+        "- name: Run Context Manager integration test",
+        "- name: Run Memory Lifecycle integration test",
+        "- name: Run WO-018 autonomous execution integration test",
+        "- name: Run Adaptive Token Budget benchmark",
+    )
+
+    assert all(workflow.index(step) < discovery_enabling_e2e for step in manual_fixture_suites)
+    assert discovery_enabling_e2e < workflow.index("- name: Collect bounded service logs")
