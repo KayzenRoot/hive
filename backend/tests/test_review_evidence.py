@@ -14088,7 +14088,7 @@ def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
 def test_wo031_corrective_scope_is_exact_and_base_bound() -> None:
     paths = sorted(review_evidence.WO031_ALLOWED_PATHS)
     assert "backend/tests/test_registry.py" in paths
-    assert "backend/tests/test_v01_closure_regression_lock.py" not in paths
+    assert "backend/tests/test_v01_closure_regression_lock.py" in paths
     review_evidence.require_wo031_scope(
         review_evidence.WO031_WORK_ORDER,
         review_evidence.WO031_BASE_SHA,

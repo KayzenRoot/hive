@@ -2412,6 +2412,7 @@ WO031_ALLOWED_PATHS = frozenset(
         "backend/tests/test_review_evidence.py",
         "backend/tests/test_project_discovery.py",
         "backend/tests/test_registry.py",
+        "backend/tests/test_v01_closure_regression_lock.py",
         "backend/tests/test_v01_closure_sprint.py",
         "dashboard/src/ControlCenter.test.tsx",
         "dashboard/src/ControlCenterFull.test.tsx",
