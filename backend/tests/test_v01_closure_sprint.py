@@ -138,6 +138,63 @@ def test_integration_suite_verifier_requires_every_run_to_pass() -> None:
         closure.INTEGRATION_RUN_RESULTS = original
 
 
+def test_repository_test_environment_removes_all_inherited_hive_and_compose_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIVE_UNRELATED_SETTING", "must-not-leak")
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "unrelated-project")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "unrelated-password")
+
+    environment = closure._repository_test_environment()
+
+    assert not any(name.startswith("HIVE_") for name in environment)
+    assert not any(name.startswith("COMPOSE_") for name in environment)
+    assert not any(name.startswith("POSTGRES_") for name in environment)
+
+
+def test_integration_test_environment_binds_only_explicit_wo031_compose_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "wo031-data"
+    projects_root = tmp_path / "wo031-projects"
+    monkeypatch.setenv("HIVE_WO031_ISOLATED_E2E", "true")
+    monkeypatch.setenv("HIVE_DATA_ROOT", str(data_root))
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", str(projects_root))
+    monkeypatch.setenv("HIVE_API_PORT", "18031")
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "hive-wo031-isolated-test")
+    monkeypatch.setenv("HIVE_UNRELATED_SETTING", "must-not-leak")
+
+    environment = closure._integration_test_environment()
+
+    assert environment["HIVE_DATA_ROOT"] == str(data_root)
+    assert environment["HIVE_PROJECTS_ROOT"] == str(projects_root)
+    assert environment["HIVE_API_PORT"] == "18031"
+    assert environment["COMPOSE_PROJECT_NAME"] == "hive-wo031-isolated-test"
+    assert environment["HIVE_AUTO_DISCOVERY_ENABLED"] == "false"
+    assert environment["HIVE_WO031_ISOLATED_E2E"] == "true"
+    assert "HIVE_UNRELATED_SETTING" not in environment
+    assert {name for name in environment if name.startswith("HIVE_")} == {
+        "HIVE_DATA_ROOT",
+        "HIVE_PROJECTS_ROOT",
+        "HIVE_API_PORT",
+        "HIVE_AUTO_DISCOVERY_ENABLED",
+        "HIVE_WO031_ISOLATED_E2E",
+    }
+
+
+def test_integration_test_environment_fails_closed_without_isolation_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("HIVE_WO031_ISOLATED_E2E", raising=False)
+    monkeypatch.setenv("HIVE_DATA_ROOT", str(tmp_path / "wo031-data"))
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", str(tmp_path / "wo031-projects"))
+
+    with pytest.raises(RuntimeError, match="explicit isolated roots and marker"):
+        closure._integration_test_environment()
+
+
 def test_document_needles_are_case_insensitive() -> None:
     assert (
         closure.document_contains("docs/project-brain/12-LOCAL-DEPLOYMENT.md", ("DOCKER COMPOSE",))[

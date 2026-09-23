@@ -86,6 +86,8 @@ type FullResponse = {
 export type ControlCenterFullProps = {
   selectedProjectId: string;
   refreshSignal?: number;
+  streamStatus?: "LIVE" | "RECONNECTING" | "STALE";
+  lastObservedAt?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -346,6 +348,8 @@ function ChartCard({ chart }: { chart: Chart }) {
 export default function ControlCenterFull({
   selectedProjectId,
   refreshSignal = 0,
+  streamStatus = "STALE",
+  lastObservedAt = null,
 }: ControlCenterFullProps) {
   const [snapshot, setSnapshot] = useState<FullResponse | null>(null);
   const [failure, setFailure] = useState<{ projectId: string; message: string } | null>(null);
@@ -429,9 +433,13 @@ export default function ControlCenterFull({
           <div>
             <span className="cc-overview-kicker">VISÃO OPERACIONAL</span>
             <h2>{currentSnapshot.project.name}</h2>
-            <p>Telemetria real e limitada ao projeto, atualizada pelo fluxo vivo do Control Center.</p>
+            <p>Telemetria real e limitada ao projeto. Estado do fluxo: {streamStatus}.
+              {lastObservedAt ? " Último evento/replay observado: " + formatDateTime(lastObservedAt) + "." : " Ainda não há observação confirmada nesta sessão."}
+            </p>
           </div>
-          <div className="cc-live-indicator" aria-label="Live project telemetry"><span className="cc-live-dot" />LIVE</div>
+          <div className={"cc-live-indicator cc-stream-" + streamStatus.toLowerCase()} role="status" aria-live="polite" aria-label={"Project telemetry " + streamStatus}>
+            <span className="cc-live-dot" />{streamStatus}
+          </div>
         </div>
         <div className="cc-kpi-grid">
           <OverviewKpi label="Inteligência disponível" value={String(availableCapabilities.length) + "/" + String(FULL_PROJECT_CAPABILITIES.length)} detail="capacidades com evidência" tone={availableCapabilities.length === FULL_PROJECT_CAPABILITIES.length ? "good" : "neutral"} />

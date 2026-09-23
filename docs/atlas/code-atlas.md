@@ -24,6 +24,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/app/mcp_server.py: Python source or test module.
 - backend/app/memory.py: Python source or test module.
 - backend/app/progressive_disclosure.py: Python source or test module.
+- backend/app/project_discovery.py: Python source or test module.
 - backend/app/provider_prompt_cache.py: Python source or test module.
 - backend/app/registry.py: Python source or test module.
 - backend/app/repository_indexer.py: Python source or test module.
@@ -37,6 +38,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/__init__.py: Python source or test module.
 - backend/tests/conftest.py: Python source or test module.
 - backend/tests/test_adaptive_token_budget.py: Python source or test module.
+- backend/tests/test_auto_discovery_integration.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
 - backend/tests/test_comprehensive_benchmarks.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
@@ -52,10 +54,12 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_executor_provider.py: Python source or test module.
 - backend/tests/test_finalize_release_receipt.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
+- backend/tests/test_hive_install.py: Python source or test module.
 - backend/tests/test_mcp_server.py: Python source or test module.
 - backend/tests/test_memory.py: Python source or test module.
 - backend/tests/test_prepare_release.py: Python source or test module.
 - backend/tests/test_progressive_disclosure.py: Python source or test module.
+- backend/tests/test_project_discovery.py: Python source or test module.
 - backend/tests/test_projects_api.py: Python source or test module.
 - backend/tests/test_provider_prompt_cache.py: Python source or test module.
 - backend/tests/test_registry.py: Python source or test module.
@@ -84,6 +88,8 @@ Generated deterministically by scripts/generate_maps.py.
 - dashboard/src/ControlCenterFull.tsx: TypeScript/React source or test module.
 - dashboard/src/ControlCenterMetrics.test.tsx: TypeScript/React source or test module.
 - dashboard/src/ControlCenterMetrics.tsx: TypeScript/React source or test module.
+- dashboard/src/DashboardRoot.test.tsx: TypeScript/React source or test module.
+- dashboard/src/DashboardRoot.tsx: TypeScript/React source or test module.
 - dashboard/src/config.ts: TypeScript/React source or test module.
 - dashboard/src/controlCenterFullContract.ts: TypeScript/React source or test module.
 - dashboard/src/eventVocabulary.ts: TypeScript/React source or test module.
@@ -109,6 +115,7 @@ Generated deterministically by scripts/generate_maps.py.
 ## Operational scripts
 
 - scripts/adaptive_token_budget_benchmark.py: deterministic maintenance or validation script.
+- scripts/auto_discovery_integration.py: deterministic maintenance or validation script.
 - scripts/autonomous_execution_integration.py: deterministic maintenance or validation script.
 - scripts/capture_service_logs.py: deterministic maintenance or validation script.
 - scripts/check_secrets.py: deterministic maintenance or validation script.
@@ -120,6 +127,7 @@ Generated deterministically by scripts/generate_maps.py.
 - scripts/embedding_fixture.py: deterministic maintenance or validation script.
 - scripts/finalize_release_receipt.py: deterministic maintenance or validation script.
 - scripts/generate_maps.py: deterministic maintenance or validation script.
+- scripts/hive_install.py: deterministic maintenance or validation script.
 - scripts/integration_health.py: deterministic maintenance or validation script.
 - scripts/mcp_integration.py: deterministic maintenance or validation script.
 - scripts/memory_c2_stability.py: deterministic maintenance or validation script.

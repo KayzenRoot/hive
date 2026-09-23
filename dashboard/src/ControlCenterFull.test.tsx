@@ -82,6 +82,23 @@ describe("ControlCenterFull", () => {
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(0);
   });
 
+  it("reports reconnecting status and the last observed replay time truthfully", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot }));
+
+    render(
+      <ControlCenterFull
+        selectedProjectId="project-a"
+        streamStatus="RECONNECTING"
+        lastObservedAt="2026-09-21T12:00:00Z"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
+    expect(screen.getByRole("status", { name: "Project telemetry RECONNECTING" })).toBeInTheDocument();
+    expect(screen.getByText(/Último evento\/replay observado/)).toBeInTheDocument();
+    expect(screen.queryByText("LIVE", { exact: true })).toBeNull();
+  });
+
   it("renders real chart geometry and bounded project records", async () => {
     const actualSnapshot = {
       ...snapshot,

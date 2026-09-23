@@ -226,9 +226,21 @@ def test_execution_emits_started_and_terminal_telemetry(tmp_path: Path) -> None:
     )
 
     assert result.status == "STAGED"
-    assert [event[0] for event in events] == ["executor.started", "run.completed"]
+    assert [event[0] for event in events] == [
+        "executor.started",
+        "tool.called",
+        "test.started",
+        "test.finished",
+        "validation.passed",
+        "file.changed",
+        "run.completed",
+    ]
     assert all(event[2]["task_id"] == TASK_ID for event in events)
-    assert events[0][2]["run_id"] == events[1][2]["run_id"]
+    assert len({event[2]["run_id"] for event in events}) == 1
+    assert events[1][1]["succeeded"] is True
+    assert events[3][1]["passed"] is True
+    assert events[4][1]["passed"] is True
+    assert events[5][1] == {"file_count": 1}
 
 
 def test_terminal_telemetry_publishes_exact_provider_usage(tmp_path: Path) -> None:

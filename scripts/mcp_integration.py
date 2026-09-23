@@ -1012,7 +1012,7 @@ def main() -> int:
     EVIDENCE_PATH.unlink(missing_ok=True)
     api_port = free_port()
     dashboard_port = free_port()
-    project_name = f"hive-mcp-{os.getpid()}"
+    project_name = f"hive-mcp-{os.getpid()}-{uuid4().hex[:8]}"
     secret_sentinel = f"mcp-secret-sentinel-{os.getpid()}-{uuid4().hex}"
     temporary_parent = ROOT / "tmp"
     temporary_parent.mkdir(parents=True, exist_ok=True)

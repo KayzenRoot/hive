@@ -623,15 +623,53 @@ def verifier_count() -> int:
 
 
 def _repository_test_environment() -> dict[str, str]:
-    """Keep host-side repository tests independent from Compose fixture roots."""
+    """Keep host-side repository tests independent from inherited HIVE/Compose config."""
 
-    quality_env = os.environ.copy()
-    quality_env.pop("HIVE_DATA_ROOT", None)
-    quality_env.pop("HIVE_PROJECTS_ROOT", None)
-    quality_env.pop("HIVE_API_PORT", None)
-    quality_env.pop("HIVE_DASHBOARD_PORT", None)
-    quality_env.pop("COMPOSE_PROJECT_NAME", None)
-    return quality_env
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("HIVE_", "COMPOSE_", "POSTGRES_"))
+    }
+
+
+def _integration_test_environment() -> dict[str, str]:
+    """Bind Docker integrations to explicit WO-031 roots and their active Compose project."""
+
+    marker = os.environ.get("HIVE_WO031_ISOLATED_E2E", "").strip().casefold()
+    raw_data_root = os.environ.get("HIVE_DATA_ROOT", "").strip()
+    raw_projects_root = os.environ.get("HIVE_PROJECTS_ROOT", "").strip()
+    if marker not in {"1", "true", "yes", "on"} or not raw_data_root or not raw_projects_root:
+        raise RuntimeError("WO-031 integrations require explicit isolated roots and marker")
+
+    data_root = Path(raw_data_root).expanduser().resolve()
+    projects_root = Path(raw_projects_root).expanduser().resolve()
+    if (
+        "wo031" not in str(data_root).casefold()
+        or "wo031" not in str(projects_root).casefold()
+        or data_root == projects_root
+        or data_root in projects_root.parents
+        or projects_root in data_root.parents
+    ):
+        raise RuntimeError("WO-031 integration roots are not distinct isolated roots")
+
+    environment = _repository_test_environment()
+    approved_names = (
+        "HIVE_DATA_ROOT",
+        "HIVE_PROJECTS_ROOT",
+        "HIVE_API_PORT",
+        "HIVE_DASHBOARD_PORT",
+        "COMPOSE_PROJECT_NAME",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+    )
+    for name in approved_names:
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    environment["HIVE_WO031_ISOLATED_E2E"] = "true"
+    environment["HIVE_AUTO_DISCOVERY_ENABLED"] = "false"
+    return environment
 
 
 def _run_command(command: list[str], *, timeout: int = 3600) -> dict[str, object]:
@@ -795,6 +833,60 @@ def _container_id(service: str) -> str:
     return output.splitlines()[0].strip() if output else ""
 
 
+def _wait_for_postgres_query(
+    compose_arguments: list[str],
+    user: str,
+    database: str,
+    attempts: int,
+    label: str,
+) -> int:
+    """Wait for the configured database itself to accept a real SQL query."""
+
+    command = [
+        "docker",
+        "compose",
+        *compose_arguments,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-U",
+        user,
+        "-d",
+        database,
+        "-Atqc",
+        "SELECT 1",
+    ]
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip() == "1":
+            print(
+                f"[wo031] {label}: PostgreSQL SELECT 1 succeeded on probe {attempt}/{attempts}",
+                flush=True,
+            )
+            return attempt
+        if attempt == 1 or attempt % 10 == 0:
+            print(
+                f"[wo031] {label}: PostgreSQL database not ready; "
+                f"probe {attempt}/{attempts} failed",
+                flush=True,
+            )
+        if attempt < attempts:
+            time.sleep(2)
+    raise AssertionError(f"{label}: PostgreSQL SELECT 1 did not succeed after {attempts} probes")
+
+
 def _secondary_root_proof() -> dict[str, object]:
     """Run an isolated Compose deployment on a host root outside the repository.
 
@@ -827,34 +919,7 @@ def _secondary_root_proof() -> dict[str, object]:
     user = os.environ.get("POSTGRES_USER", "hive")
     database = os.environ.get("POSTGRES_DB", "hive")
     compose(*base, "up", "-d", "postgres", check=False)
-    for _ in range(90):
-        ready = subprocess.run(
-            [
-                "docker",
-                "compose",
-                *base,
-                "exec",
-                "-T",
-                "postgres",
-                "pg_isready",
-                "-U",
-                user,
-                "-d",
-                database,
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=60,
-        )
-        if ready.returncode == 0:
-            break
-        time.sleep(2)
-    else:
-        raise AssertionError("isolated secondary-root PostgreSQL did not become ready")
+    _wait_for_postgres_query(base, user, database, 90, "secondary-root initial startup")
     inserts = (
         "CREATE TABLE IF NOT EXISTS secondary_root_probe "
         "(probe_id serial primary key, note text not null);"
@@ -891,32 +956,7 @@ def _secondary_root_proof() -> dict[str, object]:
     require(rows_before.isdigit() and int(rows_before) > 0, "secondary root state was not created")
     compose(*base, "rm", "-sf", "postgres", check=False)
     compose(*base, "up", "-d", "postgres", check=False)
-    for _ in range(90):
-        ready = subprocess.run(
-            [
-                "docker",
-                "compose",
-                *base,
-                "exec",
-                "-T",
-                "postgres",
-                "pg_isready",
-                "-U",
-                user,
-                "-d",
-                database,
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=60,
-        )
-        if ready.returncode == 0:
-            break
-        time.sleep(2)
+    _wait_for_postgres_query(base, user, database, 90, "secondary-root recreated container")
     rows_after = compose(
         *base,
         "exec",
@@ -941,7 +981,7 @@ def _secondary_root_proof() -> dict[str, object]:
         check=False,
         timeout=120,
     ).stdout
-    compose(*base, "down", "-v", check=False)
+    compose(*base, "down", "--remove-orphans", check=False)
     require(
         isolated_root.name in inspect.replace(chr(92), "/"),
         "the isolated host root was not mounted into the PostgreSQL container",
@@ -962,23 +1002,15 @@ def _secondary_root_proof() -> dict[str, object]:
 
 
 def _wait_for_postgres(attempts: int = 60) -> None:
-    """Wait until postgres accepts connections before the api is restarted."""
+    """Wait until the configured durable database accepts SQL before API restart."""
 
-    for _ in range(attempts):
-        result = subprocess.run(
-            ["docker", "compose", "exec", "-T", "postgres", "pg_isready", "-U", "hive"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=60,
-        )
-        if result.returncode == 0:
-            return
-        time.sleep(2)
-    raise AssertionError("postgres did not become ready")
+    _wait_for_postgres_query(
+        [],
+        os.environ.get("POSTGRES_USER", "hive"),
+        os.environ.get("POSTGRES_DB", "hive"),
+        attempts,
+        "deployment PostgreSQL",
+    )
 
 
 def deployment_family(probe: ApiProbe) -> dict[str, object]:
@@ -2104,7 +2136,7 @@ def main() -> int:
             result = subprocess.run(
                 [sys.executable, script],
                 cwd=ROOT,
-                env=_repository_test_environment(),
+                env=_integration_test_environment(),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

@@ -2384,11 +2384,50 @@ WO031_WORK_ORDER = "WO-031"
 WO031_BASE_SHA = "8db3d244a679898f0e08d1898bc87e6a6a89326e"
 WO031_ALLOWED_PATHS = frozenset(
     {
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-publisher.yml",
+        ".github/workflows/release.yml",
+        "backend/app/config.py",
+        "backend/app/context_manager.py",
+        "backend/app/execution_orchestrator.py",
+        "backend/app/main.py",
+        "backend/app/project_discovery.py",
+        "backend/app/registry.py",
+        "backend/app/repository_indexer.py",
+        "backend/app/retrieval.py",
+        "backend/app/task_intake.py",
+        "backend/tests/conftest.py",
+        "backend/tests/test_auto_discovery_integration.py",
+        "backend/tests/test_config.py",
+        "backend/tests/test_context_manager.py",
+        "backend/tests/test_execution_orchestrator.py",
+        "backend/tests/test_hive_install.py",
         "backend/tests/test_review_evidence.py",
+        "backend/tests/test_project_discovery.py",
+        "backend/tests/test_v01_closure_sprint.py",
         "dashboard/src/ControlCenterFull.test.tsx",
+        "dashboard/src/ControlCenter.tsx",
         "dashboard/src/ControlCenterFull.tsx",
+        "dashboard/src/ControlCenterMetrics.test.tsx",
+        "dashboard/src/ControlCenterMetrics.tsx",
+        "dashboard/src/DashboardRoot.test.tsx",
+        "dashboard/src/DashboardRoot.tsx",
+        "dashboard/src/main.tsx",
         "dashboard/src/styles.css",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "docker-compose.yml",
+        "docs/INSTALLATION.md",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/auto_discovery_integration.py",
+        "scripts/control_center_integration.py",
+        "scripts/context_manager_integration.py",
+        "scripts/hive_install.py",
+        "scripts/integration_health.py",
+        "scripts/mcp_integration.py",
         "scripts/review_evidence.py",
+        "scripts/validate.py",
+        "scripts/v01_closure_sprint.py",
     }
 )
 WO030_C1_BASE_SHA = "a753d0cff1b23dafcdacbdecfb3ccdf5b91e6d3b"
@@ -18479,6 +18518,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         "schema_version": 1,
         "work_order": work_order,
         "repository": repository,
+        "authorized_base_sha": authorized_base_sha,
         "pull_request": {"number": pr_number, "is_draft": draft},
         "base": {"branch": args.base_branch, "sha": base_sha},
         "head": {
@@ -18806,7 +18846,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         "review_state",
         "negative_scope",
     }
-    if set(manifest) != required or manifest["schema_version"] != 1:
+    manifest_fields = frozenset(manifest)
+    if (
+        manifest_fields not in {frozenset(required), frozenset(required | {"authorized_base_sha"})}
+        or manifest["schema_version"] != 1
+    ):
         raise ValueError("manifest does not match the required top-level schema")
     work_order = cast(str, manifest["work_order"])
     require_supported_work_order(work_order)

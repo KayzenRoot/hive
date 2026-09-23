@@ -1115,6 +1115,18 @@ button:disabled {
   letter-spacing: 0.1em;
 }
 
+.cc-live-indicator.cc-stream-reconnecting {
+  color: #f2c879;
+  border-color: rgba(242, 200, 121, 0.38);
+  background: rgba(242, 200, 121, 0.08);
+}
+
+.cc-live-indicator.cc-stream-stale {
+  color: #f29b9b;
+  border-color: rgba(242, 155, 155, 0.38);
+  background: rgba(242, 155, 155, 0.08);
+}
+
 .cc-live-dot {
   width: 7px;
   height: 7px;

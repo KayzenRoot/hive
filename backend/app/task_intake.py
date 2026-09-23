@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import psycopg
 import pypdf
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
@@ -22,10 +24,12 @@ from .cas import (
 )
 from .config import Settings
 from .db import database_connection
+from .telemetry import emit_event
 
 MAX_TITLE_LENGTH = 200
 MAX_FILENAME_LENGTH = 1024
 NEWLINE_CONFIG = {"encoding": "utf-8-sig", "newline": "LF", "version": "1"}
+logger = logging.getLogger(__name__)
 
 
 class IntakeValidationError(ValueError):
@@ -548,7 +552,26 @@ def create_task(
         row = cursor.fetchone()
     if row is None:
         raise RuntimeError("task creation returned no record")
-    return _task_from_row(row)
+    task = _task_from_row(row)
+    try:
+        emit_event(
+            settings,
+            project_id,
+            "task.ingested",
+            {
+                "source_type": task.source_type,
+                "intake_status": task.intake_status,
+                "logical_size_bytes": task.logical_size,
+                "compressed_size_bytes": task.compressed_size,
+                "extracted_text_available": task.extracted_text_available,
+            },
+            task_id=task.task_id,
+            provenance={"producer": "task_intake", "deterministic": True},
+            emission_key=f"task-ingested:{task.task_id}",
+        )
+    except (psycopg.Error, ValueError, RuntimeError) as exc:
+        logger.warning("task intake telemetry unavailable (%s)", type(exc).__name__)
+    return task
 
 
 def list_tasks(settings: Settings, project_id: UUID, limit: int = 100) -> list[TaskResponse]:

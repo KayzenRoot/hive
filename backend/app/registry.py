@@ -105,7 +105,8 @@ def normalize_project_path(relative_path: str, settings: Settings) -> tuple[str,
 
     try:
         allowed_root = settings.resolved_projects_root
-        resolved_path = (allowed_root / Path(*parts)).resolve(strict=False)
+        unresolved_path = allowed_root.joinpath(*parts)
+        resolved_path = unresolved_path.resolve(strict=False)
     except (OSError, RuntimeError) as exc:
         raise ProjectPathError(
             "project path could not be resolved",
@@ -197,6 +198,8 @@ def _run_git(
         "git",
         "-c",
         f"safe.directory={project_path}",
+        "-c",
+        "core.autocrlf=input",
         "-C",
         str(project_path),
         *arguments,

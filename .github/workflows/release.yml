@@ -57,12 +57,34 @@ jobs:
         run: python scripts/verify_release_metadata.py
       - name: Run deterministic validation
         run: python scripts/validate.py
+      - name: Prepare isolated Compose roots
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
+        run: mkdir -p "$HIVE_DATA_ROOT" "$HIVE_PROJECTS_ROOT"
       - name: Start services for release smoke test
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
+          HIVE_AUTO_DISCOVERY_ENABLED: "false"
+          HIVE_AUTO_DISCOVERY_INTERVAL_SECONDS: "10"
+          HIVE_AUTO_DISCOVERY_MAX_PROJECTS: "20"
+          HIVE_WO031_ISOLATED_E2E: "true"
         run: docker compose up -d --build
       - name: Run integration smoke test
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
+          HIVE_AUTO_DISCOVERY_ENABLED: "true"
+          HIVE_AUTO_DISCOVERY_INTERVAL_SECONDS: "10"
+          HIVE_AUTO_DISCOVERY_MAX_PROJECTS: "20"
+          HIVE_WO031_ISOLATED_E2E: "true"
         run: python scripts/integration_health.py
       - name: Stop services without deleting data
         if: always()
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
         run: docker compose down --remove-orphans
       - name: Prepare release package, checksum and manifest
         run: python scripts/prepare_release.py --tag "$GITHUB_REF_NAME" --ref "$GITHUB_SHA" --output-dir release-assets

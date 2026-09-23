@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -12,13 +13,13 @@ from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, cast
-from uuid import UUID
+from typing import Any, Literal, cast
+from uuid import UUID, uuid4
 
 import psycopg
 import redis
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
@@ -98,6 +99,7 @@ from .repository_indexer import (
     RepositoryIndexingError,
     _assert_snapshot_stable,
     _collect_inventory,
+    _git_head,
     _RepositorySnapshot,
     _TrackedFile,
     latest_index_run,
@@ -132,6 +134,15 @@ from .task_intake import (
     get_task,
     get_task_text,
 )
+from .telemetry import emit_event
+
+logger = logging.getLogger(__name__)
+_CONTEXT_DIAGNOSTICS_ENABLED = os.environ.get("HIVE_CONTEXT_DIAGNOSTICS", "").casefold() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 CONTEXT_CAPSULE_VERSION: Literal["context-capsule-v1"] = "context-capsule-v1"
 DEFAULT_CONTEXT_TOP_K = 5
@@ -341,6 +352,8 @@ class ContextBounds(BaseModel):
 
 
 class ContextCapsule(BaseModel):
+    _source_state: Any = PrivateAttr(default=None)
+
     version: Literal["context-capsule-v1"] = CONTEXT_CAPSULE_VERSION
     project: ContextProject
     task: ContextTask
@@ -1045,20 +1058,30 @@ def _read_context_cache(
     settings: Settings,
     key: str,
 ) -> ContextFingerprintCacheEnvelope | None:
+    envelope, _status = _read_context_cache_observed(settings, key)
+    return envelope
+
+
+def _read_context_cache_observed(
+    settings: Settings,
+    key: str,
+) -> tuple[ContextFingerprintCacheEnvelope | None, str]:
     client = _context_cache_client(settings)
     try:
         raw = cast(bytes | None, client.getrange(key, 0, MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES))
     except (redis.RedisError, OSError):
-        return None
+        return None, "UNAVAILABLE"
     finally:
         with suppress(redis.RedisError, OSError):
             client.close()  # type: ignore[no-untyped-call]
+    if raw is None:
+        return None, "MISS"
     if not raw or len(raw) > MAX_CONTEXT_FINGERPRINT_CACHE_VALUE_BYTES:
-        return None
+        return None, "STALE"
     try:
-        return ContextFingerprintCacheEnvelope.model_validate_json(raw)
+        return ContextFingerprintCacheEnvelope.model_validate_json(raw), "CANDIDATE"
     except (ValidationError, ValueError, TypeError):
-        return None
+        return None, "STALE"
 
 
 def _write_context_cache(
@@ -1145,22 +1168,33 @@ def _cached_context_if_valid(
     task_id: UUID,
     input_fingerprint: str,
     state: _SourceState,
+    cache_outcome: list[str] | None = None,
 ) -> ContextCapsule | None:
-    envelope = _read_context_cache(settings, key)
+    envelope, cache_state = _read_context_cache_observed(settings, key)
+
+    def reject() -> None:
+        if cache_outcome is not None:
+            cache_outcome.append("STALE")
+
     if envelope is None:
+        if cache_outcome is not None:
+            cache_outcome.append(cache_state)
         return None
     if (
         envelope.project_id != project_id
         or envelope.task_id != task_id
         or envelope.context_input_fingerprint != input_fingerprint
     ):
+        reject()
         return None
     try:
         capsule = ContextCapsule.model_validate_json(envelope.serialized_capsule)
     except (ValidationError, ValueError, TypeError):
+        reject()
         return None
     evidence = capsule.context_fingerprint
     if evidence is None:
+        reject()
         return None
     if (
         capsule.version != CONTEXT_CAPSULE_VERSION
@@ -1174,6 +1208,7 @@ def _cached_context_if_valid(
         or envelope.context_output_fingerprint != evidence.output_fingerprint
         or context_output_fingerprint(_context_payload_data(capsule)) != evidence.output_fingerprint
     ):
+        reject()
         return None
     try:
         measured = _verify_final_context_payload(
@@ -1181,6 +1216,7 @@ def _cached_context_if_valid(
             effective_budget_tokens=capsule.adaptive_token_budget.effective_budget_tokens,
         )
     except ContextBoundsError:
+        reject()
         return None
     if (
         capsule.adaptive_token_budget.final_context_token_estimate != measured
@@ -1188,6 +1224,7 @@ def _cached_context_if_valid(
         or capsule.adaptive_token_budget.final_context_token_estimate_verified is not True
         or capsule.adaptive_token_budget.final_context_estimate_within_effective_budget is not True
     ):
+        reject()
         return None
     if not _context_cache_state_eligible(
         rerank_state=capsule.retrieval.rerank_state,
@@ -1195,9 +1232,11 @@ def _cached_context_if_valid(
         fallback_reason=capsule.retrieval.fallback_reason,
         result_count=len(capsule.retrieval.results),
     ):
+        reject()
         return None
     capsule = _refresh_operational_provenance(capsule, state)
     if context_output_fingerprint(_context_payload_data(capsule)) != evidence.output_fingerprint:
+        reject()
         return None
     _assert_state_stable(
         settings,
@@ -1206,7 +1245,32 @@ def _cached_context_if_valid(
         state,
         capsule.task.extracted_text_sha256,
     )
+    if cache_outcome is not None:
+        cache_outcome.append("HIT")
     return capsule
+
+
+def _emit_context_event(
+    settings: Settings,
+    project_id: UUID,
+    task_id: UUID,
+    operation_id: UUID,
+    event_type: str,
+    payload: dict[str, object],
+    phase: str,
+) -> None:
+    try:
+        emit_event(
+            settings,
+            project_id,
+            event_type,
+            payload,
+            task_id=task_id,
+            provenance={"producer": "context_manager", "deterministic": True},
+            emission_key=f"context:{operation_id}:{phase}",
+        )
+    except (psycopg.Error, ValueError, RuntimeError) as exc:
+        logger.warning("context telemetry unavailable (%s)", type(exc).__name__)
 
 
 def _context_payload_data(capsule: ContextCapsule) -> dict[str, object]:
@@ -1560,6 +1624,20 @@ def build_context(
         raise
     if task.project_id != project_id or extracted.project_id != project_id:
         raise ContextStaleError("task_project_mismatch")
+    operation_id = uuid4()
+    operation_started = time.monotonic()
+    _emit_context_event(
+        settings,
+        project_id,
+        task_id,
+        operation_id,
+        "context.started",
+        {
+            "top_k": top_k,
+            "disclosure_level": disclosure_level or "DEFAULT",
+        },
+        "started",
+    )
     extracted_text_sha256 = hashlib.sha256(extracted.text.encode("utf-8")).hexdigest()
     constraints, constraints_truncated = _task_section_items(
         extracted.text,
@@ -1595,6 +1673,7 @@ def build_context(
     input_fingerprint = context_input_fingerprint(input_payload)
     cache_key = _context_cache_key(project_id, input_fingerprint)
     if cache_safe:
+        cache_outcome: list[str] = []
         cached = _cached_context_if_valid(
             settings,
             key=cache_key,
@@ -1602,8 +1681,19 @@ def build_context(
             task_id=task_id,
             input_fingerprint=input_fingerprint,
             state=state,
+            cache_outcome=cache_outcome,
         )
         if cached is not None:
+            cached._source_state = state
+            _emit_context_event(
+                settings,
+                project_id,
+                task_id,
+                operation_id,
+                "cache.hit",
+                {"cache": "context", "store": "redis", "status": "HIT"},
+                "cache-hit",
+            )
             if cached.context_fingerprint is not None:
                 register_delta_baseline(
                     settings,
@@ -1613,13 +1703,45 @@ def build_context(
                     output_fingerprint=cached.context_fingerprint.output_fingerprint,
                     repository_head_sha=cached.project.repository_head_sha,
                 )
+            cached_token_count = cached.adaptive_token_budget.final_context_token_estimate
+            _emit_context_event(
+                settings,
+                project_id,
+                task_id,
+                operation_id,
+                "context.built",
+                {
+                    "cache_hit": True,
+                    "result_count": len(cached.retrieval.results),
+                    "token_count": cached_token_count,
+                    "token_count_provenance": "ESTIMATED",
+                    "tokens_estimated": True,
+                    "duration_ms": round((time.monotonic() - operation_started) * 1_000, 3),
+                },
+                "built",
+            )
             return cached
+        if cache_outcome and cache_outcome[0] in {"MISS", "STALE"}:
+            _emit_context_event(
+                settings,
+                project_id,
+                task_id,
+                operation_id,
+                "cache.miss",
+                {
+                    "cache": "context",
+                    "store": "redis",
+                    "status": cache_outcome[0],
+                },
+                "cache-miss",
+            )
     governance = _resolve_governance(
         state.snapshot,
         _tokens(normalized_query),
         checkpoint,
     )
     _assert_mandatory_governance_coverage(governance.excerpts)
+    retrieval_started = time.monotonic()
     try:
         rerank_response = rerank_search(
             settings,
@@ -1642,6 +1764,20 @@ def build_context(
     if rerank_response.project_id != project_id:
         raise ContextRetrievalError("retrieval_project_mismatch")
     results, retrieval_truncated, retrieval_chars = _bounded_retrieval_results(rerank_response)
+    _emit_context_event(
+        settings,
+        project_id,
+        task_id,
+        operation_id,
+        "context.retrieved",
+        {
+            "result_count": len(results),
+            "top_k": top_k,
+            "latency_ms": round((time.monotonic() - retrieval_started) * 1_000, 3),
+            "truncated": retrieval_truncated,
+        },
+        "retrieved",
+    )
     task_excerpt = extracted.text[:MAX_TASK_EXCERPT_CHARS]
     task_excerpt_truncated = len(extracted.text) > MAX_TASK_EXCERPT_CHARS
     files = _projections(
@@ -1826,13 +1962,6 @@ def build_context(
         adaptive_token_budget=adaptive_token_budget,
         bounds=bounds,
     )
-    _assert_state_stable(
-        settings,
-        project_id,
-        task_id,
-        state,
-        extracted_text_sha256,
-    )
     baseline_payload = _context_payload_data(capsule)
     baseline_task = cast(dict[str, object], baseline_payload["task"])
     baseline_task["excerpt"] = baseline_task_excerpt
@@ -1941,6 +2070,7 @@ def build_context(
         state,
         extracted_text_sha256,
     )
+    cache_written = False
     if (
         cache_safe
         and capsule.context_fingerprint is not None
@@ -1967,6 +2097,31 @@ def build_context(
                 output_fingerprint=capsule.context_fingerprint.output_fingerprint,
                 repository_head_sha=capsule.project.repository_head_sha,
             )
+    _emit_context_event(
+        settings,
+        project_id,
+        task_id,
+        operation_id,
+        "context.built",
+        {
+            "cache_hit": False,
+            "cache_written": cache_written if cache_safe else False,
+            "result_count": len(capsule.retrieval.results),
+            "estimated_tokens_before": baseline_context_token_estimate,
+            "estimated_tokens_after": final_context_token_estimate,
+            "token_count": final_context_token_estimate,
+            "token_count_provenance": "ESTIMATED",
+            "tokens_estimated": True,
+            "truncated": (
+                capsule.bounds.task_excerpt_truncated
+                or capsule.bounds.governance_excerpt_truncated
+                or capsule.bounds.retrieval_truncated
+            ),
+            "duration_ms": round((time.monotonic() - operation_started) * 1_000, 3),
+        },
+        "built",
+    )
+    capsule._source_state = state
     return capsule
 
 
@@ -2151,14 +2306,63 @@ def _assert_delta_target_stable(
 ) -> None:
     """Recheck source/index/corpus/task immediately before emitting delivery."""
 
-    state = _resolve_source_state(settings, project_id)
-    _assert_state_stable(
-        settings,
-        project_id,
-        task_id,
-        state,
-        capsule.task.extracted_text_sha256,
-    )
+    probe_started = time.monotonic()
+    if _CONTEXT_DIAGNOSTICS_ENABLED:
+        logger.warning(
+            "delta_context_stability_probe_started project_id=%s task_id=%s",
+            project_id,
+            task_id,
+        )
+    state = capsule._source_state
+    source_state_source = "context_build"
+    source_duration_ms = 0.0
+    if not isinstance(state, _SourceState):
+        source_started = time.monotonic()
+        state = _resolve_source_state(settings, project_id)
+        source_state_source = "fallback_resolve"
+        source_duration_ms = (time.monotonic() - source_started) * 1_000
+    if _CONTEXT_DIAGNOSTICS_ENABLED:
+        logger.warning(
+            "delta_context_source_state_reused project_id=%s task_id=%s source=%s duration_ms=%.3f",
+            project_id,
+            task_id,
+            source_state_source,
+            source_duration_ms,
+        )
+    stability_started = time.monotonic()
+    if _CONTEXT_DIAGNOSTICS_ENABLED:
+        logger.warning(
+            "delta_context_final_recheck_started project_id=%s task_id=%s",
+            project_id,
+            task_id,
+        )
+    try:
+        _assert_state_stable(
+            settings,
+            project_id,
+            task_id,
+            state,
+            capsule.task.extracted_text_sha256,
+        )
+    except ContextStaleError as exc:
+        if exc.code == "repository_source_changed":
+            try:
+                current_head = _git_head(state.snapshot.project_path)
+            except (OSError, RepositoryIndexingError, RuntimeError):
+                raise
+            if current_head.lower() != state.snapshot.repository_head_sha.lower():
+                raise ContextStaleError("project_head_stale") from exc
+        raise
+    if _CONTEXT_DIAGNOSTICS_ENABLED:
+        logger.warning(
+            "delta_context_final_recheck_completed project_id=%s task_id=%s "
+            "source_duration_ms=%.3f stability_duration_ms=%.3f total_duration_ms=%.3f",
+            project_id,
+            task_id,
+            source_duration_ms,
+            (time.monotonic() - stability_started) * 1_000,
+            (time.monotonic() - probe_started) * 1_000,
+        )
     if (
         capsule.project.repository_head_sha.lower() != state.snapshot.repository_head_sha.lower()
         or capsule.project.registered_head_sha.lower()
@@ -2242,6 +2446,7 @@ def build_delta_context(
 ) -> ContextDelivery:
     """Build the current full target first, then choose verified DELTA or FULL."""
 
+    delta_started = time.monotonic()
     target = build_context(
         settings,
         project_id,
@@ -2251,6 +2456,8 @@ def build_delta_context(
     )
     if target.context_fingerprint is None:
         raise ContextManagerError("context_output_fingerprint_missing")
+    target_build_duration_ms = (time.monotonic() - delta_started) * 1_000
+    baseline_lookup_duration_ms = 0.0
     _delta_post_build_race_hook(settings, project_id, task_id, target)
     target_payload = _context_payload_data(target)
     target_output_fingerprint = target.context_fingerprint.output_fingerprint
@@ -2269,12 +2476,14 @@ def build_delta_context(
             force_full_reason="baseline_not_requested",
         )
     else:
+        baseline_lookup_started = time.monotonic()
         resolved = resolve_delta_baseline(
             settings,
             project_id=project_id,
             task_id=task_id,
             output_fingerprint=baseline_output_fingerprint,
         )
+        baseline_lookup_duration_ms = (time.monotonic() - baseline_lookup_started) * 1_000
         if resolved is None:
             delivery = build_context_delivery(
                 project_id=project_id,
@@ -2319,6 +2528,15 @@ def build_delta_context(
                     target_output_fingerprint=target_output_fingerprint,
                     current_provenance=provenance,
                 )
+    if _CONTEXT_DIAGNOSTICS_ENABLED:
+        logger.warning(
+            "delta_context_pre_delivery_stability_check project_id=%s task_id=%s "
+            "target_build_ms=%.3f baseline_lookup_ms=%.3f",
+            project_id,
+            task_id,
+            target_build_duration_ms,
+            baseline_lookup_duration_ms,
+        )
     _assert_delta_target_stable(settings, project_id, task_id, target)
     return delivery
 

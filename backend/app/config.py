@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import math
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,9 +19,55 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
+    def __init__(self, **values: Any) -> None:
+        # Pydantic Settings treats a validation alias and its Python field name
+        # as separate inputs.  If both are present, the environment alias can
+        # otherwise win over a caller's explicit ``Settings(projects_root=...)``.
+        super().__init__(**self._normalize_explicit_values(values))
+
+    @classmethod
+    def _normalize_explicit_values(cls, values: Mapping[str, Any]) -> dict[str, Any]:
+        normalized = dict(values)
+        for field_name, field in cls.model_fields.items():
+            alias = field.validation_alias
+            if not isinstance(alias, str) or field_name not in normalized:
+                continue
+            explicit_value = normalized.pop(field_name)
+            if alias in normalized and normalized[alias] != explicit_value:
+                raise ValueError(f"conflicting explicit values for {field_name} and {alias}")
+            normalized[alias] = explicit_value
+        return normalized
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any) -> Settings:
+        if isinstance(obj, Mapping):
+            obj = cls._normalize_explicit_values(obj)
+        return super().model_validate(obj, **kwargs)
+
+    @classmethod
+    def for_testing(cls, **values: Any) -> Settings:
+        """Build deterministic settings without dotenv or process-environment sources."""
+
+        return _IsolatedSettings(**cls._normalize_explicit_values(values))
+
     app_name: str = "HIVE API"
     version: str = "1.0.2"
     environment: str = Field(default="development", validation_alias="HIVE_ENVIRONMENT")
+    auto_discovery_enabled: bool = Field(
+        default=True, validation_alias="HIVE_AUTO_DISCOVERY_ENABLED"
+    )
+    auto_discovery_interval_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=3_600,
+        validation_alias="HIVE_AUTO_DISCOVERY_INTERVAL_SECONDS",
+    )
+    auto_discovery_max_projects: int = Field(
+        default=200,
+        ge=1,
+        le=1_000,
+        validation_alias="HIVE_AUTO_DISCOVERY_MAX_PROJECTS",
+    )
     data_root: Path = Field(default=Path(".hive-data"), validation_alias="HIVE_DATA_ROOT")
     projects_root: Path = Field(
         default=Path(".hive-projects"), validation_alias="HIVE_PROJECTS_ROOT"
@@ -245,6 +295,28 @@ class Settings(BaseSettings):
                 raise ValueError("HIVE_EXECUTOR_MODEL is required when executor is enabled")
         if self.executor_prompt_cache_enabled and not self.executor_enabled:
             raise ValueError("HIVE_EXECUTOR_PROMPT_CACHE_ENABLED requires HIVE_EXECUTOR_ENABLED")
+
+
+class _IsolatedSettings(Settings):
+    model_config = SettingsConfigDict(
+        env_file=None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+        populate_by_name=True,
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: Any,
+        env_settings: Any,
+        dotenv_settings: Any,
+        file_secret_settings: Any,
+    ) -> tuple[Any, ...]:
+        del cls, settings_cls, env_settings, dotenv_settings, file_secret_settings
+        return (init_settings,)
 
 
 @lru_cache

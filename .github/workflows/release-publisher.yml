@@ -136,18 +136,38 @@ jobs:
 
       - name: Prepare host project workspace
         if: steps.guard.outputs.publish == 'true'
-        run: mkdir -p .hive-projects
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
+        run: mkdir -p "$HIVE_DATA_ROOT" "$HIVE_PROJECTS_ROOT"
 
       - name: Start services for release smoke test
         if: steps.guard.outputs.publish == 'true'
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
+          HIVE_AUTO_DISCOVERY_ENABLED: "false"
+          HIVE_AUTO_DISCOVERY_INTERVAL_SECONDS: "10"
+          HIVE_AUTO_DISCOVERY_MAX_PROJECTS: "20"
+          HIVE_WO031_ISOLATED_E2E: "true"
         run: docker compose up -d --build
 
       - name: Run integration smoke test
         if: steps.guard.outputs.publish == 'true'
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
+          HIVE_AUTO_DISCOVERY_ENABLED: "true"
+          HIVE_AUTO_DISCOVERY_INTERVAL_SECONDS: "10"
+          HIVE_AUTO_DISCOVERY_MAX_PROJECTS: "20"
+          HIVE_WO031_ISOLATED_E2E: "true"
         run: python scripts/integration_health.py
 
       - name: Stop services without deleting data
         if: always() && steps.guard.outputs.publish == 'true'
+        env:
+          HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
+          HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
         run: docker compose down --remove-orphans
 
       - name: Prepare release package, checksum and manifest

@@ -30,12 +30,8 @@ type MetricsPayload = {
   cost_provenance: MetricProvenance;
 };
 
-type ProjectOption = {
-  project_id: string;
-  name: string;
-};
-
 const refreshIntervalMs = 15_000;
+const eventRefreshDebounceMs = 200;
 
 function formatNumber(metric: MetricValue | undefined): string {
   if (!metric || metric.value === null) return "—";
@@ -95,33 +91,33 @@ function MetricLine({
   );
 }
 
-export default function ControlCenterMetrics() {
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const [projectId, setProjectId] = useState("");
-  const [metrics, setMetrics] = useState<MetricsPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function ControlCenterMetrics({
+  selectedProjectId,
+  refreshKey,
+}: {
+  selectedProjectId: string;
+  refreshKey: number;
+}) {
+  const [metricsResult, setMetricsResult] = useState<
+    { url: string; payload: MetricsPayload } | null
+  >(null);
+  const [errorResult, setErrorResult] = useState<{ url: string; message: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(true);
 
   const metricsUrl = useMemo(() => {
-    if (projectId) {
-      return `${API_BASE_URL}/api/v1/control-center/metrics?project_id=${encodeURIComponent(projectId)}`;
+    if (selectedProjectId) {
+      return `${API_BASE_URL}/api/v1/control-center/metrics?project_id=${encodeURIComponent(selectedProjectId)}`;
     }
     return `${API_BASE_URL}/api/v1/control-center/metrics/global`;
-  }, [projectId]);
-
-  const loadProjects = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/projects`, { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as ProjectOption[];
-      setProjects(payload);
-    } catch {
-      // Metrics continue to work in global mode even when this convenience list is unavailable.
-    }
-  }, []);
+  }, [selectedProjectId]);
+  const metrics = metricsResult?.url === metricsUrl ? metricsResult.payload : null;
+  const error = errorResult?.url === metricsUrl ? errorResult.message : null;
+  const settledForCurrentScope = metrics !== null || error !== null;
+  const loading = refreshing || !settledForCurrentScope;
 
   const loadMetrics = useCallback(async () => {
-    setLoading(true);
+    setRefreshing(true);
+    setErrorResult(null);
     try {
       const response = await fetch(metricsUrl, { cache: "no-store" });
       const payload = (await response.json()) as MetricsPayload | { detail?: string };
@@ -129,37 +125,27 @@ export default function ControlCenterMetrics() {
         const detail = "detail" in payload && payload.detail ? payload.detail : "Falha ao carregar métricas.";
         throw new Error(detail);
       }
-      setMetrics(payload as MetricsPayload);
-      setError(null);
+      setMetricsResult({ url: metricsUrl, payload: payload as MetricsPayload });
     } catch (caught) {
-      setMetrics(null);
-      setError(caught instanceof Error ? caught.message : "Falha ao carregar métricas.");
+      setMetricsResult(null);
+      setErrorResult({
+        url: metricsUrl,
+        message: caught instanceof Error ? caught.message : "Falha ao carregar métricas.",
+      });
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   }, [metricsUrl]);
 
   useEffect(() => {
-    queueMicrotask(() => void loadProjects());
-  }, [loadProjects]);
+    const timeout = window.setTimeout(() => void loadMetrics(), eventRefreshDebounceMs);
+    return () => window.clearTimeout(timeout);
+  }, [loadMetrics, refreshKey]);
 
   useEffect(() => {
-    queueMicrotask(() => void loadMetrics());
     const interval = window.setInterval(() => void loadMetrics(), refreshIntervalMs);
     return () => window.clearInterval(interval);
   }, [loadMetrics]);
-
-  useEffect(() => {
-    if (!projectId || typeof EventSource === "undefined") return undefined;
-    const source = new EventSource(
-      `${API_BASE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/events/stream`,
-    );
-    source.onmessage = () => void loadMetrics();
-    source.onerror = () => {
-      // The bounded polling cadence remains the fallback; no metric is invented from transport state.
-    };
-    return () => source.close();
-  }, [loadMetrics, projectId]);
 
   return (
     <section className="control-center-section" aria-labelledby="control-center-metrics-title">
@@ -172,21 +158,9 @@ export default function ControlCenterMetrics() {
             convertidos em zero.
           </p>
         </div>
-        <label>
-          Escopo{" "}
-          <select
-            aria-label="Metrics scope"
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-          >
-            <option value="">Global</option>
-            {projects.map((project) => (
-              <option key={project.project_id} value={project.project_id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <p className="cc-metric-scope" aria-live="polite">
+          Escopo selecionado: <strong>{selectedProjectId ? "projeto" : "fleet global"}</strong>
+        </p>
       </div>
 
       {loading && !metrics ? <p>Carregando métricas reais…</p> : null}
@@ -257,6 +231,8 @@ export default function ControlCenterMetrics() {
             observados: {metrics.scanned_events} · histórico limitado a {metrics.history_max_points}
             pontos · PostgreSQL canônico · Redis não canônico · custo: {metrics.cost_provenance}
             {metrics.window_truncated ? " · janela truncada" : ""}
+            {" · atualizado "}
+            {new Date(metrics.generated_at).toLocaleString("pt-BR")}
           </p>
         </>
       ) : null}
