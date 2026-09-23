@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -94,3 +95,67 @@ def test_register_fixture_reports_conflicting_relative_path(
         autonomous_execution_integration.register_fixture(
             "http://127.0.0.1:8000", "wo019-c4-123-one"
         )
+
+
+def test_executor_cli_invalid_json_reports_bounded_redacted_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdout = (
+        b"prefix"
+        + (b"x" * 470)
+        + b'{"token":"supersecret","path":"/tmp/hive-private/file"} trailing'
+    )
+    stderr = b"separate stderr diagnostic"
+
+    def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(autonomous_execution_integration.subprocess, "run", fake_run)
+
+    with pytest.raises(AssertionError) as error:
+        autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"])
+
+    message = str(error.value)
+    assert "returned invalid JSON" in message
+    assert "exit_code=0" in message
+    assert f"stdout_bytes={len(stdout)}" in message
+    assert f"stderr_bytes={len(stderr)}" in message
+    assert "prefix" in message and "separate stderr diagnostic" in message
+    assert f"{len(stdout) - 320} bytes omitted" in message
+    assert "supersecret" not in message
+    assert "/tmp/hive-private" not in message
+    assert "<redacted>" in message and "<path>" in message
+
+
+def test_executor_cli_nonzero_reports_cli_error_and_keeps_streams_separate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdout = b"unexpected stdout"
+    stderr = b'{"status":"ERROR","code":"executor_unavailable"}'
+
+    def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=1, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(autonomous_execution_integration.subprocess, "run", fake_run)
+
+    with pytest.raises(AssertionError) as error:
+        autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"])
+
+    message = str(error.value)
+    assert "executor_error_code=executor_unavailable" in message
+    assert "exit_code=1" in message
+    assert 'stdout_head_tail="unexpected stdout"' in message
+    assert "stderr_head_tail=" in message and "executor_unavailable" in message
+
+
+def test_executor_cli_returns_parsed_object_and_ignores_separate_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=0, stdout=b'{"status":"STAGED"}', stderr=b"diagnostic")
+
+    monkeypatch.setattr(autonomous_execution_integration.subprocess, "run", fake_run)
+
+    assert autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"]) == {
+        "status": "STAGED"
+    }

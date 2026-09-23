@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -154,6 +155,77 @@ def run_command(command: list[str], *, cwd: Path = ROOT) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"command failed: {command[0]} ({result.returncode})")
     return result.stdout.strip()
+
+
+def _bounded_cli_stream(raw: bytes) -> str:
+    """Return a small, redacted head/tail sample suitable for CI diagnostics."""
+
+    limit = 160
+    omitted = max(0, len(raw) - (limit * 2))
+    sample = raw[:limit]
+    if omitted:
+        sample += f"\n... {omitted} bytes omitted ...\n".encode("ascii")
+        sample += raw[-limit:]
+    text = sample.decode("utf-8", errors="replace")
+    text = text.replace(str(ROOT), "<repo>").replace(str(ROOT).replace("\\", "/"), "<repo>")
+    text = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer <redacted>", text)
+    text = re.sub(
+        r"(?i)([\"']?[\w.-]*(?:api[_-]?key|token|secret|password|authorization)"
+        r"[\w.-]*[\"']?\s*[:=]\s*[\"']?)([^\"'\s,;}]+)",
+        r"\1<redacted>",
+        text,
+    )
+    text = re.sub(r"\b[A-Za-z]:\\(?:[^\\\s\"']+\\)*[^\\\s\"']*", "<path>", text)
+    text = re.sub(r"(?<![:\w])/(?:[\w.-]+/)+[\w.-]*", "<path>", text)
+    return json.dumps(text, ensure_ascii=True)
+
+
+def run_executor_cli(command: list[str], *, cwd: Path = ROOT) -> dict[str, Any]:
+    """Run the machine-readable executor CLI and retain bounded failure evidence."""
+
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+        shell=False,
+    )
+    stdout_bytes = len(result.stdout)
+    stderr_bytes = len(result.stderr)
+    diagnostic = (
+        f"exit_code={result.returncode}, stdout_bytes={stdout_bytes}, stderr_bytes={stderr_bytes}, "
+        f"stdout_head_tail={_bounded_cli_stream(result.stdout)}, "
+        f"stderr_head_tail={_bounded_cli_stream(result.stderr)}"
+    )
+    if result.returncode != 0:
+        stderr_text = result.stderr.decode("utf-8", errors="replace").strip()
+        try:
+            stderr_payload = json.loads(stderr_text)
+        except json.JSONDecodeError:
+            stderr_payload = None
+        if isinstance(stderr_payload, dict) and stderr_payload.get("status") == "ERROR":
+            error_code = stderr_payload.get("code")
+            if (
+                not isinstance(error_code, str)
+                or re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", error_code) is None
+            ):
+                error_code = "unknown"
+            failure_kind = f"executor_error_code={error_code}"
+        else:
+            failure_kind = "nonzero_compose_or_container_process"
+        raise AssertionError(f"executor service CLI {failure_kind} ({diagnostic})")
+
+    raw = result.stdout.decode("utf-8", errors="replace").strip()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            "executor service CLI returned invalid JSON "
+            f"(json_error={exc.msg}, line={exc.lineno}, column={exc.colno}; {diagnostic})"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise AssertionError(f"executor service CLI returned non-object JSON ({diagnostic})")
+    return cast(dict[str, Any], payload)
 
 
 def write_governance(repository: Path) -> None:
@@ -721,12 +793,8 @@ def verify_executor_service_cli(base_url: str, relative_path: str) -> None:
                 str(project.git_head_sha),
             ]
         )
-        raw = run_command(command)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise AssertionError("executor service CLI returned invalid JSON") from exc
-        if not isinstance(payload, dict) or payload.get("status") != "STAGED":
+        payload = run_executor_cli(command)
+        if payload.get("status") != "STAGED":
             raise AssertionError("executor service CLI did not complete a staged run")
         if payload.get("executor_provider_calls") != 1 or payload.get("executor_llm_calls") != 1:
             raise AssertionError("executor service CLI did not preserve provider call accounting")
