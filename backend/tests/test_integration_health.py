@@ -145,6 +145,9 @@ def test_ci_runs_discovery_enabling_e2e_after_manual_fixture_suites() -> None:
     workflow = (integration_health.ROOT / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
+    validate_evidence_download = workflow.index(
+        "- name: Download Validate evidence for integration candidate binding"
+    )
     discovery_enabling_e2e = workflow.index("- name: Run container smoke test")
     manual_fixture_suites = (
         "- name: Run Project Registry real-Git integration test",
@@ -159,3 +162,10 @@ def test_ci_runs_discovery_enabling_e2e_after_manual_fixture_suites() -> None:
 
     assert all(workflow.index(step) < discovery_enabling_e2e for step in manual_fixture_suites)
     assert discovery_enabling_e2e < workflow.index("- name: Collect bounded service logs")
+    assert validate_evidence_download < discovery_enabling_e2e
+    evidence_step = workflow[validate_evidence_download:discovery_enabling_e2e]
+    assert "uses: actions/download-artifact@v8" in evidence_step
+    assert "hive-validation-evidence-${{ github.event.pull_request.head.sha || github.sha }}" in (
+        evidence_step
+    )
+    assert "path: tmp/validation" in evidence_step

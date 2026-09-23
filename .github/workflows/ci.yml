@@ -57,6 +57,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Download Validate evidence for integration candidate binding
+        uses: actions/download-artifact@v8
+        with:
+          name: hive-validation-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: tmp/validation
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
