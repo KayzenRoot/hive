@@ -34,6 +34,10 @@
       "type": "string",
       "minLength": 1
     },
+    "authorized_base_sha": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
     "pull_request": {
       "type": "object",
       "additionalProperties": false,

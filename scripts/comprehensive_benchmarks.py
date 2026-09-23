@@ -59,6 +59,7 @@ RECALL_K = governance.COMPREHENSIVE_BENCHMARKS_ACCEPTED_RECALL_K
 TOP_K = 5
 CANDIDATE_POOL = 20
 CONTEXT_TOP_K = 10
+CONTEXT_REQUEST_TIMEOUT_SECONDS = 60
 OPTIMIZED_PAYLOAD_EXCLUDED_FIELDS = ("adaptive_token_budget", "bounds")
 EVIDENCE_PATHS = (
     "backend/tests/test_comprehensive_benchmarks.py",
@@ -428,6 +429,7 @@ def same_task_evidence(
             "POST",
             f"/api/v1/projects/{project_id}/tasks/{task_id}/context",
             payload={"top_k": CONTEXT_TOP_K},
+            timeout=CONTEXT_REQUEST_TIMEOUT_SECONDS,
         )
         require(isinstance(capsule, dict), "context capsule is not an object")
         budget = capsule.get("adaptive_token_budget")

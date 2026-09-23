@@ -18,7 +18,10 @@ from pydantic import BaseModel, Field, field_validator
 from .config import Settings
 from .db import database_connection
 
-GIT_TIMEOUT_SECONDS = 5
+# Git status on a Windows-backed Docker bind mount can take several seconds for
+# a moderate repository. Keep inspection bounded without treating ordinary I/O
+# variance as an inaccessible project.
+GIT_TIMEOUT_SECONDS = 15
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40,64}$")
 REGISTRY_ADVISORY_LOCK = (12002, 1)
 
@@ -105,7 +108,8 @@ def normalize_project_path(relative_path: str, settings: Settings) -> tuple[str,
 
     try:
         allowed_root = settings.resolved_projects_root
-        resolved_path = (allowed_root / Path(*parts)).resolve(strict=False)
+        unresolved_path = allowed_root.joinpath(*parts)
+        resolved_path = unresolved_path.resolve(strict=False)
     except (OSError, RuntimeError) as exc:
         raise ProjectPathError(
             "project path could not be resolved",
@@ -197,6 +201,8 @@ def _run_git(
         "git",
         "-c",
         f"safe.directory={project_path}",
+        "-c",
+        "core.autocrlf=input",
         "-C",
         str(project_path),
         *arguments,

@@ -26,6 +26,8 @@ dist/
 
 # Local HIVE data
 .hive-data/
+/.hive-wo031-data/
+/.hive-wo031-projects/
 HIVE_DATA_ROOT/
 data/
 local-data/

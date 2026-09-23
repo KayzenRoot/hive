@@ -340,6 +340,56 @@ def delta_context_request(
     return status, response
 
 
+def context_timeout_diagnostic(
+    base_url: str,
+    project_name: str,
+    environment: dict[str, str],
+    project_id: str,
+    task_id: str,
+    started: float,
+    error: OSError,
+) -> dict[str, object]:
+    diagnostic: dict[str, object] = {
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+        "exception": type(error).__name__,
+        "related_events": [],
+    }
+    try:
+        events_status, events_payload = request(
+            base_url,
+            "GET",
+            f"/api/v1/projects/{project_id}/events?limit=100",
+            timeout=10,
+        )
+        if events_status == 200 and isinstance(events_payload, dict):
+            diagnostic["related_events"] = [
+                {
+                    "event_type": event.get("event_type"),
+                    "task_id": event.get("task_id"),
+                    "payload": event.get("payload"),
+                }
+                for event in events_payload.get("events", [])
+                if isinstance(event, dict)
+                and event.get("task_id") == task_id
+                and str(event.get("event_type", "")).startswith(("context.", "cache."))
+            ]
+        else:
+            diagnostic["event_query_status"] = events_status
+    except OSError as event_exc:
+        diagnostic["event_query_error"] = type(event_exc).__name__
+    try:
+        api_logs = compose(
+            project_name,
+            ["logs", "--no-color", "--tail", "80", "api"],
+            env=environment,
+            check=False,
+        )
+        diagnostic["api_log_tail"] = api_logs.stdout[-12_000:]
+    except (OSError, subprocess.TimeoutExpired) as log_exc:
+        diagnostic["api_log_error"] = type(log_exc).__name__
+    return diagnostic
+
+
 def run_post_build_race(
     base_url: str,
     project_id: str,
@@ -814,6 +864,8 @@ def main() -> int:
             "HIVE_DASHBOARD_PORT": str(dashboard_port),
             "HIVE_PROJECTS_ROOT": projects_root.as_posix(),
             "HIVE_DATA_ROOT": data_root.as_posix(),
+            "HIVE_AUTO_DISCOVERY_ENABLED": "false",
+            "HIVE_CONTEXT_DIAGNOSTICS": "true",
             "HIVE_DELTA_CONTEXT_RACE_CONTROL": "/var/lib/hive/delta-context-race-control.json",
             "POSTGRES_DB": "hive",
             "POSTGRES_USER": "hive",
@@ -2625,16 +2677,35 @@ def main() -> int:
         # the project/task-scoped pointer key and cannot leak foreign content.
         isolated_baseline = context_request(base_url, project_ids["Isolated"], task_ids["Isolated"])
         isolated_fp = str(isolated_baseline["context_fingerprint"]["output_fingerprint"])
-        status, delta_h = delta_context_request(
-            base_url,
-            project_ids["Target"],
-            task_ids["Target"],
-            {
-                "top_k": 10,
-                "disclosure_level": "L4",
-                "baseline_output_fingerprint": isolated_fp,
-            },
-        )
+        delta_h_started = time.monotonic()
+        try:
+            status, delta_h = delta_context_request(
+                base_url,
+                project_ids["Target"],
+                task_ids["Target"],
+                {
+                    "top_k": 10,
+                    "disclosure_level": "L4",
+                    "baseline_output_fingerprint": isolated_fp,
+                },
+            )
+        except OSError as exc:
+            diagnostic = context_timeout_diagnostic(
+                base_url,
+                project_name,
+                environment,
+                project_ids["Target"],
+                task_ids["Target"],
+                delta_h_started,
+                exc,
+            )
+            print(
+                "[context-integration] Delta H request diagnostic: "
+                + json.dumps(diagnostic, ensure_ascii=False, sort_keys=True),
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
         delta_h_cross_project_isolated = (
             status == 200
             and isinstance(delta_h, dict)
@@ -2642,7 +2713,30 @@ def main() -> int:
             and delta_h.get("full_fallback_reason") == "baseline_not_found"
             and project_ids["Isolated"] not in json.dumps(delta_h.get("full_context", {}))
         )
-        duplicate_for_delta = context_request(base_url, project_ids["Target"], duplicate_task_id)
+        duplicate_request_started = time.monotonic()
+        try:
+            duplicate_for_delta = context_request(
+                base_url,
+                project_ids["Target"],
+                duplicate_task_id,
+            )
+        except OSError as exc:
+            diagnostic = context_timeout_diagnostic(
+                base_url,
+                project_name,
+                environment,
+                project_ids["Target"],
+                duplicate_task_id,
+                duplicate_request_started,
+                exc,
+            )
+            print(
+                "[context-integration] duplicate-task context request diagnostic: "
+                + json.dumps(diagnostic, ensure_ascii=False, sort_keys=True),
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
         duplicate_fp = str(duplicate_for_delta["context_fingerprint"]["output_fingerprint"])
         status, delta_i = delta_context_request(
             base_url,

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ControlCenterMetrics from "./ControlCenterMetrics";
@@ -85,7 +85,7 @@ describe("ControlCenterMetrics", () => {
   });
 
   it("renders explicit provenance and does not render unavailable cache as zero", async () => {
-    render(<ControlCenterMetrics />);
+    render(<ControlCenterMetrics selectedProjectId="" refreshKey={0} />);
 
     expect(await screen.findByText("Control Center Metrics")).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("ESTIMATED").length).toBeGreaterThan(0));
@@ -94,21 +94,30 @@ describe("ControlCenterMetrics", () => {
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
 
-  it("switches from deterministic global aggregation to project scope", async () => {
-    render(<ControlCenterMetrics />);
-
-    const scope = await screen.findByLabelText("Metrics scope");
-    fireEvent.change(scope, { target: { value: projectId } });
+  it("uses the operational project selection without adding a second selector", async () => {
+    const view = render(<ControlCenterMetrics selectedProjectId="" refreshKey={0} />);
+    await screen.findByText("Control Center Metrics");
+    view.rerender(<ControlCenterMetrics selectedProjectId={projectId} refreshKey={1} />);
 
     await waitFor(() => {
       const calls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
       expect(calls.some((url) => url.includes(`project_id=${projectId}`))).toBe(true);
     });
+    expect(screen.queryByLabelText("Metrics scope")).not.toBeInTheDocument();
     expect(await screen.findByText(/Escopo:/)).toBeInTheDocument();
   });
 
+  it("refreshes on a new durable-event revision from the shared Control Center stream", async () => {
+    const view = render(<ControlCenterMetrics selectedProjectId={projectId} refreshKey={0} />);
+    await screen.findByText("Control Center Metrics");
+    const initialCalls = vi.mocked(fetch).mock.calls.length;
+
+    view.rerender(<ControlCenterMetrics selectedProjectId={projectId} refreshKey={1} />);
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+
   it("shows storage as logical versus physical evidence", async () => {
-    render(<ControlCenterMetrics />);
+    render(<ControlCenterMetrics selectedProjectId="" refreshKey={0} />);
 
     await screen.findByText("Storage");
     expect(screen.getByText("2.0 KiB")).toBeInTheDocument();

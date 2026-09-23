@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -46,6 +47,7 @@ from app.telemetry import (  # noqa: E402
     EVENT_CURSOR_MAX_BYTES,
     EVENT_PAYLOAD_MAX_BYTES,
     EventEnvelope,
+    EventPage,
 )
 
 EVIDENCE_OUTPUT = ROOT / "tmp" / "integration-logs" / "autonomous-execution.json"
@@ -62,6 +64,29 @@ GOVERNANCE_KINDS = (
     "DEFINITION_OF_DONE",
     "ARCHITECTURE",
     "DECISIONS",
+)
+RUN_CORRELATED_EVENT_TYPES = frozenset(
+    {
+        "executor.started",
+        "tool.called",
+        "file.changed",
+        "test.started",
+        "test.finished",
+        "validation.failed",
+        "validation.passed",
+        "run.completed",
+        "run.failed",
+    }
+)
+TASK_CORRELATED_EVENT_TYPES = frozenset(
+    {
+        "task.ingested",
+        "context.started",
+        "context.retrieved",
+        "context.built",
+        "cache.hit",
+        "cache.miss",
+    }
 )
 
 
@@ -105,7 +130,14 @@ def api_call(
 ) -> object:
     status, response = http_json(base_url, method, path, payload)
     if status != expected_status:
-        raise AssertionError(f"API {method} {path}: expected {expected_status}, got {status}")
+        detail = response.get("detail") if isinstance(response, dict) else None
+        detail_suffix = ""
+        if isinstance(detail, str):
+            bounded_detail = detail.replace(str(ROOT), "<repo>")[:240]
+            detail_suffix = f"; detail={bounded_detail}"
+        raise AssertionError(
+            f"API {method} {path}: expected {expected_status}, got {status}{detail_suffix}"
+        )
     return response
 
 
@@ -123,6 +155,113 @@ def run_command(command: list[str], *, cwd: Path = ROOT) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"command failed: {command[0]} ({result.returncode})")
     return result.stdout.strip()
+
+
+def _bounded_cli_stream(raw: bytes) -> str:
+    """Return a small, redacted head/tail sample suitable for CI diagnostics."""
+
+    limit = 160
+    omitted = max(0, len(raw) - (limit * 2))
+    sample = raw[:limit]
+    if omitted:
+        sample += f"\n... {omitted} bytes omitted ...\n".encode("ascii")
+        sample += raw[-limit:]
+    text = sample.decode("utf-8", errors="replace")
+    text = text.replace(str(ROOT), "<repo>").replace(str(ROOT).replace("\\", "/"), "<repo>")
+    text = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer <redacted>", text)
+    text = re.sub(
+        r"(?i)([\"']?[\w.-]*(?:api[_-]?key|token|secret|password|authorization)"
+        r"[\w.-]*[\"']?\s*[:=]\s*[\"']?)([^\"'\s,;}]+)",
+        r"\1<redacted>",
+        text,
+    )
+    text = re.sub(r"\b[A-Za-z]:\\(?:[^\\\s\"']+\\)*[^\\\s\"']*", "<path>", text)
+    text = re.sub(r"(?<![:\w])/(?:[\w.-]+/)+[\w.-]*", "<path>", text)
+    return json.dumps(text, ensure_ascii=True)
+
+
+def run_executor_cli(command: list[str], *, cwd: Path = ROOT) -> dict[str, Any]:
+    """Run the machine-readable executor CLI and retain bounded failure evidence."""
+
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+        shell=False,
+    )
+    stdout_bytes = len(result.stdout)
+    stderr_bytes = len(result.stderr)
+    diagnostic = (
+        f"exit_code={result.returncode}, stdout_bytes={stdout_bytes}, stderr_bytes={stderr_bytes}, "
+        f"stdout_head_tail={_bounded_cli_stream(result.stdout)}, "
+        f"stderr_head_tail={_bounded_cli_stream(result.stderr)}"
+    )
+    if result.returncode != 0:
+        stderr_text = result.stderr.decode("utf-8", errors="replace").strip()
+        try:
+            stderr_payload = json.loads(stderr_text)
+        except json.JSONDecodeError:
+            stderr_payload = None
+        if isinstance(stderr_payload, dict) and stderr_payload.get("status") == "ERROR":
+            error_code = stderr_payload.get("code")
+            if (
+                not isinstance(error_code, str)
+                or re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", error_code) is None
+            ):
+                error_code = "unknown"
+            failure_kind = f"executor_error_code={error_code}"
+        else:
+            failure_kind = "nonzero_compose_or_container_process"
+        raise AssertionError(f"executor service CLI {failure_kind} ({diagnostic})")
+
+    raw = result.stdout.decode("utf-8", errors="replace").strip()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            "executor service CLI returned invalid JSON "
+            f"(json_error={exc.msg}, line={exc.lineno}, column={exc.colno}; {diagnostic})"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise AssertionError(f"executor service CLI returned non-object JSON ({diagnostic})")
+    return cast(dict[str, Any], payload)
+
+
+def executor_service_cli_command(
+    project: ProjectResponse,
+    task: TaskResponse,
+    provider_base_url: str,
+) -> list[str]:
+    """Build an executor command whose stdout remains one machine-readable JSON value."""
+
+    command = ["docker", "compose", "run", "--quiet-build", "--rm", "-T"]
+    user_id = getattr(os, "getuid", None)
+    group_id = getattr(os, "getgid", None)
+    if callable(user_id) and callable(group_id):
+        command.extend(["--user", f"{user_id()}:{group_id()}"])
+    command.extend(
+        [
+            "-e",
+            "HIVE_EXECUTOR_ENABLED=true",
+            "-e",
+            f"HIVE_EXECUTOR_BASE_URL={provider_base_url}",
+            "-e",
+            "HIVE_EXECUTOR_MODEL=hive-integration-model",
+            "-e",
+            "HIVE_EXECUTOR_PROMPT_CACHE_ENABLED=true",
+            "executor",
+            "--project-id",
+            str(project.project_id),
+            "--task-id",
+            str(task.task_id),
+            "--expected-branch",
+            str(project.git_branch),
+            "--expected-head-sha",
+            str(project.git_head_sha),
+        ]
+    )
+    return command
 
 
 def write_governance(repository: Path) -> None:
@@ -344,14 +483,61 @@ def task_from_api(base_url: str, project_id: UUID, task_id: UUID) -> TaskRespons
     return TaskResponse.model_validate(payload)
 
 
+def task_ids_are_scoped(task_ids: list[UUID | None], expected_task_id: UUID) -> bool:
+    """Allow project-level events without tasks; reject foreign task bindings."""
+
+    return all(task_id is None or task_id == expected_task_id for task_id in task_ids)
+
+
+def execution_run_ids_are_present(events: list[tuple[str, UUID | None]]) -> bool:
+    """Require run correlation on execution lifecycle events, not project telemetry."""
+
+    run_ids = [run_id for event_type, run_id in events if event_type in RUN_CORRELATED_EVENT_TYPES]
+    return bool(run_ids) and all(run_id is not None for run_id in run_ids)
+
+
+def event_linkage_is_explicit(events: list[tuple[str, UUID | None, UUID | None]]) -> bool:
+    """Validate task/run identity according to each canonical event's lifecycle scope."""
+
+    if not events:
+        return False
+    for event_type, task_id, run_id in events:
+        if event_type in RUN_CORRELATED_EVENT_TYPES:
+            if task_id is None or run_id is None:
+                return False
+        elif event_type == "project.indexing":
+            if task_id is not None or run_id is None:
+                return False
+        elif event_type in TASK_CORRELATED_EVENT_TYPES:
+            if task_id is None or run_id is not None:
+                return False
+        elif event_type == "project.discovered" and (task_id is not None or run_id is not None):
+            return False
+    return True
+
+
+def terminal_replay_after_cursor(events: list[tuple[str, str]]) -> str:
+    """Choose the cursor immediately before a terminal event for replay assertions."""
+
+    for index, (event_type, _) in enumerate(events):
+        if event_type in {"run.completed", "run.failed"}:
+            if index == 0:
+                raise AssertionError("terminal execution event has no preceding replay cursor")
+            return events[index - 1][1]
+    raise AssertionError("terminal execution event is missing")
+
+
 def register_fixture(base_url: str, relative_path: str) -> tuple[ProjectResponse, TaskResponse]:
-    project_payload = api_call(
-        base_url,
-        "POST",
-        "/api/v1/projects",
-        payload={"name": "WO-018 autonomous fixture", "relative_path": relative_path},
-        expected_status=201,
-    )
+    try:
+        project_payload = api_call(
+            base_url,
+            "POST",
+            "/api/v1/projects",
+            payload={"name": "WO-018 autonomous fixture", "relative_path": relative_path},
+            expected_status=201,
+        )
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}; fixture_relative_path={relative_path}") from exc
     if not isinstance(project_payload, dict):
         raise AssertionError("registered project response is not an object")
     project = ProjectResponse.model_validate(project_payload)
@@ -589,16 +775,13 @@ def execute_docker_fixture(
         ):
             raise AssertionError("configured executor did not reconcile provider cache usage")
         page = telemetry_page(base_url, project.project_id, limit=20)
-        events = cast(list[dict[str, object]], page["events"])
         terminal = next(
-            (event for event in reversed(events) if event.get("event_type") == "run.completed"),
+            (event for event in reversed(page.events) if event.event_type == "run.completed"),
             None,
         )
-        if not isinstance(terminal, dict):
+        if terminal is None:
             raise AssertionError("configured executor terminal telemetry was not persisted")
-        payload = terminal.get("payload")
-        if not isinstance(payload, dict):
-            raise AssertionError("configured executor terminal telemetry payload is invalid")
+        payload = terminal.payload
         if (
             payload.get("executor_provider_calls") != 1
             or payload.get("executor_llm_calls") != 1
@@ -618,36 +801,11 @@ def verify_executor_service_cli(base_url: str, relative_path: str) -> None:
 
     project, task = register_fixture(base_url, relative_path)
     with LocalProviderServer() as provider:
-        command = ["docker", "compose", "run", "--rm"]
-        if hasattr(os, "getuid") and hasattr(os, "getgid"):
-            command.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
-        command.extend(
-            [
-                "-e",
-                "HIVE_EXECUTOR_ENABLED=true",
-                "-e",
-                f"HIVE_EXECUTOR_BASE_URL={provider.container_base_url}",
-                "-e",
-                "HIVE_EXECUTOR_MODEL=hive-integration-model",
-                "-e",
-                "HIVE_EXECUTOR_PROMPT_CACHE_ENABLED=true",
-                "executor",
-                "--project-id",
-                str(project.project_id),
-                "--task-id",
-                str(task.task_id),
-                "--expected-branch",
-                str(project.git_branch),
-                "--expected-head-sha",
-                str(project.git_head_sha),
-            ]
-        )
-        raw = run_command(command)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise AssertionError("executor service CLI returned invalid JSON") from exc
-        if not isinstance(payload, dict) or payload.get("status") != "STAGED":
+        # Preserve stdout as a single JSON document; an allocated TTY can merge
+        # executor stderr diagnostics into the machine-readable CLI response.
+        command = executor_service_cli_command(project, task, provider.container_base_url)
+        payload = run_executor_cli(command)
+        if payload.get("status") != "STAGED":
             raise AssertionError("executor service CLI did not complete a staged run")
         if payload.get("executor_provider_calls") != 1 or payload.get("executor_llm_calls") != 1:
             raise AssertionError("executor service CLI did not preserve provider call accounting")
@@ -662,17 +820,15 @@ def verify_executor_service_cli(base_url: str, relative_path: str) -> None:
             raise AssertionError("executor service CLI did not cross the concrete HTTP transport")
 
     page = telemetry_page(base_url, project.project_id, limit=20)
-    events = cast(list[dict[str, object]], page["events"])
     terminal = next(
-        (event for event in reversed(events) if event.get("event_type") == "run.completed"),
+        (event for event in reversed(page.events) if event.event_type == "run.completed"),
         None,
     )
-    if not isinstance(terminal, dict):
+    if terminal is None:
         raise AssertionError("executor service CLI terminal telemetry was not persisted")
-    telemetry_payload = terminal.get("payload")
+    telemetry_payload = terminal.payload
     if (
-        not isinstance(telemetry_payload, dict)
-        or telemetry_payload.get("executor_provider_calls") != 1
+        telemetry_payload.get("executor_provider_calls") != 1
         or telemetry_payload.get("input_tokens") != 100
         or telemetry_payload.get("cached_tokens") != 64
         or telemetry_payload.get("fresh_tokens") != 36
@@ -793,19 +949,14 @@ def deterministic_signature(result: object) -> str:
 
 def telemetry_page(
     base_url: str, project_id: UUID, *, after: str | None = None, limit: int = 100
-) -> dict[str, object]:
+) -> EventPage:
     query = f"?limit={limit}"
     if after is not None:
         query += f"&after={after}"
     response = api_call(base_url, "GET", f"/api/v1/projects/{project_id}/events{query}")
     if not isinstance(response, dict):
         raise AssertionError("telemetry page is not an object")
-    events = response.get("events")
-    if not isinstance(events, list):
-        raise AssertionError("telemetry page events are not a list")
-    for item in events:
-        EventEnvelope.model_validate(item)
-    return response
+    return EventPage.model_validate(response)
 
 
 def telemetry_stream(base_url: str, project_id: UUID, after: str) -> str:
@@ -817,7 +968,7 @@ def telemetry_stream(base_url: str, project_id: UUID, after: str) -> str:
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            return response.read(200_000).decode("utf-8")
+            return cast(bytes, response.read(200_000)).decode("utf-8")
     except (OSError, urllib.error.URLError, UnicodeDecodeError) as exc:
         raise AssertionError("telemetry SSE stream failed") from exc
 
@@ -1049,18 +1200,19 @@ def build_telemetry_evidence(
     execution_result: object,
 ) -> dict[str, object]:
     first_page = telemetry_page(base_url, project_one.project_id, limit=1)
-    first_events = cast(list[dict[str, object]], first_page["events"])
-    if len(first_events) != 1:
+    if len(first_page.events) != 1:
         raise AssertionError("telemetry pagination did not return the first bounded page")
-    first_event = EventEnvelope.model_validate(first_events[0])
-    replay_page = telemetry_page(
-        base_url, project_one.project_id, after=first_event.cursor, limit=100
-    )
-    replay_events = [EventEnvelope.model_validate(item) for item in replay_page["events"]]
     all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
-    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    all_one_events = all_one_page.events
+    replay_after_cursor = terminal_replay_after_cursor(
+        [(event.event_type, event.cursor) for event in all_one_events]
+    )
+    replay_page = telemetry_page(
+        base_url, project_one.project_id, after=replay_after_cursor, limit=100
+    )
+    replay_events = replay_page.events
     second_page = telemetry_page(base_url, project_two.project_id, limit=100)
-    second_events = [EventEnvelope.model_validate(item) for item in second_page["events"]]
+    second_events = second_page.events
     if len(all_one_events) < 2 or len(second_events) < 2:
         raise AssertionError("real execution did not emit both lifecycle events")
     stable_order_replay = [event.ordering_id for event in all_one_events] == sorted(
@@ -1072,19 +1224,21 @@ def build_telemetry_evidence(
         raise AssertionError("project one telemetry is not isolated")
     if any(event.project_id != project_two.project_id for event in second_events):
         raise AssertionError("project two telemetry is not isolated")
-    if any(event.task_id not in {task_one.task_id} for event in all_one_events):
+    if not task_ids_are_scoped([event.task_id for event in all_one_events], task_one.task_id):
         raise AssertionError("task binding is not project scoped")
-    if any(event.task_id not in {task_two.task_id} for event in second_events):
+    if not task_ids_are_scoped([event.task_id for event in second_events], task_two.task_id):
         raise AssertionError("second task binding is not project scoped")
-    if any(event.run_id is None for event in (*all_one_events, *second_events)):
+    if not execution_run_ids_are_present(
+        [(event.event_type, event.run_id) for event in (*all_one_events, *second_events)]
+    ):
         raise AssertionError("execution telemetry is missing run correlation")
-    stream = telemetry_stream(base_url, project_one.project_id, first_event.cursor)
+    stream = telemetry_stream(base_url, project_one.project_id, replay_after_cursor)
     if f"id: {replay_events[0].cursor}" not in stream:
         raise AssertionError("SSE replay did not return the missed event")
     if replay_events[0].event_type not in {"run.completed", "run.failed"}:
         raise AssertionError("terminal execution event is missing")
     replay_ids = {event.event_id for event in replay_events}
-    reconnect_stream = telemetry_stream(base_url, project_one.project_id, first_event.cursor)
+    reconnect_stream = telemetry_stream(base_url, project_one.project_id, replay_after_cursor)
     reconnect_ids = {
         line[4:].strip() for line in reconnect_stream.splitlines() if line.startswith("id: ")
     }
@@ -1128,15 +1282,17 @@ def build_telemetry_evidence(
         raise AssertionError("open SSE stream delivered an invalid live event")
 
     all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
-    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    all_one_events = all_one_page.events
     all_ids = {event.event_id for event in all_one_events}
-    if not replay_ids.issubset(all_ids) or first_event.event_id in replay_ids:
+    if not replay_ids.issubset(all_ids) or any(
+        event.cursor == replay_after_cursor for event in replay_events
+    ):
         raise AssertionError("cursor replay duplicated or escaped the project history")
 
     raw = json.dumps(
         {
-            "one": all_one_page,
-            "two": second_page,
+            "one": all_one_page.model_dump(mode="json"),
+            "two": second_page.model_dump(mode="json"),
             "stream": stream,
             "reconnect": reconnect_stream,
             "live_stream": live_stream,
@@ -1162,7 +1318,7 @@ def build_telemetry_evidence(
     run_command(["docker", "compose", "restart", "api"])
     wait_for_api_health(base_url)
     after_api_restart = telemetry_page(base_url, project_one.project_id, limit=100)
-    restart_events = [EventEnvelope.model_validate(item) for item in after_api_restart["events"]]
+    restart_events = after_api_restart.events
     restart_recovery = before_restart_ids.issubset({event.event_id for event in restart_events})
     if not restart_recovery:
         raise AssertionError("API restart lost durable telemetry history")
@@ -1206,7 +1362,7 @@ def build_telemetry_evidence(
             EventEnvelope.model_validate(outage_data[0]).event_id == redis_outage_event.event_id
         )
         after_redis_loss = telemetry_page(base_url, project_one.project_id, limit=100)
-        redis_events = [EventEnvelope.model_validate(item) for item in after_redis_loss["events"]]
+        redis_events = after_redis_loss.events
         redis_outage_durable_read = any(
             event.event_id == redis_outage_event.event_id for event in redis_events
         )
@@ -1242,7 +1398,7 @@ def build_telemetry_evidence(
     )
     restored_event = EventEnvelope.model_validate(restored_payload)
     after_redis_restore = telemetry_page(base_url, project_one.project_id, limit=100)
-    restored_events = [EventEnvelope.model_validate(item) for item in after_redis_restore["events"]]
+    restored_events = after_redis_restore.events
     redis_restore_same_event = restored_event.event_id == redis_outage_event.event_id
     redis_restore_no_duplicate = (
         sum(event.event_id == redis_outage_event.event_id for event in restored_events) == 1
@@ -1262,7 +1418,7 @@ def build_telemetry_evidence(
         raise AssertionError("Redis outage emission/replay/reconnect recovery was not proven")
 
     all_one_page = telemetry_page(base_url, project_one.project_id, limit=100)
-    all_one_events = [EventEnvelope.model_validate(item) for item in all_one_page["events"]]
+    all_one_events = all_one_page.events
     observed_events = (*all_one_events, *second_events)
     project_scoped = all(
         event.project_id == expected_project
@@ -1271,10 +1427,17 @@ def build_telemetry_evidence(
             *((event, project_two.project_id) for event in second_events),
         )
     )
-    task_run_binding_scoped = all(
-        event.task_id in {task_one.task_id} and event.run_id is not None for event in all_one_events
-    ) and all(
-        event.task_id in {task_two.task_id} and event.run_id is not None for event in second_events
+    first_run_task_ids = [
+        event.task_id for event in all_one_events if event.event_type in RUN_CORRELATED_EVENT_TYPES
+    ]
+    second_run_task_ids = [
+        event.task_id for event in second_events if event.event_type in RUN_CORRELATED_EVENT_TYPES
+    ]
+    task_run_binding_scoped = (
+        bool(first_run_task_ids)
+        and bool(second_run_task_ids)
+        and all(task_id == task_one.task_id for task_id in first_run_task_ids)
+        and all(task_id == task_two.task_id for task_id in second_run_task_ids)
     )
     event_types = sorted({event.event_type for event in observed_events})
     event_ids = [event.event_id for event in observed_events]
@@ -1331,25 +1494,29 @@ def build_telemetry_evidence(
     )
     idempotent_duplicate_safe = duplicate_safe and redis_restore_no_duplicate
     near_realtime_stream = live_delivery and redis_outage_stream_delivery
-    telemetry_pass = all(
-        (
-            postgres_canonical_architecture,
-            redis_noncanonical,
-            project_scoped,
-            task_run_binding_scoped,
-            stable_order_replay,
-            idempotent_duplicate_safe,
-            near_realtime_stream,
-            reconnect_replay,
-            restart_recovery,
-            redis_loss_recovery,
-            sanitization_safe,
-            producer_path_verified,
-            deterministic_first,
-        )
+    task_run_linkage_explicit = event_linkage_is_explicit(
+        [(event.event_type, event.task_id, event.run_id) for event in observed_events]
     )
-    if not telemetry_pass:
-        raise AssertionError("telemetry evidence observations did not satisfy the C4 contract")
+    telemetry_checks = {
+        "postgres_canonical_architecture": postgres_canonical_architecture,
+        "redis_noncanonical": redis_noncanonical,
+        "project_scoped": project_scoped,
+        "task_run_binding_scoped": task_run_binding_scoped,
+        "stable_order_replay": stable_order_replay,
+        "task_run_linkage_explicit": task_run_linkage_explicit,
+        "idempotent_duplicate_safe": idempotent_duplicate_safe,
+        "near_realtime_stream": near_realtime_stream,
+        "reconnect_replay": reconnect_replay,
+        "restart_recovery": restart_recovery,
+        "redis_loss_recovery": redis_loss_recovery,
+        "sanitization_safe": sanitization_safe,
+        "producer_path_verified": producer_path_verified,
+        "deterministic_first": deterministic_first,
+    }
+    failed_checks = [name for name, passed in telemetry_checks.items() if not passed]
+    telemetry_pass = not failed_checks
+    if failed_checks:
+        raise AssertionError("telemetry evidence observations failed: " + ",".join(failed_checks))
     return {
         "status": "PASS" if telemetry_pass else "FAIL",
         "evidence_file": "telemetry-event-bus.json",
@@ -1375,14 +1542,12 @@ def build_telemetry_evidence(
             for event in observed_events
         ),
         "project_identity_explicit": all(event.project_id is not None for event in observed_events),
-        "task_run_linkage_explicit": all(
-            event.task_id is not None and event.run_id is not None for event in observed_events
-        ),
+        "task_run_linkage_explicit": task_run_linkage_explicit,
         "payload_bounded": payloads_bounded and len(raw.encode("utf-8")) <= 200_000,
         "provenance_explicit": all(bool(event.provenance) for event in observed_events),
         "canonical_event_vocabulary": set(event_types).issubset(CANONICAL_EVENT_TYPES),
         "stable_order_replay": stable_order_replay,
-        "bounded_cursor_pagination": first_page["limit"] == 1 and first_page["has_more"] is True,
+        "bounded_cursor_pagination": first_page.limit == 1 and first_page.has_more is True,
         "idempotent_duplicate_safe": idempotent_duplicate_safe,
         "near_realtime_stream": near_realtime_stream,
         "stream_access_control_deterministic": cross_project_safe

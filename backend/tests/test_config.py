@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -33,9 +34,57 @@ def test_environment_values_are_explicit(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_projects_root_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HIVE_PROJECTS_ROOT", "D:/Projects")
 
-    settings = Settings()
+    settings = Settings(projects_root=Path("C:/fixture-projects"))
 
-    assert settings.projects_root == Path("D:/Projects")
+    assert settings.projects_root == Path("C:/fixture-projects")
+
+
+def test_model_validate_explicit_field_beats_host_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", "D:/Projects")
+
+    settings = Settings.model_validate({"projects_root": Path("C:/fixture-projects")})
+
+    assert settings.projects_root == Path("C:/fixture-projects")
+
+
+def test_settings_for_testing_ignores_host_environment_and_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    isolated_settings_factory: Callable[..., Settings],
+) -> None:
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", "D:/Projects")
+    (tmp_path / ".env").write_text("HIVE_PROJECTS_ROOT=D:/from-dotenv\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    settings = isolated_settings_factory(projects_root=Path("C:/fixture-projects"))
+
+    assert settings.projects_root == Path("C:/fixture-projects")
+
+
+def test_settings_for_testing_uses_defaults_without_external_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_settings_factory: Callable[..., Settings],
+) -> None:
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", "D:/Projects")
+
+    settings = isolated_settings_factory()
+
+    assert settings.projects_root == Path(".hive-projects")
+    assert settings.auto_discovery_enabled is True
+
+
+def test_auto_discovery_configuration_is_bounded() -> None:
+    settings = Settings.for_testing(
+        auto_discovery_interval_seconds=30,
+        auto_discovery_max_projects=12,
+    )
+
+    assert settings.auto_discovery_enabled is True
+    assert settings.auto_discovery_interval_seconds == 30
+    assert settings.auto_discovery_max_projects == 12
+
+    with pytest.raises(ValueError):
+        Settings.for_testing(auto_discovery_interval_seconds=1)
 
 
 def test_semantic_retrieval_is_disabled_by_default() -> None:

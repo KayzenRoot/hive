@@ -3,11 +3,13 @@ from __future__ import annotations
 import ast
 import hashlib
 import io
+import logging
 import ntpath
 import os
 import re
 import stat
 import subprocess
+import time
 import tokenize
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,10 +25,12 @@ from pydantic import BaseModel
 from .config import Settings
 from .db import database_connection
 from .registry import ProjectPathError, normalize_project_path
+from .telemetry import emit_event
 
 GIT_TIMEOUT_SECONDS = 5
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40,64}$")
 INDEX_ADVISORY_LOCK_KEY = 12005
+logger = logging.getLogger(__name__)
 
 
 class IndexRunStatus(StrEnum):
@@ -229,6 +233,8 @@ def _run_git(
         "git",
         "-c",
         f"safe.directory={project_path}",
+        "-c",
+        "core.autocrlf=input",
         "-C",
         str(project_path),
         *arguments,
@@ -806,25 +812,64 @@ def index_project(settings: Settings, project_id: UUID) -> IndexRunSummary:
     settings.validate_repository_limits()
     project_path = _project_path(settings, project_id)
     run_id = uuid4()
+    started = time.monotonic()
+    _emit_index_event(settings, project_id, run_id, "started", {"status": "RUNNING"})
     try:
         snapshot = _collect_inventory(settings, project_path)
     except RepositoryIndexingError as exc:
         _create_run(settings, run_id, project_id, None)
-        return _mark_failed(settings, run_id, exc.code, 0)
+        result = _mark_failed(settings, run_id, exc.code, 0)
+    else:
+        _create_run(settings, run_id, project_id, snapshot)
+        try:
+            _perform_reconcile(settings, project_id, run_id, snapshot)
+        except RepositoryIndexingError as exc:
+            result = _mark_failed(settings, run_id, exc.code, len(snapshot.files))
+        except psycopg.Error as exc:
+            result = _mark_failed(
+                settings,
+                run_id,
+                f"database_error_{type(exc).__name__}",
+                len(snapshot.files),
+            )
+        else:
+            result = _get_run(settings, run_id)
+    _emit_index_event(
+        settings,
+        project_id,
+        run_id,
+        "completed",
+        {
+            "status": result.status.value,
+            "duration_ms": round((time.monotonic() - started) * 1_000, 3),
+            "discovered_file_count": result.discovered_file_count,
+            "indexed_file_count": result.indexed_file_count,
+            "symbol_count": result.symbol_count,
+            "failed": result.status is IndexRunStatus.FAILED,
+        },
+    )
+    return result
 
-    _create_run(settings, run_id, project_id, snapshot)
+
+def _emit_index_event(
+    settings: Settings,
+    project_id: UUID,
+    run_id: UUID,
+    phase: str,
+    payload: dict[str, object],
+) -> None:
     try:
-        _perform_reconcile(settings, project_id, run_id, snapshot)
-    except RepositoryIndexingError as exc:
-        return _mark_failed(settings, run_id, exc.code, len(snapshot.files))
-    except psycopg.Error as exc:
-        return _mark_failed(
+        emit_event(
             settings,
-            run_id,
-            f"database_error_{type(exc).__name__}",
-            len(snapshot.files),
+            project_id,
+            "project.indexing",
+            {"component": "repository_index", "run_id": str(run_id), **payload},
+            run_id=run_id,
+            provenance={"producer": "repository_indexer", "deterministic": True},
+            emission_key=f"repository-index:{run_id}:{phase}",
         )
-    return _get_run(settings, run_id)
+    except (psycopg.Error, ValueError, RuntimeError) as exc:
+        logger.warning("repository indexing telemetry unavailable (%s)", type(exc).__name__)
 
 
 def latest_index_run(settings: Settings, project_id: UUID) -> IndexRunSummary | None:

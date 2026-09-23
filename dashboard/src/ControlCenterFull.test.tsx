@@ -63,6 +63,81 @@ afterEach(() => {
 });
 
 describe("ControlCenterFull", () => {
+  it("shows chart KPI provenance truthfully and context reduction in tokens", async () => {
+    const snapshotWithEstimatedMetrics = {
+      ...snapshot,
+      charts: snapshot.charts.map((chart) =>
+        chart.id === "context-reduction"
+          ? {
+              ...chart,
+              points: [
+                {
+                  observed_at: "2026-09-23T12:00:00Z",
+                  value: 50,
+                  provenance: "ESTIMATED",
+                  source: "test:estimated-context-reduction",
+                  series: "estimated_tokens_saved",
+                },
+              ],
+            }
+          : chart.id === "tokens-over-time"
+            ? {
+                ...chart,
+                points: [
+                  {
+                    observed_at: "2026-09-23T12:00:00Z",
+                    value: 50,
+                    provenance: "ESTIMATED",
+                    source: "test:estimated-token-usage",
+                    series: "input_tokens",
+                  },
+                ],
+              }
+            : chart.id === "cache-hit-rate"
+              ? {
+                  ...chart,
+                  points: [
+                    {
+                      observed_at: "2026-09-23T12:00:00Z",
+                      value: 0.5,
+                      provenance: "ESTIMATED",
+                      source: "test:estimated-cache-rate",
+                      series: "cache_hit_rate",
+                    },
+                  ],
+                }
+          : chart,
+      ),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => snapshotWithEstimatedMetrics }),
+    );
+
+    render(<ControlCenterFull selectedProjectId="project-a" />);
+
+    await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
+    const tokenKpi = screen
+      .getByText("Tokens", { selector: ".cc-kpi-label" })
+      .closest(".cc-kpi");
+    const cacheKpi = screen
+      .getByText("Cache hit rate", { selector: ".cc-kpi-label" })
+      .closest(".cc-kpi");
+    const reductionKpi = screen
+      .getByText("Redução de contexto", { selector: ".cc-kpi-label" })
+      .closest(".cc-kpi");
+    expect(tokenKpi).toHaveTextContent("50");
+    expect(tokenKpi).toHaveTextContent("último ponto · proveniência estimada");
+    expect(tokenKpi).not.toHaveTextContent("último ponto real");
+    expect(cacheKpi).toHaveTextContent("50.0%");
+    expect(cacheKpi).toHaveTextContent("último ponto · proveniência estimada");
+    expect(cacheKpi).not.toHaveTextContent("último ponto real");
+    expect(reductionKpi).toHaveTextContent("50");
+    expect(reductionKpi).toHaveTextContent("tokens reduzidos · proveniência estimada");
+    expect(reductionKpi).not.toHaveTextContent("5000%");
+    expect(reductionKpi).not.toHaveTextContent("último ponto real");
+  });
+
   it("renders the closed capability, chart, alert and health contract", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot }));
 
@@ -74,7 +149,29 @@ describe("ControlCenterFull", () => {
     expect(screen.getByText("tokens-over-time")).toBeInTheDocument();
     expect(screen.getByText("unexpected-cost-spike")).toBeInTheDocument();
     expect(screen.getByText("platform-resource-health")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Control Center overview" })).toBeInTheDocument();
+    expect(screen.getByText("VISÃO OPERACIONAL")).toBeInTheDocument();
+    expect(screen.getByText("Inteligência disponível")).toBeInTheDocument();
+    expect(screen.getByText("Saúde da plataforma")).toBeInTheDocument();
+    expect(screen.getByText("Alertas ativos")).toBeInTheDocument();
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(0);
+  });
+
+  it("reports reconnecting status and the last observed replay time truthfully", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot }));
+
+    render(
+      <ControlCenterFull
+        selectedProjectId="project-a"
+        streamStatus="RECONNECTING"
+        lastObservedAt="2026-09-21T12:00:00Z"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
+    expect(screen.getByRole("status", { name: "Project telemetry RECONNECTING" })).toBeInTheDocument();
+    expect(screen.getByText(/Último evento\/replay observado/)).toBeInTheDocument();
+    expect(screen.queryByText("LIVE", { exact: true })).toBeNull();
   });
 
   it("renders real chart geometry and bounded project records", async () => {
@@ -167,6 +264,8 @@ describe("ControlCenterFull", () => {
 
     await waitFor(() => expect(screen.getByTestId("control-center-full")).toBeInTheDocument());
     expect(document.querySelector('[data-chart-id="tokens-over-time"]')).toBeInTheDocument();
+    expect(screen.getByText("Tokens ao longo do tempo")).toBeInTheDocument();
+    expect(screen.getAllByText("50").length).toBeGreaterThan(0);
     expect(screen.getByText("fixture commit")).toBeInTheDocument();
     expect(screen.getByText("test:cpu")).toBeInTheDocument();
     expect(screen.getByTestId("chart-state-cost-over-time")).toHaveTextContent("UNAVAILABLE");

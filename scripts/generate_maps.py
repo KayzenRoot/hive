@@ -174,6 +174,19 @@ def build_files() -> dict[Path, str]:
             "| backend/tests/test_progressive_disclosure.py | L0-L5 mapping, smallest "
             "sufficient start, L1/L2 payload, L4 resolution, bounds and isolation. |"
         ),
+        (
+            "| backend/tests/test_autonomous_execution_integration.py | Project-level "
+            "taskless events, index/task/execution run linkage, and terminal SSE replay "
+            "are validated without accepting foreign identities. |"
+        ),
+        (
+            "| backend/tests/test_comprehensive_benchmarks.py | Deterministic benchmark "
+            "evidence and bounded Context Manager request timeout. |"
+        ),
+        (
+            "| backend/tests/test_integration_health.py | Isolated Compose preflight and "
+            "CI ordering that keeps discovery after manual fixtures. |"
+        ),
         "| backend/tests/test_health.py | API response shape and degraded status. |",
         (
             "| backend/tests/test_registry.py | Path boundary, canonical aliases, "

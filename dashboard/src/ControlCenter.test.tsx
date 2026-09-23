@@ -913,6 +913,41 @@ describe("ControlCenter bounded operational selector", () => {
   });
 });
 
+describe("ControlCenter durable metrics tab", () => {
+  it("uses the shared project selection and refreshes from the existing SSE stream", async () => {
+    const api = installApi();
+
+    renderControlCenter(api, { selectedProjectId: PROJECT_A_ID });
+    await settle();
+    fireEvent.click(screen.getByRole("tab", { name: "Metrics" }));
+    await settle(250);
+
+    expect(screen.getByRole("heading", { name: "Control Center Metrics" })).toBeInTheDocument();
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const metricCalls = () =>
+      api.state.calls.filter(
+        (url) => url.includes("/api/v1/control-center/metrics?") && url.includes(PROJECT_A_ID),
+      ).length;
+    const beforeEvent = metricCalls();
+    expect(beforeEvent).toBeGreaterThan(0);
+
+    await act(async () => {
+      FakeEventSource.instances[0]?.emit(
+        "file.changed",
+        envelope({
+          event_id: "ffff1111-0000-4000-8000-000000000099",
+          ordering_id: 99,
+          event_type: "file.changed",
+        }),
+      );
+    });
+    await settle(250);
+
+    expect(metricCalls()).toBeGreaterThan(beforeEvent);
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+});
+
 describe("ControlCenter event stream", () => {
   it("streams SSE updates over durable replay and reconciles reconnects without duplicates or loss", async () => {
     const api = installApi({

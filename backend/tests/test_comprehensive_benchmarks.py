@@ -51,6 +51,10 @@ DETERMINISTIC_CORE_FIELDS = {
 }
 
 
+def test_context_manager_probe_timeout_is_explicit_and_bounded() -> None:
+    assert benchmarks.CONTEXT_REQUEST_TIMEOUT_SECONDS == 60
+
+
 def sample_retrieval() -> dict[str, object]:
     return {
         "query_count": 5,

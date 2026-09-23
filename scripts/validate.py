@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,10 +22,44 @@ class Step:
     command: list[str]
     cwd: Path = ROOT
     bucket: str = "tests"
+    isolate_runtime_environment: bool = False
 
 
 def executable(name: str) -> str:
     return shutil.which(name) or name
+
+
+def repository_identity() -> dict[str, object] | None:
+    """Fingerprint the exact tracked source tested by this validation run."""
+
+    try:
+        head = (
+            subprocess.run(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode("utf-8")
+            .strip()
+        )
+        diff = subprocess.run(
+            ["git", "-C", str(ROOT), "diff", "--binary", "HEAD"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        untracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard", "-z"],
+            capture_output=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
+        return None
+    untracked_count = len([path for path in untracked.split(b"\0") if path])
+    return {
+        "head_sha": head,
+        "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
+        "untracked_file_count": untracked_count,
+    }
 
 
 def command_steps() -> list[Step]:
@@ -81,6 +119,7 @@ def command_steps() -> list[Step]:
             "backend tests",
             [python, "-m", "pytest", "--junitxml", str(VALIDATION / "backend-junit.xml")],
             bucket="tests",
+            isolate_runtime_environment=True,
         ),
         Step("dashboard install", [npm, "ci"], cwd=ROOT / "dashboard", bucket="build"),
         Step("dashboard lint", [npm, "run", "lint"], cwd=ROOT / "dashboard", bucket="lint"),
@@ -103,23 +142,59 @@ def command_steps() -> list[Step]:
     ]
 
 
-def run_step(step: Step) -> tuple[int, str]:
-    result = subprocess.run(
-        step.command,
-        cwd=step.cwd,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        env=os.environ.copy(),
-    )
+def isolated_environment(source: dict[str, str]) -> dict[str, str]:
+    """Remove workstation HIVE settings before deterministic test subprocesses."""
+
+    environment = source.copy()
+    for name in tuple(environment):
+        if name.startswith("HIVE_") or name in {"POSTGRES_DSN", "REDIS_URL", "CORS_ORIGINS"}:
+            environment.pop(name, None)
+    return environment
+
+
+def run_step(step: Step) -> tuple[int, str, float]:
+    environment = os.environ.copy()
+    if step.isolate_runtime_environment:
+        environment = isolated_environment(environment)
+    environment["PYTHONUNBUFFERED"] = "1"
+    started = time.monotonic()
+    command_text = subprocess.list2cmdline(step.command)
+    print(f"[START] {step.name} · {command_text} · cwd={step.cwd}", flush=True)
+    lines: list[str] = []
+    try:
+        process = subprocess.Popen(
+            step.command,
+            cwd=step.cwd,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=environment,
+            bufsize=1,
+        )
+        if process.stdout is None:
+            raise RuntimeError("validation subprocess stdout pipe was not created")
+        for line in process.stdout:
+            lines.append(line)
+            print(console_safe(line.rstrip("\r\n")), flush=True)
+        exit_code = process.wait()
+    except OSError as exc:
+        exit_code = 127
+        lines.append(f"{type(exc).__name__}: {exc}\n")
+        print(f"[ERROR] {type(exc).__name__}: {exc}", flush=True)
+    duration = round(time.monotonic() - started, 3)
     output = (
-        f"$ {' '.join(step.command)}\n"
+        f"$ {command_text}\n"
         f"cwd: {step.cwd}\n"
-        f"exit_code: {result.returncode}\n\n"
-        f"{result.stdout}{result.stderr}"
+        f"exit_code: {exit_code}\n"
+        f"duration_seconds: {duration}\n\n" + "".join(lines)
     )
-    return result.returncode, output
+    print(
+        f"[{('PASS' if exit_code == 0 else 'FAIL')}] {step.name} · {duration:.1f}s",
+        flush=True,
+    )
+    return exit_code, output, duration
 
 
 def console_safe(text: str, encoding: str | None = None) -> str:
@@ -133,15 +208,25 @@ def main() -> int:
         "--only", choices=["all", "tests", "lint", "build", "docker"], default="all"
     )
     args = parser.parse_args()
+    candidate_before = repository_identity()
     VALIDATION.mkdir(parents=True, exist_ok=True)
     buckets: dict[str, list[str]] = {"tests": [], "lint": [], "build": [], "docker": []}
     failures: list[str] = []
+    step_results: list[dict[str, object]] = []
+    validation_started = time.monotonic()
     for step in command_steps():
         if args.only != "all" and step.bucket != args.only:
             continue
-        code, output = run_step(step)
+        code, output, duration = run_step(step)
         buckets[step.bucket].append(output)
-        print(console_safe(output))
+        step_results.append(
+            {
+                "name": step.name,
+                "bucket": step.bucket,
+                "exit_code": code,
+                "duration_seconds": duration,
+            }
+        )
         if code:
             failures.append(step.name)
     (VALIDATION / "test-results.txt").write_text(
@@ -158,6 +243,37 @@ def main() -> int:
     )
     summary = "PASS" if not failures else "FAIL: " + ", ".join(failures)
     (VALIDATION / "summary.txt").write_text(summary + "\n", encoding="utf-8")
+    candidate_after = repository_identity()
+    candidate_stable = (
+        candidate_before is not None
+        and candidate_after == candidate_before
+        and candidate_before["untracked_file_count"] == 0
+    )
+    junit_path = VALIDATION / "backend-junit.xml"
+    junit_digest = (
+        hashlib.sha256(junit_path.read_bytes()).hexdigest() if junit_path.is_file() else None
+    )
+    (VALIDATION / "validation-summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "status": "PASS" if not failures else "FAIL",
+                "duration_seconds": round(time.monotonic() - validation_started, 3),
+                "selected_bucket": args.only,
+                "failed_steps": failures,
+                "steps": step_results,
+                "candidate_identity": {
+                    **(candidate_before or {}),
+                    "stable_during_validation": candidate_stable,
+                    "backend_junit_sha256": junit_digest,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return 1 if failures else 0
 
 

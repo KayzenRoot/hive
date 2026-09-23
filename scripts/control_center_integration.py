@@ -896,10 +896,28 @@ def verify_alpha_project_surfaces(
     expect_equal(set(runs), {completed_run, active_run}, "detail run identities")
     expect_equal(runs[completed_run]["status"], "COMPLETED", "detail completed run status")
     expect_equal(runs[active_run]["status"], "ACTIVE", "detail active run status")
+    recent_events = detail["recent_events"]
+    require(isinstance(recent_events, list), "detail events are not a list")
+    normalized_events: list[dict[str, Any]] = []
+    for event in recent_events:
+        require(isinstance(event, dict), "detail event is not an object")
+        normalized_events.append(dict(event))
+    intake_events = [
+        event for event in normalized_events if event.get("event_type") == "task.ingested"
+    ]
+    expect_equal(len(intake_events), 1, "detail task intake event count")
     expect_equal(
-        event_ids(detail["recent_events"]),
+        intake_events[0]["project_id"], str(project_id), "detail intake project association"
+    )
+    expect_equal(
+        intake_events[0]["task_id"], str(telemetry.alpha_task), "detail intake task association"
+    )
+    expect_equal(
+        event_ids(
+            [event for event in normalized_events if event.get("event_type") != "task.ingested"]
+        ),
         completed_ids + active_ids,
-        "detail recent events",
+        "detail run events",
     )
 
     runs_payload = probe.request("GET", f"/api/v1/control-center/projects/{project_id}/runs")
@@ -951,6 +969,7 @@ def verify_alpha_project_surfaces(
         "run_detail": run_detail,
         "tests": tests,
         "errors": errors,
+        "task_ingested_event_id": str(intake_events[0]["event_id"]),
     }
 
 
@@ -1286,6 +1305,7 @@ def collect_evidence(probe: ApiProbe, fixtures: list[Fixture]) -> dict[str, obje
     observed["project_state_counts_truthful"] = True
 
     alpha_scope = verify_alpha_project_surfaces(probe, alpha.project_id, telemetry)
+    alpha_ids.insert(0, str(alpha_scope["task_ingested_event_id"]))
     surfaces["project-detail"] = True
     surfaces["active-runs"] = True
     surfaces["run-detail"] = True

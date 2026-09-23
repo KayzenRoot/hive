@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.registry import (
+    GIT_TIMEOUT_SECONDS,
     ProjectCreateRequest,
     ProjectPathError,
     ProjectState,
@@ -144,7 +145,7 @@ def test_git_command_scopes_safe_directory(monkeypatch: pytest.MonkeyPatch, tmp_
     assert f"safe.directory={repository}" in command
     assert "safe.directory=*" not in command
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == 5
+    assert kwargs["timeout"] == GIT_TIMEOUT_SECONDS == 15
     environment = kwargs["env"]
     assert isinstance(environment, dict)
     assert environment["GIT_OPTIONAL_LOCKS"] == "0"
@@ -190,7 +191,7 @@ def test_inspector_captures_git_timeout(monkeypatch: pytest.MonkeyPatch, tmp_pat
     repository.mkdir()
 
     def timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        raise subprocess.TimeoutExpired(["git"], 5)
+        raise subprocess.TimeoutExpired(["git"], GIT_TIMEOUT_SECONDS)
 
     monkeypatch.setattr("app.registry.subprocess.run", timeout)
 

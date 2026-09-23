@@ -124,7 +124,9 @@ def test_postgres_recreation_requires_a_new_container_identity() -> None:
 
     source = SCRIPT_PATH.read_text(encoding="utf-8")
     assert "the PostgreSQL container was not replaced by a new container identity" in source
-    assert 'compose("rm", "-sf", "postgres"' in source
+    assert 'compose(*compose_arguments, "stop", "--timeout", "180", "postgres")' in source
+    assert 'compose(*compose_arguments, "rm", "--force", "postgres")' in source
+    assert 'compose(*compose_arguments, "up", "-d", "postgres")' in source
 
 
 def test_secondary_root_proof_is_not_cas_only() -> None:

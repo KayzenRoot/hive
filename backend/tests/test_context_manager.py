@@ -1053,6 +1053,62 @@ def test_delta_final_stability_guard_preserves_delivery_when_stable(
     assert calls == [target]
 
 
+def test_delta_final_stability_reuses_build_snapshot_without_a_second_source_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+    target = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    source_state = target._source_state
+    assert isinstance(source_state, context_manager._SourceState)
+    assert "_source_state" not in target.model_dump()
+    checked: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(
+        context_manager,
+        "_resolve_source_state",
+        lambda *_args: pytest.fail("Delta should reuse the build-time repository snapshot"),
+    )
+    monkeypatch.setattr(
+        context_manager,
+        "_assert_state_stable",
+        lambda *args: checked.append(args),
+    )
+
+    context_manager._assert_delta_target_stable(Settings(), PROJECT_ID, TASK_ID, target)
+
+    assert len(checked) == 1
+    assert checked[0][3] is source_state
+
+
+@pytest.mark.parametrize(
+    ("current_head", "expected_code"),
+    [
+        ("b" * 40, "project_head_stale"),
+        (REPOSITORY_HEAD, "repository_source_changed"),
+    ],
+)
+def test_delta_final_stability_preserves_precise_race_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    current_head: str,
+    expected_code: str,
+) -> None:
+    patch_build_dependencies(monkeypatch)
+    target = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
+    monkeypatch.setattr(context_manager, "_git_head", lambda _path: current_head)
+    monkeypatch.setattr(
+        context_manager,
+        "_assert_state_stable",
+        lambda *_args: (_ for _ in ()).throw(
+            context_manager.ContextStaleError("repository_source_changed")
+        ),
+    )
+
+    with pytest.raises(context_manager.ContextStaleError) as caught:
+        context_manager._assert_delta_target_stable(Settings(), PROJECT_ID, TASK_ID, target)
+
+    assert caught.value.code == expected_code
+
+
 def test_context_api_accepts_project_and_task_ids_without_query_assembly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1203,7 +1259,14 @@ def test_valid_context_fingerprint_cache_hit_avoids_rebuild(
         return True
 
     monkeypatch.setattr(context_manager, "rerank_search", record_retrieval)
-    monkeypatch.setattr(context_manager, "_read_context_cache", read_cache)
+    monkeypatch.setattr(
+        context_manager,
+        "_read_context_cache_observed",
+        lambda settings, key: (
+            read_cache(settings, key),
+            "CANDIDATE" if cache is not None else "MISS",
+        ),
+    )
     monkeypatch.setattr(context_manager, "_write_context_cache", write_cache)
 
     first = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
@@ -1211,6 +1274,7 @@ def test_valid_context_fingerprint_cache_hit_avoids_rebuild(
 
     assert cache is not None
     assert first.model_dump() == second.model_dump()
+    assert isinstance(second._source_state, context_manager._SourceState)
     assert calls == 1
 
 

@@ -11,12 +11,16 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import logging
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Protocol, cast, runtime_checkable
 from uuid import UUID, uuid4
+
+import psycopg
 
 from . import context_manager
 from .config import Settings, get_settings
@@ -44,6 +48,8 @@ from .runner import (
 )
 from .task_intake import TaskResponse, get_task
 from .telemetry import emit_event
+
+logger = logging.getLogger(__name__)
 
 EXECUTION_EVIDENCE_VERSION = "execution-evidence-v1"
 DEFAULT_TOOL_SUBSET = ("python",)
@@ -461,7 +467,13 @@ class ExecutionOrchestrator:
             "executor.started",
         )
         try:
-            result = self._execute(request, adapter, identity=identity, project=_project)
+            result = self._execute(
+                request,
+                adapter,
+                identity=identity,
+                project=_project,
+                run_id=run_id,
+            )
         except Exception as exc:
             self._emit_event(
                 request,
@@ -517,16 +529,19 @@ class ExecutionOrchestrator:
     ) -> None:
         if self.event_emitter is None:
             return
-        self.event_emitter(
-            self.settings,
-            request.project_id,
-            event_type,
-            payload,
-            task_id=request.task_id,
-            run_id=run_id,
-            provenance={"producer": "execution_orchestrator", "deterministic": True},
-            emission_key=f"execution:{run_id}:{emission_suffix}",
-        )
+        try:
+            self.event_emitter(
+                self.settings,
+                request.project_id,
+                event_type,
+                payload,
+                task_id=request.task_id,
+                run_id=run_id,
+                provenance={"producer": "execution_orchestrator", "deterministic": True},
+                emission_key=f"execution:{run_id}:{emission_suffix}",
+            )
+        except (psycopg.Error, ValueError, RuntimeError) as exc:
+            logger.warning("execution telemetry unavailable (%s)", type(exc).__name__)
 
     def _execute(
         self,
@@ -535,6 +550,7 @@ class ExecutionOrchestrator:
         *,
         identity: ExecutionIdentity | None = None,
         project: ProjectResponse | None = None,
+        run_id: UUID | None = None,
     ) -> ExecutionResult:
         """Run one adapter result through one verified execution basis."""
 
@@ -547,6 +563,7 @@ class ExecutionOrchestrator:
         self._assert_unchanged(identity, initial, require_clean=True)
 
         adapter_name = self._adapter_name(adapter)
+        adapter_started = time.monotonic()
         try:
             if getattr(adapter, "provider_independent", True) is False:
                 raise ExecutorAdapterError("provider-independent adapter required")
@@ -554,9 +571,42 @@ class ExecutionOrchestrator:
             if not callable(execute_method):
                 raise ExecutorAdapterError("adapter must expose execute")
             raw_result = execute_method(request, context)
+            self._emit_event(
+                request,
+                run_id or uuid4(),
+                "tool.called",
+                {
+                    "adapter": adapter_name,
+                    "duration_ms": round((time.monotonic() - adapter_started) * 1_000, 3),
+                    "succeeded": True,
+                },
+                "tool-called",
+            )
         except ExecutionError:
+            self._emit_event(
+                request,
+                run_id or uuid4(),
+                "tool.called",
+                {
+                    "adapter": adapter_name,
+                    "duration_ms": round((time.monotonic() - adapter_started) * 1_000, 3),
+                    "succeeded": False,
+                },
+                "tool-called",
+            )
             raise
         except Exception as exc:
+            self._emit_event(
+                request,
+                run_id or uuid4(),
+                "tool.called",
+                {
+                    "adapter": adapter_name,
+                    "duration_ms": round((time.monotonic() - adapter_started) * 1_000, 3),
+                    "succeeded": False,
+                },
+                "tool-called",
+            )
             raise ExecutorAdapterError("adapter execution failed") from exc
 
         result = self._validate_result(raw_result, adapter_name)
@@ -590,15 +640,49 @@ class ExecutionOrchestrator:
             raise ExecutionPreconditionError("admitted change could not be applied") from exc
 
         self._assert_unchanged(identity, initial, require_clean=False)
-        test_evidence = self._run_commands(
-            result.test_commands,
-            identity.workspace,
-            result.change_set,
-        )
+        test_evidence: tuple[CommandEvidence, ...] = ()
+        if result.test_commands:
+            test_started = time.monotonic()
+            self._emit_event(
+                request,
+                run_id or uuid4(),
+                "test.started",
+                {"command_count": len(result.test_commands)},
+                "test-started",
+            )
+            test_evidence = self._run_commands(
+                result.test_commands,
+                identity.workspace,
+                result.change_set,
+            )
+            self._emit_event(
+                request,
+                run_id or uuid4(),
+                "test.finished",
+                {
+                    "passed": all(item.succeeded for item in test_evidence),
+                    "command_count": len(test_evidence),
+                    "duration_ms": round((time.monotonic() - test_started) * 1_000, 3),
+                },
+                "test-finished",
+            )
+        validation_started = time.monotonic()
         validation_evidence = self._run_commands(
             result.validation_commands,
             identity.workspace,
             result.change_set,
+        )
+        validation_passed = all(item.succeeded for item in validation_evidence)
+        self._emit_event(
+            request,
+            run_id or uuid4(),
+            "validation.passed" if validation_passed else "validation.failed",
+            {
+                "passed": validation_passed,
+                "command_count": len(validation_evidence),
+                "duration_ms": round((time.monotonic() - validation_started) * 1_000, 3),
+            },
+            "validation-finished",
         )
         post_command_verification = verify_changed_files(admission)
         if not post_command_verification.passed:
@@ -606,6 +690,14 @@ class ExecutionOrchestrator:
         after_bytes = self._capture_changed_files(identity.workspace, result.change_set)
         diff = self._build_diff(result.change_set, before_bytes, after_bytes)
         changed_files = tuple(sorted(admission.normalized_paths))
+        if changed_files:
+            self._emit_event(
+                request,
+                run_id or uuid4(),
+                "file.changed",
+                {"file_count": len(changed_files)},
+                "file-changed",
+            )
         review = ExecutorReview(
             summary=_bounded_sanitized_text(result.summary, MAX_SUMMARY_CHARS),
             changed_files=changed_files,

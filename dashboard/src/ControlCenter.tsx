@@ -9,6 +9,7 @@ import {
 
 import { API_BASE_URL } from "./config";
 import ControlCenterFull from "./ControlCenterFull";
+import ControlCenterMetrics from "./ControlCenterMetrics";
 import { CANONICAL_EVENT_TYPES } from "./eventVocabulary";
 import { formatDateTime, formatTimestamp, shortId } from "./format";
 
@@ -26,6 +27,7 @@ export type ControlViewId =
   | "fleet"
   | "project"
   | "full"
+  | "metrics"
   | "runs"
   | "health"
   | "tests"
@@ -226,6 +228,7 @@ const CONTROL_VIEWS: { id: ControlViewId; label: string }[] = [
   { id: "fleet", label: "Fleet" },
   { id: "project", label: "Project detail" },
   { id: "full", label: "Full Control Center" },
+  { id: "metrics", label: "Metrics" },
   { id: "runs", label: "Runs" },
   { id: "health", label: "Platform health" },
   { id: "tests", label: "Tests" },
@@ -961,6 +964,14 @@ export default function ControlCenter({
   }, [activeLoader]);
 
   useEffect(() => {
+    if (view === "fleet") return;
+    const timer = window.setInterval(() => {
+      void loadFleet();
+    }, SNAPSHOT_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [view, loadFleet]);
+
+  useEffect(() => {
     if (!selectedProjectId) return;
     let disposed = false;
     let source: EventSource | null = null;
@@ -1042,7 +1053,10 @@ export default function ControlCenter({
       const handleEvent = (raw: MessageEvent) => {
         try {
           const parsed: unknown = JSON.parse(String(raw.data));
-          if (isEventEnvelope(parsed)) applyEvents([parsed]);
+          if (isEventEnvelope(parsed)) {
+            applyEvents([parsed]);
+            setReconciledAt(new Date().toISOString());
+          }
         } catch {
           // A malformed frame is ignored; durable replay reconciles canonical truth.
         }
@@ -1463,6 +1477,8 @@ export default function ControlCenter({
     <ControlCenterFull
       selectedProjectId={selectedProjectId}
       refreshSignal={eventRevision}
+      streamStatus={streamState === "live" ? "LIVE" : streamState === "connecting" || streamState === "reconnecting" ? "RECONNECTING" : "STALE"}
+      lastObservedAt={reconciledAt}
     />
   );
   const renderRuns = () => {
@@ -1906,6 +1922,9 @@ export default function ControlCenter({
         {view === "fleet" ? renderFleet() : null}
         {view === "project" ? renderProject() : null}
         {view === "full" ? renderFull() : null}
+        {view === "metrics" ? (
+          <ControlCenterMetrics selectedProjectId={selectedProjectId} refreshKey={eventRevision} />
+        ) : null}
         {view === "runs" ? renderRuns() : null}
         {view === "health" ? renderHealth() : null}
         {view === "tests" ? renderTests() : null}

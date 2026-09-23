@@ -529,7 +529,16 @@ def _git_output(project_path: Path, arguments: list[str]) -> bytes:
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     try:
         result = subprocess.run(
-            ["git", "-c", f"safe.directory={project_path}", "-C", str(project_path), *arguments],
+            [
+                "git",
+                "-c",
+                f"safe.directory={project_path}",
+                "-c",
+                "core.autocrlf=input",
+                "-C",
+                str(project_path),
+                *arguments,
+            ],
             capture_output=True,
             check=False,
             env=environment,

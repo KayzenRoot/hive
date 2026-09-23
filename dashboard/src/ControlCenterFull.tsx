@@ -86,6 +86,8 @@ type FullResponse = {
 export type ControlCenterFullProps = {
   selectedProjectId: string;
   refreshSignal?: number;
+  streamStatus?: "LIVE" | "RECONNECTING" | "STALE";
+  lastObservedAt?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -287,6 +289,46 @@ function ChartGraphic({ chart }: { chart: Chart }) {
   );
 }
 
+const DISPLAY_LABELS: Record<string, string> = {
+  "tokens-over-time": "Tokens ao longo do tempo",
+  "cached-vs-fresh-tokens": "Tokens em cache vs. novos",
+  "token-savings": "Economia de tokens",
+  "cost-over-time": "Custo ao longo do tempo",
+  "cache-hit-rate": "Taxa de acerto do cache",
+  "context-reduction": "Redução de contexto",
+  "context-signal-ratio": "Sinal útil do contexto",
+  "physical-vs-logical-storage": "Storage físico vs. lógico",
+  "compression-dedup-savings": "Economia por compressão e deduplicação",
+  "project-activity": "Atividade do projeto",
+  "test-pass-failure-rate": "Testes: sucesso vs. falha",
+  "retrieval-latency": "Latência de retrieval",
+  "service-latency-errors": "Latência e erros dos serviços",
+};
+const PROVENANCE_LABELS: Record<Provenance, string> = {
+  EXACT: "exata",
+  ESTIMATED: "estimada",
+  UNAVAILABLE: "indisponível",
+  UNKNOWN: "desconhecida",
+};
+
+function displayLabel(id: string): string { return DISPLAY_LABELS[id] ?? id.replace(/-/g, " "); }
+function latestNumericPoint(chart: Chart | undefined): Chart["points"][number] | null {
+  if (!chart) return null;
+  const point = [...chart.points].reverse().find((item) => typeof item.value === "number" && Number.isFinite(item.value));
+  return point ?? null;
+}
+function pointProvenanceDetail(point: Chart["points"][number] | null): string {
+  return point
+    ? `último ponto · proveniência ${PROVENANCE_LABELS[point.provenance]}`
+    : "sem dados numéricos";
+}
+function formatCompact(value: number | null): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+function OverviewKpi({ label, value, detail, tone = "neutral" }: { label: string; value: string; detail: string; tone?: "neutral" | "good" | "warn" }) {
+  return <article className={"cc-kpi cc-kpi-" + tone}><span className="cc-kpi-label">{label}</span><strong className="cc-kpi-value">{value}</strong><span className="cc-kpi-detail">{detail}</span></article>;
+}
 function ChartCard({ chart }: { chart: Chart }) {
   const numericPoints = chart.points.filter(
     (point) => typeof point.value === "number" && Number.isFinite(point.value),
@@ -295,7 +337,7 @@ function ChartCard({ chart }: { chart: Chart }) {
   return (
     <article className="cc-card cc-chart-card" aria-label={`Chart ${chart.id}`}>
       <div className="cc-card-heading">
-        <h4>{chart.id}</h4>
+        <div><h4>{displayLabel(chart.id)}</h4><span className="cc-chart-id">{chart.id}</span></div>
         <span className={statusClass(chart.status)}>{chart.status}</span>
       </div>
       {numericPoints.length > 0 ? (
@@ -317,6 +359,8 @@ function ChartCard({ chart }: { chart: Chart }) {
 export default function ControlCenterFull({
   selectedProjectId,
   refreshSignal = 0,
+  streamStatus = "STALE",
+  lastObservedAt = null,
 }: ControlCenterFullProps) {
   const [snapshot, setSnapshot] = useState<FullResponse | null>(null);
   const [failure, setFailure] = useState<{ projectId: string; message: string } | null>(null);
@@ -378,6 +422,15 @@ export default function ControlCenterFull({
   const chartIds = new Set(currentSnapshot.charts.map((item) => item.id));
   const alertIds = new Set(currentSnapshot.alerts.map((item) => item.id));
   const healthIds = new Set(currentSnapshot.health.map((item) => item.id));
+  const activeAlerts = currentSnapshot.alerts.filter((item) => item.status === "ACTIVE" || item.status === "DEGRADED");
+  const healthySurfaces = currentSnapshot.health.filter((item) => item.status === "AVAILABLE" || item.status === "CLEAR");
+  const availableCapabilities = currentSnapshot.capabilities.filter((item) => item.status === "AVAILABLE" || item.status === "CLEAR" || item.status === "ACTIVE");
+  const chartById = new Map(currentSnapshot.charts.map((item) => [item.id, item]));
+  const tokenPoint = latestNumericPoint(chartById.get("tokens-over-time"));
+  const tokenValue = tokenPoint?.value ?? null;
+  const cachePoint = latestNumericPoint(chartById.get("cache-hit-rate"));
+  const cacheValue = cachePoint?.value ?? null;
+  const reductionPoint = latestNumericPoint(chartById.get("context-reduction"));
 
   return (
     <div className="cc-stack" data-testid="control-center-full">
@@ -388,7 +441,30 @@ export default function ControlCenterFull({
         PostgreSQL is canonical; Redis is hot-only and canonical={String(currentSnapshot.hot_store_canonical)}.
       </p>
 
-      <article className="cc-card">
+      <section className="cc-overview" aria-label="Control Center overview">
+        <div className="cc-overview-heading">
+          <div>
+            <span className="cc-overview-kicker">VISÃO OPERACIONAL</span>
+            <h2>{currentSnapshot.project.name}</h2>
+            <p>Telemetria real e limitada ao projeto. Estado do fluxo: {streamStatus}.
+              {lastObservedAt ? " Último evento/replay observado: " + formatDateTime(lastObservedAt) + "." : " Ainda não há observação confirmada nesta sessão."}
+            </p>
+          </div>
+          <div className={"cc-live-indicator cc-stream-" + streamStatus.toLowerCase()} role="status" aria-live="polite" aria-label={"Project telemetry " + streamStatus}>
+            <span className="cc-live-dot" />{streamStatus}
+          </div>
+        </div>
+        <div className="cc-kpi-grid">
+          <OverviewKpi label="Inteligência disponível" value={String(availableCapabilities.length) + "/" + String(FULL_PROJECT_CAPABILITIES.length)} detail="capacidades com evidência" tone={availableCapabilities.length === FULL_PROJECT_CAPABILITIES.length ? "good" : "neutral"} />
+          <OverviewKpi label="Saúde da plataforma" value={String(healthySurfaces.length) + "/" + String(FULL_HEALTH.length)} detail="superfícies saudáveis" tone={healthySurfaces.length === FULL_HEALTH.length ? "good" : "warn"} />
+          <OverviewKpi label="Alertas ativos" value={String(activeAlerts.length)} detail={String(currentSnapshot.alerts.length) + " regras observadas"} tone={activeAlerts.length === 0 ? "good" : "warn"} />
+          <OverviewKpi label="Tokens" value={formatCompact(tokenValue)} detail={pointProvenanceDetail(tokenPoint)} />
+          <OverviewKpi label="Cache hit rate" value={cacheValue === null ? "—" : (cacheValue * 100).toFixed(1) + "%"} detail={pointProvenanceDetail(cachePoint)} tone={cacheValue !== null && cacheValue >= 0.7 ? "good" : "neutral"} />
+          <OverviewKpi label="Redução de contexto" value={formatCompact(reductionPoint?.value ?? null)} detail={reductionPoint ? `tokens reduzidos · proveniência ${PROVENANCE_LABELS[reductionPoint.provenance]}` : "sem dados numéricos"} />
+        </div>
+      </section>
+
+      <article className="cc-card cc-project-summary">
         <div className="cc-card-heading">
           <div>
             <h3>{currentSnapshot.project.name}</h3>

@@ -2380,6 +2380,69 @@ WO030_ALLOWED_PATHS = frozenset(
 # WO-030-C1: bounded post-release correction for Progressive Disclosure
 # dotted-domain/email false positives. This is corrective governance, not WO-031.
 WO030_C1_WORK_ORDER = "WO-030-C1"
+WO031_WORK_ORDER = "WO-031"
+WO031_BASE_SHA = "8db3d244a679898f0e08d1898bc87e6a6a89326e"
+# The bounded corrective surface includes the product and regression coverage for both
+# backend and dashboard behavior, affected integration harnesses, and CI fixture ordering.
+WO031_ALLOWED_PATHS = frozenset(
+    {
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-publisher.yml",
+        ".github/workflows/release.yml",
+        ".gitignore",
+        "backend/app/config.py",
+        "backend/app/context_manager.py",
+        "backend/app/execution_orchestrator.py",
+        "backend/app/main.py",
+        "backend/app/project_discovery.py",
+        "backend/app/registry.py",
+        "backend/app/repository_indexer.py",
+        "backend/app/retrieval.py",
+        "backend/app/task_intake.py",
+        "backend/tests/conftest.py",
+        "backend/tests/test_auto_discovery_integration.py",
+        "backend/tests/test_autonomous_execution_integration.py",
+        "backend/tests/test_comprehensive_benchmarks.py",
+        "backend/tests/test_config.py",
+        "backend/tests/test_context_manager.py",
+        "backend/tests/test_check_secrets.py",
+        "backend/tests/test_execution_orchestrator.py",
+        "backend/tests/test_hive_install.py",
+        "backend/tests/test_integration_health.py",
+        "backend/tests/test_review_evidence.py",
+        "backend/tests/test_project_discovery.py",
+        "backend/tests/test_registry.py",
+        "backend/tests/test_v01_closure_regression_lock.py",
+        "backend/tests/test_v01_closure_sprint.py",
+        "dashboard/src/ControlCenter.test.tsx",
+        "dashboard/src/ControlCenterFull.test.tsx",
+        "dashboard/src/ControlCenter.tsx",
+        "dashboard/src/ControlCenterFull.tsx",
+        "dashboard/src/ControlCenterMetrics.test.tsx",
+        "dashboard/src/ControlCenterMetrics.tsx",
+        "dashboard/src/DashboardRoot.test.tsx",
+        "dashboard/src/DashboardRoot.tsx",
+        "dashboard/src/main.tsx",
+        "dashboard/src/styles.css",
+        "docs/atlas/code-atlas.md",
+        "docs/atlas/test-map.md",
+        "docker-compose.yml",
+        "docs/INSTALLATION.md",
+        "schemas/review-evidence-v1.schema.json",
+        "scripts/auto_discovery_integration.py",
+        "scripts/autonomous_execution_integration.py",
+        "scripts/comprehensive_benchmarks.py",
+        "scripts/control_center_integration.py",
+        "scripts/context_manager_integration.py",
+        "scripts/generate_maps.py",
+        "scripts/hive_install.py",
+        "scripts/integration_health.py",
+        "scripts/mcp_integration.py",
+        "scripts/review_evidence.py",
+        "scripts/validate.py",
+        "scripts/v01_closure_sprint.py",
+    }
+)
 WO030_C1_BASE_SHA = "a753d0cff1b23dafcdacbdecfb3ccdf5b91e6d3b"
 WO030_C1_ALLOWED_PATHS = frozenset(
     {
@@ -2793,6 +2856,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO029_C3_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
+        WO031_WORK_ORDER,
         WO025_G3_WORK_ORDER,
         WO025_G4_WORK_ORDER,
         WO025_G5_WORK_ORDER,
@@ -3240,6 +3304,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO029_C3_WORK_ORDER,
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
+        WO031_WORK_ORDER,
         "WO-1.1-01",
     }
 )
@@ -9554,7 +9619,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9646,7 +9711,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9819,7 +9884,7 @@ def verify_wo023_g1_governance_contract(
     if work_order != WO023_G1_WORK_ORDER:
         return None
     require_wo023_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10744,7 +10809,7 @@ def verify_wo023p_g1_c1_governance_contract(
             f"{WO023P_G1_C1_WORK_ORDER} requires the authorized-base marker parser to cover "
             "WO-023-P and the corrective work order"
         )
-    for rejected in ("WO-031", "WO-028-P", "WO-999-P"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10823,7 +10888,7 @@ def verify_wo024p_g1_c1_governance_contract(
         raise ValueError(
             f"{WO024P_G1_C1_WORK_ORDER} requires the active WO-024 promotion pair to be unchanged"
         )
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10919,7 +10984,7 @@ def verify_wo024p_g1_c2_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11088,7 +11153,7 @@ def verify_wo024p_g1_c3_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11261,7 +11326,7 @@ def verify_wo024p_g1_c4_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11452,7 +11517,7 @@ def verify_wo025_g1_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -12116,7 +12181,7 @@ def verify_wo025_g2_governance_contract(
     # WO-025 becomes an authorized current planning-promotion work order in this increment, while
     # unknown later identifiers stay fail-closed.
     require_current_work_order_authorization(WO025_WORK_ORDER)
-    for rejected in ("WO-031", "WO-028-P", "WO-999-P"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -12173,6 +12238,41 @@ def verify_wo025_g2_governance_contract(
         "ruleset_unchanged=PASS; auto_merge=UNARMED; v0.1_completion_claim=False; "
         "canonical_promotion_performed=False"
     )
+
+
+def require_wo031_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+    enforce_current_main: bool = False,
+    enforce_authorized_base: bool = True,
+) -> None:
+    """Bound the WO-031 installation, telemetry, discovery and dashboard correction."""
+
+    if work_order != WO031_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError(f"{WO031_WORK_ORDER} requires the protected main base branch")
+    if base_sha != WO031_BASE_SHA:
+        raise ValueError(
+            f"{WO031_WORK_ORDER} requires exact base {WO031_BASE_SHA}, observed {base_sha}"
+        )
+    if enforce_current_main:
+        current_main = git_value("rev-parse", "origin/main", fallback="")
+        if HEX_SHA.fullmatch(current_main) and current_main != WO031_BASE_SHA:
+            raise ValueError(
+                f"{WO031_WORK_ORDER} is stale: protected main is {current_main}, "
+                f"authorized base is {WO031_BASE_SHA}"
+            )
+    if set(paths) != WO031_ALLOWED_PATHS or len(paths) != len(WO031_ALLOWED_PATHS):
+        raise ValueError(f"{WO031_WORK_ORDER} requires exactly the bounded corrective surface")
+    if enforce_authorized_base and authorized_base_sha != base_sha:
+        raise ValueError(
+            f"{WO031_WORK_ORDER} authorized-base marker must match the pull request base SHA"
+        )
 
 
 def require_wo025_g3_scope(
@@ -12517,7 +12617,7 @@ def verify_wo025_g3_governance_contract(
         "WO-12-99",
         "WO-22-01",
         "WO-027-P",
-        "WO-031",
+        "WO-032",
         "",
     ):
         try:
@@ -12736,7 +12836,7 @@ def verify_wo025_g4_governance_contract(
             ) from error
     else:
         raise ValueError(f"{WO11_01_WORK_ORDER} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028-P", "WO-031", ""):
+    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028-P", "WO-032", ""):
         try:
             require_supported_work_order(rejected)
         except ValueError:
@@ -16817,7 +16917,7 @@ def verify_wo024_g1_governance_contract(
         ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
         raise ValueError(f"{WO024_G1_WORK_ORDER} requires the active WO-024 promotion pair")
-    for rejected in ("WO-031", "WO-028-P", "WO-999"):
+    for rejected in ("WO-032", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -17761,6 +17861,14 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         authorized_base_sha=authorized_base_sha,
         enforce_current_main=True,
     )
+    require_wo031_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+        enforce_current_main=True,
+    )
     require_wo025_g3_scope(
         work_order,
         base_sha,
@@ -18421,6 +18529,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         "schema_version": 1,
         "work_order": work_order,
         "repository": repository,
+        "authorized_base_sha": authorized_base_sha,
         "pull_request": {"number": pr_number, "is_draft": draft},
         "base": {"branch": args.base_branch, "sha": base_sha},
         "head": {
@@ -18748,7 +18857,11 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         "review_state",
         "negative_scope",
     }
-    if set(manifest) != required or manifest["schema_version"] != 1:
+    manifest_fields = frozenset(manifest)
+    if (
+        manifest_fields not in {frozenset(required), frozenset(required | {"authorized_base_sha"})}
+        or manifest["schema_version"] != 1
+    ):
         raise ValueError("manifest does not match the required top-level schema")
     work_order = cast(str, manifest["work_order"])
     require_supported_work_order(work_order)
@@ -18819,6 +18932,14 @@ def validate_manifest(manifest: dict[str, object]) -> None:
         enforce_authorized_base=False,
     )
     require_wo030_c1_scope(
+        work_order,
+        cast(str, base["sha"]),
+        cast(list[str], changed_files["paths"]),
+        base_branch=cast(str, base.get("branch", "main")),
+        enforce_current_main=False,
+        enforce_authorized_base=False,
+    )
+    require_wo031_scope(
         work_order,
         cast(str, base["sha"]),
         cast(list[str], changed_files["paths"]),

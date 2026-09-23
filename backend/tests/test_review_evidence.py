@@ -609,7 +609,7 @@ def test_review_evidence_schema_is_validated() -> None:
 def test_wo026_registration_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO026_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO026_BASE_SHA
     allowed = sorted(review_evidence.WO026_ALLOWED_PATHS)
@@ -662,7 +662,7 @@ def test_wo026_registration_is_exact_and_fail_closed() -> None:
 def test_wo027_registration_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO027_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO027_BASE_SHA
     allowed = sorted(review_evidence.WO027_ALLOWED_PATHS)
@@ -699,7 +699,7 @@ def test_wo027_registration_is_exact_and_fail_closed() -> None:
 def test_wo028_project_root_hotfix_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO028_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO028_BASE_SHA
     allowed = sorted(review_evidence.WO028_ALLOWED_PATHS)
@@ -744,7 +744,7 @@ def test_wo028_project_root_hotfix_is_exact_and_fail_closed() -> None:
 def test_wo029_executor_correction_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO029_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO029_BASE_SHA
     allowed = sorted(review_evidence.WO029_ALLOWED_PATHS)
@@ -919,7 +919,7 @@ def test_wo029_c3_production_executor_correction_is_exact_and_fail_closed() -> N
 def test_wo030_vitest_security_correction_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO030_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO030_BASE_SHA
     allowed = sorted(review_evidence.WO030_ALLOWED_PATHS)
@@ -975,7 +975,7 @@ def test_wo030_c1_progressive_disclosure_hotfix_is_exact_and_fail_closed() -> No
         review_evidence.CHECKPOINT_PROMOTION_WORK_ORDERS
     )
     with pytest.raises(ValueError, match="unsupported future work order"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     base_sha = review_evidence.WO030_C1_BASE_SHA
     allowed = sorted(review_evidence.WO030_C1_ALLOWED_PATHS)
@@ -2136,7 +2136,7 @@ def test_wo023_renderers_are_dedicated_and_fail_closed() -> None:
     assert "checkpoint" in product.casefold()
     # WO-025-P and WO-1.1-01 have dedicated governance renderers; the unrenderable frontier is
     # the next unregistered promotion and the unknown future identifiers.
-    for unsupported in ("WO-026-P", "WO-031", "WO-999"):
+    for unsupported in ("WO-026-P", "WO-032", "WO-999"):
         with pytest.raises(ValueError):
             render_body(work_order=unsupported, **common)
 
@@ -3045,7 +3045,7 @@ def test_wo021_registration_and_bounded_scopes(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-026-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     monkeypatch.setattr(review_evidence, "migration_head", lambda: "0007_telemetry_events")
     g1_paths = sorted(review_evidence.WO021_G1_ALLOWED_PATHS)
@@ -9951,7 +9951,7 @@ def test_wo022_registration_and_scopes_are_exact_and_fail_closed(
     with pytest.raises(ValueError, match="unsupported checkpoint-promotion"):
         require_supported_work_order("WO-026-P")
     with pytest.raises(ValueError, match="unsupported future"):
-        require_supported_work_order("WO-031")
+        require_supported_work_order("WO-032")
 
     monkeypatch.setattr(
         review_evidence,
@@ -10795,7 +10795,7 @@ def test_wo023p_g1_c1_registration_is_exact_and_fail_closed(
         review_evidence.require_current_work_order_authorization(
             review_evidence.WO023P_G1_C1_WORK_ORDER
         )
-    for rejected in ("WO-031", "WO-026-P", "WO-999-P"):
+    for rejected in ("WO-032", "WO-026-P", "WO-999-P"):
         with pytest.raises(ValueError, match="unsupported|historical"):
             review_evidence.require_current_work_order_authorization(rejected)
     for historical in (
@@ -11567,7 +11567,7 @@ def test_wo024p_g1_c1_is_the_current_work_order_and_stays_bounded() -> None:
         review_evidence.WO023P_G1_C1_WORK_ORDER,
         review_evidence.WO023P_WORK_ORDER,
         review_evidence.WO023P_G1_WORK_ORDER,
-        "WO-031",
+        "WO-032",
         "WO-028-P",
         "WO-999",
     ):
@@ -12549,7 +12549,7 @@ def test_wo025_is_registered_as_planning_only_promotion() -> None:
 def test_unknown_future_work_orders_stay_fail_closed() -> None:
     # WO-025 became current-authorized in WO-025-G2; the unknown frontier stays rejected.
     review_evidence.require_supported_work_order(review_evidence.WO025_WORK_ORDER)
-    for unknown in ("WO-031", "WO-028-P", "WO-999-P"):
+    for unknown in ("WO-032", "WO-028-P", "WO-999-P"):
         with pytest.raises(ValueError):
             review_evidence.require_current_work_order_authorization(unknown)
 
@@ -12647,7 +12647,7 @@ def test_wo025_is_now_current_authorized_and_wo029_stays_fail_closed(
         frozenset({review_evidence.WO024_G1_WORK_ORDER, review_evidence.WO024P_WORK_ORDER})
         == review_evidence.ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     )
-    for unknown in ("WO-031", "WO-028-P", "WO-999-P"):
+    for unknown in ("WO-032", "WO-028-P", "WO-999-P"):
         with pytest.raises(ValueError):
             review_evidence.require_current_work_order_authorization(unknown)
         with pytest.raises(ValueError):
@@ -12835,7 +12835,7 @@ def test_work_order_registry_is_deny_by_default_and_closed() -> None:
             require_supported_work_order(rejected)
 
     # The unknown future frontier and malformed identifiers keep failing closed.
-    for rejected in ("WO-027-P", "WO-031", "WO-999", "WO-999-P", "WO-1.1-02", ""):
+    for rejected in ("WO-027-P", "WO-032", "WO-999", "WO-999-P", "WO-1.1-02", ""):
         with pytest.raises(ValueError):
             require_supported_work_order(rejected)
 
@@ -13248,7 +13248,7 @@ def test_wo025_g4_registration_does_not_widen_the_namespace() -> None:
         "WO-025-G10",
         "WO-025-G4-P",
         "WO-026-P",
-        "WO-031",
+        "WO-032",
         "WO-1.1-02",
         "WO-12-99",
         "WO-11-01",
@@ -14083,3 +14083,42 @@ def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
             [],
             authorized_base_sha=HIVE_REL_008_BASE_SHA,
         )
+
+
+def test_wo031_corrective_scope_is_exact_and_base_bound() -> None:
+    paths = sorted(review_evidence.WO031_ALLOWED_PATHS)
+    assert "backend/tests/test_registry.py" in paths
+    assert "backend/tests/test_v01_closure_regression_lock.py" in paths
+    review_evidence.require_wo031_scope(
+        review_evidence.WO031_WORK_ORDER,
+        review_evidence.WO031_BASE_SHA,
+        paths,
+        base_branch="main",
+        authorized_base_sha=review_evidence.WO031_BASE_SHA,
+        enforce_current_main=False,
+    )
+
+    with pytest.raises(ValueError, match="exactly the bounded corrective surface"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            review_evidence.WO031_BASE_SHA,
+            paths + ["README.md"],
+            base_branch="main",
+            authorized_base_sha=review_evidence.WO031_BASE_SHA,
+            enforce_current_main=False,
+        )
+
+    with pytest.raises(ValueError, match="requires exact base"):
+        review_evidence.require_wo031_scope(
+            review_evidence.WO031_WORK_ORDER,
+            "0" * 40,
+            paths,
+            base_branch="main",
+            authorized_base_sha="0" * 40,
+            enforce_current_main=False,
+        )
+
+
+def test_wo031_is_registered_and_requires_authorized_base_marker() -> None:
+    review_evidence.require_supported_work_order(review_evidence.WO031_WORK_ORDER)
+    assert review_evidence.WO031_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS

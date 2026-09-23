@@ -22,6 +22,68 @@ closure = load("v01_closure_sprint_unit", SCRIPT_PATH)
 backup = load("v01_backup_restore_unit", BACKUP_PATH)
 
 
+class _ContextStatusProbe:
+    def __init__(self, responses: list[int | AssertionError]) -> None:
+        self.responses = iter(responses)
+        self.calls = 0
+
+    def request(
+        self,
+        _method: str,
+        _path: str,
+        *,
+        payload: dict[str, object],
+        expected: tuple[int, ...],
+    ) -> dict[str, int]:
+        assert payload == {"top_k": 5}
+        self.calls += 1
+        response = next(self.responses)
+        if isinstance(response, AssertionError):
+            raise response
+        assert response in expected
+        return {"status": response}
+
+
+class _CorpusSyncProbe:
+    def __init__(self, responses: list[int | AssertionError]) -> None:
+        self.responses = iter(responses)
+        self.calls = 0
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        expected: int | tuple[int, ...],
+    ) -> dict[str, str]:
+        assert method == "POST"
+        assert path == "/api/v1/projects/project-123/retrieval/corpus/sync"
+        assert expected == (200, 201)
+        self.calls += 1
+        response = next(self.responses)
+        if isinstance(response, AssertionError):
+            raise response
+        if isinstance(expected, int):
+            assert response == expected
+        else:
+            assert response in expected
+        return {"status": "COMPLETED"}
+
+
+def _context_database_503() -> AssertionError:
+    return AssertionError(
+        "POST /context: expected (404, 409, 422), observed 503: "
+        '{"detail":"context manager database unavailable"}'
+    )
+
+
+def _retrieval_corpus_database_503() -> AssertionError:
+    return AssertionError(
+        "POST /retrieval/corpus/sync: expected (200, 201), observed 503: "
+        '{"detail":"retrieval corpus database unavailable"}'
+    )
+
+
 def test_closure_evidence_fields_match_the_closed_contract() -> None:
     assert closure.EVIDENCE_VERSION == "v01-closure-sprint-v1"
     assert closure.EVIDENCE_FILE == "v01-closure-sprint.json"
@@ -136,6 +198,254 @@ def test_integration_suite_verifier_requires_every_run_to_pass() -> None:
         assert closure.integration_suite_check()[0] == "FAIL"
     finally:
         closure.INTEGRATION_RUN_RESULTS = original
+
+
+def test_repository_test_environment_removes_all_inherited_hive_and_compose_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIVE_UNRELATED_SETTING", "must-not-leak")
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "unrelated-project")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "unrelated-password")
+
+    environment = closure._repository_test_environment()
+
+    assert not any(name.startswith("HIVE_") for name in environment)
+    assert not any(name.startswith("COMPOSE_") for name in environment)
+    assert not any(name.startswith("POSTGRES_") for name in environment)
+
+
+def test_integration_test_environment_binds_only_explicit_wo031_compose_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "wo031-data"
+    projects_root = tmp_path / "wo031-projects"
+    monkeypatch.setenv("HIVE_WO031_ISOLATED_E2E", "true")
+    monkeypatch.setenv("HIVE_DATA_ROOT", str(data_root))
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", str(projects_root))
+    monkeypatch.setenv("HIVE_API_PORT", "18031")
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "hive-wo031-isolated-test")
+    monkeypatch.setenv("HIVE_UNRELATED_SETTING", "must-not-leak")
+
+    environment = closure._integration_test_environment()
+
+    assert environment["HIVE_DATA_ROOT"] == str(data_root)
+    assert environment["HIVE_PROJECTS_ROOT"] == str(projects_root)
+    assert environment["HIVE_API_PORT"] == "18031"
+    assert environment["COMPOSE_PROJECT_NAME"] == "hive-wo031-isolated-test"
+    assert environment["HIVE_AUTO_DISCOVERY_ENABLED"] == "false"
+    assert environment["HIVE_WO031_ISOLATED_E2E"] == "true"
+    assert "HIVE_UNRELATED_SETTING" not in environment
+    assert {name for name in environment if name.startswith("HIVE_")} == {
+        "HIVE_DATA_ROOT",
+        "HIVE_PROJECTS_ROOT",
+        "HIVE_API_PORT",
+        "HIVE_AUTO_DISCOVERY_ENABLED",
+        "HIVE_WO031_ISOLATED_E2E",
+    }
+
+
+def test_context_fail_closed_probe_retries_once_after_database_readiness_503(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    probe = _ContextStatusProbe([_context_database_503(), 409])
+    readiness_checks: list[tuple[object, int]] = []
+    monkeypatch.setattr(
+        closure,
+        "wait_for_api_health",
+        lambda actual, *, attempts: readiness_checks.append((actual, attempts)),
+    )
+
+    closure._expect_failure(probe, "/api/v1/projects/p/tasks/t/context")
+
+    assert probe.calls == 2
+    assert readiness_checks == [(probe, 90)]
+    assert "retrying the context probe once" in capsys.readouterr().out
+
+
+def test_context_fail_closed_probe_never_retries_an_accepted_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _ContextStatusProbe(
+        [AssertionError("POST /context: expected (404, 409, 422), observed 200: {}")]
+    )
+    readiness_checks: list[object] = []
+    monkeypatch.setattr(
+        closure,
+        "wait_for_api_health",
+        lambda actual, **_kwargs: readiness_checks.append(actual),
+    )
+
+    with pytest.raises(AssertionError, match="did not fail closed"):
+        closure._expect_failure(probe, "/api/v1/projects/p/tasks/t/context")
+
+    assert probe.calls == 1
+    assert readiness_checks == []
+
+
+def test_context_fail_closed_probe_accepts_explicit_rejection_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _ContextStatusProbe([409])
+    readiness_checks: list[object] = []
+    monkeypatch.setattr(
+        closure,
+        "wait_for_api_health",
+        lambda actual, **_kwargs: readiness_checks.append(actual),
+    )
+
+    closure._expect_failure(probe, "/api/v1/projects/p/tasks/t/context")
+
+    assert probe.calls == 1
+    assert readiness_checks == []
+
+
+def test_context_fail_closed_probe_does_not_retry_an_unrelated_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _ContextStatusProbe(
+        [
+            AssertionError(
+                'POST /context: expected (404, 409, 422), observed 503: {"detail":"other"}'
+            )
+        ]
+    )
+    readiness_checks: list[object] = []
+    monkeypatch.setattr(
+        closure,
+        "wait_for_api_health",
+        lambda actual, **_kwargs: readiness_checks.append(actual),
+    )
+
+    with pytest.raises(AssertionError, match="did not fail closed"):
+        closure._expect_failure(probe, "/api/v1/projects/p/tasks/t/context")
+
+    assert probe.calls == 1
+    assert readiness_checks == []
+
+
+def test_context_fail_closed_probe_stops_after_one_database_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _ContextStatusProbe([_context_database_503(), _context_database_503()])
+    monkeypatch.setattr(closure, "wait_for_api_health", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(AssertionError, match="after one readiness retry"):
+        closure._expect_failure(probe, "/api/v1/projects/p/tasks/t/context")
+
+    assert probe.calls == 2
+
+
+def test_corpus_sync_waits_for_database_and_api_then_retries_once(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    probe = _CorpusSyncProbe([_retrieval_corpus_database_503(), 200])
+    readiness_checks: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        closure,
+        "_wait_for_postgres",
+        lambda *, attempts: readiness_checks.append(("postgres", attempts)),
+    )
+    monkeypatch.setattr(
+        closure,
+        "wait_for_api_health",
+        lambda actual, *, attempts: readiness_checks.append(("api", attempts))
+        if actual is probe
+        else pytest.fail("API readiness used an unexpected probe"),
+    )
+
+    result = closure._sync_corpus(probe, "project-123")
+
+    assert result == {"status": "COMPLETED"}
+    assert probe.calls == 2
+    assert readiness_checks == [("postgres", 90), ("api", 90)]
+    assert "retrying corpus sync once" in capsys.readouterr().out
+
+
+def test_corpus_sync_does_not_retry_unrelated_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _CorpusSyncProbe(
+        [AssertionError('observed 503: {"detail":"different database error"}')]
+    )
+    readiness_checks: list[str] = []
+    monkeypatch.setattr(
+        closure,
+        "_wait_for_postgres",
+        lambda **_kwargs: readiness_checks.append("postgres"),
+    )
+
+    with pytest.raises(AssertionError, match="different database error"):
+        closure._sync_corpus(probe, "project-123")
+
+    assert probe.calls == 1
+    assert readiness_checks == []
+
+
+def test_corpus_sync_stops_after_one_persistent_database_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _CorpusSyncProbe([_retrieval_corpus_database_503(), _retrieval_corpus_database_503()])
+    monkeypatch.setattr(closure, "_wait_for_postgres", lambda **_kwargs: None)
+    monkeypatch.setattr(closure, "wait_for_api_health", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(AssertionError, match="after one readiness retry"):
+        closure._sync_corpus(probe, "project-123")
+
+    assert probe.calls == 2
+
+
+def test_postgres_replacement_uses_graceful_stop_before_remove_and_recreate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def record_compose(*arguments: str, check: bool = True) -> str:
+        assert check is True
+        calls.append(arguments)
+        return ""
+
+    monkeypatch.setattr(closure, "compose", record_compose)
+
+    closure._replace_postgres_container("-p", "hive-isolated-test")
+
+    assert calls == [
+        ("-p", "hive-isolated-test", "stop", "--timeout", "180", "postgres"),
+        ("-p", "hive-isolated-test", "rm", "--force", "postgres"),
+        ("-p", "hive-isolated-test", "up", "-d", "postgres"),
+    ]
+
+
+def test_postgres_replacement_does_not_remove_after_failed_graceful_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fail_stop(*arguments: str, check: bool = True) -> str:
+        assert check is True
+        calls.append(arguments)
+        raise RuntimeError("graceful PostgreSQL stop timed out")
+
+    monkeypatch.setattr(closure, "compose", fail_stop)
+
+    with pytest.raises(RuntimeError, match="graceful PostgreSQL stop timed out"):
+        closure._replace_postgres_container()
+
+    assert calls == [("stop", "--timeout", "180", "postgres")]
+
+
+def test_integration_test_environment_fails_closed_without_isolation_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("HIVE_WO031_ISOLATED_E2E", raising=False)
+    monkeypatch.setenv("HIVE_DATA_ROOT", str(tmp_path / "wo031-data"))
+    monkeypatch.setenv("HIVE_PROJECTS_ROOT", str(tmp_path / "wo031-projects"))
+
+    with pytest.raises(RuntimeError, match="explicit isolated roots and marker"):
+        closure._integration_test_environment()
 
 
 def test_document_needles_are_case_insensitive() -> None:

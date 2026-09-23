@@ -1,5 +1,6 @@
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from uuid import UUID
 
 import psycopg
@@ -14,6 +15,7 @@ from .control_center_metrics import router as control_center_metrics_router
 from .db import ensure_schema_current
 from .health import HealthResponse, collect_health
 from .memory import router as memory_router
+from .project_discovery import run_project_discovery
 from .registry import (
     ProjectConflictError,
     ProjectCreateRequest,
@@ -37,7 +39,18 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     ensure_schema_current(settings)
-    yield
+    discovery_task = (
+        asyncio.create_task(run_project_discovery(settings), name="hive-project-discovery")
+        if settings.auto_discovery_enabled
+        else None
+    )
+    try:
+        yield
+    finally:
+        if discovery_task is not None:
+            discovery_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await discovery_task
 
 
 app = FastAPI(
