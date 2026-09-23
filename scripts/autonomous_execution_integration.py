@@ -228,6 +228,42 @@ def run_executor_cli(command: list[str], *, cwd: Path = ROOT) -> dict[str, Any]:
     return cast(dict[str, Any], payload)
 
 
+def executor_service_cli_command(
+    project: ProjectResponse,
+    task: TaskResponse,
+    provider_base_url: str,
+) -> list[str]:
+    """Build an executor command whose stdout remains one machine-readable JSON value."""
+
+    command = ["docker", "compose", "run", "--quiet-build", "--rm", "-T"]
+    user_id = getattr(os, "getuid", None)
+    group_id = getattr(os, "getgid", None)
+    if callable(user_id) and callable(group_id):
+        command.extend(["--user", f"{user_id()}:{group_id()}"])
+    command.extend(
+        [
+            "-e",
+            "HIVE_EXECUTOR_ENABLED=true",
+            "-e",
+            f"HIVE_EXECUTOR_BASE_URL={provider_base_url}",
+            "-e",
+            "HIVE_EXECUTOR_MODEL=hive-integration-model",
+            "-e",
+            "HIVE_EXECUTOR_PROMPT_CACHE_ENABLED=true",
+            "executor",
+            "--project-id",
+            str(project.project_id),
+            "--task-id",
+            str(task.task_id),
+            "--expected-branch",
+            str(project.git_branch),
+            "--expected-head-sha",
+            str(project.git_head_sha),
+        ]
+    )
+    return command
+
+
 def write_governance(repository: Path) -> None:
     brain = repository / "docs" / "project-brain"
     brain.mkdir(parents=True, exist_ok=True)
@@ -767,32 +803,7 @@ def verify_executor_service_cli(base_url: str, relative_path: str) -> None:
     with LocalProviderServer() as provider:
         # Preserve stdout as a single JSON document; an allocated TTY can merge
         # executor stderr diagnostics into the machine-readable CLI response.
-        command = ["docker", "compose", "run", "--rm", "-T"]
-        user_id = getattr(os, "getuid", None)
-        group_id = getattr(os, "getgid", None)
-        if callable(user_id) and callable(group_id):
-            command.extend(["--user", f"{user_id()}:{group_id()}"])
-        command.extend(
-            [
-                "-e",
-                "HIVE_EXECUTOR_ENABLED=true",
-                "-e",
-                f"HIVE_EXECUTOR_BASE_URL={provider.container_base_url}",
-                "-e",
-                "HIVE_EXECUTOR_MODEL=hive-integration-model",
-                "-e",
-                "HIVE_EXECUTOR_PROMPT_CACHE_ENABLED=true",
-                "executor",
-                "--project-id",
-                str(project.project_id),
-                "--task-id",
-                str(task.task_id),
-                "--expected-branch",
-                str(project.git_branch),
-                "--expected-head-sha",
-                str(project.git_head_sha),
-            ]
-        )
+        command = executor_service_cli_command(project, task, provider.container_base_url)
         payload = run_executor_cli(command)
         if payload.get("status") != "STAGED":
             raise AssertionError("executor service CLI did not complete a staged run")

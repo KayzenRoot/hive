@@ -9,6 +9,9 @@ from scripts import autonomous_execution_integration
 from scripts.autonomous_execution_integration import (
     event_linkage_is_explicit,
     execution_run_ids_are_present,
+    executor_service_cli_command,
+    local_project_response,
+    local_task_response,
     task_ids_are_scoped,
     terminal_replay_after_cursor,
 )
@@ -160,3 +163,15 @@ def test_executor_cli_returns_parsed_object_and_ignores_separate_stderr(
     assert autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"]) == {
         "status": "STAGED"
     }
+
+
+def test_executor_compose_run_quiets_build_progress_before_json_cli() -> None:
+    command = executor_service_cli_command(
+        local_project_response(),
+        local_task_response(),
+        "http://executor-provider:8000",
+    )
+
+    assert command[:6] == ["docker", "compose", "run", "--quiet-build", "--rm", "-T"]
+    assert "executor" in command
+    assert "HIVE_EXECUTOR_BASE_URL=http://executor-provider:8000" in command
