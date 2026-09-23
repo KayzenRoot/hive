@@ -40,6 +40,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_adaptive_token_budget.py: Python source or test module.
 - backend/tests/test_auto_discovery_integration.py: Python source or test module.
 - backend/tests/test_cas.py: Python source or test module.
+- backend/tests/test_check_secrets.py: Python source or test module.
 - backend/tests/test_comprehensive_benchmarks.py: Python source or test module.
 - backend/tests/test_config.py: Python source or test module.
 - backend/tests/test_context_fingerprints.py: Python source or test module.
