@@ -63,7 +63,10 @@ class _CorpusSyncProbe:
         response = next(self.responses)
         if isinstance(response, AssertionError):
             raise response
-        assert response in expected
+        if isinstance(expected, int):
+            assert response == expected
+        else:
+            assert response in expected
         return {"status": "COMPLETED"}
 
 
