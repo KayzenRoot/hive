@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import queue
@@ -9,6 +10,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +18,50 @@ ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION_LOG_DIR = ROOT / "tmp" / "integration-logs"
 CLOSURE_EVIDENCE = INTEGRATION_LOG_DIR / "v01-closure-sprint.json"
 HEALTH_EVIDENCE = INTEGRATION_LOG_DIR / "integration-health.json"
+
+
+def isolated_environment_error(
+    environment: Mapping[str, str] | None = None, *, repo_root: Path = ROOT
+) -> str | None:
+    """Refuse integration against an implicit or non-WO-031 data environment."""
+
+    values = os.environ if environment is None else environment
+    marker = values.get("HIVE_WO031_ISOLATED_E2E", "").strip().casefold()
+    data_root = values.get("HIVE_DATA_ROOT", "").strip()
+    projects_root = values.get("HIVE_PROJECTS_ROOT", "").strip()
+    compose_project = values.get("COMPOSE_PROJECT_NAME", "").strip()
+    if marker not in {"1", "true", "yes", "on"}:
+        return "HIVE_WO031_ISOLATED_E2E=true is required"
+    if not data_root or not projects_root or not compose_project:
+        return "explicit data, projects, and Compose project roots are required"
+
+    try:
+        root = repo_root.resolve()
+        resolved_data = Path(data_root).resolve()
+        resolved_projects = Path(projects_root).resolve()
+    except OSError:
+        return "isolated roots could not be resolved"
+
+    if "wo031" not in resolved_data.as_posix().casefold():
+        return "HIVE_DATA_ROOT must be a WO-031 test root"
+    if "wo031" not in resolved_projects.as_posix().casefold():
+        return "HIVE_PROJECTS_ROOT must be a WO-031 test root"
+    if "wo031" not in compose_project.casefold():
+        return "COMPOSE_PROJECT_NAME must identify the isolated WO-031 stack"
+    if (
+        resolved_data == root
+        or resolved_projects == root
+        or not resolved_data.is_relative_to(root)
+        or not resolved_projects.is_relative_to(root)
+    ):
+        return "integration roots must remain inside the checked-out repository workspace"
+    if (
+        resolved_data == resolved_projects
+        or resolved_data in resolved_projects.parents
+        or resolved_projects in resolved_data.parents
+    ):
+        return "data and projects roots must be distinct, non-overlapping directories"
+    return None
 
 
 def fetch(url: str) -> tuple[int, bytes, dict | None]:
@@ -181,7 +227,16 @@ def read_closure_evidence(started_at: float) -> dict[str, object]:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Run HIVE container integration checks against an isolated WO-031 stack."
+    )
+    parser.parse_args(argv)
+    isolation_error = isolated_environment_error()
+    if isolation_error:
+        print(f"[integration] REFUSED: {isolation_error}", file=sys.stderr, flush=True)
+        return 2
+
     api_port = os.environ.get("HIVE_API_PORT", "8000")
     dashboard_port = os.environ.get("HIVE_DASHBOARD_PORT", "3000")
     health_url = f"http://127.0.0.1:{api_port}/api/v1/health"

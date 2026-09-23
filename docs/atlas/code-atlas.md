@@ -55,6 +55,7 @@ Generated deterministically by scripts/generate_maps.py.
 - backend/tests/test_finalize_release_receipt.py: Python source or test module.
 - backend/tests/test_health.py: Python source or test module.
 - backend/tests/test_hive_install.py: Python source or test module.
+- backend/tests/test_integration_health.py: Python source or test module.
 - backend/tests/test_mcp_server.py: Python source or test module.
 - backend/tests/test_memory.py: Python source or test module.
 - backend/tests/test_prepare_release.py: Python source or test module.

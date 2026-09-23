@@ -44,6 +44,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     env:
+      COMPOSE_PROJECT_NAME: hive-wo031-ci
       HIVE_DATA_ROOT: ${{ github.workspace }}/.hive-wo031-data
       HIVE_PROJECTS_ROOT: ${{ github.workspace }}/.hive-wo031-projects
       HIVE_AUTO_DISCOVERY_ENABLED: "false"

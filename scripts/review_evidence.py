@@ -2402,6 +2402,7 @@ WO031_ALLOWED_PATHS = frozenset(
         "backend/tests/test_context_manager.py",
         "backend/tests/test_execution_orchestrator.py",
         "backend/tests/test_hive_install.py",
+        "backend/tests/test_integration_health.py",
         "backend/tests/test_review_evidence.py",
         "backend/tests/test_project_discovery.py",
         "backend/tests/test_v01_closure_sprint.py",
