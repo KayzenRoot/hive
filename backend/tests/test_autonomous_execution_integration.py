@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -110,7 +111,7 @@ def test_executor_cli_invalid_json_reports_bounded_redacted_streams(
     def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
 
-    monkeypatch.setattr(autonomous_execution_integration.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(AssertionError) as error:
         autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"])
@@ -136,7 +137,7 @@ def test_executor_cli_nonzero_reports_cli_error_and_keeps_streams_separate(
     def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=1, stdout=stdout, stderr=stderr)
 
-    monkeypatch.setattr(autonomous_execution_integration.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(AssertionError) as error:
         autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"])
@@ -154,7 +155,7 @@ def test_executor_cli_returns_parsed_object_and_ignores_separate_stderr(
     def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=0, stdout=b'{"status":"STAGED"}', stderr=b"diagnostic")
 
-    monkeypatch.setattr(autonomous_execution_integration.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     assert autonomous_execution_integration.run_executor_cli(["docker", "compose", "run"]) == {
         "status": "STAGED"
