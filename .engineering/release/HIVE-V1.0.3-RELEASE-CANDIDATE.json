@@ -25,7 +25,7 @@
     "internal_program": "HIVE V0.1 - Foundation",
     "status": "COMPLETE / CLOSURE SPRINT APPROVED",
     "definition_of_done": "46/46 PASS, 0 FAIL, 0 UNKNOWN, HIGH/CRITICAL 0/0",
-    "final_main": "05e48e74fe4655e49eda5699458d50282428ee40"
+    "final_main": "90cc1b91b48d628dfb3e4773e1672535b4cb8991"
   },
   "previous_stable_release": {
     "version": "1.0.2",
