@@ -151,6 +151,11 @@ def test_v102_release_candidate_metadata_is_supported(tmp_path: Path) -> None:
     assert verify_release_metadata(tmp_path) == []
 
 
+def test_v103_release_candidate_metadata_is_supported(tmp_path: Path) -> None:
+    build_release_tree(tmp_path, version="1.0.3")
+    assert verify_release_metadata(tmp_path) == []
+
+
 def test_non_stable_version_fails_closed(tmp_path: Path) -> None:
     build_release_tree(tmp_path)
     write_text(tmp_path, "VERSION", "1.0.0-rc.1\n")

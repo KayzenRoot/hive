@@ -11,18 +11,16 @@ execution platform for large LLM-assisted software projects.
 
 ## Status
 
-**Latest stable release: v1.0.1.** HIVE v1.0.2 is the current bugfix and
-stabilization release candidate. It packages the executor correctness fixes,
-Progressive Disclosure false-positive corrections, Vitest security remediation,
-and the concrete bounded OpenAI-compatible executor transport already accepted
-on protected `main`.
+**Latest stable release: v1.0.2.** HIVE v1.0.3 is the current patch release
+candidate. It prepares the Windows/install hardening, bounded project discovery,
+telemetry and Control Center improvements already accepted on protected `main`.
 
-Target stable release: v1.0.2 (release candidate; not published). See
-[CHANGELOG.md](CHANGELOG.md), the candidate [release notes](docs/releases/v1.0.2.md),
-and the published [v1.0.1 GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.1).
+Target stable release: v1.0.3 (release candidate; not published). See
+[CHANGELOG.md](CHANGELOG.md), the candidate [release notes](docs/releases/v1.0.3.md),
+and the published [v1.0.2 GitHub Release](https://github.com/KayzenRoot/hive/releases/tag/v1.0.2).
 
-HIVE v1.0.1 remains the currently downloadable stable source distribution until
-the governed v1.0.2 publisher completes. The internal HIVE V0.1 Foundation
+HIVE v1.0.2 remains the currently downloadable stable source distribution until
+the governed v1.0.3 publisher completes. The internal HIVE V0.1 Foundation
 baseline remains complete and unchanged; see
 [docs/project-brain/13-CHECKPOINT.md](docs/project-brain/13-CHECKPOINT.md).
 

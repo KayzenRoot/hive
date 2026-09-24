@@ -44,6 +44,9 @@ from scripts.review_evidence import (
     HIVE_REL_008_ALLOWED_PATHS,
     HIVE_REL_008_BASE_SHA,
     HIVE_REL_008_WORK_ORDER,
+    HIVE_REL_009_ALLOWED_PATHS,
+    HIVE_REL_009_BASE_SHA,
+    HIVE_REL_009_WORK_ORDER,
     MCP_CORE_SURFACE_EVIDENCE_FILE,
     MCP_CORE_SURFACE_EVIDENCE_VERSION,
     MCP_CORE_SURFACE_FALSE_FIELDS,
@@ -136,6 +139,7 @@ from scripts.review_evidence import (
     require_hive_rel_006_scope,
     require_hive_rel_007_scope,
     require_hive_rel_008_scope,
+    require_hive_rel_009_scope,
     require_supported_work_order,
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
@@ -6706,7 +6710,7 @@ def test_hive_rel_001_marker_is_bounded_and_registered() -> None:
     require_current_work_order_authorization(HIVE_REL_008_WORK_ORDER)
     assert HIVE_REL_008_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
     with pytest.raises(ValueError, match="unsupported release-engineering"):
-        require_supported_work_order("HIVE-REL-009")
+        require_supported_work_order("HIVE-REL-010")
     with pytest.raises(ValueError, match="unsupported release-engineering"):
         require_supported_work_order("HIVE-REL-999")
     with pytest.raises(ValueError, match="invalid or unbounded"):
@@ -12824,12 +12828,19 @@ def test_work_order_registry_is_deny_by_default_and_closed() -> None:
         review_evidence.WO025P_WORK_ORDER,
         review_evidence.WO11_01_WORK_ORDER,
         review_evidence.WO030_WORK_ORDER,
+        review_evidence.HIVE_REL_009_WORK_ORDER,
     ):
         assert registered in review_evidence.REGISTERED_WORK_ORDERS
         require_supported_work_order(registered)
 
     # Near-miss identifiers that the old numeric fallthrough silently accepted.
-    for rejected in ("WO-11-01", "WO-12-99", "WO-22-01", "WO-11-01-EXTRA"):
+    for rejected in (
+        "WO-11-01",
+        "WO-12-99",
+        "WO-22-01",
+        "WO-11-01-EXTRA",
+        "HIVE-REL-010",
+    ):
         assert rejected not in review_evidence.REGISTERED_WORK_ORDERS
         with pytest.raises(ValueError, match="unsupported"):
             require_supported_work_order(rejected)
@@ -14082,6 +14093,91 @@ def test_hive_rel_008_v102_publication_scope_is_exact_and_fail_closed() -> None:
             HIVE_REL_008_BASE_SHA,
             [],
             authorized_base_sha=HIVE_REL_008_BASE_SHA,
+        )
+
+
+def test_hive_rel_009_v103_preparation_scope_is_exact_and_fail_closed() -> None:
+    expected_paths = frozenset(
+        {
+            "VERSION",
+            "backend/app/__init__.py",
+            "backend/app/config.py",
+            "dashboard/package.json",
+            "dashboard/package-lock.json",
+            "README.md",
+            "CHANGELOG.md",
+            "docs/releases/v1.0.3.md",
+            ".engineering/release/HIVE-V1.0.3-SECURITY-TRIAGE.json",
+            ".engineering/release/HIVE-V1.0.3-RELEASE-CANDIDATE.json",
+            "scripts/review_evidence.py",
+            "scripts/release_publisher_contract.py",
+            "backend/tests/test_review_evidence.py",
+            "backend/tests/test_release_publisher_contract.py",
+            "backend/tests/test_verify_release_metadata.py",
+        }
+    )
+    assert expected_paths == HIVE_REL_009_ALLOWED_PATHS
+    assert HIVE_REL_009_WORK_ORDER in review_evidence.REGISTERED_WORK_ORDERS
+    assert HIVE_REL_009_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    require_current_work_order_authorization(HIVE_REL_009_WORK_ORDER)
+
+    body = (
+        f"<!-- HIVE-WORK-ORDER: {HIVE_REL_009_WORK_ORDER} -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {HIVE_REL_009_BASE_SHA} -->"
+    )
+    assert parse_work_order_marker(body) == HIVE_REL_009_WORK_ORDER
+    assert (
+        review_evidence.authorized_base_marker_sha(HIVE_REL_009_WORK_ORDER, body)
+        == HIVE_REL_009_BASE_SHA
+    )
+
+    with pytest.raises(ValueError, match="unsupported release-engineering work order"):
+        require_current_work_order_authorization("HIVE-REL-010")
+
+    allowed = sorted(expected_paths)
+    require_hive_rel_009_scope(
+        HIVE_REL_009_WORK_ORDER,
+        HIVE_REL_009_BASE_SHA,
+        allowed,
+        authorized_base_sha=HIVE_REL_009_BASE_SHA,
+    )
+    with pytest.raises(ValueError, match="protected main"):
+        require_hive_rel_009_scope(
+            HIVE_REL_009_WORK_ORDER,
+            HIVE_REL_009_BASE_SHA,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=HIVE_REL_009_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="exact base"):
+        require_hive_rel_009_scope(
+            HIVE_REL_009_WORK_ORDER,
+            "a" * 40,
+            allowed,
+            authorized_base_sha=HIVE_REL_009_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        require_hive_rel_009_scope(HIVE_REL_009_WORK_ORDER, HIVE_REL_009_BASE_SHA, allowed)
+    with pytest.raises(ValueError, match="bounded release-preparation scope"):
+        require_hive_rel_009_scope(
+            HIVE_REL_009_WORK_ORDER,
+            HIVE_REL_009_BASE_SHA,
+            [*allowed, "backend/app/main.py"],
+            authorized_base_sha=HIVE_REL_009_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="canonical or local-only"):
+        require_hive_rel_009_scope(
+            HIVE_REL_009_WORK_ORDER,
+            HIVE_REL_009_BASE_SHA,
+            ["docs/project-brain/13-CHECKPOINT.md"],
+            authorized_base_sha=HIVE_REL_009_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        require_hive_rel_009_scope(
+            HIVE_REL_009_WORK_ORDER,
+            HIVE_REL_009_BASE_SHA,
+            [],
+            authorized_base_sha=HIVE_REL_009_BASE_SHA,
         )
 
 
