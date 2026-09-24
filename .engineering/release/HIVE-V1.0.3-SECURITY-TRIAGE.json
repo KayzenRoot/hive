@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "repository": "KayzenRoot/hive",
+  "release_version": "1.0.3",
+  "source": "Authenticated GitHub Dependabot open-alert inventory collected 2026-09-23 against the exact preparation base.",
+  "collection_command": "GET /repos/KayzenRoot/hive/dependabot/alerts?state=open&per_page=100",
+  "inventory_source_head": "05e48e74fe4655e49eda5699458d50282428ee40",
+  "open_alerts_before": {
+    "critical": 0,
+    "high": 0,
+    "moderate": 1,
+    "low": 0,
+    "total": 1
+  },
+  "scope_counts": {
+    "runtime": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0,
+      "total": 0
+    },
+    "development_only": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 1,
+      "low": 0,
+      "total": 1
+    }
+  },
+  "critical_high_applicable_open": 0,
+  "critical_high_remediated_in_candidate": {
+    "count": 0,
+    "alert_numbers": [],
+    "packages": [],
+    "note": "No applicable CRITICAL/HIGH alert is open in the authenticated inventory."
+  },
+  "remediated_medium_low": {
+    "moderate": 0,
+    "moderate_alert_numbers": [],
+    "low": 0,
+    "low_alert_numbers": [],
+    "note": "No dependency version was changed in this candidate."
+  },
+  "remaining_medium_low": {
+    "moderate": 1,
+    "low": 0,
+    "alerts": [
+      {
+        "number": 6,
+        "state": "open",
+        "severity": "moderate",
+        "github_severity": "medium",
+        "package": "pytest",
+        "ecosystem": "pip",
+        "manifest": "requirements-dev.txt",
+        "scope": "development",
+        "relationship": "direct",
+        "ghsa_id": "GHSA-6w46-j5rx-g56g",
+        "cve_id": "CVE-2025-71176",
+        "summary": "pytest has vulnerable tmpdir handling",
+        "affected_version_range": "< 9.0.3",
+        "first_patched_version": "9.0.3",
+        "disposition": "Non-blocking development-only alert; no unrelated pytest major upgrade is included in this release preparation."
+      }
+    ]
+  },
+  "runtime_high_critical_remaining": false,
+  "release_gate": "PASS",
+  "compatibility_verification": {
+    "dependency_version_change_required": false,
+    "note": "The remaining alert is development-only MODERATE and does not meet the release-blocking CRITICAL/HIGH threshold."
+  },
+  "notes": [
+    "The alert inventory was queried from the authenticated GitHub Dependabot API on 2026-09-23; only non-secret alert fields are recorded.",
+    "Current open inventory: one development-only pytest MEDIUM alert; zero runtime alerts and zero applicable CRITICAL/HIGH alerts.",
+    "No dependency version was changed to improve the alert counts.",
+    "candidate_dependency_state binds the preparation candidate manifests by SHA-256."
+  ],
+  "candidate_dependency_state": {
+    "requirements.txt": {
+      "sha256": "d3339cf11e3ed5f17def564b6d0af57d8887e5fb23fa40a1d5face0c5cc4b7f9",
+      "packages": {
+        "fastapi": "0.133.0",
+        "starlette": "1.3.1",
+        "python-multipart": "0.0.31",
+        "Mako": "1.3.12"
+      }
+    },
+    "requirements-dev.txt": {
+      "sha256": "4a4bd5e2d7c45f1d27df1ea8ffc773b8393f9ca4b3877894fcfec2da52f67e8e",
+      "packages": {
+        "pytest": "8.3.4"
+      }
+    },
+    "dashboard/package-lock.json": {
+      "sha256": "580734bfc8dff69b61444ed848bf237b32fa181f1ce2a58a3aec62dc33416ae5",
+      "packages_root": {
+        "name": "hive-dashboard",
+        "version": "1.0.3"
+      }
+    }
+  }
+}

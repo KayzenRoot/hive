@@ -1,0 +1,136 @@
+{
+  "receipt_version": 1,
+  "status": "release-candidate",
+  "release_published": false,
+  "product": "HIVE",
+  "version": "1.0.3",
+  "tag": "v1.0.3",
+  "work_order": "HIVE-REL-009",
+  "preparation": {
+    "branch": "release/v1.0.3-preparation-20260923",
+    "authorized_base": "05e48e74fe4655e49eda5699458d50282428ee40",
+    "pull_request": null,
+    "audited_head": null,
+    "note": "The preparation PR and Sol-audited head are recorded only after exact-head audit."
+  },
+  "release_commit": null,
+  "tag_object": null,
+  "release_url": null,
+  "published_at": null,
+  "artifacts": null,
+  "tag_signing": "not claimed",
+  "provenance_attestation": "not claimed",
+  "migration_head": "0007_telemetry_events",
+  "product_baseline": {
+    "internal_program": "HIVE V0.1 - Foundation",
+    "status": "COMPLETE / CLOSURE SPRINT APPROVED",
+    "definition_of_done": "46/46 PASS, 0 FAIL, 0 UNKNOWN, HIGH/CRITICAL 0/0",
+    "final_main": "05e48e74fe4655e49eda5699458d50282428ee40"
+  },
+  "previous_stable_release": {
+    "version": "1.0.2",
+    "tag": "v1.0.2",
+    "release_commit": "8db3d244a679898f0e08d1898bc87e6a6a89326e",
+    "release_url": "https://github.com/KayzenRoot/hive/releases/tag/v1.0.2"
+  },
+  "changes_since_previous_release": {
+    "base": "8db3d244a679898f0e08d1898bc87e6a6a89326e",
+    "candidate_base": "05e48e74fe4655e49eda5699458d50282428ee40",
+    "commits": 1,
+    "scope": "WO-031: Windows/install hardening, bounded project discovery, operational telemetry, Control Center truthfulness, and stronger integration diagnostics."
+  },
+  "dependency_security": {
+    "source": "Current authenticated GitHub Dependabot inventory with candidate-state reconciliation.",
+    "open_alerts_before": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 1,
+      "low": 0
+    },
+    "remediated_in_candidate": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0,
+      "packages": []
+    },
+    "remaining_open": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 1,
+      "low": 0,
+      "detail": "pytest (pip, development-only; GHSA-6w46-j5rx-g56g / CVE-2025-71176); no runtime alert."
+    },
+    "runtime_high_critical_remaining": false,
+    "release_gate": "PASS",
+    "triage_receipt": ".engineering/release/HIVE-V1.0.3-SECURITY-TRIAGE.json",
+    "triage_schema_version": 2,
+    "provenance": {
+      "inventory_source_head": "05e48e74fe4655e49eda5699458d50282428ee40",
+      "candidate_state_binding": "SHA-256 hashes of requirements.txt, requirements-dev.txt and dashboard/package-lock.json plus parsed candidate package identities."
+    }
+  },
+  "upgrade": {
+    "supported_source": "1.0.2",
+    "target": "1.0.3",
+    "migration_head_before": "0007_telemetry_events",
+    "migration_head_after": "0007_telemetry_events",
+    "configuration": {
+      "HIVE_AUTO_DISCOVERY_ENABLED": {
+        "default": true,
+        "disable_with": false
+      },
+      "HIVE_AUTO_DISCOVERY_INTERVAL_SECONDS": {
+        "default": 60,
+        "minimum": 10,
+        "maximum": 3600
+      },
+      "HIVE_AUTO_DISCOVERY_MAX_PROJECTS": {
+        "default": 200,
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "HIVE_PROJECTS_ROOT": {
+        "default": ".hive-projects",
+        "compose_mount": "/workspace/projects",
+        "compose_mount_read_only": true,
+        "windows_example": "D:/Projects"
+      }
+    },
+    "canonical_state": "PostgreSQL state and HIVE_DATA_ROOT are preserved; discovery uses existing registry and indexing structures and never deletes registry records or source data.",
+    "docker_volume_reset_required": false,
+    "backup_recommendation": "Back up PostgreSQL and HIVE_DATA_ROOT and record the deployed revision before upgrade.",
+    "procedure": "docs/UPGRADING.md"
+  },
+  "rollback": {
+    "class": "SAFE_DIRECT",
+    "previous_release": "v1.0.2",
+    "procedure": "docs/UPGRADING.md#rollback",
+    "reason": "No migration or schema change is introduced; discovery writes additive data using the existing registry, index and retrieval structures that v1.0.2 already understands.",
+    "restore": "Keep PostgreSQL and HIVE_DATA_ROOT. A data restore is not normally required for schema compatibility; retain the pre-upgrade backup for operational recovery.",
+    "runtime_rollback_exercised": false
+  },
+  "known_limitations": [
+    "One open MODERATE pytest Dependabot alert remains development-only; zero applicable unresolved CRITICAL/HIGH alerts remain.",
+    "Optional provider metrics are not claimed EXACT without provider evidence; unknown values are not rendered as zero.",
+    "Deterministic embedding, reranking and token benchmarks prove contract mechanics, not production model quality.",
+    "No v1.0.3 publication request is included; publication authorization remains a separate future increment.",
+    "Tag signing and provenance attestation are not claimed."
+  ],
+  "assurance": {
+    "release_notes": "docs/releases/v1.0.3.md",
+    "changelog_heading": "## [1.0.3]",
+    "verifier": "scripts/verify_release_metadata.py",
+    "release_workflow": ".github/workflows/release.yml",
+    "publisher_workflow": ".github/workflows/release-publisher.yml",
+    "required_gates": [
+      "Validate",
+      "Integration health",
+      "Review Evidence",
+      "CodeQL",
+      "Dependency Review"
+    ],
+    "ruleset": 21934284,
+    "auto_merge": "UNARMED"
+  }
+}

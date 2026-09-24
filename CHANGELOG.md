@@ -16,6 +16,36 @@ Keep a Changelog conventions and published releases use Semantic Versioning; see
   stable release while preserving the deterministic pre-publication release
   metadata marker and historical release notes.
 
+## [1.0.3] - 2026-09-23
+
+Backward-compatible patch candidate documenting the WO-031 changes already on
+`main`. No database migration is included.
+
+### Operations
+
+- Hardened Windows installation and upgrade behavior, including preservation of
+  existing `.env` files and deterministic Settings test isolation.
+- Added bounded automatic discovery under `HIVE_PROJECTS_ROOT`; discovered Git
+  projects are registered, inspected, indexed and synchronized into retrieval.
+  Duplicate physical identities remain fail-closed.
+- Improved integration/closure truthfulness and operational diagnostics.
+
+### Telemetry and Control Center
+
+- Persisted real context, cache and executor telemetry through the existing
+  PostgreSQL event infrastructure.
+- Improved read-only project selection, KPI provenance and live/near-live
+  refresh behavior. Values without provider evidence remain unavailable or
+  estimated rather than being presented as exact or zero.
+- No fake/demo metric claims are introduced.
+
+### Security and compatibility
+
+- The current Dependabot inventory has zero open CRITICAL/HIGH alerts and one
+  development-only MODERATE pytest alert; no runtime alert remains.
+- PostgreSQL remains canonical, Redis remains a non-canonical hot cache, and
+  the migration head remains `0007_telemetry_events`.
+
 ## [1.0.2] - 2026-09-22
 
 Bugfix, security-maintenance and executor-stabilization release. No database

@@ -51,7 +51,7 @@ class Settings(BaseSettings):
         return _IsolatedSettings(**cls._normalize_explicit_values(values))
 
     app_name: str = "HIVE API"
-    version: str = "1.0.2"
+    version: str = "1.0.3"
     environment: str = Field(default="development", validation_alias="HIVE_ENVIRONMENT")
     auto_discovery_enabled: bool = Field(
         default=True, validation_alias="HIVE_AUTO_DISCOVERY_ENABLED"

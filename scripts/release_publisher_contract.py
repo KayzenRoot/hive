@@ -16,6 +16,7 @@ PUBLISH_REQUEST_WORK_ORDERS = {
     "1.0.0": "HIVE-REL-002",
     "1.0.1": "HIVE-REL-006",
     "1.0.2": "HIVE-REL-008",
+    "1.0.3": "HIVE-REL-010",
 }
 
 
