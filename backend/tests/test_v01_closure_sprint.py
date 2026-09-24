@@ -84,6 +84,50 @@ def _retrieval_corpus_database_503() -> AssertionError:
     )
 
 
+def test_fixture_cleanup_deletes_project_retrieval_references_before_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_globals = closure.cleanup_fixtures.__globals__
+    captured_commands: list[list[str]] = []
+    target_path = "wo020-cc-15045-c978af31-alpha"
+    other_project_path = "unrelated-project"
+
+    def capture_command(command: list[str], **_kwargs: object) -> str:
+        captured_commands.append(command)
+        return "\n".join(
+            (
+                "TELEMETRY:0",
+                "RETRIEVAL_REFERENCES:0",
+                "TASKS:0",
+                "PROJECTS:0",
+                "CAS_ROWS:0",
+            )
+        )
+
+    monkeypatch.setitem(integration_globals, "run_command", capture_command)
+    monkeypatch.setitem(integration_globals, "remove_fixture_repository", lambda _path: None)
+    fixture = closure.Fixture("alpha", target_path, Path("unused-fixture-repository"))
+
+    removed = closure.cleanup_fixtures([fixture])
+
+    assert removed == [target_path]
+    assert len(captured_commands) == 1
+    command = captured_commands[0]
+    assert command[command.index("-v") + 1] == "ON_ERROR_STOP=1"
+    cleanup_sql = command[-1]
+    assert cleanup_sql.index("BEGIN;") < cleanup_sql.index("DELETE FROM retrieval_references")
+    assert cleanup_sql.index("DELETE FROM retrieval_references") < cleanup_sql.index(
+        "DELETE FROM tasks"
+    )
+    assert cleanup_sql.rstrip().endswith("COMMIT;")
+    assert (
+        "WHERE project_id IN (SELECT project_id FROM projects "
+        f"WHERE relative_path IN ('{target_path}'));"
+    ) in cleanup_sql
+    assert other_project_path not in cleanup_sql
+    assert "SELECT 'RETRIEVAL_REFERENCES:' || count(*)" in cleanup_sql
+
+
 def test_closure_evidence_fields_match_the_closed_contract() -> None:
     assert closure.EVIDENCE_VERSION == "v01-closure-sprint-v1"
     assert closure.EVIDENCE_FILE == "v01-closure-sprint.json"

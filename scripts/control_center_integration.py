@@ -1511,6 +1511,11 @@ WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({pa
 SELECT 'TELEMETRY:' || count(*) FROM telemetry_events AS e
 JOIN projects AS p ON p.project_id = e.project_id
 WHERE p.relative_path IN ({path_sql});
+DELETE FROM retrieval_references
+WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
+SELECT 'RETRIEVAL_REFERENCES:' || count(*) FROM retrieval_references AS r
+JOIN projects AS p ON p.project_id = r.project_id
+WHERE p.relative_path IN ({path_sql});
 DELETE FROM tasks
 WHERE project_id IN (SELECT project_id FROM projects WHERE relative_path IN ({path_sql}));
 SELECT 'TASKS:' || count(*) FROM tasks AS t
@@ -1553,7 +1558,7 @@ COMMIT;
         ]
     )
     lines = output.splitlines()
-    for name in ("TELEMETRY", "TASKS", "PROJECTS", "CAS_ROWS"):
+    for name in ("TELEMETRY", "RETRIEVAL_REFERENCES", "TASKS", "PROJECTS", "CAS_ROWS"):
         observed_lines = [line for line in lines if line.startswith(f"{name}:")]
         expect_equal(observed_lines, [f"{name}:0"], f"fixture cleanup assertion for {name}")
     orphans = [line.removeprefix("CAS_ORPHAN:") for line in lines if line.startswith("CAS_ORPHAN:")]
