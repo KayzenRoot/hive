@@ -79,7 +79,7 @@
   ],
   "candidate_dependency_state": {
     "requirements.txt": {
-      "sha256": "d3339cf11e3ed5f17def564b6d0af57d8887e5fb23fa40a1d5face0c5cc4b7f9",
+      "sha256": "5edba8e75b2cc2d9411e091a6a2dc9768cbec39b7e8061b8e29928728bc3d3e7",
       "packages": {
         "fastapi": "0.133.0",
         "starlette": "1.3.1",
@@ -88,7 +88,7 @@
       }
     },
     "requirements-dev.txt": {
-      "sha256": "4a4bd5e2d7c45f1d27df1ea8ffc773b8393f9ca4b3877894fcfec2da52f67e8e",
+      "sha256": "8fd51832462ad4a2802fc50fd8cdb1dd44ae8c4246b4f26db87050a268a8d6cd",
       "packages": {
         "pytest": "8.3.4"
       }
