@@ -28,7 +28,7 @@ jobs:
       COMPOSE_PROJECT_NAME: hive-wo031-release-publisher
     steps:
       - name: Check out exact successful main head
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
