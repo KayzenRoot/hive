@@ -5,7 +5,7 @@
   "version": "1.0.3",
   "tag": "v1.0.3",
   "work_order": "HIVE-REL-010",
-  "authorized_parent": "b67acc1f74347108ecbb783440cd7c1302962ea9",
+  "authorized_parent": "acdc22752180cb5173bb1e50a22eebc5e1a4757a",
   "required_post_merge_ci": {
     "workflow": "CI",
     "event": "push",
@@ -25,5 +25,5 @@
     "release_preparation_post_merge_ci": 35941002684,
     "preauthorization_publisher_noop_run": 35942013649
   },
-  "note": "This request remains identified as HIVE-REL-010 for the v1.0.3 publisher contract. HIVE-REL-011 corrects the failed publisher environment, and the eventual HIVE-REL-011 squash merge commit must have b67acc1f74347108ecbb783440cd7c1302962ea9 as its direct parent. Publication is permitted only after that exact main commit passes protected push CI and remains current main."
+  "note": "This request remains identified as HIVE-REL-010 for the v1.0.3 publisher contract. HIVE-REL-011 corrected the failed publisher environment; HIVE-REL-012 corrects project-scoped fixture cleanup after a retrieval-reference task foreign-key failure. The eventual HIVE-REL-012 squash merge commit must have acdc22752180cb5173bb1e50a22eebc5e1a4757a as its direct parent. Publication is permitted only after that exact main commit passes protected push CI and remains current main."
 }

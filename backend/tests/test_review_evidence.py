@@ -53,6 +53,9 @@ from scripts.review_evidence import (
     HIVE_REL_011_ALLOWED_PATHS,
     HIVE_REL_011_BASE_SHA,
     HIVE_REL_011_WORK_ORDER,
+    HIVE_REL_012_ALLOWED_PATHS,
+    HIVE_REL_012_BASE_SHA,
+    HIVE_REL_012_WORK_ORDER,
     MCP_CORE_SURFACE_EVIDENCE_FILE,
     MCP_CORE_SURFACE_EVIDENCE_VERSION,
     MCP_CORE_SURFACE_FALSE_FIELDS,
@@ -148,6 +151,7 @@ from scripts.review_evidence import (
     require_hive_rel_009_scope,
     require_hive_rel_010_scope,
     require_hive_rel_011_scope,
+    require_hive_rel_012_scope,
     require_supported_work_order,
     require_wo008_c1_evidence,
     require_wo008_g1_scope,
@@ -6718,7 +6722,7 @@ def test_hive_rel_001_marker_is_bounded_and_registered() -> None:
     require_current_work_order_authorization(HIVE_REL_008_WORK_ORDER)
     assert HIVE_REL_008_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
     with pytest.raises(ValueError, match="unsupported release-engineering"):
-        require_supported_work_order("HIVE-REL-012")
+        require_supported_work_order("HIVE-REL-013")
     with pytest.raises(ValueError, match="unsupported release-engineering"):
         require_supported_work_order("HIVE-REL-999")
     with pytest.raises(ValueError, match="invalid or unbounded"):
@@ -12839,6 +12843,7 @@ def test_work_order_registry_is_deny_by_default_and_closed() -> None:
         review_evidence.HIVE_REL_009_WORK_ORDER,
         review_evidence.HIVE_REL_010_WORK_ORDER,
         review_evidence.HIVE_REL_011_WORK_ORDER,
+        review_evidence.HIVE_REL_012_WORK_ORDER,
     ):
         assert registered in review_evidence.REGISTERED_WORK_ORDERS
         require_supported_work_order(registered)
@@ -12849,7 +12854,7 @@ def test_work_order_registry_is_deny_by_default_and_closed() -> None:
         "WO-12-99",
         "WO-22-01",
         "WO-11-01-EXTRA",
-        "HIVE-REL-012",
+        "HIVE-REL-013",
     ):
         assert rejected not in review_evidence.REGISTERED_WORK_ORDERS
         with pytest.raises(ValueError, match="unsupported"):
@@ -14142,7 +14147,7 @@ def test_hive_rel_009_v103_preparation_scope_is_exact_and_fail_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="unsupported release-engineering work order"):
-        require_current_work_order_authorization("HIVE-REL-012")
+        require_current_work_order_authorization("HIVE-REL-013")
 
     allowed = sorted(expected_paths)
     require_hive_rel_009_scope(
@@ -14215,7 +14220,7 @@ def test_hive_rel_010_v103_publish_authorization_scope_is_exact_and_fail_closed(
         == HIVE_REL_010_BASE_SHA
     )
     with pytest.raises(ValueError, match="unsupported release-engineering work order"):
-        require_current_work_order_authorization("HIVE-REL-012")
+        require_current_work_order_authorization("HIVE-REL-013")
 
     allowed = sorted(expected_paths)
     require_hive_rel_010_scope(
@@ -14273,46 +14278,6 @@ def test_hive_rel_010_v103_publish_authorization_scope_is_exact_and_fail_closed(
             authorized_base_sha=HIVE_REL_010_BASE_SHA,
         )
 
-    request_path = (
-        review_evidence.ROOT / ".engineering" / "release" / "HIVE-V1.0.3-PUBLISH-REQUEST.json"
-    )
-    request = json.loads(request_path.read_text(encoding="utf-8"))
-    assert request == {
-        "schema_version": 1,
-        "status": "armed",
-        "product": "HIVE",
-        "version": "1.0.3",
-        "tag": "v1.0.3",
-        "work_order": HIVE_REL_010_WORK_ORDER,
-        "authorized_parent": HIVE_REL_011_BASE_SHA,
-        "required_post_merge_ci": {
-            "workflow": "CI",
-            "event": "push",
-            "branch": "main",
-            "conclusion": "success",
-        },
-        "publication": {
-            "tag_type": "annotated",
-            "release_state": "stable",
-            "source_distribution_only": True,
-            "final_receipt_asset": "hive-v1.0.3.release-receipt.json",
-        },
-        "preconditions": {
-            "release_preparation_pr": 157,
-            "release_preparation_audited_head": "159eb7db02be2ca54869468743431a9906e3575d",
-            "release_preparation_merge": HIVE_REL_010_BASE_SHA,
-            "release_preparation_post_merge_ci": 35941002684,
-            "preauthorization_publisher_noop_run": 35942013649,
-        },
-        "note": (
-            "This request remains identified as HIVE-REL-010 for the v1.0.3 publisher contract. "
-            "HIVE-REL-011 corrects the failed publisher environment, and the eventual HIVE-REL-011 "
-            "squash merge commit must have b67acc1f74347108ecbb783440cd7c1302962ea9 as its "
-            "direct parent. Publication is permitted only after that exact main commit passes "
-            "protected push CI and remains current main."
-        ),
-    }
-
 
 def test_hive_rel_011_publisher_correction_scope_is_exact_and_fail_closed() -> None:
     expected_paths = frozenset(
@@ -14339,7 +14304,7 @@ def test_hive_rel_011_publisher_correction_scope_is_exact_and_fail_closed() -> N
         == HIVE_REL_011_BASE_SHA
     )
     with pytest.raises(ValueError, match="unsupported release-engineering work order"):
-        require_current_work_order_authorization("HIVE-REL-012")
+        require_current_work_order_authorization("HIVE-REL-013")
 
     allowed = sorted(expected_paths)
     require_hive_rel_011_scope(
@@ -14428,11 +14393,139 @@ def test_hive_rel_011_publisher_environment_and_request_rebinding() -> None:
     )
     request = json.loads(request_path.read_text(encoding="utf-8"))
     assert request["work_order"] == HIVE_REL_010_WORK_ORDER
-    assert request["authorized_parent"] == HIVE_REL_011_BASE_SHA
     assert request["status"] == "armed"
     assert request["version"] == "1.0.3"
     assert request["tag"] == "v1.0.3"
     assert request["preconditions"]["release_preparation_merge"] == HIVE_REL_010_BASE_SHA
+
+
+def test_hive_rel_012_fixture_cleanup_scope_is_exact_and_fail_closed() -> None:
+    expected_paths = frozenset(
+        {
+            "scripts/control_center_integration.py",
+            "backend/tests/test_v01_closure_sprint.py",
+            ".engineering/release/HIVE-V1.0.3-PUBLISH-REQUEST.json",
+            "scripts/review_evidence.py",
+            "backend/tests/test_review_evidence.py",
+        }
+    )
+    assert expected_paths == HIVE_REL_012_ALLOWED_PATHS
+    assert HIVE_REL_012_WORK_ORDER in review_evidence.REGISTERED_WORK_ORDERS
+    assert HIVE_REL_012_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
+    require_supported_work_order(HIVE_REL_012_WORK_ORDER)
+    require_current_work_order_authorization(HIVE_REL_012_WORK_ORDER)
+
+    body = (
+        f"<!-- HIVE-WORK-ORDER: {HIVE_REL_012_WORK_ORDER} -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {HIVE_REL_012_BASE_SHA} -->"
+    )
+    assert parse_work_order_marker(body) == HIVE_REL_012_WORK_ORDER
+    assert (
+        review_evidence.authorized_base_marker_sha(HIVE_REL_012_WORK_ORDER, body)
+        == HIVE_REL_012_BASE_SHA
+    )
+    with pytest.raises(ValueError, match="unsupported release-engineering work order"):
+        require_supported_work_order("HIVE-REL-013")
+    with pytest.raises(ValueError, match="unsupported release-engineering work order"):
+        require_current_work_order_authorization("HIVE-REL-013")
+
+    allowed = sorted(expected_paths)
+    require_hive_rel_012_scope(
+        HIVE_REL_012_WORK_ORDER,
+        HIVE_REL_012_BASE_SHA,
+        allowed,
+        authorized_base_sha=HIVE_REL_012_BASE_SHA,
+    )
+    with pytest.raises(ValueError, match="protected main"):
+        require_hive_rel_012_scope(
+            HIVE_REL_012_WORK_ORDER,
+            HIVE_REL_012_BASE_SHA,
+            allowed,
+            base_branch="release",
+            authorized_base_sha=HIVE_REL_012_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="exact base"):
+        require_hive_rel_012_scope(
+            HIVE_REL_012_WORK_ORDER,
+            "a" * 40,
+            allowed,
+            authorized_base_sha=HIVE_REL_012_BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        require_hive_rel_012_scope(HIVE_REL_012_WORK_ORDER, HIVE_REL_012_BASE_SHA, allowed)
+    with pytest.raises(ValueError, match="authorized-base marker"):
+        require_hive_rel_012_scope(
+            HIVE_REL_012_WORK_ORDER,
+            HIVE_REL_012_BASE_SHA,
+            allowed,
+            authorized_base_sha="a" * 40,
+        )
+
+    forbidden_or_unauthorized_paths = (
+        "docs/project-brain/13-CHECKPOINT.md",
+        "migrations/versions/0008_example.py",
+        "release-assets/hive-v1.0.3.zip",
+        "backend/app/main.py",
+    )
+    for path in forbidden_or_unauthorized_paths:
+        with pytest.raises(ValueError):
+            require_hive_rel_012_scope(
+                HIVE_REL_012_WORK_ORDER,
+                HIVE_REL_012_BASE_SHA,
+                [*allowed, path],
+                authorized_base_sha=HIVE_REL_012_BASE_SHA,
+            )
+    with pytest.raises(ValueError, match="non-empty"):
+        require_hive_rel_012_scope(
+            HIVE_REL_012_WORK_ORDER,
+            HIVE_REL_012_BASE_SHA,
+            [],
+            authorized_base_sha=HIVE_REL_012_BASE_SHA,
+        )
+
+
+def test_hive_rel_012_rebinds_the_live_v103_publish_request() -> None:
+    request_path = (
+        review_evidence.ROOT / ".engineering" / "release" / "HIVE-V1.0.3-PUBLISH-REQUEST.json"
+    )
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request == {
+        "schema_version": 1,
+        "status": "armed",
+        "product": "HIVE",
+        "version": "1.0.3",
+        "tag": "v1.0.3",
+        "work_order": HIVE_REL_010_WORK_ORDER,
+        "authorized_parent": HIVE_REL_012_BASE_SHA,
+        "required_post_merge_ci": {
+            "workflow": "CI",
+            "event": "push",
+            "branch": "main",
+            "conclusion": "success",
+        },
+        "publication": {
+            "tag_type": "annotated",
+            "release_state": "stable",
+            "source_distribution_only": True,
+            "final_receipt_asset": "hive-v1.0.3.release-receipt.json",
+        },
+        "preconditions": {
+            "release_preparation_pr": 157,
+            "release_preparation_audited_head": "159eb7db02be2ca54869468743431a9906e3575d",
+            "release_preparation_merge": HIVE_REL_010_BASE_SHA,
+            "release_preparation_post_merge_ci": 35941002684,
+            "preauthorization_publisher_noop_run": 35942013649,
+        },
+        "note": (
+            "This request remains identified as HIVE-REL-010 for the v1.0.3 publisher contract. "
+            "HIVE-REL-011 corrected the failed publisher environment; HIVE-REL-012 corrects "
+            "project-scoped fixture cleanup after a retrieval-reference task foreign-key failure. "
+            "The eventual HIVE-REL-012 squash merge commit must have "
+            "acdc22752180cb5173bb1e50a22eebc5e1a4757a as its direct parent. Publication is "
+            "permitted only after that exact main commit passes protected push CI and remains "
+            "current main."
+        ),
+    }
 
 
 def test_wo031_corrective_scope_is_exact_and_base_bound() -> None:
