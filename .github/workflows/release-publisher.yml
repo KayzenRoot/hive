@@ -25,6 +25,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
       POST_MERGE_CI_RUN_ID: ${{ github.event.workflow_run.id }}
+      COMPOSE_PROJECT_NAME: hive-wo031-release-publisher
     steps:
       - name: Check out exact successful main head
         uses: actions/checkout@v5

@@ -5,7 +5,7 @@
   "version": "1.0.3",
   "tag": "v1.0.3",
   "work_order": "HIVE-REL-010",
-  "authorized_parent": "c924c9413c970ce5f0da5e6b0d9ed8fd5941afdb",
+  "authorized_parent": "b67acc1f74347108ecbb783440cd7c1302962ea9",
   "required_post_merge_ci": {
     "workflow": "CI",
     "event": "push",
@@ -25,5 +25,5 @@
     "release_preparation_post_merge_ci": 35941002684,
     "preauthorization_publisher_noop_run": 35942013649
   },
-  "note": "This request is intentionally non-circular: the eventual squash merge commit for HIVE-REL-010 must have authorized_parent as its direct parent. Publication is permitted only after that exact main commit passes protected push CI and remains current main."
+  "note": "This request remains identified as HIVE-REL-010 for the v1.0.3 publisher contract. HIVE-REL-011 corrects the failed publisher environment, and the eventual HIVE-REL-011 squash merge commit must have b67acc1f74347108ecbb783440cd7c1302962ea9 as its direct parent. Publication is permitted only after that exact main commit passes protected push CI and remains current main."
 }
