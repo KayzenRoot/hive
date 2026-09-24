@@ -94,7 +94,7 @@
       }
     },
     "dashboard/package-lock.json": {
-      "sha256": "580734bfc8dff69b61444ed848bf237b32fa181f1ce2a58a3aec62dc33416ae5",
+      "sha256": "8580af880a7489ec1440f3a398d48205d3d9f62c1634bcb63e1730285064273f",
       "packages_root": {
         "name": "hive-dashboard",
         "version": "1.0.3"
