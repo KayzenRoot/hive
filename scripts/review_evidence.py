@@ -1659,7 +1659,7 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     }
 )
 ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO024_G1_WORK_ORDER, WO024P_WORK_ORDER})
-# Corrective governance increments repair merged tooling without joining the promotion
+# Corrective governance increments repair registered policy/tooling without joining the promotion
 # pair, so the active promotion set stays exactly the current audited pair.
 CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
     {
@@ -1676,6 +1676,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-029-C2",
         "WO-029-C3",
         "WO-030-C1",
+        "WO-033",
         "WO-023-P-G1-C1-CLOSED",
     }
 )
@@ -3372,6 +3373,8 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
         WO031_WORK_ORDER,
+        "WO-032",
+        "WO-033",
         "WO-1.1-01",
     }
 )

@@ -72,6 +72,10 @@ The current HIVE executor-context baseline is the published **v1.0.3** read-only
 5. If HIVE is absent, stale, mismatched, or not exposed here, label it accurately and continue from canonical repository sources whenever the Work Order permits. Finish independent authorized work and do not stop for routine confirmation. Mark BLOCKED only when an explicit gate requires unavailable HIVE evidence. Never claim local HIVE access from a hosted execution surface, or vice versa.
 6. Do not synchronize/reindex a corpus, create tasks, write a database, call a provider, or mutate remote/runtime state unless the active Work Order explicitly authorizes that operation.
 
+### Single-account owner self-audit
+
+HIVE has one operational GitHub identity: `KayzenRoot`. Executor and Sol remain separate logical stages, not separate connected accounts. Sol records an exact-base/exact-head semantic, scope, architecture, and security audit in the PR conversation after mandatory checks pass. The record must state that it is a solo owner self-audit, not an independent review. Never submit a native `APPROVE` review from the KayzenRoot author account. Missing a second identity alone is not a blocker; failed or missing technical evidence and unresolved HIGH/CRITICAL findings remain blockers.
+
 ### Compact HIVE-grounded executor prompt
 
 When preparing a Codex/Cursor or other executor prompt, include only the task-relevant context and these fields:
@@ -80,7 +84,7 @@ When preparing a Codex/Cursor or other executor prompt, include only the task-re
 - **Authority:** canonical checkpoint and source paths; the active Work Order and Context Lock, if present.
 - **HIVE context:** v1.0.3 handshake status, verified project/task IDs, and returned source references/fingerprint — or the truthful status `UNAVAILABLE`, `STALE`, or `NOT_REQUIRED`.
 - **Work:** objective, exact allowed change surface, acceptance criteria, required focused checks, evidence to return, exclusions, and stop condition.
-- **Execution direction:** complete every authorized step, fix review findings within scope, perform the required review, and report which checks actually ran. Do not ask for routine confirmation; do not widen scope or claim unperformed work.
+- **Execution direction:** complete every authorized step, fix review findings within scope, then perform the exact-head owner self-audit defined by ADR-019/ADR-020 and report checks that actually ran. Mark it `OWNER_SELF_AUDIT` and explicitly `NOT INDEPENDENT`; do not request another GitHub identity or submit a native approval from KayzenRoot's author account. Do not ask for routine confirmation, widen scope, or claim unperformed work.
 
 Prefer canonical file paths and short HIVE context references over copying full documents or chat history. Keep stable policy, Work Order-specific requirements, and volatile runtime evidence in separate, compact sections.
 
