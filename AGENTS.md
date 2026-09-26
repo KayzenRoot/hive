@@ -85,3 +85,7 @@ When preparing a Codex/Cursor or other executor prompt, include only the task-re
 Prefer canonical file paths and short HIVE context references over copying full documents or chat history. Keep stable policy, Work Order-specific requirements, and volatile runtime evidence in separate, compact sections.
 
 HIVE repository self-hosting rule: HIVE MCP context may describe this repository, but only the exact Git checkout, approved Project Brain checkpoint, and active Work Order authorize repository changes.
+
+### Prompt PDF delivery
+
+For HIVE-related chats and executor handoffs, deliver every requested execution, correction, continuation, or audit prompt as a polished downloadable PDF. Do not place the complete prompt in a copyable chat code block. Keep the chat response to the review/verdict and a short summary with the PDF download link. The PDF is the complete execution artifact and must preserve the approved Work Order, Context Lock, HIVE preflight, canonical basis, scope, exclusions, acceptance criteria, tests, evidence, deliverables, review format, and stop condition. Render and visually inspect every page before delivery. A PDF must never conceal a missing authorization, failed gate, stale source, or unresolved stop condition. If PDF generation is unavailable, state that clearly rather than silently substituting a copyable prompt.
