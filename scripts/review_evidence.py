@@ -3600,7 +3600,7 @@ def require_wo035_hcoder_unblock_scope(
     )
     if not scope_matches:
         mismatches = ", ".join(sorted(set(paths) ^ WO035_HCODER_ALLOWED_PATHS))
-        raise ValueError(f"WO-035 changes paths outside its four-file governance scope: {mismatches}")
+        raise ValueError(f"WO-035 four-file governance scope mismatch: {mismatches}")
 
 
 def require_gef_adoption_scope(
