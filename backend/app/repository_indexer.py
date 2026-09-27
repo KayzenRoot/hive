@@ -271,7 +271,8 @@ def _decode_git_text(value: bytes, error_code: str) -> str:
 def _git_head(project_path: Path, *, timeout_seconds: float = GIT_TIMEOUT_SECONDS) -> str:
     try:
         result = _run_git(
-            project_path, ["rev-parse", "--verify", "HEAD^{commit}"],
+            project_path,
+            ["rev-parse", "--verify", "HEAD^{commit}"],
             timeout_seconds=timeout_seconds,
         )
     except RepositoryIndexingError as exc:
@@ -306,8 +307,12 @@ def _git_status_inventory(
         result = _run_git(
             project_path,
             [
-                "status", "--porcelain=v1", "--untracked-files=no",
-                "--ignore-submodules=all", "-z", "--",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=no",
+                "--ignore-submodules=all",
+                "-z",
+                "--",
             ],
             timeout_seconds=timeout_seconds,
         )
