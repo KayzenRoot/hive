@@ -3594,11 +3594,13 @@ def require_wo035_hcoder_unblock_scope(
         )
     if authorized_base_sha != WO035_HCODER_BASE_SHA:
         raise ValueError("WO-035 requires its exact authorized-base PR marker")
-    if len(paths) != len(WO035_HCODER_ALLOWED_PATHS) or set(paths) != WO035_HCODER_ALLOWED_PATHS:
-        raise ValueError(
-            "WO-035 changes paths outside its four-file governance registration scope: "
-            + ", ".join(sorted(set(paths) ^ WO035_HCODER_ALLOWED_PATHS))
-        )
+    scope_matches = (
+        len(paths) == len(WO035_HCODER_ALLOWED_PATHS)
+        and set(paths) == WO035_HCODER_ALLOWED_PATHS
+    )
+    if not scope_matches:
+        mismatches = ", ".join(sorted(set(paths) ^ WO035_HCODER_ALLOWED_PATHS))
+        raise ValueError(f"WO-035 changes paths outside its four-file governance scope: {mismatches}")
 
 
 def require_gef_adoption_scope(
