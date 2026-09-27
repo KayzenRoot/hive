@@ -656,10 +656,7 @@ def test_wo035_hcoder_unblock_governance_is_exact_and_fail_closed() -> None:
     )
     require_supported_work_order(work_order)
     require_current_work_order_authorization(work_order)
-    body = (
-        "<!-- HIVE-WORK-ORDER: WO-035 -->\n"
-        f"<!-- HIVE-AUTHORIZED-BASE: {base} -->"
-    )
+    body = f"<!-- HIVE-WORK-ORDER: WO-035 -->\n<!-- HIVE-AUTHORIZED-BASE: {base} -->"
     assert parse_work_order_marker(body) == work_order
     assert review_evidence.authorized_base_marker_sha(work_order, body) == base
     review_evidence.require_wo035_hcoder_unblock_scope(
