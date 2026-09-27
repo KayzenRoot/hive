@@ -45,3 +45,14 @@ The supplied screenshot reports a Hive Coder checkout `D:\Projects\coder` on `ma
 ## Acceptance gate
 
 The governance PR must be reviewed at its exact head, mandatory applicable checks must pass and the document must be accepted/merged through the existing HIVE policy **before** local Compose/registry operations. HIVE owner self-audit is explicitly NOT INDEPENDENT. Record a local exact-environment Evidence Bundle and final STOP/CONTINUE recommendation, never an invented pass or checkpoint promotion.
+
+
+## Context Lock Delta 001 — proposed fail-closed CI admission only
+
+**Trigger:** CI of governance Draft PR #167 at `886e45c18a3db45b3cd4aeeb16d7c351f62c3426` returned Integration health FAILURE: historical closure sprint saw `work_order=UNRESOLVED` and rejected exactly this PR's two governance documents. Review Evidence is dependent on Integration health and skipped. The HIVE review tool requires an explicitly registered, bounded native ID, not the cross-repository `HCODER-...` name alone.
+
+**Proposed native HIVE ID:** `WO-035` linked exclusively to `HCODER-WO-0027-HIVE-UNBLOCK-001`. Retain the existing external stable branch, Issue #166, and original documents. Authorize exactly four tracked paths on this same PR: the two prior documents plus `scripts/review_evidence.py` and `backend/tests/test_review_evidence.py`, only for native Work Order admission, closed scope/base checks and regression tests. These two review files are the only new unfrozen paths; the existing HIVE WO-032 local edits are **not** writable by this PR/executor and must be reconciled before merging if overlap exists. The original two-file-only governance limit is superseded strictly for this delta; Docker/registry/index/source/user checkout remain frozen until governance acceptance.
+
+**PR metadata:** exactly one `HIVE-WORK-ORDER: WO-035` marker and one authorized-base marker equal to this lock's immutable governance base `b7f5bd8a9c9c1737c64412ebe481c9a70d9ecfc5`. Neither changing a PR body nor landing registry code alone creates an approval. The actual registered ID must be used by the exact-head CI; unresolved events and unauthorized files still fail closed.
+
+**New STALE condition:** any unrelated change to `scripts/review_evidence.py` or the actual HIVE WO-032 branch touching this registration must be reviewed/rebased without force-push or loss of local work. No local mount until all HIVE acceptance gates and exact-main postvalidation complete.
