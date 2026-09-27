@@ -303,7 +303,8 @@ def write_governance(repository: Path) -> None:
         "## HIVE-ADR-011\nExecutor claims remain staged until validated.\n\n"
         "## HIVE-ADR-017\nProvider-specific behavior stays behind replaceable adapters.\n\n"
         "## HIVE-ADR-019\n"
-        "KayzenRoot is the sole operational GitHub identity; Executor and Sol remain distinct logical stages.\n\n"
+        "KayzenRoot is the sole operational GitHub identity; Executor and Sol "
+        "remain distinct logical stages.\n\n"
         "## HIVE-ADR-020\n"
         "Sol performs an exact-head owner self-audit, explicitly NOT INDEPENDENT;\n"
         "no second account is required.\n",
