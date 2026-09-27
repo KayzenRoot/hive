@@ -12202,6 +12202,33 @@ def test_wo024p_governance_contract_receives_the_parsed_authorized_base(
     """A valid final-promotion body must not be rejected for a dropped marker value."""
 
     base_sha = review_evidence.WO024P_G1_C4_BASE_SHA
+    # Freeze the historical manifest fixture at WO-024's exact base. The current
+    # repository ledger now includes later ADRs, which are outside that old PR's scope.
+    base_manifest = review_evidence.git_blob_bytes(
+        base_sha, review_evidence.CANONICAL_MANIFEST_PATH
+    ).decode("utf-8")
+    base_checkpoint = review_evidence.git_blob_bytes(base_sha, review_evidence.CHECKPOINT_PATH)
+    real_manifest_contract = review_evidence.require_wo024p_manifest_contract
+    changed_ledger_manifest = base_manifest.replace(
+        next(
+            line
+            for line in base_manifest.splitlines()
+            if line.endswith("16-DECISIONS-LEDGER.md")
+        ),
+        "0" * 64 + "  16-DECISIONS-LEDGER.md",
+        1,
+    )
+    with pytest.raises(ValueError, match="changed an unauthorized canonical hash"):
+        real_manifest_contract(base_manifest, changed_ledger_manifest, base_checkpoint)
+
+    def validate_historical_manifest_fixture(
+        _base_manifest: str, _candidate_manifest: str, _candidate_checkpoint: bytes
+    ) -> None:
+        real_manifest_contract(base_manifest, base_manifest, base_checkpoint)
+
+    monkeypatch.setattr(
+        review_evidence, "require_wo024p_manifest_contract", validate_historical_manifest_fixture
+    )
     seen = wo024p_governance_harness(
         monkeypatch, wo024p_promotion_body(base_sha), stub_checkpoint_semantics=True
     )
