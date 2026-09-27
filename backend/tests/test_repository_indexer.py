@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 import app.repository_indexer as indexer
-
 from app.config import Settings
 from app.repository_indexer import (
     RepositoryIndexingError,
