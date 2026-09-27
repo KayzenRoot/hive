@@ -270,7 +270,10 @@ def _decode_git_text(value: bytes, error_code: str) -> str:
 
 def _git_head(project_path: Path, *, timeout_seconds: float = GIT_TIMEOUT_SECONDS) -> str:
     try:
-        result = _run_git(project_path, ["rev-parse", "--verify", "HEAD^{commit}"], timeout_seconds=timeout_seconds)
+        result = _run_git(
+            project_path, ["rev-parse", "--verify", "HEAD^{commit}"],
+            timeout_seconds=timeout_seconds,
+        )
     except RepositoryIndexingError as exc:
         raise RepositoryIndexingError("git_head_unavailable") from exc
     head = _decode_git_text(result.stdout, "git_head_unavailable").lower()
@@ -302,7 +305,10 @@ def _git_status_inventory(
     try:
         result = _run_git(
             project_path,
-            ["status", "--porcelain=v1", "--untracked-files=no", "--ignore-submodules=all", "-z", "--"],
+            [
+                "status", "--porcelain=v1", "--untracked-files=no",
+                "--ignore-submodules=all", "-z", "--",
+            ],
             timeout_seconds=timeout_seconds,
         )
     except RepositoryIndexingError as exc:
@@ -332,7 +338,9 @@ def _git_inventory_fingerprint(
 ) -> str:
     try:
         listing = _run_git(
-            project_path, ["ls-files", "--cached", "--stage", "-z", "--"], timeout_seconds=timeout_seconds
+            project_path,
+            ["ls-files", "--cached", "--stage", "-z", "--"],
+            timeout_seconds=timeout_seconds,
         )
     except RepositoryIndexingError as exc:
         raise RepositoryIndexingError("git_inventory_unavailable") from exc
@@ -425,7 +433,8 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
 
     try:
         inside = _run_git(
-            project_root, ["rev-parse", "--is-inside-work-tree"],
+            project_root,
+            ["rev-parse", "--is-inside-work-tree"],
             timeout_seconds=settings.repository_git_timeout_seconds,
         )
     except RepositoryIndexingError as exc:
@@ -439,7 +448,8 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
 
     try:
         listing = _run_git(
-            project_root, ["ls-files", "--cached", "--stage", "-z", "--"],
+            project_root,
+            ["ls-files", "--cached", "--stage", "-z", "--"],
             timeout_seconds=settings.repository_git_timeout_seconds,
         )
     except RepositoryIndexingError as exc:
@@ -467,12 +477,12 @@ def _collect_inventory(settings: Settings, project_path: Path) -> _RepositorySna
             raise RepositoryIndexingError("git_inventory_unavailable") from exc
         if stage != "0":
             raise RepositoryIndexingError("git_unmerged_entry")
+        if not SHA_PATTERN.fullmatch(blob_sha):
+            raise RepositoryIndexingError("git_inventory_unavailable")
         if mode == "160000":
             # Gitlink SHA remains in the tracked inventory fingerprint. Never traverse or index
             # the nested submodule worktree as source for the enclosing project.
             continue
-        if not SHA_PATTERN.fullmatch(blob_sha):
-            raise RepositoryIndexingError("git_inventory_unavailable")
         try:
             resolved_path = _resolve_tracked_path(project_root, path)
         except ProjectPathError as exc:

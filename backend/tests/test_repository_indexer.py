@@ -1,10 +1,10 @@
 import hashlib
-
-import app.repository_indexer as indexer
 import subprocess
 from pathlib import Path
 
 import pytest
+
+import app.repository_indexer as indexer
 
 from app.config import Settings
 from app.repository_indexer import (
@@ -154,7 +154,9 @@ def test_tracked_symlink_escape_fails_before_reading_outside_bytes(tmp_path: Pat
     assert error.value.code == "tracked_path_unsafe"
 
 
-def test_repository_git_timeout_is_configurable_and_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_repository_git_timeout_is_configurable_and_bounded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     settings = Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=45)
     assert settings.repository_git_timeout_seconds == 45
     with pytest.raises(ValueError):
@@ -170,13 +172,15 @@ def test_repository_git_timeout_is_configurable_and_bounded(monkeypatch: pytest.
         observed["command"] = command
         return subprocess.CompletedProcess(command, 0, b"true\n", b"")
 
-    monkeypatch.setattr(indexer.subprocess, "run", observe)
+    monkeypatch.setattr(subprocess, "run", observe)
     try:
         indexer._run_git(tmp_path, ["rev-parse", "--is-inside-work-tree"], timeout_seconds=45)
         assert observed["timeout"] == 45
-        assert observed["command"][-2:] == ["rev-parse", "--is-inside-work-tree"]
+        command = observed["command"]
+        assert isinstance(command, list)
+        assert command[-2:] == ["rev-parse", "--is-inside-work-tree"]
     finally:
-        monkeypatch.setattr(indexer.subprocess, "run", original_run)
+        monkeypatch.setattr(subprocess, "run", original_run)
 
 
 def test_gitlinks_are_not_traversed_and_pointer_changes_invalidate_snapshot(tmp_path: Path) -> None:
@@ -188,13 +192,19 @@ def test_gitlinks_are_not_traversed_and_pointer_changes_invalidate_snapshot(tmp_
     (repository / "tracked.py").write_text("def safe():\n    return True\n", encoding="utf-8")
     git(repository, ["add", "tracked.py"])
     git(repository, ["commit", "-m", "initial"])
-    git(repository, ["update-index", "--add", "--cacheinfo", "160000," + "a" * 40 + ",vendor/gef-bootstrap"])
+    git(
+        repository,
+        ["update-index", "--add", "--cacheinfo", "160000," + "a" * 40 + ",vendor/gef-bootstrap"],
+    )
     settings = Settings.for_testing(projects_root=tmp_path)
     snapshot = _collect_inventory(settings, repository)
     assert [entry.path for entry in snapshot.files] == ["tracked.py"]
     initial_fingerprint = snapshot.git_inventory_fingerprint
     assert initial_fingerprint == _git_inventory_fingerprint(repository)
-    git(repository, ["update-index", "--add", "--cacheinfo", "160000," + "b" * 40 + ",vendor/gef-bootstrap"])
+    git(
+        repository,
+        ["update-index", "--add", "--cacheinfo", "160000," + "b" * 40 + ",vendor/gef-bootstrap"],
+    )
     assert _git_inventory_fingerprint(repository) != initial_fingerprint
     with pytest.raises(RepositoryIndexingError) as changed:
         _assert_snapshot_stable(settings, snapshot)
