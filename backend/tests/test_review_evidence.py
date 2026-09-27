@@ -638,6 +638,63 @@ def test_single_account_and_active_work_order_registrations_are_exact() -> None:
         require_supported_work_order("WO-034")
 
 
+def test_wo035_hcoder_unblock_governance_is_exact_and_fail_closed() -> None:
+    """A new cross-project mount proposal cannot borrow another WO or weaken old scope."""
+
+    work_order = review_evidence.WO035_HCODER_WORK_ORDER
+    base = review_evidence.WO035_HCODER_BASE_SHA
+    paths = sorted(review_evidence.WO035_HCODER_ALLOWED_PATHS)
+    assert work_order == "WO-035"
+    assert len(paths) == 4
+    assert paths == sorted(
+        [
+            ".engineering/work-orders/HCODER-WO-0027-HIVE-UNBLOCK-001.md",
+            ".engineering/context-locks/HCODER-WO-0027-HIVE-UNBLOCK-001.md",
+            "scripts/review_evidence.py",
+            "backend/tests/test_review_evidence.py",
+        ]
+    )
+    require_supported_work_order(work_order)
+    require_current_work_order_authorization(work_order)
+    body = (
+        "<!-- HIVE-WORK-ORDER: WO-035 -->\n"
+        f"<!-- HIVE-AUTHORIZED-BASE: {base} -->"
+    )
+    assert parse_work_order_marker(body) == work_order
+    assert review_evidence.authorized_base_marker_sha(work_order, body) == base
+    review_evidence.require_wo035_hcoder_unblock_scope(
+        work_order, base, paths, authorized_base_sha=base
+    )
+    # Unrelated registered work orders must not inherit this new scope.
+    review_evidence.require_wo035_hcoder_unblock_scope(
+        "WO-032", base, paths, authorized_base_sha=base
+    )
+    with pytest.raises(ValueError, match="requires the protected main"):
+        review_evidence.require_wo035_hcoder_unblock_scope(
+            work_order, base, paths, base_branch="release", authorized_base_sha=base
+        )
+    with pytest.raises(ValueError, match="requires exact base"):
+        review_evidence.require_wo035_hcoder_unblock_scope(
+            work_order, "0" * 40, paths, authorized_base_sha=base
+        )
+    with pytest.raises(ValueError, match="authorized-base"):
+        review_evidence.require_wo035_hcoder_unblock_scope(
+            work_order, base, paths, authorized_base_sha=None
+        )
+    for changed in (
+        paths[:-1],
+        paths + ["docker-compose.yml"],
+        paths + [paths[0]],
+        [p for p in paths if p != "scripts/review_evidence.py"] + ["README.md"],
+    ):
+        with pytest.raises(ValueError, match="four-file governance"):
+            review_evidence.require_wo035_hcoder_unblock_scope(
+                work_order, base, changed, authorized_base_sha=base
+            )
+    with pytest.raises(ValueError, match="unsupported future work order"):
+        require_supported_work_order("WO-034")
+
+
 def test_wo026_registration_is_exact_and_fail_closed() -> None:
     require_supported_work_order(review_evidence.WO026_WORK_ORDER)
     with pytest.raises(ValueError, match="unsupported future work order"):
