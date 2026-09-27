@@ -641,19 +641,6 @@ def test_single_account_and_active_work_order_registrations_are_exact() -> None:
 def test_wo035_hcoder_unblock_governance_is_exact_and_fail_closed() -> None:
     """A new cross-project mount proposal cannot borrow another WO or weaken old scope."""
 
-    # Temporary, fail-closed CI diagnosis: remove this block after reviewing its exact Ruff diff.
-    import subprocess
-
-    result = subprocess.run(
-        [sys.executable, "-m", "ruff", "format", "--diff", "scripts/review_evidence.py"],
-        cwd=Path(__file__).parents[2],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.stdout or result.stderr:
-        pytest.fail("WO-035 exact Ruff formatter diff:\n" + result.stdout + result.stderr)
-
     work_order = review_evidence.WO035_HCODER_WORK_ORDER
     base = review_evidence.WO035_HCODER_BASE_SHA
     paths = sorted(review_evidence.WO035_HCODER_ALLOWED_PATHS)
