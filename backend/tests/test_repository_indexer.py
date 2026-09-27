@@ -168,7 +168,7 @@ def test_repository_git_timeout_is_configurable_and_bounded(monkeypatch: pytest.
     def observe(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         observed["timeout"] = kwargs["timeout"]
         observed["command"] = command
-        return subprocess.CompletedProcess(command, 0, b"true\\n", b"")
+        return subprocess.CompletedProcess(command, 0, b"true\n", b"")
 
     monkeypatch.setattr(indexer.subprocess, "run", observe)
     try:
@@ -185,7 +185,7 @@ def test_gitlinks_are_not_traversed_and_pointer_changes_invalidate_snapshot(tmp_
     subprocess.run(["git", "init", "-b", "main", str(repository)], check=True, capture_output=True)
     git(repository, ["config", "user.email", "test@example.invalid"])
     git(repository, ["config", "user.name", "HIVE Tests"])
-    (repository / "tracked.py").write_text("def safe():\\n    return True\\n", encoding="utf-8")
+    (repository / "tracked.py").write_text("def safe():\n    return True\n", encoding="utf-8")
     git(repository, ["add", "tracked.py"])
     git(repository, ["commit", "-m", "initial"])
     git(repository, ["update-index", "--add", "--cacheinfo", "160000," + "a" * 40 + ",vendor/gef-bootstrap"])
