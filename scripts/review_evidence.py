@@ -2239,6 +2239,20 @@ WO025_PLANNING_DOCUMENT_PATTERN = re.compile(
 # produced it. Any other resolved work order runs the same closure capability suite as regression
 # evidence; an unresolvable work order keeps the historical fail-closed default.
 CLOSURE_STRICT_SCOPE_WORK_ORDERS = frozenset({WO024_WORK_ORDER, WO024P_WORK_ORDER})
+# WO-035 is a cross-repository, governance-only operational prerequisite for Hive Coder.
+# This self-registration is proposed in PR #167; it creates no local mount/registry authority
+# until the PR is governed-accepted and exact-main postvalidated.
+WO035_HCODER_WORK_ORDER = "WO-035"
+WO035_HCODER_BASE_SHA = "b7f5bd8a9c9c1737c64412ebe481c9a70d9ecfc5"
+WO035_HCODER_ALLOWED_PATHS = frozenset(
+    {
+        ".engineering/work-orders/HCODER-WO-0027-HIVE-UNBLOCK-001.md",
+        ".engineering/context-locks/HCODER-WO-0027-HIVE-UNBLOCK-001.md",
+        "scripts/review_evidence.py",
+        "backend/tests/test_review_evidence.py",
+    }
+)
+
 # WO-025-G2: planning-promotion authorization + renderer guard. Governance-only, bounded, and
 # explicitly outside the historical active promotion pair.
 WO025_G2_WORK_ORDER = "WO-025-G2"
@@ -2923,6 +2937,7 @@ AUTHORIZED_BASE_MARKER_WORK_ORDERS = frozenset(
         WO025P_WORK_ORDER,
         WO11_01_WORK_ORDER,
         GEF_ADOPTION_WORK_ORDER,
+        WO035_HCODER_WORK_ORDER,
         HIVE_REL_001_WORK_ORDER,
         HIVE_REL_002_WORK_ORDER,
         HIVE_REL_003_WORK_ORDER,
@@ -3375,6 +3390,7 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO031_WORK_ORDER,
         "WO-032",
         "WO-033",
+        WO035_HCODER_WORK_ORDER,
         "WO-1.1-01",
     }
 )
@@ -3555,6 +3571,33 @@ def require_release_train_promotion_evidence(work_order: str) -> None:
     if normalized_checkpoint_value(sections, "STATUS") != EXPECTED_WO025P_STATUS:
         raise ValueError(blocked)
     require_canonical_manifest_digests(ROOT, manifest_file.read_bytes().decode("utf-8"))
+
+
+def require_wo035_hcoder_unblock_scope(
+    work_order: str,
+    base_sha: str,
+    paths: list[str],
+    *,
+    base_branch: str = "main",
+    authorized_base_sha: str | None = None,
+) -> None:
+    """Admit only the four proposed governance/registration files on one exact base."""
+
+    if work_order != WO035_HCODER_WORK_ORDER:
+        return
+    if base_branch != "main":
+        raise ValueError("WO-035 requires the protected main base branch")
+    if base_sha != WO035_HCODER_BASE_SHA:
+        raise ValueError(
+            f"WO-035 requires exact base {WO035_HCODER_BASE_SHA}, observed {base_sha}"
+        )
+    if authorized_base_sha != WO035_HCODER_BASE_SHA:
+        raise ValueError("WO-035 requires its exact authorized-base PR marker")
+    if len(paths) != len(WO035_HCODER_ALLOWED_PATHS) or set(paths) != WO035_HCODER_ALLOWED_PATHS:
+        raise ValueError(
+            "WO-035 changes paths outside its four-file governance registration scope: "
+            + ", ".join(sorted(set(paths) ^ WO035_HCODER_ALLOWED_PATHS))
+        )
 
 
 def require_gef_adoption_scope(
@@ -18230,6 +18273,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         enforce_current_main=True,
     )
     require_gef_adoption_scope(
+        work_order,
+        base_sha,
+        paths,
+        base_branch=args.base_branch,
+        authorized_base_sha=authorized_base_sha,
+    )
+    require_wo035_hcoder_unblock_scope(
         work_order,
         base_sha,
         paths,
