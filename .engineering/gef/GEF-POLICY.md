@@ -19,10 +19,10 @@ This policy applies only where it is compatible with current HIVE canonical sour
 ## HIVE overrides / preserved governance
 
 - Source hierarchy remains checkpoint > decisions > scope > DoD > architecture > requirements > remaining sources.
-- ADR-019 remains authoritative for GitHub stage-gated governance.
+- HIVE-ADR-019/020 remain authoritative for GitHub stage-gated governance and the single-account owner-audit policy.
 - Required hosted checks remain `Validate`, `Integration health`, `Review Evidence` unless a future approved decision changes them.
 - Ruleset `21934284` must not be weakened by GEF adoption.
-- Native approving review count may remain 0; HEDS semantic assurance is a logical quality gate, not a GitHub-native approval requirement.
+- Native approving review count remains 0; HEDS semantic assurance is a logical quality gate, not a GitHub-native approval requirement. KayzenRoot is the sole operational identity; HEDS A4 is a transparent exact-head owner self-audit marked `NOT INDEPENDENT`, and no second identity or reviewer session is required.
 - Existing UADS fail-closed assurance/finalize rules are preserved.
 
 ## Task classes
@@ -64,4 +64,4 @@ Budgets are guardrails, not permission to truncate correctness.
 - deleting existing governance to simplify GEF
 - treating optimization targets as measured gains
 - proof carry-forward without input validity
-- weakening reviewer independence because host session capacity is unavailable
+- misrepresenting a same-account owner self-audit as independent assurance; keep the `NOT INDEPENDENT` disclosure and all required exact-head technical gates

@@ -14,7 +14,7 @@
     "migrationHead": "0007_telemetry_events",
     "requiredHostedChecks": ["Validate", "Integration health", "Review Evidence"],
     "rulesetId": 21934284,
-    "uadsLatestRecoveryState": "BLOCKED_REVIEWER_SESSION_CAPACITY"
+    "uadsRecoveryStateAtBaselineCapture": "BLOCKED_REVIEWER_SESSION_CAPACITY"
   },
   "telemetry": {
     "executorInputTokens": "UNKNOWN",

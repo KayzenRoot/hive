@@ -5500,7 +5500,9 @@ testes, governança e avisos observados.
 Antes: {ruleset_before}; merge: {merge_before}. Depois: {ruleset_after}; merge:
 {merge_after}. A proteção permanece ativa, sem bypass, com checks reais,
 threads resolvidas e squash-only. A única identidade operacional do GitHub é
-`KayzenRoot`; executor e Sol continuam papéis lógicos distintos. O fluxo futuro
+`KayzenRoot`; executor e Sol continuam papéis lógicos distintos. A auditoria de
+Sol é um owner self-audit de KayzenRoot, explicitamente `NOT INDEPENDENT`, sem
+segunda conta/sessão e sem enviar native `APPROVE` pela conta autora. O fluxo futuro
 é `EXECUTOR -> CHECKS -> AWAITING_SOL -> SOL AUDIT -> SOL MERGE AUTHORIZATION ->
 MERGE -> PUSH CI -> CHECKPOINT`. O executor encerra com a PR Ready, checks
 verdes e auto-merge nativo desarmado. Após `APPROVED`, Sol faz SQUASH direto no

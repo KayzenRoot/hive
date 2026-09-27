@@ -302,7 +302,12 @@ def write_governance(repository: Path) -> None:
         "# Decisions\n\n"
         "## HIVE-ADR-011\nExecutor claims remain staged until validated.\n\n"
         "## HIVE-ADR-017\nProvider-specific behavior stays behind replaceable adapters.\n\n"
-        "## HIVE-ADR-019\nExecutor and external review remain distinct roles.\n",
+        "## HIVE-ADR-019\n"
+        "KayzenRoot is the sole operational GitHub identity; "
+        "Executor and Sol remain distinct logical stages.\n\n"
+        "## HIVE-ADR-020\n"
+        "Sol performs an exact-head owner self-audit, explicitly NOT INDEPENDENT;\n"
+        "no second account is required.\n",
         encoding="utf-8",
     )
 
@@ -671,7 +676,9 @@ class LocalProviderServer:
                     "validation_commands": [["python", "-c", "print('wo018 validation passed')"]],
                     "errors_fixed": [],
                     "risks": ["No canonical promotion is performed."],
-                    "pending_items": ["External Sol review remains required."],
+                    "pending_items": [
+                        "KayzenRoot owner self-audit remains required (NOT INDEPENDENT)."
+                    ],
                     "proposed_checkpoint_update": (
                         "Propose no checkpoint mutation from this execution."
                     ),

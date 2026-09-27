@@ -1659,7 +1659,7 @@ HISTORICAL_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset(
     }
 )
 ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS = frozenset({WO024_G1_WORK_ORDER, WO024P_WORK_ORDER})
-# Corrective governance increments repair merged tooling without joining the promotion
+# Corrective governance increments repair registered policy/tooling without joining the promotion
 # pair, so the active promotion set stays exactly the current audited pair.
 CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
     {
@@ -1676,6 +1676,7 @@ CORRECTIVE_GOVERNANCE_WORK_ORDERS = frozenset(
         "WO-029-C2",
         "WO-029-C3",
         "WO-030-C1",
+        "WO-033",
         "WO-023-P-G1-C1-CLOSED",
     }
 )
@@ -3372,6 +3373,8 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO030_WORK_ORDER,
         WO030_C1_WORK_ORDER,
         WO031_WORK_ORDER,
+        "WO-032",
+        "WO-033",
         "WO-1.1-01",
     }
 )
@@ -9858,7 +9861,7 @@ def verify_wo021_g1_governance_contract(
     if work_order != WO021_G1_WORK_ORDER:
         return None
     require_wo021_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -9950,7 +9953,7 @@ def verify_wo022_g1_governance_contract(
     if work_order != WO022_G1_WORK_ORDER:
         return None
     require_wo022_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -10123,7 +10126,7 @@ def verify_wo023_g1_governance_contract(
     if work_order != WO023_G1_WORK_ORDER:
         return None
     require_wo023_g1_scope(work_order, base_sha, paths)
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11048,7 +11051,7 @@ def verify_wo023p_g1_c1_governance_contract(
             f"{WO023P_G1_C1_WORK_ORDER} requires the authorized-base marker parser to cover "
             "WO-023-P and the corrective work order"
         )
-    for rejected in ("WO-032", "WO-028-P", "WO-999-P"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11127,7 +11130,7 @@ def verify_wo024p_g1_c1_governance_contract(
         raise ValueError(
             f"{WO024P_G1_C1_WORK_ORDER} requires the active WO-024 promotion pair to be unchanged"
         )
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11223,7 +11226,7 @@ def verify_wo024p_g1_c2_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11392,7 +11395,7 @@ def verify_wo024p_g1_c3_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11565,7 +11568,7 @@ def verify_wo024p_g1_c4_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -11756,7 +11759,7 @@ def verify_wo025_g1_governance_contract(
         authorized_base_sha=authorized_base_sha,
         enforce_authorized_base=authorized_base_sha is not None,
     )
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -12420,7 +12423,7 @@ def verify_wo025_g2_governance_contract(
     # WO-025 becomes an authorized current planning-promotion work order in this increment, while
     # unknown later identifiers stay fail-closed.
     require_current_work_order_authorization(WO025_WORK_ORDER)
-    for rejected in ("WO-032", "WO-028-P", "WO-999-P"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999-P"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:
@@ -12856,7 +12859,7 @@ def verify_wo025_g3_governance_contract(
         "WO-12-99",
         "WO-22-01",
         "WO-027-P",
-        "WO-032",
+        "WO-034",
         "",
     ):
         try:
@@ -13075,7 +13078,7 @@ def verify_wo025_g4_governance_contract(
             ) from error
     else:
         raise ValueError(f"{WO11_01_WORK_ORDER} unexpectedly authorizes a fresh current PR")
-    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028-P", "WO-032", ""):
+    for rejected in ("WO-1.1-02", "WO-11-01", "WO-028-P", "WO-034", ""):
         try:
             require_supported_work_order(rejected)
         except ValueError:
@@ -17156,7 +17159,7 @@ def verify_wo024_g1_governance_contract(
         ACTIVE_CHECKPOINT_PROMOTION_WORK_ORDERS
     ):
         raise ValueError(f"{WO024_G1_WORK_ORDER} requires the active WO-024 promotion pair")
-    for rejected in ("WO-032", "WO-028-P", "WO-999"):
+    for rejected in ("WO-034", "WO-028-P", "WO-999"):
         try:
             require_current_work_order_authorization(rejected)
         except ValueError:

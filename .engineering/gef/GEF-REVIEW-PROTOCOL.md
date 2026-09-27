@@ -6,13 +6,13 @@
 
 ## First candidate
 
-The first candidate of an increment may receive broad review necessary to establish the semantic baseline. Accepted findings, frozen decisions and proof dependencies are recorded.
+The first candidate of an increment may receive broad review necessary to establish the semantic baseline. Accepted findings, frozen decisions, and proof dependencies are recorded.
 
 ## Subsequent candidates
 
 Review delta-first:
 
-- compare last reviewed head to current exact head,
+- compare the last audited head to the current exact head,
 - identify changed files/symbols and material toolchain/policy changes,
 - carry forward only proofs whose relevant inputs and Evidence Validity Fingerprint remain compatible,
 - invalidate proofs whose relevant inputs changed,
@@ -45,10 +45,12 @@ A matching test name is never sufficient by itself.
 - A3 `Validate` -> deterministic validation, unit/static/build/package/compose checks.
 - A3 `Integration health` -> Docker-backed integration/recovery/system proofs.
 - A3 `Review Evidence` -> machine manifest/sticky exact-head governance evidence.
-- A4 `HEDS Delta` -> independent semantic/scope/architecture/security review.
+- A4 `HEDS Delta` -> the sole owner's semantic/scope/architecture/security self-audit of the exact PR head.
 
-Ruleset `21934284` and ADR-019 remain authoritative. Native GitHub Approve is not the semantic quality gate.
+## Single-account identity and verdict
 
-## Current assurance gap
+HIVE-ADR-019/020 define `KayzenRoot` as the sole operational GitHub identity. Executor and Sol remain distinct logical stages; they do not require distinct GitHub accounts or reviewer sessions. A4 is an owner self-audit, not an independent review. Record the exact base and head SHAs, changed surface, findings and severity, evidence/check results, unresolved HIGH/CRITICAL count, and the explicit `NOT INDEPENDENT` disclosure in the PR conversation.
 
-The active GLOBAL UADS host currently lacks a supported way to allocate the distinct reviewer sessions required by the most recent recovery. Until resolved, GEF must report `BLOCKED_EVIDENCE`; it must not reinterpret the missing independent/security reviewer as PASS. This gap does not authorize weakening UADS or HIVE governance.
+The owner self-audit may return `OWNER_SELF_AUDIT_APPROVED` only after every mandatory exact-head gate passes and unresolved HIGH/CRITICAL findings are zero. Otherwise return `CORRECTION REQUIRED` or `BLOCKED_EVIDENCE` with the factual technical gap. Never create a native GitHub `APPROVE` review from the KayzenRoot author account.
+
+The absence of a second identity or reviewer session alone is not a reason for `BLOCKED_EVIDENCE`. Missing/failed checks, missing required evidence, scope/source mismatch, or unresolved HIGH/CRITICAL findings remain fail-closed blockers. Ruleset `21934284`, protected-main requirements, and the approved single-account tradeoff in ADR-019 remain in force.
