@@ -16,6 +16,13 @@
 - Shadow assurance: `ON`
 - Adoption stop state: `READY_WITH_GAPS`
 
+> Historical adoption snapshot at baseline `c9430af`: the reviewer-session gap
+> and adoption bridge listed below were later resolved by HIVE-ADR-020 / WO-033.
+> Current HEDS A4 is a KayzenRoot owner self-audit, explicitly `NOT INDEPENDENT`.
+> No second account or reviewer session is required. This snapshot does not block
+> current Work Orders; protected-main, exact-head CI/evidence and severity gates
+> remain mandatory.
+
 GEF is adopted as an engineering/governance layer. It does not replace HIVE canonical product truth, ADRs, checkpoint, Definition of Done, architecture, Review Evidence, GitHub ruleset, UADS fail-closed behavior, or exact-head CI.
 
 ## Source hierarchy
@@ -59,8 +66,8 @@ GEF artifacts are derived engineering policy/state. They never override a newer 
 | Machine evidence exists in multiple current artifacts | GEF Machine Evidence Manifest | Map current validation/review evidence into one derived manifest | LOW | READY |
 | Test impact knowledge is implicit | Source/module -> tests/evals map | Seed conservative mapping; refine from observed runs | LOW | READY |
 | Token/search/time telemetry incomplete | Baseline + per-WO GEF telemetry | Record UNKNOWN when unavailable; never coerce to zero | LOW | READY |
-| UADS host cannot currently allocate distinct reviewer sessions for the latest recovery | Legitimate A4 independent assurance | Preserve fail-closed blocker; resolve host/session lifecycle separately | HIGH | OPEN GAP |
-| Current Review Evidence only recognizes registered HIVE work orders | Governed GEF adoption PR that can satisfy required Review Evidence | Do not weaken the check; register an adoption-compatible work-order/bridge in a separate governed correction before merge if required | MEDIUM | OPEN GAP |
+| UADS host could not allocate distinct reviewer sessions at adoption baseline | Legitimate A4 assurance | Superseded by HIVE-ADR-020 / WO-033: exact-head KayzenRoot owner self-audit, disclosed `NOT INDEPENDENT` | HIGH | CLOSED BY WO-033 |
+| Review Evidence did not recognize the adoption bridge at baseline | Governed registration of the corrective work order | WO-033 is registered and covered by exact-marker / deny-by-default regression tests; no technical gate is weakened | MEDIUM | CLOSED BY WO-033 |
 | Open PR #37 is based on old main and overlaps `.engineering` concepts | Preserve concurrent work | Do not modify/rebase/close it during GEF adoption; reconcile later explicitly | MEDIUM | OPEN GAP |
 | PR #81 CI run `34699511231` failed before any Validate steps were exposed | Legitimate hosted A3 evidence | Treat as infrastructure/runner cause UNKNOWN until diagnosed; do not bypass or call it a product failure | MEDIUM | OPEN GAP |
 
@@ -69,8 +76,8 @@ GEF artifacts are derived engineering policy/state. They never override a newer 
 - GEF task classes and context radii are engineering metadata, not product architecture.
 - GEF A0-A2 does not remove current validation. Test/proof skipping has no authority until shadow assurance demonstrates no loss.
 - GEF A3 maps to existing hosted required checks and their artifacts.
-- GEF A4 maps to independent semantic assurance/HEDS and must remain distinct from executor work.
-- Existing UADS reviewer/finalize requirements remain fail-closed. GEF does not convert an unavailable reviewer into approval.
+- GEF A4 maps to a KayzenRoot exact-head owner self-audit after executor handoff. The record must state `NOT INDEPENDENT`; a second GitHub identity or reviewer session is not required.
+- Technical UADS, exact-head CI, Review Evidence, protected-main and unresolved HIGH/CRITICAL gates remain fail-closed. Missing another identity alone is not a technical failure and never becomes approval evidence.
 - No CI workflow, branch ruleset, product runtime, migration, dependency, checkpoint or canonical Project Brain file is changed by this adoption.
 
 ## Adoption report
@@ -89,12 +96,13 @@ currentPromptMode: GEF_V1
 currentReviewMode: HEDS_DELTA
 shadowAssurance: ON
 existingGates: Validate, Integration health, Review Evidence
-gaps: UADS reviewer-session capacity; Review Evidence adoption bridge; legacy PR #37 overlap; PR #81 hosted Validate runner/start failure with no exposed steps
-risks: no bypass of fail-closed assurance; no test-skipping authority yet
-nextAction: resolve the smallest adoption compatibility/hosted-validation gap without changing product scope; separately resolve UADS reviewer-session capacity; then validate and review PR #81
-status: READY_WITH_GAPS
+historicalGapsAtBaseline: UADS reviewer-session capacity (superseded by HIVE-ADR-020 / WO-033 owner self-audit); Review Evidence adoption bridge (closed by registered WO-033); legacy PR #37 overlap; PR #81 hosted Validate runner/start failure with no exposed steps
+currentReviewPolicy: HEDS A4 exact-head KayzenRoot owner self-audit; NOT INDEPENDENT; no second identity/session required
+risks: exact required checks, thread resolution, protected-main and unresolved HIGH/CRITICAL gates remain fail-closed; no test-skipping authority
+nextAction: use the current canonical checkpoint and active Work Order. If PR #81 is reactivated, diagnose its exact-head hosted Validate failure under current gates; do not reinstate a second-account/session-capacity requirement.
+statusAtBaseline: READY_WITH_GAPS (historical); reviewer-session gap superseded by HIVE-ADR-020 / WO-033
 ```
 
 ## Next action
 
-Use GEF V1 immediately for new prompts and reviews. Do not start/advance product work that is still blocked by existing HIVE/UADS governance. Resolve the UADS reviewer-session gap and the adoption-PR Review Evidence/hosted-validation gaps as separate, smallest governed corrections before any adoption merge that requires those gates.
+Use the current canonical checkpoint, active Work Order, and HIVE-ADR-019/020 for new prompts and reviews. The former UADS reviewer-session gap is closed for governance purposes by the transparent single-account owner self-audit; do not wait for or request another account. Keep all required technical checks, exact-head evidence, protected-main rules, thread resolution, scope validation, and severity gates. Review legacy adoption PR #81 only if it is explicitly reactivated, and diagnose its recorded hosted-runner failure on its exact current head before any merge.
