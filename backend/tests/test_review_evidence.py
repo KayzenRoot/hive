@@ -12211,9 +12211,7 @@ def test_wo024p_governance_contract_receives_the_parsed_authorized_base(
     real_manifest_contract = review_evidence.require_wo024p_manifest_contract
     changed_ledger_manifest = base_manifest.replace(
         next(
-            line
-            for line in base_manifest.splitlines()
-            if line.endswith("16-DECISIONS-LEDGER.md")
+            line for line in base_manifest.splitlines() if line.endswith("16-DECISIONS-LEDGER.md")
         ),
         "0" * 64 + "  16-DECISIONS-LEDGER.md",
         1,
