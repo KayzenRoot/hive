@@ -3592,8 +3592,7 @@ def require_wo035_hcoder_unblock_scope(
     if authorized_base_sha != WO035_HCODER_BASE_SHA:
         raise ValueError("WO-035 requires its exact authorized-base PR marker")
     scope_matches = (
-        len(paths) == len(WO035_HCODER_ALLOWED_PATHS)
-        and set(paths) == WO035_HCODER_ALLOWED_PATHS
+        len(paths) == len(WO035_HCODER_ALLOWED_PATHS) and set(paths) == WO035_HCODER_ALLOWED_PATHS
     )
     if not scope_matches:
         mismatches = ", ".join(sorted(set(paths) ^ WO035_HCODER_ALLOWED_PATHS))
