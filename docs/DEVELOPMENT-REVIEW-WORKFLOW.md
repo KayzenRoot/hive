@@ -2,9 +2,19 @@
 
 O incremento de retrieval é revisado como PR Ready. O job obrigatório
 `Review Evidence` depende de `Validate` e `Integration health`, verifica que a
-PR não está Draft e executa contra o SHA exato do head da PR. Auto-merge squash
-fica condicionado a uma aprovação independente elegível e à resolução de
-threads; o executor não aprova nem mescla.
+PR não está Draft e executa contra o SHA exato do head da PR. HEDS A4 é um
+owner self-audit de Sol na conta única `KayzenRoot`, como etapa lógica após o
+executor, e registra explicitamente `NOT INDEPENDENT`. Não exige segunda conta,
+sessão distinta ou aprovação nativa; nunca envie `APPROVE` pela conta autora.
+Falta de outra identidade, por si só, não bloqueia. Falha ou ausência de check,
+evidência técnica incompleta, divergência de escopo/base/head ou finding
+HIGH/CRITICAL não resolvido continua bloqueando.
+
+O executor encerra antes do merge. Sol audita o base/head exato, findings,
+severity, evidências e checks obrigatórios; só autoriza SQUASH direto quando a
+PR está limpa, mergeable, todos os checks passaram e threads estão resolvidas,
+conforme ADR-019. Auto-merge não é necessário para PR limpa e só pode ser armado
+pela KayzenRoot quando checks obrigatórios legítimos ainda estiverem pendentes.
 
 O artefato `review-manifest.json` segue
 `schemas/review-evidence-v1.schema.json` e contém evidência estruturada de
