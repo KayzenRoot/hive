@@ -3589,7 +3589,8 @@ def require_wo035_hcoder_unblock_scope(
         raise ValueError("WO-035 requires the protected main base branch")
     if base_sha != WO035_HCODER_BASE_SHA:
         raise ValueError(
-            f"WO-035 requires exact base {WO035_HCODER_BASE_SHA}, observed {base_sha}"
+            f"WO-035 requires exact base {WO035_HCODER_BASE_SHA}, "
+            f"observed {base_sha}"
         )
     if authorized_base_sha != WO035_HCODER_BASE_SHA:
         raise ValueError("WO-035 requires its exact authorized-base PR marker")
