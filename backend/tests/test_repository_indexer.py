@@ -1,4 +1,6 @@
 import hashlib
+
+import app.repository_indexer as indexer
 import subprocess
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from app.repository_indexer import (
     RepositoryIndexingError,
     _assert_snapshot_stable,
     _collect_inventory,
+    _git_inventory_fingerprint,
     parse_python_symbols,
 )
 
@@ -149,3 +152,50 @@ def test_tracked_symlink_escape_fails_before_reading_outside_bytes(tmp_path: Pat
         _collect_inventory(Settings(projects_root=tmp_path), repository)
 
     assert error.value.code == "tracked_path_unsafe"
+
+
+def test_repository_git_timeout_is_configurable_and_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=45)
+    assert settings.repository_git_timeout_seconds == 45
+    with pytest.raises(ValueError):
+        Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=4)
+    with pytest.raises(ValueError):
+        Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=121)
+
+    observed: dict[str, object] = {}
+    original_run = subprocess.run
+
+    def observe(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed["timeout"] = kwargs["timeout"]
+        observed["command"] = command
+        return subprocess.CompletedProcess(command, 0, b"true\\n", b"")
+
+    monkeypatch.setattr(indexer.subprocess, "run", observe)
+    try:
+        indexer._run_git(tmp_path, ["rev-parse", "--is-inside-work-tree"], timeout_seconds=45)
+        assert observed["timeout"] == 45
+        assert observed["command"][-2:] == ["rev-parse", "--is-inside-work-tree"]
+    finally:
+        monkeypatch.setattr(indexer.subprocess, "run", original_run)
+
+
+def test_gitlinks_are_not_traversed_and_pointer_changes_invalidate_snapshot(tmp_path: Path) -> None:
+    repository = tmp_path / "gitlink"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repository)], check=True, capture_output=True)
+    git(repository, ["config", "user.email", "test@example.invalid"])
+    git(repository, ["config", "user.name", "HIVE Tests"])
+    (repository / "tracked.py").write_text("def safe():\\n    return True\\n", encoding="utf-8")
+    git(repository, ["add", "tracked.py"])
+    git(repository, ["commit", "-m", "initial"])
+    git(repository, ["update-index", "--add", "--cacheinfo", "160000," + "a" * 40 + ",vendor/gef-bootstrap"])
+    settings = Settings.for_testing(projects_root=tmp_path)
+    snapshot = _collect_inventory(settings, repository)
+    assert [entry.path for entry in snapshot.files] == ["tracked.py"]
+    initial_fingerprint = snapshot.git_inventory_fingerprint
+    assert initial_fingerprint == _git_inventory_fingerprint(repository)
+    git(repository, ["update-index", "--add", "--cacheinfo", "160000," + "b" * 40 + ",vendor/gef-bootstrap"])
+    assert _git_inventory_fingerprint(repository) != initial_fingerprint
+    with pytest.raises(RepositoryIndexingError) as changed:
+        _assert_snapshot_stable(settings, snapshot)
+    assert changed.value.code == "git_inventory_changed_during_index"

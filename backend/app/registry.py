@@ -21,7 +21,7 @@ from .db import database_connection
 # Git status on a Windows-backed Docker bind mount can take several seconds for
 # a moderate repository. Keep inspection bounded without treating ordinary I/O
 # variance as an inaccessible project.
-GIT_TIMEOUT_SECONDS = 15
+GIT_TIMEOUT_SECONDS = 30
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40,64}$")
 REGISTRY_ADVISORY_LOCK = (12002, 1)
 
@@ -278,7 +278,7 @@ def inspect_project(project_path: Path) -> InspectionResult:
         else:
             return _failure_result("git_branch_unavailable", language_stack)
 
-        status = _run_git(project_path, ["status", "--porcelain=v1", "--untracked-files=no"])
+        status = _run_git(project_path, ["status", "--porcelain=v1", "--untracked-files=no", "--ignore-submodules=all"])
         return InspectionResult(
             git_branch=branch,
             git_head_sha=head.lower(),
