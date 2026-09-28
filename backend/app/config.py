@@ -92,6 +92,9 @@ class Settings(BaseSettings):
         default=1 * 1024 * 1024, validation_alias="HIVE_TASK_MAX_STRUCTURED_TEXT_BYTES"
     )
     cas_zstd_level: int = Field(default=3, validation_alias="HIVE_CAS_ZSTD_LEVEL")
+    repository_git_timeout_seconds: float = Field(
+        default=30.0, ge=5.0, le=120.0, validation_alias="HIVE_REPOSITORY_GIT_TIMEOUT_SECONDS"
+    )
     repository_max_files: int = Field(default=10_000, validation_alias="HIVE_REPOSITORY_MAX_FILES")
     repository_max_file_bytes: int = Field(
         default=10 * 1024 * 1024, validation_alias="HIVE_REPOSITORY_MAX_FILE_BYTES"

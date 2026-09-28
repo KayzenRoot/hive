@@ -435,7 +435,11 @@ class ExecutionOrchestrator:
         self.project_loader = project_loader or get_project
         self.task_loader = task_loader or get_task
         self.context_builder = context_builder or context_manager.build_context
-        self.repository_inspector = repository_inspector or inspect_project
+        self.repository_inspector = repository_inspector or (
+            lambda workspace: inspect_project(
+                workspace, timeout_seconds=self.settings.repository_git_timeout_seconds
+            )
+        )
         default_seams = all(
             seam is None
             for seam in (

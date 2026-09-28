@@ -93,7 +93,9 @@ def scan_immediate_git_repositories(settings: Settings) -> tuple[list[ProjectCan
                 continue
             if any(os.path.samefile(resolved_path, prior) for prior in seen_paths):
                 continue
-            inspection = inspect_project(resolved_path)
+            inspection = inspect_project(
+                resolved_path, timeout_seconds=settings.repository_git_timeout_seconds
+            )
         except (OSError, RuntimeError, ValueError, ProjectPathError):
             continue
         if (

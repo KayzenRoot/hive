@@ -145,7 +145,7 @@ def test_git_command_scopes_safe_directory(monkeypatch: pytest.MonkeyPatch, tmp_
     assert f"safe.directory={repository}" in command
     assert "safe.directory=*" not in command
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == GIT_TIMEOUT_SECONDS == 15
+    assert kwargs["timeout"] == GIT_TIMEOUT_SECONDS == 30
     environment = kwargs["env"]
     assert isinstance(environment, dict)
     assert environment["GIT_OPTIONAL_LOCKS"] == "0"
@@ -199,3 +199,34 @@ def test_inspector_captures_git_timeout(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert result.state is ProjectState.DEGRADED
     assert result.inspection_error == "git_timeout"
+
+
+def test_registry_inspection_uses_configured_git_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repository = create_git_repository(tmp_path)
+    settings = Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=45)
+    original_run = subprocess.run
+    observed: list[float] = []
+
+    def capture(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        observed.append(float(kwargs["timeout"]))
+        return cast(subprocess.CompletedProcess[str], original_run(command, **kwargs))
+
+    monkeypatch.setattr("app.registry.subprocess.run", capture)
+    result = inspect_project(repository, timeout_seconds=settings.repository_git_timeout_seconds)
+    assert result.state is ProjectState.READY
+    assert observed == [45.0] * 4
+
+
+def test_registry_staged_gitlink_pointer_is_not_mistaken_for_clean_tree(
+    tmp_path: Path,
+) -> None:
+    repository = create_git_repository(tmp_path)
+    run_git(
+        repository,
+        ["update-index", "--add", "--cacheinfo", "160000," + "a" * 40 + ",vendor/gef-bootstrap"],
+    )
+    result = inspect_project(repository)
+    assert result.repository_accessible is True
+    assert result.working_tree_clean is False

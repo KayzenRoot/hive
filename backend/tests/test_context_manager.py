@@ -1094,7 +1094,13 @@ def test_delta_final_stability_preserves_precise_race_reason(
 ) -> None:
     patch_build_dependencies(monkeypatch)
     target = context_manager.build_context(Settings(), PROJECT_ID, TASK_ID)
-    monkeypatch.setattr(context_manager, "_git_head", lambda _path: current_head)
+    observed_timeouts: list[float] = []
+
+    def capture_head(_path: Path, *, timeout_seconds: float) -> str:
+        observed_timeouts.append(timeout_seconds)
+        return current_head
+
+    monkeypatch.setattr(context_manager, "_git_head", capture_head)
     monkeypatch.setattr(
         context_manager,
         "_assert_state_stable",
@@ -1104,9 +1110,12 @@ def test_delta_final_stability_preserves_precise_race_reason(
     )
 
     with pytest.raises(context_manager.ContextStaleError) as caught:
-        context_manager._assert_delta_target_stable(Settings(), PROJECT_ID, TASK_ID, target)
+        context_manager._assert_delta_target_stable(
+            Settings.for_testing(repository_git_timeout_seconds=45), PROJECT_ID, TASK_ID, target
+        )
 
     assert caught.value.code == expected_code
+    assert observed_timeouts == [45.0]
 
 
 def test_context_api_accepts_project_and_task_ids_without_query_assembly(

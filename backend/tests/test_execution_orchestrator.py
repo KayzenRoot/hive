@@ -453,3 +453,31 @@ def test_execute_resolves_identity_once(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert result.status == "STAGED"
     assert calls == 1
+
+
+def test_default_execution_inspector_uses_bounded_configured_git_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: list[tuple[Path, float]] = []
+
+    def capture(path: Path, *, timeout_seconds: float) -> InspectionResult:
+        observed.append((path, timeout_seconds))
+        return inspection()
+
+    monkeypatch.setattr("app.execution_orchestrator.inspect_project", capture)
+    settings = Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=45)
+    orchestrator = ExecutionOrchestrator(settings=settings)
+    assert orchestrator.repository_inspector(tmp_path) == inspection()
+    assert observed == [(tmp_path, 45.0)]
+
+    # A user-injected inspector still receives one Path argument.
+    injected_paths: list[Path] = []
+
+    def injected(path: Path) -> InspectionResult:
+        injected_paths.append(path)
+        return inspection()
+
+    custom = ExecutionOrchestrator(settings=settings, repository_inspector=injected)
+    assert custom.repository_inspector(tmp_path) == inspection()
+    assert injected_paths == [tmp_path]
+    assert observed == [(tmp_path, 45.0)]

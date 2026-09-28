@@ -1,7 +1,9 @@
 import hashlib
 import subprocess
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
-from uuid import UUID
+from unittest.mock import MagicMock
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -193,3 +195,115 @@ def test_sync_missing_project_is_stable(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert response.status_code == 404
     assert response.json() == {"detail": "project not found"}
+
+
+def test_gitlink_excluded_from_content_inventory_and_pointer_race_rejected(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "gitlink-repo"
+    repository.mkdir()
+    git(repository, "init", "-b", "main")
+    git(repository, "config", "user.email", "hive-test@example.invalid")
+    git(repository, "config", "user.name", "HIVE Test")
+    (repository / "tracked.txt").write_text("stable\n", encoding="utf-8")
+    git(repository, "add", "tracked.txt")
+    git(repository, "commit", "-m", "baseline")
+    git(
+        repository,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "160000," + "a" * 40 + ",vendor/gef-bootstrap",
+    )
+    head = git(repository, "rev-parse", "HEAD")
+    actual_paths, gitlinks = retrieval._git_content_inventory(repository, timeout_seconds=30)
+    assert actual_paths == {"tracked.txt"}
+    assert gitlinks == (("vendor/gef-bootstrap", "a" * 40),)
+    bundle = dataclass_replace(
+        source_bundle(repository, head, ("tracked.txt",)),
+        gitlink_inventory=gitlinks,
+    )
+    retrieval._revalidate_bundle(Settings(), bundle)
+    git(
+        repository,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "160000," + "b" * 40 + ",vendor/gef-bootstrap",
+    )
+    with pytest.raises(retrieval.RetrievalSyncError, match="repository_source_stale"):
+        retrieval._revalidate_bundle(Settings(), bundle)
+
+
+def test_gitlink_corpus_preflight_matches_indexed_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "gitlink-preflight"
+    repository.mkdir()
+    git(repository, "init", "-b", "main")
+    git(repository, "config", "user.email", "hive-test@example.invalid")
+    git(repository, "config", "user.name", "HIVE Test")
+    (repository / "tracked.txt").write_text("stable\n", encoding="utf-8")
+    git(repository, "add", "tracked.txt")
+    git(repository, "commit", "-m", "baseline")
+    git(
+        repository,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "160000," + "a" * 40 + ",vendor/gef-bootstrap",
+    )
+    project_id, index_run_id, file_id = uuid4(), uuid4(), uuid4()
+    head = git(repository, "rev-parse", "HEAD")
+    monkeypatch.setattr(
+        retrieval,
+        "_project_path_and_index_run",
+        lambda _settings, _id: (repository, index_run_id, head, {"tracked.txt"}),
+    )
+    data = (repository / "tracked.txt").read_bytes()
+    file_row = (file_id, "tracked.txt", hashlib.sha256(data).hexdigest(), "text")
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [[file_row], []]
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    database = MagicMock()
+    database.__enter__.return_value = connection
+    monkeypatch.setattr(retrieval, "database_connection", lambda _settings: database)
+
+    output = retrieval._load_repository_sources(Settings(), project_id)
+    assert output[1] == index_run_id
+    assert output[6] == head
+    assert output[7] == ("tracked.txt",)
+    assert output[9] == (("vendor/gef-bootstrap", "a" * 40),)
+
+
+def test_staged_inventory_rejects_unmerged_duplicate_and_malformed_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sha = b"a" * 40
+    for raw in (
+        b"100644 " + sha + b" 1\ttracked.txt\0",
+        b"broken-record\0",
+        (b"100644 " + sha + b" 0\ttracked.txt\0") * 2,
+    ):
+        monkeypatch.setattr(retrieval, "_git_output", lambda *_args, raw=raw, **_kwargs: raw)
+        with pytest.raises(retrieval.RetrievalSyncError, match="repository_inventory_unavailable"):
+            retrieval._git_content_inventory(tmp_path, timeout_seconds=30)
+
+
+def test_retrieval_git_respects_bounded_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        command: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[bytes]:
+        observed["timeout"] = kwargs["timeout"]
+        return subprocess.CompletedProcess(command, 0, b"good\n", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = retrieval._git_output(tmp_path, ["rev-parse", "HEAD"], timeout_seconds=60)
+    assert result == b"good\n"
+    assert observed["timeout"] == 60

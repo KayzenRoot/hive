@@ -66,3 +66,24 @@ def test_symlink_project_paths_are_rejected(tmp_path: Path) -> None:
     assert candidates == []
     with pytest.raises(ProjectPathError, match="resolves outside"):
         normalize_project_path("linked-project", settings)
+
+
+def test_discovery_forwards_configured_git_timeout_to_registry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import app.project_discovery as discovery
+    from app.registry import inspect_project as inspect_actual
+
+    repository = tmp_path / "sample"
+    create_repository(repository)
+    settings = Settings.for_testing(projects_root=tmp_path, repository_git_timeout_seconds=45)
+    observed: list[float] = []
+
+    def capture(path: Path, *, timeout_seconds: float) -> object:
+        observed.append(timeout_seconds)
+        return inspect_actual(path, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(discovery, "inspect_project", capture)
+    candidates, _examined = scan_immediate_git_repositories(settings)
+    assert any(candidate.relative_path == "sample" for candidate in candidates)
+    assert observed == [45.0]

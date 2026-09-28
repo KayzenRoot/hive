@@ -148,6 +148,8 @@ class _SourceBundle:
     source_fingerprint: str
     skipped_binary_count: int
     skipped_decode_count: int
+    # Gitlink pointer metadata is captured for race checks, not indexed as content.
+    gitlink_inventory: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -524,7 +526,9 @@ def _project_path_and_index_run(
     return project_path, cast(UUID, index_row[0]), str(index_row[1]), indexed_paths
 
 
-def _git_output(project_path: Path, arguments: list[str]) -> bytes:
+def _git_output(
+    project_path: Path, arguments: list[str], *, timeout_seconds: float = 30.0
+) -> bytes:
     environment = os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     try:
@@ -542,13 +546,59 @@ def _git_output(project_path: Path, arguments: list[str]) -> bytes:
             capture_output=True,
             check=False,
             env=environment,
-            timeout=5,
+            timeout=timeout_seconds,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         raise RetrievalSyncError("repository_inventory_unavailable") from exc
     if result.returncode != 0:
         raise RetrievalSyncError("repository_inventory_unavailable")
     return result.stdout
+
+
+def _git_content_inventory(
+    project_path: Path, *, timeout_seconds: float
+) -> tuple[set[str], tuple[tuple[str, str], ...]]:
+    """Align lexical corpus paths with the indexer while retaining gitlink pointer identity.
+
+    Gitlinks (160000) have no repository_files content row. Their path/commit SHA
+    are nevertheless frozen across load and promotion to catch an index-stage race.
+    An unmerged, duplicated or malformed Git inventory always fails closed.
+    """
+    listing = _git_output(
+        project_path,
+        ["ls-files", "--cached", "--stage", "-z", "--"],
+        timeout_seconds=timeout_seconds,
+    )
+    content_paths: set[str] = set()
+    gitlinks: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for raw in listing.split(b"\0"):
+        if not raw:
+            continue
+        metadata, sep, raw_path = raw.partition(b"\t")
+        fields = metadata.split()
+        if not sep or not raw_path or len(fields) != 3:
+            raise RetrievalSyncError("repository_inventory_unavailable")
+        try:
+            mode = fields[0].decode("ascii")
+            sha = fields[1].decode("ascii").lower()
+            stage = fields[2].decode("ascii")
+            path = raw_path.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RetrievalSyncError("repository_inventory_unavailable") from exc
+        if (
+            stage != "0"
+            or not re.fullmatch(r"[0-7]{6}", mode)
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", sha)
+            or path in seen
+        ):
+            raise RetrievalSyncError("repository_inventory_unavailable")
+        seen.add(path)
+        if mode == "160000":
+            gitlinks.append((path, sha))
+        else:
+            content_paths.add(path)
+    return content_paths, tuple(sorted(gitlinks))
 
 
 def _load_repository_sources(
@@ -563,16 +613,22 @@ def _load_repository_sources(
     str,
     tuple[str, ...],
     tuple[tuple[str, str], ...],
+    tuple[tuple[str, str], ...],
 ]:
     project_path, index_run_id, indexed_head, indexed_paths = _project_path_and_index_run(
         settings, project_id
     )
     try:
-        current_head = _git_output(project_path, ["rev-parse", "--verify", "HEAD^{commit}"])
+        current_head = _git_output(
+            project_path,
+            ["rev-parse", "--verify", "HEAD^{commit}"],
+            timeout_seconds=settings.repository_git_timeout_seconds,
+        )
         if current_head.decode("ascii").strip().lower() != indexed_head.lower():
             raise RetrievalSyncError("repository_index_stale")
-        inventory = _git_output(project_path, ["ls-files", "--cached", "-z", "--"])
-        actual_paths = {raw.decode("utf-8") for raw in inventory.split(b"\0") if raw}
+        actual_paths, gitlinks = _git_content_inventory(
+            project_path, timeout_seconds=settings.repository_git_timeout_seconds
+        )
     except UnicodeDecodeError as exc:
         raise RetrievalSyncError("repository_inventory_unavailable") from exc
     if actual_paths != indexed_paths:
@@ -691,6 +747,7 @@ def _load_repository_sources(
         indexed_head,
         tuple(sorted(indexed_paths)),
         repository_file_hashes,
+        gitlinks,
     )
 
 
@@ -746,6 +803,7 @@ def _load_source_bundle(settings: Settings, project_id: UUID) -> _SourceBundle:
         repository_head,
         repository_inventory,
         repository_file_hashes,
+        gitlinks,
     ) = _load_repository_sources(settings, project_id)
     task_sources, task_fingerprint = _load_task_sources(settings, project_id)
     # The corpus source fingerprint is material content identity. The
@@ -767,26 +825,34 @@ def _load_source_bundle(settings: Settings, project_id: UUID) -> _SourceBundle:
         source_fingerprint,
         skipped_binary,
         skipped_decode,
+        gitlinks,
     )
 
 
 def _revalidate_bundle(settings: Settings, bundle: _SourceBundle) -> None:
     try:
         current_head = (
-            _git_output(bundle.repository_path, ["rev-parse", "--verify", "HEAD^{commit}"])
+            _git_output(
+                bundle.repository_path,
+                ["rev-parse", "--verify", "HEAD^{commit}"],
+                timeout_seconds=settings.repository_git_timeout_seconds,
+            )
             .decode("ascii")
             .strip()
             .lower()
         )
-        inventory_bytes = _git_output(bundle.repository_path, ["ls-files", "--cached", "-z", "--"])
-        current_inventory = tuple(
-            sorted(raw.decode("utf-8") for raw in inventory_bytes.split(b"\0") if raw)
+        content_paths, current_gitlinks = _git_content_inventory(
+            bundle.repository_path, timeout_seconds=settings.repository_git_timeout_seconds
         )
+        current_inventory = tuple(sorted(content_paths))
     except (RetrievalSyncError, UnicodeDecodeError) as exc:
         raise RetrievalSyncError("repository_source_stale") from exc
     if current_head != bundle.repository_head.lower():
         raise RetrievalSyncError("repository_source_stale")
-    if current_inventory != bundle.repository_inventory:
+    if (
+        current_inventory != bundle.repository_inventory
+        or current_gitlinks != bundle.gitlink_inventory
+    ):
         raise RetrievalSyncError("repository_source_stale")
 
     for path, expected_hash in bundle.repository_file_hashes:
