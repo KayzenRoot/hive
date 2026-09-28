@@ -3228,6 +3228,7 @@ def parse_work_order_marker(body: str) -> str:
         and GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
         and HIVE_REL_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
         and RELEASE_TRAIN_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+        and work_order != "HIVE-FV-001"
     ):
         raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     return work_order
@@ -17758,6 +17759,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             and GEF_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
             and HIVE_REL_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
             and RELEASE_TRAIN_WORK_ORDER_IDENTIFIER.fullmatch(work_order) is None
+            and work_order != "HIVE-FV-001"
         ):
             raise ValueError(f"invalid or unbounded HIVE work-order identifier: {work_order!r}")
     require_current_work_order_authorization(work_order)

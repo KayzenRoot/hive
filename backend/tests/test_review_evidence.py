@@ -14616,3 +14616,12 @@ def test_hive_fv_001_is_explicitly_registered_without_future_wildcard() -> None:
         assert unsupported not in review_evidence.REGISTERED_WORK_ORDERS
         with pytest.raises(ValueError, match="unsupported"):
             review_evidence.require_supported_work_order(unsupported)
+
+
+def test_hive_fv_001_marker_parses_without_wildcard() -> None:
+    marker = "<!-- HIVE-WORK-ORDER: HIVE-FV-001 -->"
+    assert review_evidence.parse_work_order_marker(marker) == "HIVE-FV-001"
+    review_evidence.require_current_work_order_authorization("HIVE-FV-001")
+    for bad in ("HIVE-FV-002", "HIVE-FV-001-C1", "HIVE-REL-013"):
+        with pytest.raises(ValueError, match="unsupported"):
+            review_evidence.require_current_work_order_authorization(bad)
