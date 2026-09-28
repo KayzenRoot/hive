@@ -289,7 +289,9 @@ def test_staged_inventory_rejects_unmerged_duplicate_and_malformed_records(
         monkeypatch.setattr(
             retrieval, "_git_output", lambda *_args, raw=raw, **_kwargs: raw
         )
-        with pytest.raises(retrieval.RetrievalSyncError, match="repository_inventory_unavailable"):
+        with pytest.raises(
+            retrieval.RetrievalSyncError, match="repository_inventory_unavailable"
+        ):
             retrieval._git_content_inventory(tmp_path, timeout_seconds=30)
 
 
@@ -299,13 +301,13 @@ def test_retrieval_git_respects_bounded_timeout(
     observed: dict[str, object] = {}
 
     def fake_run(
-        command: list[str], **kwargs: object
+        command: list[str],
+        **kwargs: object,
     ) -> subprocess.CompletedProcess[bytes]:
         observed["timeout"] = kwargs["timeout"]
         return subprocess.CompletedProcess(command, 0, b"good\n", b"")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    assert retrieval._git_output(tmp_path, ["rev-parse", "HEAD"], timeout_seconds=60) == (
-        b"good\n"
-    )
+    result = retrieval._git_output(tmp_path, ["rev-parse", "HEAD"], timeout_seconds=60)
+    assert result == b"good\n"
     assert observed["timeout"] == 60

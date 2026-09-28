@@ -14608,7 +14608,6 @@ def test_wo031_is_registered_and_requires_authorized_base_marker() -> None:
     assert review_evidence.WO031_WORK_ORDER in review_evidence.AUTHORIZED_BASE_MARKER_WORK_ORDERS
 
 
-
 def test_hive_fv_001_is_explicitly_registered_without_future_wildcard() -> None:
     review_evidence.require_supported_work_order("HIVE-FV-001")
     review_evidence.require_current_work_order_authorization("HIVE-FV-001")
