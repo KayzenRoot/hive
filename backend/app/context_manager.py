@@ -2347,7 +2347,10 @@ def _assert_delta_target_stable(
     except ContextStaleError as exc:
         if exc.code == "repository_source_changed":
             try:
-                current_head = _git_head(state.snapshot.project_path)
+                current_head = _git_head(
+                    state.snapshot.project_path,
+                    timeout_seconds=settings.repository_git_timeout_seconds,
+                )
             except (OSError, RepositoryIndexingError, RuntimeError):
                 raise
             if current_head.lower() != state.snapshot.repository_head_sha.lower():
