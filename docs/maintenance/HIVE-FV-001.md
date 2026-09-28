@@ -28,3 +28,13 @@ At the time of the R8 host report, Review Evidence did not recognize `HIVE-FV-00
 
 ## Exact-marker parser corrective gate
 The current PR Review Evidence job proved that closed `REGISTERED_WORK_ORDERS` registration alone is insufficient: the older bounded PR work-order *syntax parser* and the local manifest parser reject the explicitly admitted `HIVE-FV-001` token before consulting the registry. Correct ONLY those two exact-token paths, not the identifier wildcard, and add regression for `parse_work_order_marker` accepting the exact approved PR token and rejecting unsupported near misses via `require_current_work_order_authorization`. Keep `HIVE-REL-013` unregistered and release publication blocked. No alteration of actual reviewer requirements, validation evidence checks, protected main or cross-Work-Order privileges.
+
+
+## Ready-review P1 correction: registry timeout and staged gitlink pointer
+
+Review of the SAME HIVE-FV-001 PR in Ready state identified two HIGH/P1 defects in the original Windows Git compatibility patch. This is a bounded correction INSIDE the authorized maintenance Work Order and does not authorize HIVE-REL-013, WO-032, migrations, release or local host mutations.
+
+- Registry currently uses a fixed `GIT_TIMEOUT_SECONDS=15`, even though the candidate indexer/retrieval uses bounded `Settings.repository_git_timeout_seconds` (5-120 s, default 30 s). Forward the exact typed value through the registry's `register_project`, `inspect_registered_project`, and auto-discovery's pre-registration inspect; preserve the bounded default for standalone direct callers. Fail closed on a true Git timeout. Add deterministic tests proving a configured 45-second timeout reaches all four Git calls and that range validation is unchanged.
+- `git status --ignore-submodules=all` also hides staged changes to the superproject's gitlink pointer, incorrectly labeling it clean. Use `--ignore-submodules=dirty` to ignore nested submodule working-tree changes while observing the staged superproject gitlink pointer. Prove it with an actual Git fixture: a staged `160000` pointer mutation must return `working_tree_clean=false`. Preserve the indexer's staged pointer fingerprint and retrieval's final gitlink pointer race checks.
+
+Run focused registry/discovery/index/retrieval/governance tests and all exact-head CI gates; use the actual PR Ready event and exact authorized-base SHA marker. Both defects are SELF_HEALABLE source corrections. Do not weaken Reviewed Evidence or the security/authoritative-HEAD gates. STOP if tests reveal unexpected registry API changes, host state dependence, or HIGH/CRITICAL defects requiring a broader Work Order.
