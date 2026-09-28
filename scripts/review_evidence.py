@@ -3375,6 +3375,9 @@ REGISTERED_WORK_ORDERS = frozenset(
         WO031_WORK_ORDER,
         "WO-032",
         "WO-033",
+        # Explicit HIVE-FV-001 maintenance registration, authorized by issue #168.
+        # Do not enable a prefix/wildcard or release HIVE-REL-013 prematurely.
+        "HIVE-FV-001",
         "WO-1.1-01",
     }
 )
