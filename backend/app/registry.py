@@ -21,7 +21,7 @@ from .db import database_connection
 # Git status on a Windows-backed Docker bind mount can take several seconds for
 # a moderate repository. Keep inspection bounded without treating ordinary I/O
 # variance as an inaccessible project.
-GIT_TIMEOUT_SECONDS = 15
+GIT_TIMEOUT_SECONDS = 30.0
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40,64}$")
 REGISTRY_ADVISORY_LOCK = (12002, 1)
 
@@ -195,7 +195,11 @@ def _detect_languages(project_path: Path) -> list[str]:
 
 
 def _run_git(
-    project_path: Path, arguments: list[str], *, allow_nonzero: bool = False
+    project_path: Path,
+    arguments: list[str],
+    *,
+    allow_nonzero: bool = False,
+    timeout_seconds: float = GIT_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         "git",
@@ -217,7 +221,7 @@ def _run_git(
             cwd=None,
             env=environment,
             text=True,
-            timeout=GIT_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
             shell=False,
         )
     except FileNotFoundError as exc:
@@ -229,7 +233,9 @@ def _run_git(
     return result
 
 
-def inspect_project(project_path: Path) -> InspectionResult:
+def inspect_project(
+    project_path: Path, *, timeout_seconds: float = GIT_TIMEOUT_SECONDS
+) -> InspectionResult:
     try:
         if not project_path.exists() or not project_path.is_dir():
             return InspectionResult(
@@ -256,11 +262,15 @@ def inspect_project(project_path: Path) -> InspectionResult:
 
     language_stack = _detect_languages(project_path)
     try:
-        inside_work_tree = _run_git(project_path, ["rev-parse", "--is-inside-work-tree"])
+        inside_work_tree = _run_git(
+            project_path, ["rev-parse", "--is-inside-work-tree"], timeout_seconds=timeout_seconds
+        )
         if inside_work_tree.stdout.strip().lower() != "true":
             return _failure_result("not_a_git_repository", language_stack)
 
-        head = _run_git(project_path, ["rev-parse", "--verify", "HEAD"]).stdout.strip()
+        head = _run_git(
+            project_path, ["rev-parse", "--verify", "HEAD"], timeout_seconds=timeout_seconds
+        ).stdout.strip()
         if not SHA_PATTERN.fullmatch(head):
             return _failure_result("git_head_unavailable", language_stack)
 
@@ -268,6 +278,7 @@ def inspect_project(project_path: Path) -> InspectionResult:
             project_path,
             ["symbolic-ref", "--quiet", "--short", "HEAD"],
             allow_nonzero=True,
+            timeout_seconds=timeout_seconds,
         )
         if branch_result.returncode == 0:
             branch = branch_result.stdout.strip() or None
@@ -280,7 +291,8 @@ def inspect_project(project_path: Path) -> InspectionResult:
 
         status = _run_git(
             project_path,
-            ["status", "--porcelain=v1", "--untracked-files=no", "--ignore-submodules=all"],
+            ["status", "--porcelain=v1", "--untracked-files=no", "--ignore-submodules=dirty"],
+            timeout_seconds=timeout_seconds,
         )
         return InspectionResult(
             git_branch=branch,
@@ -390,7 +402,9 @@ def get_project(settings: Settings, project_id: UUID) -> ProjectResponse | None:
 
 def register_project(settings: Settings, request: ProjectCreateRequest) -> ProjectResponse:
     identity, resolved_path = normalize_project_path(request.relative_path, settings)
-    inspection = inspect_project(resolved_path)
+    inspection = inspect_project(
+        resolved_path, timeout_seconds=settings.repository_git_timeout_seconds
+    )
     project_id = uuid4()
     try:
         with database_connection(settings) as connection, connection.cursor() as cursor:
@@ -462,7 +476,9 @@ def inspect_registered_project(settings: Settings, project_id: UUID) -> ProjectR
             inspection = _blocked_result("physical_identity_conflict")
             canonical_identity = existing.relative_path
         else:
-            inspection = inspect_project(resolved_path)
+            inspection = inspect_project(
+                resolved_path, timeout_seconds=settings.repository_git_timeout_seconds
+            )
         _update_inspection(cursor, project_id, canonical_identity, inspection)
         row = cursor.fetchone()
     return _project_from_row(row) if row else None
