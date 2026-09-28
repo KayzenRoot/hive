@@ -286,12 +286,8 @@ def test_staged_inventory_rejects_unmerged_duplicate_and_malformed_records(
         b"broken-record\0",
         (b"100644 " + sha + b" 0\ttracked.txt\0") * 2,
     ):
-        monkeypatch.setattr(
-            retrieval, "_git_output", lambda *_args, raw=raw, **_kwargs: raw
-        )
-        with pytest.raises(
-            retrieval.RetrievalSyncError, match="repository_inventory_unavailable"
-        ):
+        monkeypatch.setattr(retrieval, "_git_output", lambda *_args, raw=raw, **_kwargs: raw)
+        with pytest.raises(retrieval.RetrievalSyncError, match="repository_inventory_unavailable"):
             retrieval._git_content_inventory(tmp_path, timeout_seconds=30)
 
 
